@@ -1,0 +1,206 @@
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP describes a proposed specification for a standardized format for clients who wish
+to transmit or receive content within the encrypted memo field of shielded transactions.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>A well-defined standard for formatting content within the encrypted memo field will help
+expand its use within the Zcash ecosystem by providing a commonly recognized format for
+memo values carrying different types of data. Users and third-party services benefit from
+standardized formatting rules that define the type and length of the data contained within.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>Section 5.5 of the Zcash protocol specification <a class="brackets" href="#protocol" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> defines three cases
+for the encoding of a memo field:</p>
+<ul class="simple">
+<li><p>a UTF-8 human-readable string <a class="brackets" href="#utf-8" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>, padded by appending zero bytes; or</p></li>
+<li><p>the byte <span class="docutils literal">0xF6</span> followed by 511 <span class="docutils literal">0x00</span> bytes, indicating &quot;no memo&quot;; or</p></li>
+<li><p>any other sequence of 512 bytes starting with a byte value <span class="docutils literal">0xF5</span> or greater (which is
+therefore not a valid UTF-8 string), as specified in ZIP 302.</p></li>
+</ul>
+<p>This ZIP refines the specification of the third case.</p>
+<p>The following specification constrains a party, called the &quot;reader&quot;, that interprets the
+contents of a memo. It does not define consensus requirements.</p>
+<ul>
+<li><p>If the first byte (byte 0) has a value of <span class="docutils literal">0xF4</span> or smaller, then the reader MUST:</p>
+<blockquote>
+<ul class="simple">
+<li><p>strip any trailing zero bytes</p></li>
+<li><p>decode it as a UTF-8 string (if decoding fails then report an error).</p></li>
+</ul>
+</blockquote>
+</li>
+<li><p>If the first byte has a value of <span class="docutils literal">0xF6</span>, and the remaining 511 bytes are <span class="docutils literal">0x00</span>,
+then the user supplied no memo, and the encrypted memo field is to be treated as empty.</p></li>
+<li><p>If the first byte has a value of <span class="docutils literal">0xF7</span>, then the reader MUST interpret the memo as a
+structured memo; see the next section for its format.</p></li>
+<li><p>If the memo matches any of these patterns, then this memo is from the future, because
+these ranges are reserved for future updates to this specification:</p>
+<blockquote>
+<ul class="simple">
+<li><p>The first byte has a value of <span class="docutils literal">0xF6</span>, and the remaining 511 bytes are not all
+<span class="docutils literal">0x00</span>.</p></li>
+<li><p>The first byte has a value between <span class="docutils literal">0xF8</span> and <span class="docutils literal">0xFE</span> inclusive.</p></li>
+</ul>
+</blockquote>
+</li>
+<li><p>If the first byte has a value of <span class="docutils literal">0xFF</span> then the reader should not make any other
+assumption about the memo. In order to put arbitrary data into a memo field (that
+might have some private non-standard structure), the value of the first byte SHOULD
+be set to 0xFF; the remaining 511 bytes are then unconstrained.</p></li>
+<li><p>If the first byte has a value of <span class="docutils literal">0xF5</span>, then the reader should not make any other
+assumption about the memo. This value was used ambiguously in the past by private
+agreement; applications SHOULD prefer <span class="docutils literal">0xFF</span> which is unambiguously for this purpose.</p></li>
+</ul>
+<h2 id="structured-memos"><a class="hanchor" href="#structured-memos" aria-hidden="true" tabindex="-1">#</a>Structured memos</h2>
+<p>A memo can be used to store structured data by setting its first byte to a value of
+<span class="docutils literal">0xF7</span>. The remaining bytes contain a set of &quot;memo parts&quot;, encoded as concatenated
+Type-Version-Length-Value tuples, followed by fixed padding (if any memo bytes remain
+after the TVLV tuples).</p>
+<p>Multiple memo parts with the same type are not permitted in structured memos.</p>
+<h3 id="parsing-a-structured-memo"><a class="hanchor" href="#parsing-a-structured-memo" aria-hidden="true" tabindex="-1">#</a>Parsing a structured memo</h3>
+<p>After the leading <span class="docutils literal">0xF7</span> byte, readers parse the remaining memo bytes as follows:</p>
+<ul class="simple">
+<li><p>While there are remaining unparsed memo bytes:</p>
+<ul>
+<li><p>Parse a <span class="docutils literal">compactSize</span> to obtain <span class="docutils literal">partType</span>. If there are insufficient bytes to
+parse a <span class="docutils literal">compactSize</span>, return an error.</p></li>
+<li><p>If <span class="docutils literal">partType == 0</span>:</p>
+<ul>
+<li><p>This is a marker type indicating that there are no more TVLV tuples. If any of the
+remaining memo bytes are not <span class="docutils literal">0x00</span>, return an error.</p></li>
+</ul>
+</li>
+<li><p>Else if <span class="docutils literal">partType</span> has already been parsed in an earlier memo part, return an error.</p></li>
+<li><p>Otherwise:</p>
+<ul>
+<li><p>Parse a <span class="docutils literal">compactSize</span> to obtain <span class="docutils literal">partVersion</span>. If there are insufficient bytes
+to parse a <span class="docutils literal">compactSize</span>, return an error.</p></li>
+<li><p>Parse a <span class="docutils literal">compactSize</span> to obtain <span class="docutils literal">partLength</span>. If there are insufficient bytes to
+parse a <span class="docutils literal">compactSize</span>, return an error.</p></li>
+<li><p>Read the next <span class="docutils literal">partLength</span> bytes to obtain <span class="docutils literal">partValue</span>. If <span class="docutils literal">partLength</span> would
+require the reader to read past the end of the memo bytes, return an error.</p></li>
+<li><p>Store <span class="docutils literal">(partType, partVersion, partValue)</span> and continue parsing.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>If an error occurs, readers MUST treat the entire memo as invalid (ignoring any
+<span class="docutils literal">MemoPart</span> that was successfully parsed prior to the error).</p>
+</section>
+<h3 id="defined-memo-part-types"><a class="hanchor" href="#defined-memo-part-types" aria-hidden="true" tabindex="-1">#</a>Defined memo part types</h3>
+<p>The following memo part types (and corresponding versioned value encodings) are defined:</p>
+<table>
+<thead>
+<tr><th class="head"><p><span class="docutils literal">partType</span></p></th>
+<th class="head"><p><span class="docutils literal">partVersion</span></p></th>
+<th class="head"><p><span class="docutils literal">partValue</span> encoding</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>160</p></td>
+<td><p>0</p></td>
+<td><p>A UTF-8 string.
+If decoding fails then return an error; readers MUST NOT replace invalid sequences.</p></td>
+</tr>
+<tr><td><p>255</p></td>
+<td><p>0</p></td>
+<td><p>Unconstrained data, for private use (like <span class="docutils literal">0xFF</span> outside structured memos).
+Readers should not make any assumptions about the encoding or content of this data.</p></td>
+</tr>
+<tr><td><p>10000-19999</p></td>
+<td colspan="2"><p>Currently unassigned range for &quot;assigned private use&quot;.</p></td>
+</tr>
+<tr><td><p>65530-65535</p></td>
+<td colspan="2"><p>For temporary experimentation.</p></td>
+</tr>
+</tbody>
+</table>
+<p>All other <span class="docutils literal">partType</span> integers (and <span class="docutils literal">partVersion</span> integers for memo part types
+specified in this ZIP) are reserved for future updates to this ZIP.</p>
+<h4 id="adding-new-types"><a class="hanchor" href="#adding-new-types" aria-hidden="true" tabindex="-1">#</a>Adding new types</h4>
+<p>It is intended that new memo part types SHOULD be introduced by a modification to this
+ZIP, either directly or via a change section of a new ZIP, in accordance with the ZIP
+Process <a class="brackets" href="#zip-0000" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+<p><span class="docutils literal">partType</span> integers in the range 10000 to 19999 inclusive are assigned by the ZIP
+Editors for &quot;assigned private use&quot;. They are intended to support long-term usage of memo
+part types without public <span class="docutils literal">partValue</span> encoding specifications (especially in deployment
+environments where the &quot;unconstrained data&quot; memo part type is unsuitable due to the chance
+of colliding usage). To request one or more memo part types for assigned private use, ask
+the ZIP Editors directly or open an issue on the ZIPs repo. Requestors MUST NOT assign
+specific integers themselves, or assume that a particular subrange is unused.</p>
+<p>For experimentation prior to proposing a new memo part type in a ZIP, experimental memo
+parts MAY be added using the reserved <span class="docutils literal">partTypes</span> 65530 to 65535 inclusive. This
+provides for six simultaneous experiments, which can be referred to as experiments A to F.
+This should be sufficient because experiments are expected to be reasonably short-term,
+and should otherwise be either standardized in a ZIP (and allocated a <span class="docutils literal">partType</span> outside
+this reserved range) or discontinued.</p>
+</section>
+</section>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>The new protocol specification is an improvement over the current memo field content
+specification that was in the protocol spec up to version 2020.1.0, which stated:</p>
+<blockquote>
+<p>The usage of the memo field is by agreement between the sender and recipient of the
+note. The memo field SHOULD be encoded either as:</p>
+<ul class="simple">
+<li><p>a UTF-8 human-readable string [Unicode], padded by appending zero bytes; or</p></li>
+<li><p>an arbitrary sequence of 512 bytes starting with a byte value of <span class="docutils literal">0xF5</span> or
+greater, which is therefore not a valid UTF-8 string.</p></li>
+</ul>
+<p>In the former case, wallet software is expected to strip any trailing zero bytes and
+then display the resulting UTF-8 string to the recipient user, where applicable.
+Incorrect UTF-8-encoded byte sequences should be displayed as replacement characters
+(<span class="docutils literal">U+FFFD</span>).</p>
+<p>In the latter case, the contents of the memo field SHOULD NOT be displayed. A start
+byte of <span class="docutils literal">0xF5</span> is reserved for use by automated software by private agreement. A
+start byte of <span class="docutils literal">0xF6</span> or greater is reserved for use in future Zcash protocol
+extensions.</p>
+</blockquote>
+<p>See issue <a class="reference external" href="https://github.com/zcash/zcash/issues/1849">#1849</a> for further discussion.</p>
+<h2 id="partversion-at-the-top-level-of-structured-memos"><a class="hanchor" href="#partversion-at-the-top-level-of-structured-memos" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">partVersion</span> at the top level of structured memos</h2>
+<p>It is intentional that only one memo part of each type be present in a memo; any container
+formats should be represented within <span class="docutils literal">partValue</span>. However, it is also desirable that the
+<span class="docutils literal">partValue</span> encodings can be updated over time as changes are made to the wallet-level
+protocols that use them. Without an explicit version field, the only alternative would be
+to assign a new <span class="docutils literal">partType</span> for the new version, at which point it would be possible for
+a memo to contain two versions of the same semantic data. By having an explicit version
+field, wallets can forward-compatibly distinguish between a new version of a memo part
+type they are currently handling, and a new memo part type they don't know about.</p>
+<p>A prior argument against explicit version bytes at the top level was that memo space is
+limited to 511 bytes, and requiring every memo part type to have a version byte would add
+25-50% overhead on top of the TLV header. However, once ZIP 231 Memo Bundles <a class="brackets" href="#zip-0231" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>
+are deployed, a single memo can be at most 16384 bytes in a v6 transaction, weakening this
+argument.</p>
+</section>
+</section>
+<h1 id="backwards-compatibility"><a class="hanchor" href="#backwards-compatibility" aria-hidden="true" tabindex="-1">#</a>Backwards Compatibility</h1>
+<p>Encrypted memo field contents sent without the standardized format proposed here will be
+interpreted according to the specification set out in older versions of the protocol spec.</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2021.1.19</a></p>
+</aside>
+<aside class="footnote brackets" id="utf-8" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc3629.html">UTF-8, a transformation format of ISO 10646</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcoin-compactsize" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer">Variable length integer. Bitcoin Wiki</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0000" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0000.rst">ZIP 0: ZIP Process</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0231" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0231.md">ZIP 231: Memo Bundles</a></p>
+</aside>
+</aside>
+</section>

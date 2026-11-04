@@ -1,0 +1,611 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", "MAY", and
+"RECOMMENDED" in this document are to be interpreted as described in BCP 14
+<sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when, they appear in all capitals.</p>
+<p>The terms "Mainnet" and "Testnet" are to be interpreted as described in
+section 3.12 of the Zcash Protocol Specification. <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>The term "block chain" in this document is to be interpreted as described in
+section 3.3 of the Zcash Protocol Specification. <sup><a href="#user-content-fn-protocol-blockchain" id="user-content-fnref-protocol-blockchain" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>The term "v2 protocol" in this document refers to the version 2 Zcash P2P
+network protocol <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. The terms "peer" and "request stream", the
+<code>get-headers</code>, <code>get-blocks</code>, <code>get-hashes</code>, <code>get-block-range</code>,
+<code>get-tree-roots</code>, and <code>get-object</code> request stream types, the service flags,
+and the synchronization rules of that protocol, are to be interpreted as
+defined there.</p>
+<p>best chain
+:   The best valid block chain, as described in section 3.3 of the Zcash
+Protocol Specification <sup><a href="#user-content-fn-protocol-blockchain" id="user-content-fnref-protocol-blockchain-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>; its <em>tip</em> is its highest
+block.</p>
+<p>validated tip
+:   The highest block that a node has accepted into its best chain under the
+v2 protocol's synchronization rules.</p>
+<p>synchronization strategy
+:   A procedure by which a node advances its validated tip toward the network
+chain tip, using the request streams of the v2 protocol.</p>
+<p>checkpoint
+:   A (height, block hash) pair that a synchronizing node treats as
+authoritative for the block at that height.</p>
+<p>trusted commitment
+:   As defined in the v2 protocol's checkpointed synchronization rules
+<sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>; extended in this ZIP to also bind, for snapshot
+synchronization, a state snapshot manifest.</p>
+<p>synchronization artifact
+:   The immutable, content-addressed byte object served via <code>get-object</code>, as
+defined in the v2 protocol <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> — for example, a known-hash
+chunk file or a snapshot piece.</p>
+<p>known-hash list
+:   The block hashes of every height of a span of the chain, together with
+per-block sync-cost metadata, bound by a trusted commitment (for
+example, as the pinned hashes of a list of chunk artifacts).</p>
+<p>anchor
+:   The anchor of a <code>get-block-range</code> stream, as defined in the v2 protocol
+<sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-4" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>; in this ZIP, always a block hash verified against a
+trusted commitment (directly, or via a verified artifact).</p>
+<p>work unit
+:   A contiguous range of blocks (or a byte range of an artifact) scheduled
+for download as one request stream.</p>
+<p>snapshot
+:   A serialization of a node's chain state at a <em>snapshot height</em> <code>H</code>,
+divided into a <em>manifest</em> and content-addressed <em>pieces</em>, allowing a new
+node to begin operating at height <code>H</code> without downloading or validating
+the chain below it.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP recommends how a node synchronizes the block chain over the version
+2 Zcash P2P network protocol. The v2 protocol defines the synchronization
+primitives and the rules that any use of them must satisfy; this ZIP
+recommends concrete <em>synchronization strategies</em> satisfying those rules —
+headers-first synchronization, <em>checkpointed synchronization</em> over anchored
+block-range streams, optionally accelerated by verified note commitment
+tree roots, and <em>snapshot synchronization</em>, which makes a new node
+operational in minutes — together with a download scheduling discipline and
+the policy for selecting between the strategies.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The v2 protocol <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-5" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> deliberately specifies synchronization
+primitives, the rules constraining their use, and only one baseline
+procedure — headers-first synchronization. This ZIP recommends the concrete
+procedures, because the difference between a naive procedure and a good one
+is measured in days.</p>
+<p>Three costs dominate initial synchronization, in ascending order of what
+removing them is worth:</p>
+<ol>
+<li>
+<p><strong>Round trips and scheduling.</strong> The legacy protocol transferred blocks in
+small per-request batches against individually requested hashes; at
+typical peer round-trip times this bounds throughput at a few hundred
+small blocks per second regardless of bandwidth. The v2 protocol's
+<code>get-block-range</code> removes the round trip from the inner loop: blocks
+stream continuously against a single verified anchor, and per-block
+download handles are unnecessary.</p>
+</li>
+<li>
+<p><strong>Validation CPU.</strong> Under checkpointed synchronization, proofs and
+signatures below the final checkpoint are vouched for by the trusted
+commitment, and the dominant remaining CPU cost — measured at roughly
+70% of block-commit time in the Zebra implementation — is recomputing
+the note commitment trees, leaf by leaf, only to learn per-block roots
+that are already bound by header commitments. Verified tree roots
+(<code>get-tree-roots</code>) eliminate that recomputation without adding trust.</p>
+</li>
+<li>
+<p><strong>The historical data itself.</strong> A new node operator's goal is a node at
+the tip; the chain's full history — hundreds of gigabytes — is the
+overwhelming share of bytes and time, and most operators need it only
+eventually (to serve peers) or never (pruned operation). Snapshot
+synchronization removes it from the critical path entirely: the node
+installs a verified state snapshot at a recent height and is operational
+in minutes, backfilling history in the background if it chooses.</p>
+</li>
+</ol>
+<p>Checkpoints themselves also motivate this machinery. The Zebra
+implementation compiles in known-hash lists covering every block — over 100
+MB of hashes that grow with the chain — because the legacy protocol offered
+no way to fetch and verify them. Under this ZIP, a binary compiles in only
+the expected hashes of the list itself, chunked by height range (a few
+kilobytes); the full known-hash list is then obtained verifiably from the
+P2P network with <code>get-hashes</code>, as specified in
+<a href="#synchronizationdata">Synchronization Data</a>.</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>The synchronization rules of the v2 protocol <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-6" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> apply to every
+strategy below and are not restated here.</p>
+<h2 id="synchronization-data"><a class="hanchor" href="#synchronization-data" aria-hidden="true" tabindex="-1">#</a>Synchronization Data</h2>
+<p>A node's trusted commitment binds the data its strategies rely on:</p>
+<ul>
+<li>
+<p><strong>Known-hash lists</strong>, as pinned SHA-256 hashes of the list's <em>chunks</em>:
+each chunk is the canonical serialization of the <code>get-hashes</code> entries
+for a fixed height range. A node obtains the entries from its peers with
+<code>get-hashes</code> and verifies them by reassembling each chunk and comparing
+its hash against the commitment. The same bytes MAY instead be obtained
+as chunk artifacts from any source — bundled with the release,
+<code>get-object</code> requests to <code>NODE_SYNC_ARTIFACTS</code> peers, or out-of-band
+mirrors — accepted only if their hashes match the commitment. A
+verified known-hash list makes every listed hash an anchor, and its span
+metadata gives per-height sizes and costs for scheduling.</p>
+<p>The commitment MAY additionally bind a single SHA-256 hash of the
+<em>spentness hints</em>: the hint bits for every transparent output created
+at or below the final checkpoint (see
+<a href="#spentnesshints">Spentness Hints</a>), serialized in canonical order,
+obtained like any artifact and verified whole against this hash. The
+hints are committed separately from the entry chunks — one hash rather
+than one per range — because they are a function of the final
+checkpoint height as well as of the chain: extending the commitment's
+coverage would change every per-range hint hash anyway, while the
+entry-chunk hashes stay stable. A commitment from an older release
+simply covers a lower final checkpoint: its hints remain valid for that
+shorter span, and the node synchronizes above it normally.</p>
+</li>
+<li>
+<p><strong>A snapshot manifest hash</strong>, for snapshot synchronization (see
+<a href="#snapshotsynchronization">Snapshot Synchronization</a>).</p>
+</li>
+</ul>
+<p>Chunk artifacts are deterministic functions of the chain, so any node that
+has synchronized the covered span can regenerate them byte-identically and
+serve them; artifact pieces SHOULD be no larger than the <code>get-object</code>
+per-request maximum <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-7" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> so each piece is independently fetchable
+and verifiable.</p>
+<h2 id="recommended-strategies"><a class="hanchor" href="#recommended-strategies" aria-hidden="true" tabindex="-1">#</a>Recommended Strategies</h2>
+<p>A node implements headers-first synchronization (the v2 protocol's fallback
+rule requires it) and MAY implement the others.</p>
+<h3 id="headers-first-synchronization"><a class="hanchor" href="#headers-first-synchronization" aria-hidden="true" tabindex="-1">#</a>Headers-First Synchronization</h3>
+<p>Headers-first synchronization is specified in the v2 protocol
+<sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-8" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, where it is characterized as the baseline, full-validation
+method. It is also the strategy for the chain near the tip, above the reach
+of commitments, whatever strategy covered the history below.</p>
+<h3 id="checkpointed-synchronization"><a class="hanchor" href="#checkpointed-synchronization" aria-hidden="true" tabindex="-1">#</a>Checkpointed Synchronization</h3>
+<p>A node MAY synchronize the span of the block chain covered by a verified
+known-hash list as follows:</p>
+<ol>
+<li>
+<p><strong>Obtain and verify the known-hash list</strong> for the target span (see
+<a href="#synchronizationdata">Synchronization Data</a>).</p>
+</li>
+<li>
+<p><strong>Partition the span into work units</strong>: contiguous block ranges, sized
+using the span metadata toward a byte target (see
+<a href="#downloadscheduling">Download Scheduling</a>), each ending at a listed
+height. Any listed hash can end a unit, so unit boundaries are chosen
+freely — by bytes, not by a fixed block count — and each unit's
+request carries the byte target as its <code>max_bytes</code> bound.</p>
+</li>
+<li>
+<p><strong>Stream each unit with <code>get-block-range</code></strong>, anchored at the unit's
+final hash. Each delivered block is verified on arrival under the v2
+protocol's <code>get-block-range</code> delivery rules <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-9" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> and — as a
+cross-check — matched against the known-hash list at its height. A
+truncated or cancelled unit keeps its verified prefix, and the
+remainder is re-requested from any peer, anchored at the next expected
+hash, as the v2 protocol's <code>get-block-range</code> truncation rules provide.</p>
+</li>
+<li>
+<p><strong>Commit</strong> each completed range in height order, applying whatever
+abbreviated validation local policy permits for
+checkpoint-authenticated blocks under the v2 protocol's validated
+advancement rule — with tree work eliminated where
+<a href="#verifiedtreeroots">Verified Tree Roots</a> are available.</p>
+</li>
+</ol>
+<p>A node with a commitment that binds only spaced checkpoint hashes (rather
+than a full known-hash list) applies the same procedure with units
+anchored at checkpoint heights; interior per-block cross-checks and
+advance sizing are then unavailable, but neither is needed — steps 2 and 3
+already bound each unit in bytes and authenticate every delivered block
+against its anchor.</p>
+<h3 id="verified-tree-roots"><a class="hanchor" href="#verified-tree-roots" aria-hidden="true" tabindex="-1">#</a>Verified Tree Roots</h3>
+<p>A node MAY avoid the note commitment tree recomputation that dominates the
+CPU cost of committing checkpoint-authenticated blocks (see
+<a href="#motivation">Motivation</a>) by obtaining each historical block's tree roots
+with <code>get-tree-roots</code> from <code>NODE_TREE_ROOTS</code> peers and verifying them
+against header commitments:</p>
+<ol>
+<li>
+<p>For each block in the span, obtain the entry (Sapling, Orchard, and
+Ironwood roots, shielded transaction counts, and authorizing data
+commitment), anchoring each request's <code>final_hash</code> at a hash the node
+has already authenticated, so that entries describe known blocks
+rather than the responder's view of a best chain.</p>
+</li>
+<li>
+<p>Verify the entries against headers that checkpointed synchronization has
+authenticated. Which check applies depends on what the block's header
+commits to at that height, which changes at Heartwood — <em>not</em> at NU5:</p>
+<ul>
+<li><strong>Between Sapling activation and Heartwood activation</strong>, the fourth
+header field (<code>hashFinalSaplingRoot</code>) is the block's Sapling note
+commitment tree root. Each supplied Sapling root is checked directly
+against it.</li>
+<li><strong>From Heartwood activation</strong>, ZIP 221 <sup><a href="#user-content-fn-zip-0221" id="user-content-fnref-zip-0221" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> repurposes that
+field to carry the chain history root (<code>hashChainHistoryRoot</code>, and
+from NU5 <code>hashBlockCommitments</code>, which binds the chain history root
+together with the authorizing data commitment of ZIP 244
+<sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>). A direct comparison against a note commitment tree root
+is therefore <em>not</em> a valid check anywhere above Heartwood. The node
+instead rebuilds the chain history tree from the supplied roots and
+counts and checks the rebuilt values against each header. Each
+block's header commits to the history tree containing its <em>parent's</em>
+data, so an entry is verified only once the <em>following</em> block's
+header has been checked against it.</li>
+<li><strong>Before a pool's activation</strong> at the entry's height, the entry's
+root field is 32 zero bytes and its count is 0, as the v2 protocol
+requires <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-10" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>; an entry that deviates fails verification.</li>
+<li><strong>A root that no header commits to</strong> at the entry's height is not
+verifiable by this procedure. The chain history tree leaf of ZIP 221
+binds the Sapling and (from NU5) Orchard roots, but defines no
+Ironwood field, so no header authenticates an Ironwood root.</li>
+</ul>
+</li>
+<li>
+<p>A <strong>verified</strong> root replaces the recomputation: the node adopts the
+root, maintains tree <em>frontiers</em> only at strategy boundaries (where
+full per-block validation resumes), and stores what its serving
+obligations require. A node MUST NOT adopt a root that the procedure of
+step 2 has not verified against an authenticated header, and MUST
+recompute that pool's tree from the blocks' note commitments instead.
+Two cases in particular are not verified by an entry's own arrival:</p>
+<ul>
+<li>Because verification above Heartwood runs one block behind, the
+highest entry of a response is unverified until the entry for the
+following block is obtained and checked against its header. A node
+either extends the requested range by one entry or holds the highest
+entry unadopted.</li>
+<li>Entries MAY be obtained and verified in any order, but each entry is
+adopted only when its own check passes; an entry at the boundary of a
+range is not adopted merely because its neighbours were.</li>
+</ul>
+</li>
+<li>
+<p>An entry that fails verification is discarded with a misbehavior penalty
+(per the v2 protocol); the node falls back to recomputing that span's
+trees locally.</p>
+</li>
+</ol>
+<p>No additional trust is involved: every adopted root is authenticated by a
+header that is itself authenticated by the trusted commitment, and a root
+that no header authenticates is never adopted.</p>
+<p><strong>Frontier artifacts.</strong> Adopting verified roots leaves the node without
+the tree <em>frontiers</em> it needs to resume appending note commitments where
+full validation begins. The trusted commitment MAY bind the hash of a
+<em>frontier artifact</em> — the serialized Sapling, Orchard, and Ironwood
+frontiers at the final checkpoint — obtained like any artifact. A
+frontier whose recomputed root matches the root verified for that height
+by the procedure above is adopted, so the binding itself carries no
+trust: a wrong frontier fails the root comparison and the node falls
+back to rebuilding that pool's tree from the span's note commitments.
+The Ironwood frontier cannot be verified this way (no header
+authenticates an Ironwood root); it is authenticated only by the
+commitment's hash, or rebuilt from the pool's note commitments — a
+bounded cost, since the pool postdates NU6.3 activation.</p>
+<h3 id="spentness-hints"><a class="hanchor" href="#spentness-hints" aria-hidden="true" tabindex="-1">#</a>Spentness Hints</h3>
+<p>After tree work is eliminated, the dominant remaining state cost of
+committing historical blocks is random access: looking up and deleting each
+transparent input's spent output, and inserting (and, under full
+validation, membership-testing) each revealed nullifier. Spentness hints —
+adapted from Bitcoin's SwiftSync <sup><a href="#user-content-fn-swiftsync" id="user-content-fnref-swiftsync" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup> — eliminate the random access
+and make historical commits order-independent, at the cost of a small hint
+bitmap bound by the trusted commitment, which vouches for its correctness
+exactly as it vouches for the known block hashes: the bitmap is a
+deterministic function of the chain, regenerable and auditable by any
+synchronized node, and its pinned hash is updated by each release that
+updates the checkpoints.
+Hints apply only within the reach of the trusted commitment: a node MUST
+NOT apply them above the final checkpoint.</p>
+<p><strong>Transparent outputs.</strong> The spentness hints (see
+<a href="#synchronizationdata">Synchronization Data</a>) carry one bit per
+transparent output created at or below the <em>terminal height</em> — the final
+checkpoint — in canonical order (by block height, then transaction index,
+then output index): whether the output is still unspent at that height.
+The <code>txouts</code> metadata of the verified entry chunks gives each height's bit
+count, so a node can check the bitmap's length before downloading any
+block bodies, and a work unit anywhere in the span can locate its first
+bit without processing the blocks below it. During the span:</p>
+<ul>
+<li>An output hinted <em>unspent</em> is written to the transparent UTXO set as it
+is created — and, during the span, never looked up or deleted.</li>
+<li>An output hinted <em>spent</em> is never stored.</li>
+<li>Transparent inputs perform no lookup at all.</li>
+</ul>
+<p>The constructed UTXO set is then exactly the set of outputs unspent at
+the terminal height, without a single random read: every output hinted
+spent is one the committed chain spends within the span, on the
+authority of the commitment.</p>
+<p><strong>Nullifiers.</strong> The nullifier sets never shrink, so no hint is needed at
+all: revealed nullifiers are simply inserted as they are encountered —
+insertion is sequential-write work, not the random reads the hints exist
+to remove — and per-spend membership tests below the final checkpoint
+are vouched for by the trusted commitment. When backfilling below a
+snapshot, the reconstructed sets are compared with the snapshot's at <code>H</code>
+(see <a href="#snapshotsynchronization">Snapshot Synchronization</a>).</p>
+<p><strong>Value pools.</strong> No lookups are needed for value tracking either: shielded
+pool balances are sums of the blocks' value balance fields, which commute,
+and the transparent pool balance at the terminal height is the sum of the
+constructed UTXO set's amounts. These are consensus quantities: they MUST
+be accumulated with checked arithmetic that detects overflow.</p>
+<p><strong>What order-independence does and does not cover.</strong> The state construction
+above reads no state written by an earlier block, so the <em>construction</em> —
+the UTXO set, the nullifier sets, and the value pool
+totals — is order-independent, and blocks and ranges MAY be verified and
+committed in any order within the span. The per-input reads and per-output
+deletes disappear entirely.</p>
+<p>Order-independence does not extend to consensus rules whose outcome is not
+a function of the terminal totals. A node applying hints MUST account for
+each of the following, either by checking it in height order or by
+recording it as covered by the trusted commitment under the v2 protocol's
+validated advancement rule:</p>
+<ul>
+<li><strong>Non-negative pool balances at every block.</strong> ZIP 209 <sup><a href="#user-content-fn-zip-0209" id="user-content-fnref-zip-0209" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>
+requires rejecting a block at which any chain value pool balance would
+become negative. A terminal total says nothing about a running balance
+that dips negative at an interior height and recovers; below the final
+checkpoint this rule is among those vouched for by the trusted
+commitment, and above it, blocks are committed in height order under
+full validation.</li>
+<li><strong>Coinbase maturity and the pre-NU5 shielded-coinbase rule</strong>, which
+depend on the creation height and coinbase status of the <em>spent</em> output
+— exactly the lookup that hints remove. This is why hints are confined
+to the reach of the trusted commitment, where these per-spend checks
+are vouched for; above the final checkpoint, blocks are committed in
+height order with the lookups performed.</li>
+</ul>
+<p>A node SHOULD obtain and verify the hint bitmap — its hash against the
+commitment, and its bit count against the span's transparent output
+total, summed from the verified entry chunks' <code>txouts</code> metadata — before
+processing any block bodies with hints, so that an unavailable or
+malformed bitmap costs nothing but its fetch; a bitmap that fails either
+check is discarded and the span is synchronized without hints. A
+published bitmap that is wrong despite matching its pinned hash is a
+defect of the commitment itself, exactly as a wrong checkpoint hash would
+be; because the bitmap is deterministic, publishers and third parties can
+regenerate and cross-check it, and release processes SHOULD do so.</p>
+<h3 id="snapshot-synchronization"><a class="hanchor" href="#snapshot-synchronization" aria-hidden="true" tabindex="-1">#</a>Snapshot Synchronization</h3>
+<p>A node with no chain state MAY become operational at a <em>snapshot height</em>
+<code>H</code> in minutes, deferring or omitting the history below it:</p>
+<ol>
+<li>
+<p><strong>Obtain the manifest</strong> whose SHA-256 hash is bound by the trusted
+commitment, from any source (<code>get-object</code>, mirrors, bundled). The
+manifest lists the snapshot's content-addressed pieces and their sizes.</p>
+</li>
+<li>
+<p><strong>Fetch and verify the pieces</strong> from
+<code>NODE_SYNC_ARTIFACTS</code> peers via <code>get-object</code> and/or out-of-band mirrors,
+scheduling them like any other work units (see
+<a href="#downloadscheduling">Download Scheduling</a>); a piece is accepted only if
+its hash matches the manifest.</p>
+</li>
+<li>
+<p><strong>Verify the state against the chain where possible.</strong> The snapshot
+contains, at minimum: the transparent UTXO set; the Sprout, Sapling,
+Orchard, and Ironwood nullifier sets; the note commitment tree frontiers
+of each pool; the chain history tree; and the chain value pool
+balances, which the node needs as the starting point for the
+pool-balance consensus rules above <code>H</code>.
+The parts that the chain commits to — the Sapling, Orchard, and Ironwood
+frontiers (via their header-committed roots) and the chain history tree
+(via <code>hashBlockCommitments</code> of the following block, ZIP 221 <sup><a href="#user-content-fn-zip-0221" id="user-content-fnref-zip-0221-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>)
+— MUST be verified against headers authenticated by the trusted
+commitment. Because the chain history tree at <code>H</code> is committed by the
+<em>following</em> block's header, the trusted commitment MUST authenticate
+the header at height <code>H + 1</code> for that verification to be possible; a
+commitment that stops at <code>H</code> leaves the chain history tree unverified,
+and the node MUST treat it as an uncommitted component. The parts the
+chain does not commit to (the transparent UTXO set, the nullifier sets,
+the Sprout tree, and the chain value pool balances) are authenticated
+solely by the manifest commitment, which therefore carries the same
+trust as the node's binary — the trust model of the checkpoints
+themselves.</p>
+</li>
+<li>
+<p><strong>Begin operating at <code>H</code></strong>: validate blocks above <code>H</code> under the
+consensus rules (or checkpointed synchronization, where commitments
+reach above <code>H</code>), participate fully in relay, and serve the blocks it
+accumulates, advertising service flags as the v2 protocol requires of a
+node that lacks the complete chain <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-11" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</p>
+</li>
+<li>
+<p><strong>Backfill in the background.</strong> The node SHOULD backfill the history
+below <code>H</code> using checkpointed synchronization, at low priority, and
+advertise <code>NODE_NETWORK</code> when complete. On completion, backfill
+reconciles the snapshot's uncommitted components against the chain the
+node has just replayed. (The hint bitmap's bits are relative to the
+final checkpoint rather than <code>H</code>, so backfill below a snapshot
+proceeds without transparent hints; as background work, it is not on
+the critical path that hints exist to shorten.)</p>
+<p>The reconciliation discharges the snapshot's trust only to the extent
+that each component is actually compared, so each MUST be covered
+explicitly, and over complete entries: a comparison over outpoints
+alone would let a fabricated or amount-inflated UTXO entry pass
+unnoticed. Backfill therefore verifies, at <code>H</code>:</p>
+<ul>
+<li><strong>The transparent UTXO set</strong>, compared as complete entries — the
+outpoint, the value, the <code>scriptPubKey</code>, the creation height, and
+the coinbase flag, in a canonical encoding — between the set the
+replay constructs and the set the snapshot supplied, so that a
+phantom outpoint, an inflated value, or an altered script is caught.</li>
+<li><strong>The nullifier sets</strong>, by the same whole-value comparison per pool.</li>
+<li><strong>The Sprout note commitment tree</strong>, which no header commits to, by
+recomputing it from the JoinSplit note commitments of the replayed
+blocks and comparing the resulting root and frontier. Sprout is a
+closed pool of bounded size, so this is inexpensive.</li>
+<li><strong>The chain value pool balances</strong>, by recomputing them over the
+replayed span (with checked arithmetic, see
+<a href="#spentnesshints">Spentness Hints</a>) and comparing them to the
+snapshot's.</li>
+</ul>
+<p>When all four check out, the snapshot's uncommitted components have been
+verified against the chain and the node's trust base is that of a fully
+synchronized node. Until they do, they remain trusted on the strength of
+the commitment. A mismatch in any of them means the snapshot was wrong:
+the node discards it and falls back to checkpointed synchronization from
+genesis. A node MAY instead operate indefinitely without deep history
+(pruned operation), never advertising <code>NODE_NETWORK</code>; such a node never
+discharges the snapshot's trust.</p>
+</li>
+</ol>
+<p>Snapshot heights SHOULD lie at least the v2 protocol's reorganization
+margin below the network tip at the time the commitment is published, and
+snapshot artifacts SHOULD be deterministic functions of the chain state at
+<code>H</code>, so that any node of the same implementation that reaches <code>H</code> can
+regenerate and serve them. A wrong or corrupted snapshot cannot cause
+acceptance of a false state — a piece that does not match the manifest, or
+a frontier that fails header verification, is rejected and the node falls
+back to checkpointed synchronization; the commitment's only unverifiable
+claims are those with no on-chain commitment (see step 3). (This is the trust
+model of Bitcoin's assumeutxo <sup><a href="#user-content-fn-assumeutxo" id="user-content-fnref-assumeutxo" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> and of Ethereum's era archives
+<sup><a href="#user-content-fn-era1" id="user-content-fnref-era1" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>, with the difference that Zcash's header commitments make the tree
+components independently verifiable.)</p>
+<h2 id="download-scheduling"><a class="hanchor" href="#download-scheduling" aria-hidden="true" tabindex="-1">#</a>Download Scheduling</h2>
+<p>Bulk download is a scheduling problem: divide known work across untrusted
+peers of unknown and changing capacity, so that aggregate throughput
+approaches the client's link capacity and no single peer can stall
+progress. A node SHOULD apply the following discipline to bulk transfers
+(<code>get-block-range</code> units and <code>get-object</code> pieces):</p>
+<ul>
+<li><strong>Work units of 16–64 MiB</strong>, realized for block ranges by the request's
+<code>max_bytes</code> bound (with the known-hash span metadata, where available,
+used to plan unit boundaries in advance), and for artifacts by manifest
+piece sizes. Units near the commit frontier SHOULD be smaller, so the
+frontier advances promptly; deep lookahead units MAY be larger.</li>
+<li><strong>Pull-based assignment with per-peer budgets.</strong> Maintain an estimate of
+each peer's delivery rate (for example, an exponentially weighted moving
+average); let each peer's connection pull the next unassigned unit
+whenever its in-flight bytes fall below roughly 2–3 seconds of its
+estimated rate. Fast peers thereby draw more work with no explicit
+balancing step.</li>
+<li><strong>Concurrency across peers.</strong> Per-connection throughput is typically
+bounded by a single CPU core (see the v2 protocol's bulk transfer
+guidance <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-12" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>); a node SHOULD download from at least 4–8
+peers concurrently, preferring <code>NODE_NETWORK</code> peers for deep history and
+respecting the flow control window guidance of the v2 protocol.</li>
+<li><strong>Bounded lookahead.</strong> In-flight plus downloaded-but-uncommitted data
+SHOULD be bounded in bytes (a budget on the order of 256 MiB to 1 GiB),
+not in blocks; block counts calibrated to near-tip synchronization are
+meaningless across eras whose block sizes differ by three orders of
+magnitude.</li>
+<li><strong>Stall detection, twice over.</strong> Cancel (with <code>CANCELLED</code>) and reassign a
+unit whose peer delivers no bytes for a few seconds, falls below an
+absolute configured rate floor, or sustains a rate far below the current
+peer median (for example, a quarter). Cancelled block-range units keep
+their verified prefix and are resumed per step 3 of
+<a href="#checkpointedsynchronization">Checkpointed Synchronization</a>.</li>
+<li><strong>End-game duplication.</strong> When unassigned work runs out before the
+fastest peers do, assign remaining units redundantly to the fastest
+peers and cancel the losers; this bounds the tail of the download at the
+cost of at most one duplicate unit per peer.</li>
+<li><strong>Exact blame.</strong> A block failing its arrival check is attributable with
+certainty to the delivering peer, as is an artifact piece that fails
+its hash after being delivered entirely by one peer; both are handled
+per the v2 protocol's error and misbehavior rules, and the failed unit
+is reassigned elsewhere. A piece assembled from ranges delivered by
+several peers is <em>not</em> attributable when it fails its hash — the v2
+protocol forbids assigning a penalty in that case — so the node
+re-fetches the piece with each candidate peer serving it whole, which
+isolates a misbehaving peer; a scheduler that assigns each piece to a
+single peer (as the unit sizes above make natural) keeps blame exact
+from the start.</li>
+</ul>
+<h2 id="strategy-selection"><a class="hanchor" href="#strategy-selection" aria-hidden="true" tabindex="-1">#</a>Strategy Selection</h2>
+<p>A synchronizing node SHOULD proceed as follows:</p>
+<ol>
+<li>A new node with no chain state, holding a snapshot commitment, SHOULD
+use snapshot synchronization: it is operational after transferring the
+snapshot (gigabytes) rather than the history (hundreds of gigabytes),
+and no other strategy changes what the node ultimately trusts.</li>
+<li>For spans covered by known-hash commitments — backfill below a
+snapshot, or the whole chain when no snapshot is used — it SHOULD use
+checkpointed synchronization, with verified tree roots where peers
+serve them and spentness hints where its commitment (or snapshot)
+provides them.</li>
+<li>Above the reach of its commitments, and within the reorganization
+margin of the tip, it uses headers-first synchronization.</li>
+<li>Every strategy degrades toward headers-first synchronization when its
+prerequisites are unavailable (no artifacts obtainable, no serving
+peers, verification failures), per the v2 protocol's fallback rule;
+scarcity of <code>NODE_TREE_ROOTS</code> or <code>NODE_SYNC_ARTIFACTS</code> peers slows
+synchronization but never blocks it.</li>
+</ol>
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Security and Privacy Considerations</h1>
+<p>The security properties of the strategies are analyzed in the v2 protocol's
+security considerations <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-13" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. All strategies here satisfy its
+synchronization rules, so the choice between them — including every
+fallback — affects performance, not the integrity of the resulting chain.
+The trust base is unchanged by acceleration: every accelerating input is
+either authenticated against the chain or bound by the trusted commitment,
+and the only data trusted without chain verification
+(the spentness hints and the snapshot's uncommitted state components)
+carries exactly the trust of
+the binary that shipped the commitment, as the checkpoints already do.
+The snapshot components' trust is discharged, for each component the
+reconciliation of
+<a href="#snapshotsynchronization">Snapshot Synchronization</a> step 5 actually
+compares, when backfill completes; a node that never backfills never
+discharges it. The spentness hints stand or fall with the commitment
+itself, exactly as the checkpoint hashes do, and are auditable in the
+same way: the bitmap is a deterministic function of the chain that any
+synchronized node can regenerate and cross-check. Malicious
+synchronization data from peers produces failure, not
+fraud: every verification failure is detected and routed around, and is
+attributed and penalized where blame is provable under the v2 protocol's
+misbehavior rules. (One failure is deliberately <em>not</em> attributed: an
+assembled artifact
+piece whose ranges came from several peers — see
+<a href="#downloadscheduling">Download Scheduling</a>.)</p>
+<p><strong>Serving capacity.</strong> Snapshot-synchronized and pruned nodes cannot serve
+deep history; if they became the majority, historical blocks and artifacts
+could become scarce. The service flags let nodes advertise what they serve,
+operators of full nodes are encouraged to retain <code>NODE_NETWORK</code> and
+<code>NODE_SYNC_ARTIFACTS</code>, and artifacts remain regenerable by any backfilled
+node and servable from out-of-band mirrors.</p>
+<p><strong>Fingerprinting.</strong> The heights, ranges, and units a node requests reveal
+its implementation, configuration, and synchronization progress. This is
+comparable to the fingerprinting surface of headers-first synchronization
+and of the <code>user_agent</code> field, and carries the same mitigation: nodes
+concerned about it can align their request patterns with common
+implementations.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This ZIP depends on the v2 protocol <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-14" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, which specifies the
+request streams, service flags, and synchronization rules used here. No
+version gating is required beyond the v2 protocol's own deployment: each
+primitive is refused by nodes that do not serve it, and every strategy
+degrades gracefully (see <a href="#strategyselection">Strategy Selection</a>).
+Distribution can be purely in-band: the known-hash list is reassembled
+via <code>get-hashes</code>, and hint, frontier, and snapshot artifacts are served
+by <code>NODE_SYNC_ARTIFACTS</code> peers via <code>get-object</code> — which requires that
+seeders and any configured initial peers include such nodes.
+Implementations MAY additionally bundle current artifacts with releases,
+or serve them from out-of-band HTTPS mirrors interchangeably with
+<code>get-object</code> peers.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-blockchain">
+<p><a href="/upstream/protocol/protocol.pdf#blockchain">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 3.3: The Block Chain</a> <a href="#user-content-fnref-protocol-blockchain" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-blockchain-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-draft-p2p-v2">
+<p><a href="/upstream/draft-arya-jvff-p2p-quic-transport.md">Draft ZIP: Version 2 Zcash P2P Network Protocol</a> <a href="#user-content-fnref-draft-p2p-v2" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-p2p-v2-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-draft-p2p-v2-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-draft-p2p-v2-4" data-footnote-backref="" aria-label="Back to reference 4-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-draft-p2p-v2-5" data-footnote-backref="" aria-label="Back to reference 4-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-draft-p2p-v2-6" data-footnote-backref="" aria-label="Back to reference 4-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-draft-p2p-v2-7" data-footnote-backref="" aria-label="Back to reference 4-7" class="data-footnote-backref">↩<sup>7</sup></a> <a href="#user-content-fnref-draft-p2p-v2-8" data-footnote-backref="" aria-label="Back to reference 4-8" class="data-footnote-backref">↩<sup>8</sup></a> <a href="#user-content-fnref-draft-p2p-v2-9" data-footnote-backref="" aria-label="Back to reference 4-9" class="data-footnote-backref">↩<sup>9</sup></a> <a href="#user-content-fnref-draft-p2p-v2-10" data-footnote-backref="" aria-label="Back to reference 4-10" class="data-footnote-backref">↩<sup>10</sup></a> <a href="#user-content-fnref-draft-p2p-v2-11" data-footnote-backref="" aria-label="Back to reference 4-11" class="data-footnote-backref">↩<sup>11</sup></a> <a href="#user-content-fnref-draft-p2p-v2-12" data-footnote-backref="" aria-label="Back to reference 4-12" class="data-footnote-backref">↩<sup>12</sup></a> <a href="#user-content-fnref-draft-p2p-v2-13" data-footnote-backref="" aria-label="Back to reference 4-13" class="data-footnote-backref">↩<sup>13</sup></a> <a href="#user-content-fnref-draft-p2p-v2-14" data-footnote-backref="" aria-label="Back to reference 4-14" class="data-footnote-backref">↩<sup>14</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0221">
+<p><a href="/upstream/zip-0221.rst">ZIP 221: FlyClient - Consensus-Layer Changes</a> <a href="#user-content-fnref-zip-0221" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0221-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0244">
+<p><a href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a> <a href="#user-content-fnref-zip-0244" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-swiftsync">
+<p><a href="https://gist.github.com/RubenSomsen/a61a37d14182ccd78760e477c78133cd">Ruben Somsen: SwiftSync — speeding up IBD with pre-generated hints</a> <a href="#user-content-fnref-swiftsync" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0209">
+<p><a href="/upstream/zip-0209.rst">ZIP 209: Prohibit Negative Shielded Chain Value Pool Balances</a> <a href="#user-content-fnref-zip-0209" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-assumeutxo">
+<p><a href="https://github.com/bitcoin/bitcoin/blob/master/doc/assumeutxo.md">Bitcoin Core: assumeutxo design and usage</a> <a href="#user-content-fnref-assumeutxo" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-era1">
+<p><a href="https://github.com/eth-clients/e2store-format-specs/blob/main/formats/era1.md">era1 archival file format specification</a> <a href="#user-content-fnref-era1" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

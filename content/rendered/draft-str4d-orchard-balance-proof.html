@@ -1,0 +1,206 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", and "MAY" in this document are to be
+interpreted as described in BCP 14 [#BCP14]_ when, and only when, they appear in
+all capitals.</p>
+<p>"Pool snapshot" refers to a snapshot of the state of balances in a shielded pool
+as of the end of a specified block.</p>
+<p>"Claim" refers to a proof by a ZEC holder (TODO: support ZSAs) that they held a
+set of notes summing to a committed value at the time of a given pool snapshot.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP specifies a mechanism that effectively takes a snapshot of the state of
+shielded balances in the Orchard pool, and allows holders to prove that they had
+at least a given balance as of the snapshot, in such a way that they cannot claim
+the same balance more than once. The privacy of holders is retained, in the sense
+that claims cannot be linked to their past or future spends.</p>
+<p>Possible applications include private air drops, private proof-of-balance, and
+private stake-weighted polling.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>TODO: Explain why this can't be done more simply, and how the problem is
+isomorphic to air-drops and stake-weighted polling.</p>
+<blockquote>
+<p>Do we need to be able to construct a note in another token corresponding to the
+claimed value? Can that be done just with the existing ZSA spec + a public value
+commitment?</p>
+</blockquote>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>Who is eligible to vote / claim an airdrop?</p>
+<ul>
+<li>Most likely approach: snapshot the Zcash chain at some height. Eligible notes
+exist in the commitment tree at that height, but don’t exist in the nullifier
+set at that height.</li>
+</ul>
+<p>Does the Zcash side need to prove spend authority?</p>
+<ul>
+<li>Yes, it does (otherwise if people gave out their viewing keys to others, those
+others could vote / claim the airdrop instead).</li>
+<li>UX effect: anyone who moved their funds to a different spend authority after
+the snapshot and then lost their old spending keys become unable to vote /
+claim the airdrop.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>Sketch:</p>
+<p>A "nullifier non-membership tree" is a Merkle tree of sorted disjoint
+(start, end) pairs representing the gaps between revealed nullifiers at a pool
+snapshot. That is, the union of the regions start..=end is exactly the
+complement of the set of revealed nullifiers at the snapshot.</p>
+<p>An "alternate nullifier" is a value derived from a note, with similar
+cryptographic properties to its standard nullifier, but including a "nullifier
+domain" as input to the derivation. It is distinct from and unlinkable with the
+standard nullifier, or any of the other alternate nullifiers for that note in
+other nullifier domains. A note has exactly one alternate nullifier for each
+nullifier domain.</p>
+<p>An entity that wants to conduct an air-drop, stake-weighted poll, etc. does the
+following:</p>
+<ul>
+<li>Choose a pool snapshot at a particular block height.</li>
+<li>Choose a previously unused nullifier domain <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math>.
+<ul>
+<li>
+<blockquote>
+<p>TODO: how to ensure it is previously unused? What are the consequences if it isn't?</p>
+</blockquote>
+</li>
+<li>Maybe the domain is derived from the pool snapshot and a string identifying
+the air-drop/poll? Then a wallet that supports this protocol can display the
+string and the block height/date of the snapshot to the wallet user.</li>
+</ul>
+</li>
+<li>Deterministically construct a nullifier non-membership tree as of the snapshot,
+with root <math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow></math>. Anyone can check that this root is correct using
+public information.</li>
+<li>Keep track of a set of alternate nullifiers revealed by the statement below and
+make sure that they don't repeat.</li>
+</ul>
+<p>To participate, a holder proves the following informal statement:</p>
+<p>"Given:</p>
+<ul>
+<li>a value commitment <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math>;</li>
+<li>a nullifier domain <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math>;</li>
+<li>an alternate nullifier <math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow></math>;</li>
+<li>a pool snapshot <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math>;</li>
+</ul>
+<p>I am the holder of a note <math><mi>𝐧</mi></math> that is unspent at pool snapshot
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math>, such that <math><mi>𝐧</mi></math> has value
+commitment <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math> and alternate nullifier <math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow></math> in
+nullifier domain <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math>."</p>
+<h3 id="another-possible-approach"><a class="hanchor" href="#another-possible-approach" aria-hidden="true" tabindex="-1">#</a>Another possible approach</h3>
+<p>Have the holder <em>actually</em> spend the claimed notes (e.g. to themself) with an
+anchor at the pool snapshot. This has the disadvantage that they cannot
+participate in concurrent polls/air-drops.</p>
+<h2 id="alternate-nullifier-derivation"><a class="hanchor" href="#alternate-nullifier-derivation" aria-hidden="true" tabindex="-1">#</a>Alternate nullifier derivation</h2>
+<p>Given a nullifier domain <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math> and an Orchard note
+<math><mrow><mi>𝐧</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mi>𝖽</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo separator="true">,</mo><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><msup><mtext>ρ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><msup><mtext>φ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+with note commitment <math><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow></math>, the alternate nullifier <math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow></math>
+for <math><mi>𝐧</mi></math> is computed as:</p>
+<math display="block" class="tml-display" style="display:block math;"><mtable><mtr><mtd class="tml-right" style="padding-left:0pt;padding-right:5.9776pt;"><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow></mtd><mtd style="padding-left:5.9776pt;padding-right:5.9776pt;"><mrow><mrow style="margin-left:-0.1667em;"></mrow><mrow style="margin-left:-0.1667em;"></mrow><mrow style="margin-left:-0.1667em;"></mrow><mo>=</mo><mrow style="margin-left:-0.1667em;"></mrow><mrow style="margin-left:-0.1667em;"></mrow><mrow style="margin-left:-0.1667em;"></mrow></mrow></mtd><mtd class="tml-left" style="padding-left:5.9776pt;padding-right:0pt;"><mrow><mrow><mi>𝖣</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝖠</mi><mi>𝗅</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖭</mi><mi>𝗎</mi><mi>𝗅</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗂</mi><mi>𝖾</mi><msub><mi>𝗋</mi><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></msub></mrow><mo form="prefix" stretchy="false">(</mo><msup><mtext>ρ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><msup><mtext>φ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo separator="true">,</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo form="postfix" stretchy="false">)</mo></mrow></mtd></mtr><mtr><mtd class="tml-right" style="padding-left:0pt;padding-right:5.9776pt;"><mrow></mrow></mtd><mtd style="padding-left:5.9776pt;padding-right:5.9776pt;"><mrow><mrow style="margin-left:-0.1667em;"></mrow><mrow style="margin-left:-0.1667em;"></mrow><mrow style="margin-left:-0.1667em;"></mrow><mo>=</mo><mrow style="margin-left:-0.1667em;"></mrow><mrow style="margin-left:-0.1667em;"></mrow><mrow style="margin-left:-0.1667em;"></mrow></mrow></mtd><mtd class="tml-left" style="padding-left:5.9776pt;padding-right:0pt;"><mrow><msub><mrow><mi>𝖤</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi></mrow><mi>ℙ</mi></msub><mo fence="false" symmetric="true" minsize="1.2em" maxsize="1.2em">(</mo><mo fence="false" symmetric="true" minsize="1.2em" maxsize="1.2em">[</mo><mo form="prefix" stretchy="false">(</mo><mrow><mi>𝖯</mi><mi>𝖱</mi><msubsup><mi>𝖥</mi><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mrow class="tml-med-pad"><mi>𝗇</mi><mi>𝖿</mi><mi>𝖠</mi><mi>𝗅</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi></mrow></msubsup></mrow><mo form="prefix" stretchy="false">(</mo><msup><mtext>ρ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo form="postfix" stretchy="false">)</mo><mo>+</mo><mtext>φ</mtext><mo form="postfix" stretchy="false">)</mo><mo lspace="0.2222em" rspace="0.2222em">mod</mo><msub><mi>q</mi><mi>ℙ</mi></msub><mo fence="false" symmetric="true" minsize="1.2em" maxsize="1.2em">]</mo><mspace width="0.1667em"></mspace><msup><mi class="mathcal">𝒦</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mo>+</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="false" symmetric="true" minsize="1.2em" maxsize="1.2em">)</mo></mrow></mtd></mtr></mtable></math>
+<p>Here <math><mrow><mi>𝖯</mi><mi>𝖱</mi><msup><mi>𝖥</mi><mrow class="tml-med-pad"><mi>𝗇</mi><mi>𝖿</mi><mi>𝖠</mi><mi>𝗅</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi></mrow></msup></mrow></math> is another instantiation of Poseidon. In order
+for <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math> to be an arbitrary field element without any loss of security,
+it would have to use an instantiation of Poseidon with a 4-element to 4-element
+permutation.</p>
+<blockquote>
+<p>TODO: security analysis, in particular for collision attacks and for linkability across domains.</p>
+</blockquote>
+<details>
+<summary>
+<h3 id="rationale-for-not-using-a-similar-nullifier-derivation-to-zsa-split-notes"><a class="hanchor" href="#rationale-for-not-using-a-similar-nullifier-derivation-to-zsa-split-notes" aria-hidden="true" tabindex="-1">#</a>Rationale for not using a similar nullifier derivation to ZSA split notes</h3>
+</summary>
+<p>The nullifier derivation in draft ZIP 226 for ZSA split notes is:</p>
+<span class="temml-error" style="color:#b22222;white-space:pre-line;">\mathsf{nf} = \mathsf{Extract}_{\mathbb{P}}\big(\big[(\mathsf{PRF^{nfOrchard}_{nk}} (\text{ρ}^{\mathsf{old}}) + \text{φ}') \bmod q_{\mathbb{P}}\big]\, \mathcal{K}^\mathsf{Orchard} + \mathsf{cm^{old}} + \mathcal{L}^\mathsf{Orchard}\big)
+$$ This fails to do what we want in two ways:
+* It is nondeterministic, due to the random <code class="math-src">$\text{φ}'$</code>.
+* If <code class="math-src">$\text{φ}'$</code> were required to be <code class="math-src">$\text{φ}^{\mathsf{old}}$</code> and
+  <code class="math-src">$\mathcal{L}^\mathsf{Orchard}$</code> were replaced by a hash-to-curve of
+  <code class="math-src">$\mathsf{dom}$</code>, then nullifiers for different domains (including the original
+  ZEC domain) would be linkable, since they would differ by a predictable point.
+  (There are two possible points corresponding to a given nullifier, but this is
+  only a trivial obstable to linking them.)
+&#x3C;/details>
+
+## Making a claim
+
+For each note that the holder wants to claim, they prove an instance of the
+circuit below, and provide this proof together with a spend authorization
+signature (constructed as though they were spending the note).
+
+> It is easy to add up value commitments and then open them if desired, or use them in another zk proof.
+
+> Can we make it more efficient to claim that you hold multiple notes?
+
+## Circuit
+
+A valid instance of a Claim statement, <code class="math-src">$\pi$</code>, assures that given a primary input:
+* <code class="math-src">$\mathsf{cv} ⦂ \mathsf{ValueCommit^{Orchard}.Output}$</code>
+* <code class="math-src">$\mathsf{dom} ⦂ \{ 0 .. q_{\mathbb{P}}-1 \}$</code>
+* <code class="math-src">$\mathsf{nf_{dom}} ⦂ \{0 .. q_{\mathbb{P}}-1 \}$</code>
+* <code class="math-src">$\mathsf{rk} ⦂ \mathsf{SpendAuthSig^{Orchard}.Public}$</code>
+
+the prover knows an auxiliary input:
+
+* <code class="math-src">$\mathsf{path} ⦂ \{ 0 .. q_{\mathbb{P}}-1 \}^{[\mathsf{MerkleDepth^{Orchard}}]}$</code>
+* <code class="math-src">$\mathsf{pos} ⦂ \{ 0 .. 2^{\mathsf{MerkleDepth^{Orchard}}}\!-1 \}$</code>
+* <code class="math-src">$\mathsf{g_d^{old}} ⦂ \mathbb{P}^*$</code>
+* <code class="math-src">$\mathsf{pk_d^{old}} ⦂ \mathbb{P}^*$</code>
+* <code class="math-src">$\mathsf{v^{old}} ⦂ \{ 0 .. 2^{\ell_{\mathsf{value}}}-1 \}$</code>
+* <code class="math-src">$\text{ρ}^{\mathsf{old}} ⦂ \mathbb{F}_{q_{\mathbb{P}}}$</code>
+* <code class="math-src">$\text{φ}^{\mathsf{old}} ⦂ \mathbb{F}_{q_{\mathbb{P}}}$</code>
+* <code class="math-src">$\mathsf{rcm^{old}} ⦂ \{ 0 .. 2^{\ell^{\mathsf{Orchard}}_{\mathsf{scalar}}}-1 \}$</code>
+* <code class="math-src">$\mathsf{cm^{old}} ⦂ \mathbb{P}$</code>
+* <code class="math-src">$\mathsf{nf^{old}} ⦂ \{ 0 .. q_{\mathbb{P}}-1 \}$</code>
+* <code class="math-src">$\alpha ⦂ \{ 0 .. 2^{\ell^{\mathsf{Orchard}}_{\mathsf{scalar}}}-1 \}$</code>
+* <code class="math-src">$\mathsf{ak}^{\mathbb{P}} ⦂ \mathbb{P}^*$</code>
+* <code class="math-src">$\mathsf{nk} ⦂ \mathbb{F}_{q_{\mathbb{P}}}$</code>
+* <code class="math-src">$\mathsf{rivk} ⦂ \mathsf{Commit^{ivk}.Trapdoor}$</code>
+* <code class="math-src">$\mathsf{rcv} ⦂ \{ 0 .. 2^{\ell^{\mathsf{Orchard}}_{\mathsf{scalar}}}-1 \}$</code>
+* <code class="math-src">$\mathsf{path^{excl}} ⦂ \{ 0 .. q_{\mathbb{P}}-1 \}^{[\mathsf{MerkleDepth^{excl}}]}$</code>
+* <code class="math-src">$\mathsf{pos^{excl}} ⦂ \{ 0 .. 2^{\mathsf{MerkleDepth^{excl}}}\!-1 \}$</code>
+* <code class="math-src">$\mathsf{start} ⦂ \{ 0 .. 2^{\mathsf{MerkleDepth^{Orchard}}}\!-1 \}$</code>
+* <code class="math-src">$\mathsf{end} ⦂ \{ 0 .. 2^{\mathsf{MerkleDepth^{Orchard}}}\!-1 \}$</code>
+
+such that the following conditions hold:
+
+**Note commitment integrity** $\hspace{0.5em} \mathsf{NoteCommit^{Orchard}_{rcm^{old}}}(\mathsf{repr}_{\mathbb{P}}(\mathsf{g_d^{old}}), \mathsf{repr}_{\mathbb{P}}(\mathsf{pk_d^{old}}), \mathsf{v^{old}}, \text{ρ}^{\mathsf{old}}, \text{φ}^{\mathsf{old}}) \in \{ \mathsf{cm^{old}}, \bot \}$.
+
+**Merkle path validity for** <code class="math-src">$\mathsf{cm^{old}} \hspace{0.5em} (\mathsf{path^{cm}}, \mathsf{pos^{cm}})$</code> is a valid Merkle path of depth <code class="math-src">$\mathsf{MerkleDepth^{Orchard}}$</code>, as defined in § 4.9 'Merkle Path Validity', from <code class="math-src">$\mathsf{cm^{old}}$</code> to the anchor <code class="math-src">$\mathsf{rt^{cm}}$</code>.
+
+**Value commitment integrity** <code class="math-src">$\hspace{0.5em} \mathsf{cv} = \mathsf{ValueCommit^{Orchard}_{rcv}}(\mathsf{v^{old}})$</code>.
+
+**Nullifier integrity** $\hspace{0.5em} \mathsf{nf^{old}} = \mathsf{DeriveNullifier_{nk}}(\text{ρ}^{\mathsf{old}}, \text{φ}^{\mathsf{old}}, \mathsf{cm^{old}})$.
+
+**Spend authority** <code class="math-src">$\hspace{0.5em} \mathsf{rk} = \mathsf{SpendAuthSig^{Orchard}.RandomizePublic}(\alpha, \mathsf{ak}^{\mathbb{P}})$</code>.
+
+**Diversified address integrity** <code class="math-src">$\hspace{0.5em} \mathsf{ivk} = \bot$</code> or <code class="math-src">$\mathsf{pk_d^{old}} = [\mathsf{ivk}]\, \mathsf{g_d^{old}}$</code> where <code class="math-src">$\mathsf{ivk} = \mathsf{Commit^{ivk}_{rivk}}(\mathsf{Extract}_{\mathbb{P}}(\mathsf{ak}^{\mathbb{P}}), \mathsf{nk})$</code>.
+
+**Merkle path validity for** <code class="math-src">$(\mathsf{start}, \mathsf{end}) \hspace{0.5em} (\mathsf{path^{excl}}, \mathsf{pos^{excl}})$</code> is a valid Merkle path of depth <code class="math-src">$\mathsf{MerkleDepth^{excl}}$</code>, as defined in § 4.9 'Merkle Path Validity', from <code class="math-src">$\mathsf{excl}$</code> to the anchor <code class="math-src">$\mathsf{rt^{excl}}$</code>, where <code class="math-src">$\mathsf{excl} = \mathsf{MerkleCRH^{Orchard}}(\mathsf{MerkleDepth^{excl}}, \mathsf{start}, \mathsf{end})$</code>.
+
+**Nullifier in excluded range** <code class="math-src">$\hspace{0.5em} \mathsf{start} \leq \mathsf{nf^{old}} \leq \mathsf{end}$</code>.
+
+**Alternate nullifier integrity** $\hspace{0.5em} \mathsf{nf_{dom}} = \mathsf{DeriveAlternateNullifier_{nk}}(\text{ρ}^{\mathsf{old}}, \text{φ}^{\mathsf{old}}, \mathsf{cm^{old}}, \mathsf{dom})$.
+
+## Circuit implementation
+
+All of these but the last three checks are identical to the corresponding parts
+of an Action statement.
+
+**Merkle path validity for** <code class="math-src">$(\mathsf{start}, \mathsf{end})$</code> is almost identical
+to the other Merkle path validity check.
+
+Alternate nullifier integrity is probably very similar to **Nullifier integrity**.
+
+**Nullifier in excluded range** is fairly straightforward. Nullifiers are
+arbitrary field elements so be careful of overflow. Since we can check outside
+the circuit that <code class="math-src">$\mathsf{start} \leq \mathsf{end}$</code>, the check becomes
+equivalent to <code class="math-src">$0 \leq \mathsf{nf^{old}} - \mathsf{start} \leq \mathsf{end} - \mathsf{start}$</code>.
+
+## Rationale
+
+> TODO
+
+
+# References
+
+[#BCP14]: Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words" &#x3C;https://www.rfc-editor.org/info/bcp14>
+[#protocol] Zcash Protocol Specification, Version 2023.4.0 or later &#x3C;protocol/protocol.pdf>
+
+ParseError:  Can't use function '$' in math mode at position 237: 
+…{Orchard}\big)
+$̲$ This fails to…</span></details>

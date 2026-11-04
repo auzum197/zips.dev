@@ -1,0 +1,463 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", "SHOULD", and "SHOULD NOT" in this document
+are to be interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when,
+they appear in all capitals.</p>
+<p>The terms "Mainnet" and "Testnet" in this document are to be interpreted as
+defined in the Zcash protocol specification <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</p>
+<p>The terms below are to be interpreted as follows:</p>
+<dl><dt>Group</dt><dd>A set of <math><mi>n</mi></math> participants holding a FROST threshold key for Orchard-protocol
+spend authorization <sup><a href="#user-content-fn-zip-0312" id="user-content-fnref-zip-0312" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>, any <math><mi>t</mi></math> of whom can sign.</dd><dt>Member</dt><dd>One participant of a group, identified by its FROST identifier.</dd><dt>Signing share</dt><dd>The member's secret share of the group's Spend authorizing key, as output
+by key generation.</dd><dt>Group verifying key, <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math></dt><dd>The FROST group public key, used as the Spend validating key
+<math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> of the group's Orchard full viewing key. Its encoding has a
+<math><mover><mi>y</mi><mo stretchy="false" class="chr-sml wbk-sml" style="math-depth:0;">~</mo></mover></math> bit of <math><mn>0</mn></math>, as § 4.2.3 of the protocol specification requires
+<sup><a href="#user-content-fn-protocol-updated-orchardkeycomponents" id="user-content-fnref-protocol-updated-orchardkeycomponents" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</dd><dt><math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math></dt><dd>The 32-byte value the members agree on during key generation, from which
+the rest of the group's key components are derived <sup><a href="#user-content-fn-zip-2005-usagewithfrost" id="user-content-fnref-zip-2005-usagewithfrost" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.</dd><dt>Derivation</dt><dd>How <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> are obtained from <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> and
+<math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>. This ZIP knows two, defined in [Derivations].</dd><dt>Member backup string</dt><dd>The string defined in this ZIP.</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP defines a backup string for one member of a FROST group that spends
+shielded ZEC with Orchard-protocol keys (in the Orchard or Ironwood pool). The
+string holds the member's identifier, the threshold, the group size, the
+member's signing share and the group's <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>. Together with the group's
+unified full viewing key, it is enough to rebuild the member in any wallet that
+implements this ZIP, without the other members being online. Restoring checks
+the string against the viewing key, which both detects a string from another
+group and tells the wallet which key derivation the group uses.</p>
+<p>Version 1 of the payload is byte-for-byte the <code>zkfrost</code> string that Zkool
+already ships, so existing backups stay valid.</p>
+<p>The string is more sensitive than the signing share it carries: it also
+carries <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, from which a holder can compute the group's quantum
+spending key <math><mrow><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math> <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>. It never appears on chain.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Several wallets now offer FROST groups for shielded ZEC: Zkool, Zafe,
+Konclave, and the Zcash Foundation's tools. Each one backs up its members in its
+own format, so a member can only restore their seat in the app that created
+it. In July 2026, Zkool's author described the situation: "There is no
+standard for it. I choose a way that makes it restorable on Zkool only. One
+day, someone will write a ZIP." <sup><a href="#user-content-fn-zkool-forum" id="user-content-fnref-zkool-forum" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></p>
+<p>Since then, Zkool has moved to a minimal backup string (<code>zkfrost</code>, Zkool
+6.35.0) that holds only what a member needs. This ZIP takes that string as its
+first version, so that:</p>
+<ul>
+<li>a user can move a seat from one wallet to another, or restore it in a
+different app after losing a device;</li>
+<li>a group can mix implementations, which avoids having every signer come from
+one vendor;</li>
+<li>funds stay reachable if one app is abandoned.</li>
+</ul>
+<p>ZIP 2005 adds a reason. To recover notes with the Recovery Protocol, "it is
+necessary to retain, or be able to rederive, <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, and also to know
+whether <math><mrow><mi>𝗎</mi><mi>𝗌</mi><mi>𝖾</mi><mi>_</mi><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math> was used to derive the <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> and
+addresses" <sup><a href="#user-content-fn-protocol-updated-orchardkeycomponents" id="user-content-fnref-protocol-updated-orchardkeycomponents-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. A backup format is where
+that knowledge has to live.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>The string never leaves the member's custody in normal use and is not
+published on chain, so this ZIP changes nothing for on-chain privacy.</p>
+<p>Combined with the group's unified full viewing key, a string gives no viewing
+capability beyond what that viewing key already gives. Without the viewing
+key, <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> yields <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> but not the incoming viewing key, which
+also depends on <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>. The string does reveal <math><mi>t</mi></math>, <math><mi>n</mi></math> and the member's
+identifier.</p>
+<p>A wallet that shows the string as a QR code exposes it to cameras and
+onlookers, as with any secret displayed on screen.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul>
+<li>A member can be rebuilt from its string and the group's unified full viewing
+key, with no other member online.</li>
+<li>A wallet detects a string that belongs to another group before using it.</li>
+<li>The restore tells which derivation the group uses.</li>
+<li>The format does not depend on how <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> was agreed.</li>
+<li>Backups made with Zkool's <code>zkfrost</code> string stay valid.</li>
+<li>The format can gain new versions without breaking existing strings.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<ul>
+<li>Key generation, including how the members agree on <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>
+<sup><a href="#user-content-fn-zip-0312-key-generation" id="user-content-fnref-zip-0312-key-generation" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>.</li>
+<li>Signing, and the transport between members.</li>
+<li>Encryption of the string at rest (see [Open issues]).</li>
+<li>A birthday height. zips#1401 proposes to carry it in the unified full
+viewing key <sup><a href="#user-content-fn-zips-1401" id="user-content-fnref-zips-1401" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>, which the restore already needs.</li>
+<li>Splitting <math><mrow><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math> between members.</li>
+<li>FROST groups using Sapling keys.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="derivations"><a class="hanchor" href="#derivations" aria-hidden="true" tabindex="-1">#</a>Derivations</h2>
+<p>Let <math><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝖺</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></msup></math>, <math><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝗇</mi><mi>𝗄</mi></mrow></msup></math>, <math><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></msup></math>,
+<math><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></msup></math>, <math><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝗊</mi><mi>𝗄</mi></mrow></msup></math> and
+<math><msubsup><mi>𝖧</mi><mrow><mi>𝗊</mi><mi>𝗄</mi></mrow><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi><mi>_</mi><mi>𝖾</mi><mi>𝗑</mi><mi>𝗍</mi></mrow></msubsup></math> be as defined in § 4.2.3
+of the protocol specification as updated by ZIP 2005
+<sup><a href="#user-content-fn-protocol-updated-orchardkeycomponents" id="user-content-fnref-protocol-updated-orchardkeycomponents-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</p>
+<p>ZIP 2005 derivation</p>
+<p>: <math><mrow><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo>=</mo><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝗇</mi><mi>𝗄</mi></mrow></msup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>, and
+<math><mrow><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo>=</mo><msubsup><mi>𝖧</mi><mrow><mi>𝗊</mi><mi>𝗄</mi></mrow><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi><mi>_</mi><mi>𝖾</mi><mi>𝗑</mi><mi>𝗍</mi></mrow></msubsup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+where <math><mrow><mrow><mi>𝗊</mi><mi>𝗄</mi></mrow><mo>=</mo><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝗊</mi><mi>𝗄</mi></mrow></msup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></msup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>. This is
+the <math><mrow><mrow><mi>𝗎</mi><mi>𝗌</mi><mi>𝖾</mi><mi>_</mi><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mi>𝗍</mi><mi>𝗋</mi><mi>𝗎</mi><mi>𝖾</mi></mrow></mrow></math> branch that ZIP 2005 requires for
+FROST <sup><a href="#user-content-fn-zip-2005-usagewithfrost" id="user-content-fnref-zip-2005-usagewithfrost-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>. Notes received by such a group are
+quantum recoverable.</p>
+<p>Legacy derivation</p>
+<p>: <math><mrow><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo>=</mo><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝗇</mi><mi>𝗄</mi></mrow></msup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> and
+<math><mrow><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo>=</mo><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></msup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>, with the group verifying key
+as <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>. Zkool created groups this way before supporting ZIP 2005.
+Such a group follows neither branch of § 4.2.3</p>
+<h2 id="encoding"><a class="hanchor" href="#encoding" aria-hidden="true" tabindex="-1">#</a>Encoding</h2>
+<p>A member backup string is the Bech32m <sup><a href="#user-content-fn-bip-0350" id="user-content-fnref-bip-0350" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> encoding of a payload, with
+the human-readable part <code>zkfrost</code>. As in ZIP 316 <sup><a href="#user-content-fn-zip-0316" id="user-content-fnref-zip-0316" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>, the length limit
+of Bech32m is not applied; a version 1 string is 123 characters long.</p>
+<p>Encoders MUST produce lowercase strings. Decoders MUST accept a string that is
+entirely lowercase or entirely uppercase, and MUST reject a string in mixed
+case, as Bech32m requires. A wallet can still show the string in uppercase,
+for instance in a QR code (see [Rationale]), by converting it after encoding.</p>
+<p>The human-readable part is the same on Mainnet and Testnet, and the payload
+names no network: the network is given by the unified full viewing key used to
+restore. A string paired with another group's viewing key, on either network,
+fails the check in [Restore].</p>
+<h2 id="payload-version-1"><a class="hanchor" href="#payload-version-1" aria-hidden="true" tabindex="-1">#</a>Payload, version 1</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Offset</th><th>Size</th><th>Field</th></tr></thead><tbody><tr><td>0</td><td>1</td><td>format version, <math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟷</mn></mrow></math></td></tr><tr><td>1</td><td>1</td><td>member identifier <math><mi>i</mi></math></td></tr><tr><td>2</td><td>1</td><td>threshold <math><mi>t</mi></math></td></tr><tr><td>3</td><td>1</td><td>group size <math><mi>n</mi></math></td></tr><tr><td>4</td><td>32</td><td>signing share</td></tr><tr><td>36</td><td>32</td><td><math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math></td></tr></tbody></table>
+<p>The member's FROST identifier is the Pallas scalar with integer value <math><mi>i</mi></math>.
+The group size <math><mi>n</mi></math> is the number of members.</p>
+<p>The signing share is the little-endian encoding of a Pallas scalar, as in the
+FROST(Pallas, BLAKE2b-512) ciphersuite <sup><a href="#user-content-fn-zip-0312" id="user-content-fnref-zip-0312-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>. It MUST be the share that
+matches the <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> in the group's viewing key. Key generation can output
+a group key with either <math><mover><mi>y</mi><mo stretchy="false" class="chr-sml wbk-sml" style="math-depth:0;">~</mo></mover></math> bit; when it is <math><mn>1</mn></math>, the group key and
+every share are negated. The <code>reddsa</code> crate does this at the end of its key
+generation, and frost-client does it after the DKG. An implementation that
+skips this step would export a wrong share for about half of all groups.</p>
+<h2 id="decoding"><a class="hanchor" href="#decoding" aria-hidden="true" tabindex="-1">#</a>Decoding</h2>
+<p>A decoder MUST reject the string if any of the following holds:</p>
+<ul>
+<li>it is not valid Bech32m, including a bad checksum, a Bech32 checksum, or
+mixed case;</li>
+<li>the bits left over when converting its data part to bytes are more than 4
+or not all zero, as ZIP 173 requires <sup><a href="#user-content-fn-zip-0173" id="user-content-fnref-zip-0173" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>. A version 1 string leaves
+1 bit, so each payload has only one lowercase string;</li>
+<li>its human-readable part, compared case-insensitively, is not <code>zkfrost</code>;</li>
+<li>the format version is not <math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟷</mn></mrow></math>;</li>
+<li>the payload is not exactly 68 bytes long;</li>
+<li><math><mrow><mi>n</mi><mo>=</mo><mn>0</mn></mrow></math>, <math><mrow><mi>i</mi><mo>=</mo><mn>0</mn></mrow></math>, <math><mrow><mi>i</mi><mo>></mo><mi>n</mi></mrow></math>, <math><mrow><mi>t</mi><mo>&#x3C;</mo><mn>2</mn></mrow></math>, or <math><mrow><mi>t</mi><mo>></mo><mi>n</mi></mrow></math>. FROST needs at least two
+signers.</li>
+</ul>
+<p>Checking the version before the length lets a decoder report a string of a
+later version as unsupported rather than as corrupt.</p>
+<h2 id="restore"><a class="hanchor" href="#restore" aria-hidden="true" tabindex="-1">#</a>Restore</h2>
+<p>The inputs are a member backup string and the group's unified full viewing
+key. The viewing key MUST contain an Orchard component (typecode
+<math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟹</mn></mrow></math> <sup><a href="#user-content-fn-zip-0316" id="user-content-fnref-zip-0316-2" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>), which holds <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>, <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and
+<math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>. Ironwood uses the same Orchard-protocol keys.</p>
+<ol>
+<li>Decode the string as above.</li>
+<li>Reject the string if <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> is not a valid Orchard spending key,
+that is if <math><mrow><msup><mi>𝖧</mi><mrow class="tml-sml-pad"><mi>𝖺</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></msup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mn>0</mn></mrow></math>, or if the signing share is
+not the canonical encoding of a Pallas scalar. (A group's <math><mrow><mi>𝖺</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math> is
+not derived from <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>; the first check only keeps decoders in
+agreement with the validity rule for Orchard spending keys.)</li>
+<li>Take <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> from the viewing key. Compute <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and
+<math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> under each derivation of [Derivations].</li>
+<li>If the ZIP 2005 derivation gives the viewing key's <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and
+<math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>, the group follows the ZIP 2005 derivation. Otherwise, if
+the legacy derivation does, the group follows the legacy derivation.
+Otherwise the wallet MUST reject the string: it belongs to another group.</li>
+<li>Rebuild the member's key material from the identifier, the signing share,
+the threshold <math><mi>t</mi></math> and <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> as the group verifying key. If the
+wallet knows the group's verifying shares, it SHOULD check that the
+member's verifying share matches.</li>
+</ol>
+<p>A wallet SHOULD tell the user which derivation was found, and SHOULD warn when
+it is the legacy one, whose notes are not quantum recoverable.</p>
+<p>The check in step 4 proves that the viewing key was derived from the string's
+<math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, not that its <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> is the group's (see
+[Security Considerations]). Before it shows an address to receive funds, a
+wallet SHOULD check the viewing key against a source the member trusts, such as
+the export made with its own string (see [Export]), an address of the group
+that the member recorded before and that the viewing key gives, or the same
+viewing key obtained from at least two other members. A member that lost its
+device may have lost its export too, and then has to ask the others for the
+key, which is the case the attack needs: if one of the members it asks is
+honest, a forged key shows up as a mismatch.</p>
+<p>After the restore, the wallet MUST retain <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> when the group follows
+the ZIP 2005 derivation. ZIP 2005 makes <math><mrow><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, which is derived from
+<math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, essential for recovering the group's notes once the current
+Orchard protocol is disabled <sup><a href="#user-content-fn-zip-2005-usagewithfrost" id="user-content-fnref-zip-2005-usagewithfrost-3" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>, and the signing
+share and viewing key alone do not give it. A wallet SHOULD also retain
+<math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> for a legacy group, since without it the member cannot export
+its string again.</p>
+<p>A restored member holds no signing nonces. It MUST generate fresh ones for its
+next signing session.</p>
+<p>The check in step 4 proves <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, not the signing share. A wrong share,
+such as one stored with the wrong sign, passes the restore and is caught at the
+member's first signing: the verifying shares of the <math><mi>t</mi></math> signers, which travel
+with their commitments, interpolate to <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> only if every one of them
+is right. The signing transport is out of scope for this ZIP, but a signing
+protocol used with these strings SHOULD carry each signer's verifying share,
+so that a member restored from a string is checked when it first signs.</p>
+<h2 id="export"><a class="hanchor" href="#export" aria-hidden="true" tabindex="-1">#</a>Export</h2>
+<p>A wallet that exports a member backup string SHOULD export the group's unified
+full viewing key with it, or tell the user that the restore needs it. ZIP 2005
+asks FROST members to retain the group verifying key <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>
+<sup><a href="#user-content-fn-protocol-updated-orchardkeycomponents" id="user-content-fnref-protocol-updated-orchardkeycomponents-4" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>; in version 1 it is only held by the
+viewing key.</p>
+<p>A wallet MUST NOT put signing nonces, or any other secret beyond the fields
+above, in a version 1 string.</p>
+<h2 id="storage-and-transmission"><a class="hanchor" href="#storage-and-transmission" aria-hidden="true" tabindex="-1">#</a>Storage and transmission</h2>
+<p>Wallets MUST protect every member backup string at least as securely and
+reliably as <math><mrow><mi>𝖺</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, as ZIP 2005 requires of <math><mrow><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>
+<sup><a href="#user-content-fn-zip-2005-usagewithfrost" id="user-content-fnref-zip-2005-usagewithfrost-4" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>, and not merely like one signing share.</p>
+<p>Wallets SHOULD NOT store or transmit a string encrypted only under public-key
+encryption based on discrete logarithms or on factoring, such as Orchard note
+encryption, X25519, or RSA and elliptic-curve OpenPGP keys.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p><strong>Bech32m.</strong> It gives a checksum that catches copy errors and a string users
+can paste or show as a QR code. An uppercase string fits the QR alphanumeric
+mode, which makes the code smaller. Its checksum guarantees the detection of
+any error affecting at most 4 characters only for strings of at most 90
+characters <sup><a href="#user-content-fn-zip-0173" id="user-content-fnref-zip-0173-2" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup> <sup><a href="#user-content-fn-bip-0350" id="user-content-fnref-bip-0350-2" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>. A version 1 string is 123 characters
+long, so it keeps the 30-bit checksum without that guarantee, as unified
+addresses and viewing keys do <sup><a href="#user-content-fn-zip-0316" id="user-content-fnref-zip-0316-3" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>.</p>
+<p><strong>No network in the string.</strong> A member's share is the same on every network
+the group lives on. The viewing key carries the network.</p>
+<p><strong><math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> is not stored.</strong> The restore needs the viewing key anyway to
+scan the chain, and checking <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> against it
+catches a string from another group. The cost is that the string does not
+authenticate <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> (see [Security Considerations]).</p>
+<p><strong><math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> is stored whole.</strong> ZIP 2005 makes it necessary "to retain, or
+be able to rederive, <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>" <sup><a href="#user-content-fn-protocol-updated-orchardkeycomponents" id="user-content-fnref-protocol-updated-orchardkeycomponents-5" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>,
+and every member already holds it, along with <math><mrow><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>
+<sup><a href="#user-content-fn-zip-2005-usagewithfrost" id="user-content-fnref-zip-2005-usagewithfrost-5" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.</p>
+<p><strong>The derivation is found, not recorded.</strong> Version 1 is Zkool's existing
+payload, which has no field for it. With two derivations and the viewing key at
+hand, trying both is cheap and unambiguous: both matching would need a
+collision in the hash functions behind <math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>. A later version can
+record the derivation explicitly (see [Open issues]).</p>
+<p><strong>One-byte identifier.</strong> It covers groups whose identifiers are the integers
+1 to <math><mi>n</mi></math>, as in Zkool and in frost-client's trusted-dealer key generation.
+frost-client's DKG and Zafe derive 32-byte identifiers, which need another
+version (see [Open issues]).</p>
+<p><strong>Version 1 is Zkool's payload.</strong> Backups users already made keep working,
+and the first implementation exists today.</p>
+<h1 id="security-considerations"><a class="hanchor" href="#security-considerations" aria-hidden="true" tabindex="-1">#</a>Security Considerations</h1>
+<p>A string holds one signing share. Fewer than <math><mi>t</mi></math> strings cannot spend, as long
+as discrete logarithms on the Pallas curve stay hard.</p>
+<p>Every string also holds <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, which yields <math><mrow><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>. ZIP 2005
+notes that "a quantum adversary may be able to steal the funds with only
+access to <math><mrow><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, which is held by every participant"
+<sup><a href="#user-content-fn-zip-2005-usagewithfrost" id="user-content-fnref-zip-2005-usagewithfrost-6" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>. Against such an adversary the threshold may give no
+protection: one leaked string, from any member, may be enough to steal the
+funds. ZIP 2005 requires each participant to "treat <math><mrow><mi>𝗊</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math> as a
+secret held at least as securely and reliably as <math><mrow><mi>𝖺</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>"
+<sup><a href="#user-content-fn-zip-2005-usagewithfrost" id="user-content-fnref-zip-2005-usagewithfrost-7" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>, which is why [Storage and transmission] asks the
+same for every string.</p>
+<p>For the same reason, a string that is stored or sent encrypted only under
+public-key encryption based on discrete logarithms or on factoring is exposed
+to an adversary who records the ciphertext now and gains a quantum computer
+later. A passphrase with a memory-hard KDF and an AEAD (see [Open issues])
+does not have this weakness.</p>
+<p>The restore does not prove the signing share (see [Restore]). A wrong share,
+for instance one exported with the wrong sign (see [Payload, version 1]),
+gives signature shares that fail verification. It stops that member from
+signing until it is restored from a correct string, but it cannot sign
+anything or leak the other shares.</p>
+<p>The restore does not authenticate <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> either. Every member holds
+<math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, so a dishonest member can build a viewing key around another
+<math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>, for instance one whose secret it holds alone, with the
+<math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> that either derivation gives for it. A string
+restored with that key passes every check in [Restore], and the wallet then
+shows addresses that only that member can spend from. The wallet would not see
+the group's notes, and the group's signatures would not verify under that
+<math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>, but funds received at those addresses before anyone notices are
+lost to the group. Checking the viewing key against a trusted source, as
+[Restore] asks, prevents this; so would carrying <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> in the string
+(see [Open issues]).</p>
+<p>A member restored from a string has the same authority as before: the string
+adds no signer to the group. It carries no nonces, so a restore cannot bring
+back a nonce that was already used or published.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This ZIP changes no consensus rule. Wallets can adopt it at any time.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<ul>
+<li>Zkool: <code>rust/src/frost/backup.rs</code> in hhanh00/zkool2, released in Zkool
+6.35.0 <sup><a href="#user-content-fn-zkool-backup" id="user-content-fnref-zkool-backup" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup>.</li>
+<li>frost-zec: <code>src/backup.rs</code> in OpenPGP-Wallet/frost-zec, by one of this
+ZIP's owners, written from this ZIP's rules apart from Zkool's code, with
+<code>backup export</code> and <code>backup restore</code> commands <sup><a href="#user-content-fn-frost-zec-backup" id="user-content-fnref-frost-zec-backup" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup>. Its
+<code>tools/zip-vectors</code> generates the test vectors below.</li>
+</ul>
+<h1 id="test-vectors"><a class="hanchor" href="#test-vectors" aria-hidden="true" tabindex="-1">#</a>Test vectors</h1>
+<p>The full set is in <code>draft-khadim-aryaethn-frost-member-backup/vectors.json</code>.
+It covers a 2-of-3 ZIP 2005 group, a 2-of-3 legacy group together with the
+ZIP 2005 viewing key built from the same <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> (whose
+strings restore under either key, with a different derivation), and a 3-of-5
+ZIP 2005 group; an uppercase string; seventeen strings that decoders must
+reject, two of them for the padding rule and one with a threshold of 1; and
+three cases that decode but that the restore must reject: a valid string
+paired with another group's viewing key, a string whose signing share is not
+canonical, and a viewing key with no Orchard component.</p>
+<p>Every valid string decodes to the same fields and matches the stated
+derivation with Zkool's code, and every <math><mi>t</mi></math>-subset of members restored from
+their strings produces a FROST signature that verifies under <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>.
+Zkool 6.35.0 rejects every invalid string except three. It does not check
+the padding bits, and decodes the two padding strings to the same fields as
+the valid string they come from; it also accepts a threshold of 1. Zkool
+6.36.0 rejects all three: the padding fix, hhanh00/zkool2#1468
+<sup><a href="#user-content-fn-zkool-padding-fix" id="user-content-fnref-zkool-padding-fix" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup>, includes the two padding strings in its tests, and the
+decoder now refuses a threshold below 2.
+A third decoder, by the other owner of this ZIP, with the derivations written
+directly from BIP 350, ZIP 316 and ZIP 2005 and no Zcash library, gives the
+expected result for every string, both viewing keys of each group, and every
+rejected case. With frost-client's version of <code>reddsa</code>, every <math><mi>t</mi></math>-subset also
+rebuilds <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> and signs.</p>
+<p>One member of the 2-of-3 ZIP 2005 group (byte strings in hex):</p>
+<pre><code>sk      b478b8702c1d2569fe52e5d7dbadec6223cd10fd4b504dabac7fff23a37363d1
+ak      73325d2c62873971ff54f37413d2b04e8056ea4fbd71850f5f8337df1816f126
+nk      c01df2b3b3f917a5cf78fa1be4c5ab6bd32a9bf36c524d5702ecd4aeb836381e
+qsk     ee2f78322c86d7c66fc598f21186eed3d664f46b4950170745d64bb01dd6d6ca
+qk      80f648b4c74e93ee378ddf0b3870a6078211115a72712b68566178f24b2af54c
+rivk    25f3d4723928d1c557ecb4c74be1f2f241daeccd3173d83215a277c87c6c5c34
+t, n    2, 3
+id      1
+share   f133adc1d96020157d930d1782e330926d6c662d6754ea903ea7f779dd884431
+string  zkfrost1qyqsyql3xwkurktqyq2hmycdz7pwxvyjd4kxvtt82n4fq0487auamzzyxx683wrs9swj26072tja0kada33z8ngsl494qndt43ll7garwd3az4qx9an
+ufvk    uview1lvfs3zfudj3pl6axj09t7wc0g8vgf7f98rcrmyqgtgjvxrgehte7802uptc9xt37hrauudeazeveywkd98x5ewputn0uyzadx7x3sm8nkccnraqpfvefwguwesq8s6e0hruprvkax5lw73rv2eznycd2hq3a9glq95p54ahytt8t60hm52pt6pc0czxg4
+</code></pre>
+<h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Open issues</h1>
+<ul>
+<li><strong>Identifier encoding.</strong> frost-client's DKG derives identifiers as
+<code>Identifier::derive(session_id || pubkey)</code>, and Zafe from the vault id and
+the member's identity key, so groups created by either use full 32-byte
+identifiers (frost-client's trusted dealer uses 1 to <math><mi>n</mi></math>). For their groups
+to fit, a version 2 needs a type byte followed by a short or a full
+identifier.</li>
+<li><strong>Identifiers after a refresh.</strong> Refreshing shares to remove a member keeps
+the other members' identifiers <sup><a href="#user-content-fn-frost-refresh" id="user-content-fnref-frost-refresh" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>, so a group can end up with
+identifiers 1, 2 and 4 and <math><mrow><mi>n</mi><mo>=</mo><mn>3</mn></mrow></math>. Version 1 rejects member 4 (<math><mrow><mi>i</mi><mo>></mo><mi>n</mi></mrow></math>), so
+it covers only groups whose identifiers are 1 to <math><mi>n</mi></math>, which is what Zkool
+creates. A version 2 could drop that check: the restore can match the
+identifier against the group's verifying shares when it knows them.</li>
+<li><strong>Explicit derivation.</strong> A version 2 could record the derivation, so a
+restore does not depend on trying each one, and a third derivation could be
+added without ambiguity.</li>
+<li><strong>Groups with no <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>.</strong> zcash-sign's <code>generate</code>, which Konclave
+uses, derives <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> from a random <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>
+and then discards it, so version 1 cannot hold its groups. A version 2 could
+record that <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> come from the viewing key,
+leave <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> out, and carry the viewing key itself (next item).
+Carrying only <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>, as first suggested in zcash/zips#1413, would let
+the restore catch a viewing key from another group, but not a different
+viewing key for the same group. Such groups are not quantum recoverable
+under ZIP 2005.</li>
+<li><strong>The viewing key in the string</strong>, so that a restore needs only the string.
+For a group with no <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, the viewing key is the only source of
+<math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>. A version 2 would carry the raw 96-byte
+Orchard full viewing key rather than its unified encoding, so that the
+string stays network-agnostic. With the viewing key in the string, nothing
+outside it is left to mismatch. For a group with <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>,
+<math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> is enough, since <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> follow from
+<math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math>. Either way, <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> would then come
+from the member's own backup rather than from a viewing key obtained
+elsewhere (see [Security Considerations]). A string for a group with no
+<math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math> would be about 230 characters long, or 280 with a 32-byte
+identifier (see [Rationale] on Bech32m).</li>
+<li><strong>Birthday height in version 2.</strong> A raw Orchard full viewing key does not
+carry the birthday height that zips#1401 would add to the unified encoding
+<sup><a href="#user-content-fn-zips-1401" id="user-content-fnref-zips-1401-2" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>, so a string that restores on its own would need a birthday
+field of its own, as Konclave noted in zcash/zips#1413. A height only means
+something on one network, so the field would either name the network or
+apply to the network the wallet restores on.</li>
+<li><strong>Passphrase profile.</strong> An optional version encrypting the payload with a
+memory-hard KDF and an AEAD, as Zafe does for its backups.</li>
+<li><strong>Human-readable part.</strong> <code>zkfrost</code> is kept for compatibility with existing
+backups. Should a later version use a more neutral one?</li>
+</ul>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2026.7.0 [NU6.2] or later. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0312">
+<p><a href="/upstream/zip-0312.rst">ZIP 312: FROST for Spend Authorization Multisignatures</a> <a href="#user-content-fnref-zip-0312" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0312-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-updated-orchardkeycomponents">
+<p><math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> is not derived from
+<math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, and <math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> does not commit to a <math><mrow><mi>𝗊</mi><mi>𝗄</mi></mrow></math>. Notes
+received by such a group are therefore not quantum recoverable. <a href="#user-content-fnref-protocol-updated-orchardkeycomponents" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-updated-orchardkeycomponents-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-protocol-updated-orchardkeycomponents-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-protocol-updated-orchardkeycomponents-4" data-footnote-backref="" aria-label="Back to reference 4-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-protocol-updated-orchardkeycomponents-5" data-footnote-backref="" aria-label="Back to reference 4-5" class="data-footnote-backref">↩<sup>5</sup></a></p>
+</li>
+<li id="user-content-fn-zip-2005-usagewithfrost">
+<p><a href="/upstream/zip-2005.md#usagewithfrost">ZIP 2005: Ironwood Quantum Recoverability — Usage with FROST</a> <a href="#user-content-fnref-zip-2005-usagewithfrost" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-2005-usagewithfrost-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-2005-usagewithfrost-3" data-footnote-backref="" aria-label="Back to reference 5-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-2005-usagewithfrost-4" data-footnote-backref="" aria-label="Back to reference 5-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-zip-2005-usagewithfrost-5" data-footnote-backref="" aria-label="Back to reference 5-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-zip-2005-usagewithfrost-6" data-footnote-backref="" aria-label="Back to reference 5-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-zip-2005-usagewithfrost-7" data-footnote-backref="" aria-label="Back to reference 5-7" class="data-footnote-backref">↩<sup>7</sup></a></p>
+</li>
+<li id="user-content-fn-zip-2005">
+<p><a href="/upstream/zip-2005.md">ZIP 2005: Ironwood Quantum Recoverability</a> <a href="#user-content-fnref-zip-2005" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zkool-forum">
+<p><a href="https://forum.zcashcommunity.com/t/56660/5">Hanh, Zcash Community Forum, 2026-07-15</a> <a href="#user-content-fnref-zkool-forum" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0312-key-generation">
+<p><a href="/upstream/zip-0312.rst#key-generation">ZIP 312: FROST for Spend Authorization Multisignatures — Key Generation</a> <a href="#user-content-fnref-zip-0312-key-generation" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zips-1401">
+<p><a href="https://github.com/zcash/zips/issues/1401">zcash/zips#1401: Assign a Metadata Typecode for viewing key birthday height</a> <a href="#user-content-fnref-zips-1401" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zips-1401-2" data-footnote-backref="" aria-label="Back to reference 9-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-bip-0350">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki">BIP 350: Bech32m format for v1+ witness addresses</a> <a href="#user-content-fnref-bip-0350" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-bip-0350-2" data-footnote-backref="" aria-label="Back to reference 10-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0316">
+<p><a href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a> <a href="#user-content-fnref-zip-0316" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0316-2" data-footnote-backref="" aria-label="Back to reference 11-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0316-3" data-footnote-backref="" aria-label="Back to reference 11-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0173">
+<p><a href="/upstream/zip-0173.rst">ZIP 173: Bech32 Format</a> <a href="#user-content-fnref-zip-0173" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0173-2" data-footnote-backref="" aria-label="Back to reference 12-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zkool-backup">
+<p><a href="https://github.com/hhanh00/zkool2/blob/4ad5a89e09e939a415dd7376ec94f0a241f98c8c/rust/src/frost/backup.rs">Zkool: the zkfrost member backup string</a> <a href="#user-content-fnref-zkool-backup" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-frost-zec-backup">
+<p><a href="https://github.com/OpenPGP-Wallet/frost-zec/blob/master/src/backup.rs">frost-zec: member backup strings</a> <a href="#user-content-fnref-frost-zec-backup" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zkool-padding-fix">
+<p><a href="https://github.com/hhanh00/zkool2/pull/1468">hhanh00/zkool2#1468: Bech32 decoders reject non-canonical padding</a> <a href="#user-content-fnref-zkool-padding-fix" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-frost-refresh">
+<p><a href="https://github.com/ZcashFoundation/frost/blob/main/frost-core/src/keys/refresh.rs">ZcashFoundation/frost: frost-core <code>keys::refresh</code></a> <a href="#user-content-fnref-frost-refresh" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

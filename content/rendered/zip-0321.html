@@ -1,0 +1,401 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot;, &quot;REQUIRED&quot;, &quot;MUST NOT&quot;, &quot;SHOULD&quot;, and &quot;MAY&quot; in this document
+are to be interpreted as described in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they
+appear in all capitals.</p>
+<p>The terms &quot;Testnet&quot; and &quot;Mainnet&quot; are to be interpreted as described in
+section 3.11 of the Zcash Protocol Specification <a class="brackets" href="#protocol-networks" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a>.</p>
+<p>The terms &quot;Custom Asset&quot;, &quot;Asset Identifier&quot;, and &quot;asset description&quot; in this
+document are to be interpreted as described in ZIP 227 <a class="brackets" href="#zip-0227" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p>
+<p>The terms below are to be interpreted as follows:</p>
+<dl class="simple">
+<dt>payment</dt>
+<dd><p>A transfer of funds implemented by a shielded or transparent output of a Zcash
+transaction.</p>
+</dd>
+<dt>payment request</dt>
+<dd><p>A request for a wallet to construct a single Zcash transaction containing one or
+more payments.</p>
+</dd>
+</dl>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP proposes a standard format for payment request URIs. Wallets that
+recognize this format enable users to construct transactions simply by
+clicking links on webpages or scanning QR codes.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>In order for a robust transactional ecosystem to evolve for Zcash, it is
+necessary for vendors to be able to issue requests for payment. At the time
+of first writing this ZIP, the best option available was to manually specify
+a payment address, a payment amount, and potentially memo field content.
+Of these three components, existing wallets only provided functionality for
+reading payment addresses in a semi-automated fashion. It was then necessary
+for the user to manually enter payment amounts and any associated memo
+information, which is tedious and may be error-prone, particularly if a
+payment is intended for multiple recipients or the memo field information
+contains structured data that must be faithfully reproduced.</p>
+<p>This ZIP seeks to eliminate these issues by proposing a standard format that
+wallet vendors may support so that human intervention is required only for
+approval, not creation, of such a transaction.</p>
+<p>In Bitcoin, two different standards exist to permit vendors to issue payment
+requests that are understood by wallets: BIP 21 <a class="brackets" href="#bip-0021" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> and BIP 70
+<a class="brackets" href="#bip-0070" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>. BIP 21 provides a URI format that can be interpreted by a wallet
+to construct simple, single-recipient transactions; BIP 70 uses a protobuf-based
+protocol that permits requests for transactions of arbitrary complexity.</p>
+<p>The format proposed in this ZIP seeks a middle ground between these approaches:
+to provide a URI-based format which supports both the trivial use case and
+the slightly-more-complex situation where a transaction may include payments to
+multiple recipients.</p>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>The format must be a valid URI format <a class="brackets" href="#rfc3986" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>The format must permit the representation of one or more tuples of
+payment address, amount, asset (if applicable), and optional memo.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="uri-syntax"><a class="hanchor" href="#uri-syntax" aria-hidden="true" tabindex="-1">#</a>URI Syntax</h2>
+<p>The following syntax specification uses ABNF <a class="brackets" href="#rfc5234" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>.</p>
+<pre class="code EBNF literal-block"><code>zcashurn        = &quot;zcash:&quot; ( zcashaddress [ &quot;?&quot; zcashparams ] / &quot;?&quot; zcashparams )
+zcashaddress    = 1*( ALPHA / DIGIT )
+zcashparams     = zcashparam [ &quot;&amp;&quot; zcashparams ]
+zcashparam      = [ addrparam / amountparam / assetparam / memoparam / messageparam / labelparam / otherreqparam / otherparam ]
+NONZERO         = %x31-39
+DIGIT           = %x30-39
+paramindex      = &quot;.&quot; NONZERO 0*3DIGIT
+addrparam       = &quot;address&quot;   [ paramindex ] &quot;=&quot; zcashaddress
+amountparam     = &quot;amount&quot;    [ paramindex ] &quot;=&quot; 1*DIGIT [ &quot;.&quot; 1*8DIGIT ]
+assetparam      = &quot;req-asset&quot; [ paramindex ] &quot;=&quot; *base64url
+labelparam      = &quot;label&quot;     [ paramindex ] &quot;=&quot; *qchar
+memoparam       = &quot;memo&quot;      [ paramindex ] &quot;=&quot; *base64url
+messageparam    = &quot;message&quot;   [ paramindex ] &quot;=&quot; *qchar
+paramname       = ALPHA *( ALPHA / DIGIT / &quot;+&quot; / &quot;-&quot; )
+otherreqparam   = &quot;req-&quot; paramname [ paramindex ] [ &quot;=&quot; *qchar ]
+otherparam      = paramname [ paramindex ] [ &quot;=&quot; *qchar ]
+qchar           = unreserved / pct-encoded / allowed-delims / &quot;:&quot; / &quot;&#64;&quot;
+allowed-delims  = &quot;!&quot; / &quot;$&quot; / &quot;'&quot; / &quot;(&quot; / &quot;)&quot; / &quot;*&quot; / &quot;+&quot; / &quot;,&quot; / &quot;;&quot;</code></pre>
+<p>Here, <span class="docutils literal">ALPHA</span>, <span class="docutils literal">unreserved</span> and <span class="docutils literal"><span class="pre">pct-encoded</span></span> are as defined in
+<a class="brackets" href="#rfc3986" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>. &quot;base64url&quot; is defined as in <a class="brackets" href="#base64url" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> with padding omitted.
+(Note that this uses a different alphabet to the usual base64; the values 62 and
+63 in the alphabet are encoded as <span class="docutils literal">-</span> and <span class="docutils literal">_</span> respectively. Implementations
+MUST NOT accept the characters <span class="docutils literal">+</span>, <span class="docutils literal">/</span>, and <span class="docutils literal">=</span> that occur only in the
+usual base64.)</p>
+<p>Productions of the form <span class="docutils literal">1*x</span> indicate one or more successive instances of the
+production <span class="docutils literal">x</span>. Productions of the form <span class="docutils literal"><span class="pre">&lt;n&gt;*&lt;m&gt;x</span></span> indicate at least <cite>&lt;n&gt;</cite> and
+at most <cite>&lt;m&gt;</cite> instances of production <span class="docutils literal">x</span>.</p>
+<p>Note that this grammar does not allow percent encoding outside the productions
+that use <span class="docutils literal">qchar</span>, i.e. the values of label, message, <span class="docutils literal">otherreqparam</span>, and
+<span class="docutils literal">otherparam</span> parameters.</p>
+<p>Purported ZIP 321 URIs that cannot be parsed according to the above grammar
+MUST NOT be accepted.</p>
+</section>
+<h2 id="uri-semantics"><a class="hanchor" href="#uri-semantics" aria-hidden="true" tabindex="-1">#</a>URI Semantics</h2>
+<p>A ZIP-321 URI represents a request for the construction of a transaction having
+one or more <em>payments</em>. In the case that only a single payment is being
+requested, the recipient address SHOULD be included in the <span class="docutils literal"><span class="pre">hier-part</span></span> component
+of the RFC 3986 URI; otherwise, multiple recipient addresses can be specified
+using <span class="docutils literal">addrparam</span> parameters with different indices.</p>
+<p>Addresses, amounts, labels, and messages sharing the same <span class="docutils literal">paramindex</span>
+(including the empty <span class="docutils literal">paramindex</span>) are interpreted to be associated with
+the same payment for the purposes of payment construction. A <span class="docutils literal">paramindex</span>
+MUST NOT have leading zero(s).  There is no significance to the ordering of
+parameters, and <span class="docutils literal">paramindex</span> values need not be sequential.</p>
+<p>Implementations SHOULD construct a single transaction that pays all of the
+specified instances of <span class="docutils literal">zcashaddress</span>. The number of such addresses is
+therefore limited by restrictions on transaction construction. In general this
+limit depends, at least, on the mix of destination address types. For example,
+if all payments were to Sapling payment addresses (each specified either
+directly or as a Receiver of a Unified Address), the limit described in
+<a class="brackets" href="#protocol-saplingbalance" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a> implies that constructing a transaction for a
+ZIP-321 URI might fail if it requests more than 2109 distinct payments. The
+effective limit might be lower if payments to Orchard addresses or other future
+types of address are included.</p>
+<p>A URI of the form <span class="docutils literal"><span class="pre">zcash:&lt;address&gt;?...</span></span> MUST be considered equivalent to a
+URI of the form <span class="docutils literal"><span class="pre">zcash:?address=&lt;address&gt;&amp;...</span></span> where <span class="docutils literal">&lt;address&gt;</span> is an
+instance of <span class="docutils literal">zcashaddress</span>.</p>
+<p>If there are any non-address parameters having a given <span class="docutils literal">paramindex</span>, then
+the URI MUST contain an address parameter having that <span class="docutils literal">paramindex</span>. There
+MUST NOT be more than one occurrence of a given parameter and <span class="docutils literal">paramindex</span>.</p>
+<p>A URI containing both an <span class="docutils literal">amount</span> parameter and a <span class="docutils literal"><span class="pre">req-asset</span></span> parameter
+at the same <span class="docutils literal">paramindex</span> MUST be rejected.</p>
+<p>Implementations SHOULD check that each instance of <span class="docutils literal">zcashaddress</span> is a valid
+string encoding of an address, other than a Sprout address, as specified in the
+subsections of section 5.6 (Encoding of Addresses and Keys) of the Zcash protocol
+specification <a class="brackets" href="#protocol-addressandkeyencoding" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a>. At the time of writing this
+includes the following address formats:</p>
+<ul class="simple">
+<li><p>a Zcash transparent address, as defined in <a class="brackets" href="#protocol-transparentaddrencoding" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>,
+using Base58Check <a class="brackets" href="#base58check" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>;</p></li>
+<li><p>a Zcash Sapling payment address as defined in <a class="brackets" href="#protocol-saplingpaymentaddrencoding" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a>,
+using Bech32 <a class="brackets" href="#zip-0173" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>;</p></li>
+<li><p>a Zcash Unified Address as defined in <a class="brackets" href="#protocol-unifiedencodings" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a> and <a class="brackets" href="#zip-0316" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>,
+using Bech32m <a class="brackets" href="#bip-0350" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+<p>New address formats may be added to <a class="brackets" href="#protocol-addressandkeyencoding" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a> in future,
+and these SHOULD be supported whether or not this ZIP is updated to explicitly
+include them.</p>
+<p>If the context of whether the payment URI is intended for Testnet or Mainnet is
+available, then each address SHOULD be checked to be for the correct network.</p>
+<p>All of the requirements of ZIP 316 <a class="brackets" href="#zip-0316" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a> apply in the case of payments
+to Unified Addresses.</p>
+<p>Sprout addresses MUST NOT be supported in payment requests. The rationale for
+this is that transfers to Sprout addresses are, since activation of the Canopy
+network upgrade, restricted by ZIP 211 <a class="brackets" href="#zip-0211" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. It cannot generally be
+expected that senders will have funds available in the Sprout pool with which
+to satisfy requests for payment to a Sprout address. If the same rationale
+applies to other address types in future, consideration should be given to
+updating this ZIP to exclude these types, as part of their deprecation.</p>
+</section>
+<h2 id="custom-assets"><a class="hanchor" href="#custom-assets" aria-hidden="true" tabindex="-1">#</a>Custom Assets</h2>
+<p>The <span class="docutils literal"><span class="pre">req-asset</span></span> parameter permits the specification of both an Asset Identifier
+and an amount for a payment. It is encoded as follows:</p>
+<p>$hspace{2em}mathtt{asset} = mathsf{base64url}big([mathtt{0x00}] ,||, mathsf{I2LEOSP}_{64}(value) ,||, mathsf{EncodeAssetId}(mathsf{AssetId})big)$</p>
+<p>The leading version byte (<span class="docutils literal">0x00</span>) indicates the encoding format. For version
+<span class="docutils literal">0x00</span>, the next 8 bytes represent the amount as an unsigned 64-bit integer in
+little-endian byte order, followed by the encoded <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math>, as defined
+in ZIP 227 <a class="brackets" href="#zip-0227-asset-identifier" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p>
+<p>Future versions MAY define different structures or lengths after the version
+byte; implementations MUST use the version value to determine how to decode
+the remainder of the parameter.</p>
+<p>If no <span class="docutils literal"><span class="pre">req-asset</span></span> parameter is present, the payment MUST be considered to
+be for ZEC, and the transfer amount in ZEC is specified using the <span class="docutils literal">amount</span>
+parameter.</p>
+<p>Only Orchard receivers are valid for Custom Asset payments. Therefore, a payment
+request for a Custom Asset MUST use a Unified Address that encodes at least one
+Orchard receiver.</p>
+<h3 id="example"><a class="hanchor" href="#example" aria-hidden="true" tabindex="-1">#</a>Example</h3>
+<details>
+<summary>Click to show/hide</summary><p>Suppose the asset description is &quot;USD testing&quot;, with an invented digest and
+issuer key as inputs. The resulting 66-byte value is:</p>
+<pre class="literal-block">0000deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff</pre>
+<p>We want to create a URI to request a payment of <span class="docutils literal">10055</span> minimal units of
+this asset (hypothetically representing 100.55 USD):</p>
+<pre class="literal-block">100.55 USD = 10055 minimal units
+= 0x0000000000002747
+= 47 27 00 00 00 00 00 00 (8 bytes, little-endian)</pre>
+<p>Concatenating the version byte, amount, and asset id gives (hex):</p>
+<pre class="literal-block">00
+4727000000000000
+0000deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff</pre>
+<p>Base64url-encoded (unpadded) for the entire 75-byte blob, this becomes
+(100 characters):</p>
+<pre class="literal-block">AEcnAAAAAAAAAADerb7v3q2-796tvu_erb7v3q2-796tvu_erb7v3q2-7xEiM0RVZneImQCqu8zd7v8AESIzRFVmd4iZqrvM3e7_</pre>
+<p>A payment URI using this <span class="docutils literal"><span class="pre">req-asset</span></span> could look like:</p>
+<pre class="literal-block">zcash:utest1q9d6gqg...7y0d9zj7ns2ceqk4j0d6ngqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7e4t0p
+  ?req-asset=AEcnAAAAAAAAAADerb7v3q2-796tvu_erb7v3q2-796tvu_erb7v3q2-7xEiM0RVZneImQCqu8zd7v8AESIzRFVmd4iZqrvM3e7_</pre>
+</details></section>
+</section>
+<h2 id="zec-transfer-amount"><a class="hanchor" href="#zec-transfer-amount" aria-hidden="true" tabindex="-1">#</a>ZEC Transfer Amount</h2>
+<p>If an <span class="docutils literal">amount</span> parameter is provided, its value is interpreted as decimal ZEC.</p>
+<p>If a decimal fraction is present then a period (<cite>.</cite>) MUST be used as the separating
+character to separate the whole number from the decimal fraction, and both the
+whole number and the decimal fraction MUST be nonempty. No other separators (such
+as commas for grouping or thousands) are permitted. Leading zeros in the whole
+number or trailing zeros in the decimal fraction are ignored. There MUST NOT be
+more than 8 digits in the decimal fraction.</p>
+<p>For example,</p>
+<ul class="simple">
+<li><p><span class="docutils literal">amount=50.00</span> or <span class="docutils literal">amount=50</span> or <span class="docutils literal">amount=050</span> is treated as 50 ZEC;</p></li>
+<li><p><span class="docutils literal">amount=0.5</span> or <span class="docutils literal">amount=00.500</span> is treated as 0.5 ZEC; and</p></li>
+<li><p><span class="docutils literal">amount=50,000.00</span> or <span class="docutils literal">amount=50,00</span> or <span class="docutils literal">amount=50.</span> or <span class="docutils literal"><span class="pre">amount=.5</span></span>
+or <span class="docutils literal">amount=0.123456789</span> are invalid.</p></li>
+</ul>
+<p>The amount MUST NOT be greater than 21000000 ZEC (in general, ZEC monetary amounts
+in Zcash cannot be greater than this value).</p>
+</section>
+<h2 id="query-keys"><a class="hanchor" href="#query-keys" aria-hidden="true" tabindex="-1">#</a>Query Keys</h2>
+<dl class="simple">
+<dt>label</dt>
+<dd><p>Label for an address (e.g. name of receiver). If a label is present at
+a <span class="docutils literal">paramindex</span>, a client rendering a payment for inspection by the user
+SHOULD display this label (if possible) as well as the associated address.
+If the label is displayed, it MUST be identifiable as distinct from the address.</p>
+</dd>
+<dt>address</dt>
+<dd><p>Zcash address string (shielded or transparent)</p>
+</dd>
+<dt>memo</dt>
+<dd><p>Contents for the Zcash shielded memo field, encoded as base64url without
+<span class="docutils literal">=</span> padding. The decoded memo contents MUST NOT exceed 512 bytes, and
+if shorter, will be filled with trailing zeros to 512 bytes.
+Parsers MUST consider the entire URI invalid if the address associated with
+the same <span class="docutils literal">paramindex</span> does not permit the use of memos (i.e. it is a
+transparent address).</p>
+</dd>
+<dt>message</dt>
+<dd><p>Message that clients can display for the purpose of presenting descriptive
+information about the payment at the associated <span class="docutils literal">paramindex</span> to the user.</p>
+</dd>
+</dl>
+</section>
+<h2 id="examples"><a class="hanchor" href="#examples" aria-hidden="true" tabindex="-1">#</a>Examples</h2>
+<h3 id="valid-examples"><a class="hanchor" href="#valid-examples" aria-hidden="true" tabindex="-1">#</a>Valid examples</h3>
+<pre class="literal-block">zcash:ztestsapling10yy2ex5dcqkclhc7z7yrnjq2z6feyjad56ptwlfgmy77dmaqqrl9gyhprdx59qgmsnyfska2kez?amount=1&amp;memo=VGhpcyBpcyBhIHNpbXBsZSBtZW1vLg&amp;message=Thank%20you%20for%20your%20purchase</pre>
+<p>A valid payment request for a payment of 1 ZEC to a single shielded Sapling
+address, with a base64url-encoded memo and a message for display by the wallet.</p>
+<pre class="literal-block">zcash:?address=tmEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU&amp;amount=123.456&amp;address.1=ztestsapling10yy2ex5dcqkclhc7z7yrnjq2z6feyjad56ptwlfgmy77dmaqqrl9gyhprdx59qgmsnyfska2kez&amp;amount.1=0.789&amp;memo.1=VGhpcyBpcyBhIHVuaWNvZGUgbWVtbyDinKjwn6aE8J-PhvCfjok</pre>
+<p>A valid payment request with one transparent and one shielded Sapling recipient
+address, with a base64url-encoded Unicode memo for the shielded recipient.</p>
+<pre class="literal-block">zcash:?address=utest1qpsw0d7s6e5t7dv8x8yyw5e4v4jh8p5kux6g5v4kthh0nngwh2c5ue2x8p3wxy7qsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7egr7p
+  &amp;req-asset=AEcnAAAAAAAAAADerb7v3q2-796tvu_erb7v3q2-796tvu_erb7v3q2-7xEiM0RVZneImQCqu8zd7v8AESIzRFVmd4iZqrvM3e7_
+  &amp;address.1=utest1qplk9cnv5u2r0z8a3g7yyjv4x3v5h4d0nx3uq36zj2u4p6h9ty4g8r9xk2q0d2n7qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq4u3aq
+  &amp;req-asset.1=AJAIAwAAAAAAADerb7v3q2-796tvu_erb7v3q2-796tvu_erb7v3q2-7xEiM0RVZneImQCqu8zd7v8AESIzRFVmd4iZqrvM3e7_</pre>
+<p>This is a valid payment request with two recipients, each using a distinct Unified
+Address that includes an Orchard receiver. Each <span class="docutils literal"><span class="pre">req-asset</span></span> value encodes, in order,
+a version byte (<span class="docutils literal">0x00</span>), an 8-byte unsigned integer amount in minimal units, and
+a 66-byte <span class="docutils literal">EncodeAssetId</span>.</p>
+<p>In this example both payments reference the same asset: the first requests 10 055
+minimal units (100.55 &quot;USD testing&quot;), and the second requests 250 000 minimal
+units (2 500.00 &quot;USD testing&quot;).</p>
+</section>
+<h3 id="invalid-examples"><a class="hanchor" href="#invalid-examples" aria-hidden="true" tabindex="-1">#</a>Invalid Examples</h3>
+<pre class="literal-block">zcash:?amount=3491405.05201255&amp;address.1=ztestsapling10yy2ex5dcqkclhc7z7yrnjq2z6feyjad56ptwlfgmy77dmaqqrl9gyhprdx59qgmsnyfska2kez&amp;amount.1=5740296.87793245</pre>
+<p>An invalid payment request; this is missing a payment address with empty <span class="docutils literal">paramindex</span>.</p>
+<pre class="literal-block">zcash:?address=tmEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU&amp;amount=1&amp;amount.1=2&amp;address.2=ztestsapling10yy2ex5dcqkclhc7z7yrnjq2z6feyjad56ptwlfgmy77dmaqqrl9gyhprdx59qgmsnyfska2kez</pre>
+<p>Also invalid; this request is missing <span class="docutils literal">address.1=</span>.</p>
+<pre class="literal-block">zcash:?address.0=ztestsapling10yy2ex5dcqkclhc7z7yrnjq2z6feyjad56ptwlfgmy77dmaqqrl9gyhprdx59qgmsnyfska2kez&amp;amount.0=2</pre>
+<p>Also invalid; <span class="docutils literal">address.0=</span> and <span class="docutils literal">amount.0=</span> are not permitted as leading 0s are
+forbidden in <span class="docutils literal">paramindex</span>.</p>
+<pre class="literal-block">zcash:?amount=1.234&amp;amount=2.345&amp;address=tmEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU
+
+zcash:?amount.1=1.234&amp;amount.1=2.345&amp;address.1=tmEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU</pre>
+<p>Also invalid; duplicate <span class="docutils literal">amount=</span> or <span class="docutils literal">amount.1=</span> fields</p>
+<pre class="literal-block">zcash:tmEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU?amount=1%30
+zcash:tmEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU?%61mount=1
+zcash:%74mEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU?amount=1</pre>
+<p>Invalid; percent encoding is only allowed in <span class="docutils literal">qchar</span> productions, which do
+not include addresses, amounts, or parameter names.</p>
+<pre class="literal-block">zcash://tmEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU?amount=1</pre>
+<p>Invalid; the grammar does not allow <span class="docutils literal">//</span>. ZIP 321 URIs are not
+&quot;hierarchical URIs&quot; in the sense defined in <a class="brackets" href="#rfc3986" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> section 1.2.3,
+and do not have an &quot;authority component&quot;.</p>
+<pre class="literal-block">zcash:?address=ztestsapling10yy2ex5dcqkclhc7z7yrnjq2z6feyjad56ptwlfgmy77dmaqqrl9gyhprdx59qgmsnyfska2kez
+  &amp;amount=5
+  &amp;req-asset=not&#64;valid!chars</pre>
+<p>Invalid:</p>
+<ul class="simple">
+<li><p>A Sapling address is used with a <span class="docutils literal"><span class="pre">req-asset</span></span> parameter. Sapling receivers do not
+support Custom Asset payments (only Unified Addresses with an Orchard receiver do).</p></li>
+<li><p>The <span class="docutils literal"><span class="pre">req-asset</span></span> value contains characters (e.g., <span class="docutils literal">&#64;</span>, <span class="docutils literal">!</span>) that are not
+permitted in base64url.</p></li>
+<li><p>The <span class="docutils literal">amount</span> parameter is present together with <span class="docutils literal"><span class="pre">req-asset</span></span>. These parameters
+are mutually exclusive.</p></li>
+</ul>
+</section>
+</section>
+<h2 id="forward-compatibility"><a class="hanchor" href="#forward-compatibility" aria-hidden="true" tabindex="-1">#</a>Forward compatibility</h2>
+<p>Variables which are prefixed with a <span class="docutils literal">req-</span> are considered required. If a
+parser does not recognize any variables which are prefixed with <span class="docutils literal">req-</span>, it
+MUST consider the entire URI invalid. Any other variables that are not
+recognized, but that are not prefixed with a <span class="docutils literal">req-</span>, SHOULD be ignored.</p>
+<p><span class="docutils literal">req-</span> is potentially part of a given parameter name that may be defined
+in a future version of this ZIP, not a modifier that can be applied to an
+arbitrary parameter. None of the originally defined parameters (<span class="docutils literal">address</span>,
+<span class="docutils literal">amount</span>, <span class="docutils literal">label</span>, <span class="docutils literal">memo</span>, and <span class="docutils literal">message</span>) include the <span class="docutils literal">req-</span>
+prefix, because these parameters are REQUIRED to be understood by all
+conformant ZIP 321 URI parsers.</p>
+</section>
+<h2 id="backward-compatibility"><a class="hanchor" href="#backward-compatibility" aria-hidden="true" tabindex="-1">#</a>Backward compatibility</h2>
+<p>As this ZIP is written, several clients already implement a <span class="docutils literal">zcash:</span> URI
+scheme similar to this one, however usually without the additional <span class="docutils literal">req-</span>
+prefix requirement or the facility to specify multiple payments using
+<span class="docutils literal">paramindex</span>. These implementations also generally do not support URIs,
+even with a single payment, where the address is specified as an <span class="docutils literal">address=</span>
+query parameter rather than in the <span class="docutils literal"><span class="pre">hier-part</span></span> of the URI. They may also
+not support the <span class="docutils literal">memo</span> parameter, or may not treat it as base64url-encoded.</p>
+</section>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc5234" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc5234.html">RFC 5234: Augmented BNF for Syntax Specifications: ABNF</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc3986" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-6">1</a>,<a role="doc-backlink" href="#footnote-reference-8">2</a>,<a role="doc-backlink" href="#footnote-reference-23">3</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc3986.html#appendix-A">RFC 3986: URI Generic Syntax, Appendix A. Collected ABNF for URI</a></p>
+</aside>
+<aside class="footnote brackets" id="base64url" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc4648.html#section-5">RFC 4648 section 5: Base64 Encoding with URL and Filename Safe Alphabet</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0021" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki">BIP 21: URI Scheme</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0070" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki">BIP 70: Payment Protocol</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0350" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-18">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki">BIP 350: Bech32m format for v1+ witness addresses</a></p>
+</aside>
+<aside class="footnote brackets" id="base58check" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/Base58Check_encoding">Bitcoin Wiki: Base58Check encoding</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0173" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-15">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0173.rst">ZIP 173: Bech32 Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0211" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-21">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0211.rst">ZIP 211: Disabling Addition of New Value to the Sprout Value Pool</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0227" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0227.rst">ZIP 227: Issuance of Zcash Shielded Assets</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0227-asset-identifier" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-22">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0227.rst#asset-identifier">ZIP 227: Issuance of Zcash Shielded Assets — Asset Identifier</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0316" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-17">1</a>,<a role="doc-backlink" href="#footnote-reference-20">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">14</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2023.4.0. Section 3.11: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingbalance" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">15</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingbalance">Zcash Protocol Specification, Version 2023.4.0. Section 4.12: Balance and Binding Signature (Sapling)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-addressandkeyencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-11">1</a>,<a role="doc-backlink" href="#footnote-reference-19">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#addressandkeyencoding">Zcash Protocol Specification, Version 2023.4.0. Section 5.6: Encodings of Addresses and Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-transparentaddrencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">17</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#transparentaddrencoding">Zcash Protocol Specification, Version 2023.4.0. Section 5.6.1.1: Transparent Addresses</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingpaymentaddrencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-14">18</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingpaymentaddrencoding">Zcash Protocol Specification, Version 2023.4.0. Section 5.6.3.1: Sapling Payment Addresses</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-unifiedencodings" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-16">19</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#unifiedencodings">Zcash Protocol Specification, Version 2023.4.0. Section 5.6.4.1: Unified Payment Addresses and Viewing Keys</a></p>
+</aside>
+</aside>
+</section>

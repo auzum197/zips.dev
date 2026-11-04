@@ -1,0 +1,651 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot; and &quot;MAY&quot; in this document are to be interpreted as described in
+BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they appear in all capitals.</p>
+<p>The character § is used when referring to sections of the Zcash Protocol Specification
+<a class="brackets" href="#protocol" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This proposal defines an update to the Zcash peer-to-peer transaction format to include
+support for data elements required to support the Orchard protocol <a class="brackets" href="#protocol" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>.
+The new transaction format defines well-bounded regions of the serialized form to serve
+each of the existing pools of funds, and adds and describes a new region containing
+Orchard-specific elements.</p>
+<p>This ZIP also depends upon and defines modifications to the computation of the values
+<strong>TxId Digest</strong>, <strong>Signature Digest</strong>, and <strong>Authorizing Data Commitment</strong> defined by ZIP
+244 <a class="brackets" href="#zip-0244" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The new Orchard shielded pool requires serialized data elements that are distinct from
+any previous Zcash transaction. In addition, with the activation of ZIP 244, the
+serialized transaction format will no longer be consensus-critical. It makes sense at this
+point to define a format that can readily accommodate future extension in a systematic
+fashion, where elements required for support for a given pool are kept separate.</p>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>The new format must fully support the Orchard protocol.</p>
+<p>The new format should lend itself to future extension or pruning to add or remove
+value pools.</p>
+<p>The computation of the non-malleable transaction identifier hash must include all
+newly incorporated elements except those that attest to transaction validity.</p>
+<p>The computation of the commitment to authorizing data for a transaction must include
+all newly incorporated elements that attest to transaction validity.</p>
+</section>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<p>More general forms of extensibility, such as definining a key/value format that
+allows for parsers that are unaware of some components, are not required.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>All fields in this specification are encoded as little-endian.</p>
+<p>The Zcash transaction format for transaction version 5 is as follows:</p>
+<h2 id="transaction-format"><a class="hanchor" href="#transaction-format" aria-hidden="true" tabindex="-1">#</a>Transaction Format</h2>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td colspan="4"><p><strong>Common Transaction Fields</strong></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">4</span></p></td>
+<td><p><span class="docutils literal">header</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><dl class="simple">
+<dt>Contains:</dt>
+<dd><ul class="simple">
+<li><p><span class="docutils literal">fOverwintered</span> flag (bit 31, always set)</p></li>
+<li><p><span class="docutils literal">version</span> (bits 30 .. 0) – transaction version.</p></li>
+</ul>
+</dd>
+</dl>
+</td>
+</tr>
+<tr><td><p><span class="docutils literal">4</span></p></td>
+<td><p><span class="docutils literal">nVersionGroupId</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>Version group ID (nonzero, specified in § 7.1.2).</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">4</span></p></td>
+<td><p><span class="docutils literal">nConsensusBranchId</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>Consensus branch ID (nonzero, constrained in § 7.1.2).</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">4</span></p></td>
+<td><p><span class="docutils literal">lock_time</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>Unix-epoch UTC time or block height, encoded as in Bitcoin.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">4</span></p></td>
+<td><p><span class="docutils literal">nExpiryHeight</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>A block height in the range {1 .. 499999999} after which
+the transaction will expire, or 0 to disable expiry.
+[ZIP-203]</p></td>
+</tr>
+<tr><td colspan="4"><p><strong>Transparent Transaction Fields</strong></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">tx_in_count</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of transparent inputs in <span class="docutils literal">tx_in</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">tx_in</span></p></td>
+<td><p><span class="docutils literal">tx_in</span></p></td>
+<td><p>Transparent inputs, encoded as in Bitcoin.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">tx_out_count</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of transparent outputs in <span class="docutils literal">tx_out</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">tx_out</span></p></td>
+<td><p><span class="docutils literal">tx_out</span></p></td>
+<td><p>Transparent outputs, encoded as in Bitcoin.</p></td>
+</tr>
+<tr><td colspan="4"><p><strong>Sapling Transaction Fields</strong></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">nSpendsSapling</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of Sapling Spend descriptions in <span class="docutils literal">vSpendsSapling</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">96 * nSpendsSapling</span></p></td>
+<td><p><span class="docutils literal">vSpendsSapling</span></p></td>
+<td><p><span class="docutils literal">SpendDescriptionV5[nSpendsSapling]</span></p></td>
+<td><p>A sequence of Sapling Spend descriptions, encoded per
+protocol §7.3 ‘Spend Description Encoding and Consensus’.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">nOutputsSapling</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of Sapling Output Decriptions in <span class="docutils literal">vOutputsSapling</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">756 * nOutputsSapling</span></p></td>
+<td><p><span class="docutils literal">vOutputsSapling</span></p></td>
+<td><p><span class="docutils literal">OutputDescriptionV5[nOutputsSapling]</span></p></td>
+<td><p>A sequence of Sapling Output descriptions, encoded per
+protocol §7.4 ‘Output Description Encoding and Consensus’.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">8</span></p></td>
+<td><p><span class="docutils literal">valueBalanceSapling</span></p></td>
+<td><p><span class="docutils literal">int64</span></p></td>
+<td><p>The net value of Sapling Spends minus Outputs</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">anchorSapling</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A root of the Sapling note commitment tree
+at some block height in the past.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">192 * nSpendsSapling</span></p></td>
+<td><p><span class="docutils literal">vSpendProofsSapling</span></p></td>
+<td><p><span class="docutils literal">byte[192 * nSpendsSapling]</span></p></td>
+<td><p>Encodings of the zk-SNARK proofs for each Sapling Spend.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">64 * nSpendsSapling</span></p></td>
+<td><p><span class="docutils literal">vSpendAuthSigsSapling</span></p></td>
+<td><p><span class="docutils literal">byte[64 * nSpendsSapling]</span></p></td>
+<td><p>Authorizing signatures for each Sapling Spend.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">192 * nOutputsSapling</span></p></td>
+<td><p><span class="docutils literal">vOutputProofsSapling</span></p></td>
+<td><p><span class="docutils literal">byte[192 * nOutputsSapling]</span></p></td>
+<td><p>Encodings of the zk-SNARK proofs for each Sapling Output.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">64</span></p></td>
+<td><p><span class="docutils literal">bindingSigSapling</span></p></td>
+<td><p><span class="docutils literal">byte[64]</span></p></td>
+<td><p>A Sapling binding signature on the SIGHASH transaction hash.</p></td>
+</tr>
+<tr><td colspan="4"><p><strong>Orchard Transaction Fields</strong></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">nActionsOrchard</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>The number of Orchard Action descriptions in
+<span class="docutils literal">vActionsOrchard</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">820 * nActionsOrchard</span></p></td>
+<td><p><span class="docutils literal">vActionsOrchard</span></p></td>
+<td><p><span class="docutils literal">OrchardAction[nActionsOrchard]</span></p></td>
+<td><p>A sequence of Orchard Action descriptions, encoded per
+§7.5 ‘Action Description Encoding and Consensus’.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">1</span></p></td>
+<td><p><span class="docutils literal">flagsOrchard</span></p></td>
+<td><p><span class="docutils literal">byte</span></p></td>
+<td><dl class="simple">
+<dt>An 8-bit value representing a set of flags. Ordered from LSB to MSB:</dt>
+<dd><ul class="simple">
+<li><p><span class="docutils literal">enableSpendsOrchard</span></p></li>
+<li><p><span class="docutils literal">enableOutputsOrchard</span></p></li>
+<li><p>The remaining bits are set to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+  <mspace width="-0.1667em"></mspace>
+</math>.</p></li>
+</ul>
+</dd>
+</dl>
+</td>
+</tr>
+<tr><td><p><span class="docutils literal">8</span></p></td>
+<td><p><span class="docutils literal">valueBalanceOrchard</span></p></td>
+<td><p><span class="docutils literal">int64</span></p></td>
+<td><p>The net value of Orchard spends minus outputs.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">anchorOrchard</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A root of the Orchard note commitment tree at some block
+height in the past.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">sizeProofsOrchard</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Length in bytes of <span class="docutils literal">proofsOrchard</span>. Value is
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>2720</mn>
+  <mo>+</mo>
+  <mn>2272</mn>
+  <mo>⋅</mo>
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝚜</mi>
+    <mi>𝙾</mi>
+    <mi>𝚛</mi>
+    <mi>𝚌</mi>
+    <mi>𝚑</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+    <mi>𝚍</mi>
+  </mrow>
+  <mspace width="-0.1667em"></mspace>
+</math>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">sizeProofsOrchard</span></p></td>
+<td><p><span class="docutils literal">proofsOrchard</span></p></td>
+<td><p><span class="docutils literal">byte[sizeProofsOrchard]</span></p></td>
+<td><p>Encoding of aggregated zk-SNARK proofs for Orchard Actions.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">64 * nActionsOrchard</span></p></td>
+<td><p><span class="docutils literal">vSpendAuthSigsOrchard</span></p></td>
+<td><p><span class="docutils literal">byte[64 * nActionsOrchard]</span></p></td>
+<td><p>Authorizing signatures for each Orchard Action.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">64</span></p></td>
+<td><p><span class="docutils literal">bindingSigOrchard</span></p></td>
+<td><p><span class="docutils literal">byte[64]</span></p></td>
+<td><p>An Orchard binding signature on the SIGHASH transaction hash.</p></td>
+</tr>
+</tbody>
+</table>
+<ul class="simple">
+<li><p>The fields <span class="docutils literal">valueBalanceSapling</span> and <span class="docutils literal">bindingSigSapling</span> are present if and only if
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝚂</mi>
+    <mi>𝚙</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚜</mi>
+    <mi>𝚂</mi>
+    <mi>𝚊</mi>
+    <mi>𝚙</mi>
+    <mi>𝚕</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚐</mi>
+  </mrow>
+  <mo>+</mo>
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙾</mi>
+    <mi>𝚞</mi>
+    <mi>𝚝</mi>
+    <mi>𝚙</mi>
+    <mi>𝚞</mi>
+    <mi>𝚝</mi>
+    <mi>𝚜</mi>
+    <mi>𝚂</mi>
+    <mi>𝚊</mi>
+    <mi>𝚙</mi>
+    <mi>𝚕</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚐</mi>
+  </mrow>
+  <mo>&gt;</mo>
+  <mn>0</mn>
+</math>. If <span class="docutils literal">valueBalanceSapling</span>
+is not present, then <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝗏</mi>
+    <mrow>
+      <mi>𝖻</mi>
+      <mi>𝖺</mi>
+      <mi>𝗅</mi>
+      <mi>𝖺</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝖾</mi>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> is defined to be <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p></li>
+<li><p>The field <span class="docutils literal">anchorSapling</span> is present if and only if <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝚂</mi>
+    <mi>𝚙</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚜</mi>
+    <mi>𝚂</mi>
+    <mi>𝚊</mi>
+    <mi>𝚙</mi>
+    <mi>𝚕</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚐</mi>
+  </mrow>
+  <mo>&gt;</mo>
+  <mn>0</mn>
+</math>.</p></li>
+<li><p>The fields <span class="docutils literal">flagsOrchard</span>, <span class="docutils literal">valueBalanceOrchard</span>, <span class="docutils literal">anchorOrchard</span>,
+<span class="docutils literal">sizeProofsOrchard</span>, <span class="docutils literal">proofsOrchard</span>, and <span class="docutils literal">bindingSigOrchard</span> are present if and
+only if <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝚜</mi>
+    <mi>𝙾</mi>
+    <mi>𝚛</mi>
+    <mi>𝚌</mi>
+    <mi>𝚑</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+    <mi>𝚍</mi>
+  </mrow>
+  <mo>&gt;</mo>
+  <mn>0</mn>
+</math>. If <span class="docutils literal">valueBalanceOrchard</span> is not present,
+then <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝗏</mi>
+    <mrow>
+      <mi>𝖻</mi>
+      <mi>𝖺</mi>
+      <mi>𝗅</mi>
+      <mi>𝖺</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝖾</mi>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msup>
+</math> is defined to be <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p></li>
+<li><p>The elements of <span class="docutils literal">vSpendProofsSapling</span> and <span class="docutils literal">vSpendAuthSigsSapling</span> have a 1:1
+correspondence to the elements of <span class="docutils literal">vSpendsSapling</span> and MUST be ordered such that the
+proof or signature at a given index corresponds to the <span class="docutils literal">SpendDescriptionV5</span> at the
+same index.</p></li>
+<li><p>The elements of <span class="docutils literal">vOutputProofsSapling</span> have a 1:1 correspondence to the elements of
+<span class="docutils literal">vOutputsSapling</span> and MUST be ordered such that the proof at a given index corresponds
+to the <span class="docutils literal">OutputDescriptionV5</span> at the same index.</p></li>
+<li><p>The proofs aggregated in <span class="docutils literal">proofsOrchard</span>, and the elements of
+<span class="docutils literal">vSpendAuthSigsOrchard</span>, each have a 1:1 correspondence to the elements of
+<span class="docutils literal">vActionsOrchard</span> and MUST be ordered such that the proof or signature at a given
+index corresponds to the <span class="docutils literal">OrchardAction</span> at the same index.</p></li>
+<li><p>For coinbase transactions, the <span class="docutils literal">enableSpendsOrchard</span> bit MUST be set to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p></li>
+</ul>
+<p>The encodings of <span class="docutils literal">tx_in</span>, and <span class="docutils literal">tx_out</span> are as in a version 4 transaction (i.e.
+unchanged from Canopy). The encodings of <span class="docutils literal">SpendDescriptionV5</span>, <span class="docutils literal">OutputDescriptionV5</span>
+and <span class="docutils literal">OrchardAction</span> are described below. The encoding of Sapling Spends and Outputs has
+changed relative to prior versions in order to better separate data that describe the
+effects of the transaction from the proofs of and commitments to those effects, and for
+symmetry with this separation in the Orchard-related parts of the transaction format.</p>
+</section>
+<h2 id="sapling-spend-description-spenddescriptionv5"><a class="hanchor" href="#sapling-spend-description-spenddescriptionv5" aria-hidden="true" tabindex="-1">#</a>Sapling Spend Description (<span class="docutils literal">SpendDescriptionV5</span>)</h2>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cv</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A value commitment to the net value of the input note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">nullifier</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The nullifier of the input note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">rk</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The randomized validating key for the element of
+spendAuthSigsSapling corresponding to this Spend.</p></td>
+</tr>
+</tbody>
+</table>
+<p>The encodings of each of these elements are defined in §7.3 ‘Spend Description Encoding
+and Consensus’ of the Zcash Protocol Specification <a class="brackets" href="#protocol-spenddesc" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h2 id="sapling-output-description-outputdescriptionv5"><a class="hanchor" href="#sapling-output-description-outputdescriptionv5" aria-hidden="true" tabindex="-1">#</a>Sapling Output Description (<span class="docutils literal">OutputDescriptionV5</span>)</h2>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cv</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A value commitment to the net value of the output note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cmu</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>u</mi>
+  <mspace width="-0.1667em"></mspace>
+</math>-coordinate of the note commitment for the output note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">ephemeralKey</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>An encoding of an ephemeral Jubjub public key.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">580</span></p></td>
+<td><p><span class="docutils literal">encCiphertext</span></p></td>
+<td><p><span class="docutils literal">byte[580]</span></p></td>
+<td><p>The encrypted contents of the note plaintext.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">80</span></p></td>
+<td><p><span class="docutils literal">outCiphertext</span></p></td>
+<td><p><span class="docutils literal">byte[80]</span></p></td>
+<td><p>The encrypted contents of the byte string created by concatenation of
+the transmission key with the ephemeral secret key.</p></td>
+</tr>
+</tbody>
+</table>
+<p>The encodings of each of these elements are defined in §7.4 ‘Output Description Encoding
+and Consensus’ of the Zcash Protocol Specification <a class="brackets" href="#protocol-outputdesc" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h2 id="orchard-action-description-orchardaction"><a class="hanchor" href="#orchard-action-description-orchardaction" aria-hidden="true" tabindex="-1">#</a>Orchard Action Description (<span class="docutils literal">OrchardAction</span>)</h2>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cv</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A value commitment to the net value of the input note minus the
+output note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">nullifier</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The nullifier of the input note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">rk</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The randomized validating key for the element of
+spendAuthSigsOrchard corresponding to this Action.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cmx</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>x</mi>
+  <mspace width="-0.1667em"></mspace>
+</math>-coordinate of the note commitment for the output note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">ephemeralKey</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>An encoding of an ephemeral Pallas public key.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">580</span></p></td>
+<td><p><span class="docutils literal">encCiphertext</span></p></td>
+<td><p><span class="docutils literal">byte[580]</span></p></td>
+<td><p>The encrypted contents of the note plaintext.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">80</span></p></td>
+<td><p><span class="docutils literal">outCiphertext</span></p></td>
+<td><p><span class="docutils literal">byte[80]</span></p></td>
+<td><p>The encrypted contents of the byte string created by concatenation of
+the transmission key with the ephemeral secret key.</p></td>
+</tr>
+</tbody>
+</table>
+<p>The encodings of each of these elements are defined in §7.5 ‘Action Description Encoding
+and Consensus’ of the Zcash Protocol Specification <a class="brackets" href="#protocol-actiondesc" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+<h1 id="alternatives"><a class="hanchor" href="#alternatives" aria-hidden="true" tabindex="-1">#</a>Alternatives</h1>
+<p>The original version of ZIP-225 included Sprout-related fields <span class="docutils literal">nJoinSplit</span>,
+<span class="docutils literal">vJoinSplit</span>, <span class="docutils literal">joinSplitPubKey</span>, and <span class="docutils literal">joinSplitSig</span> in the V5
+transaction format. The Electric Coin Company and Zcash Foundation teams have
+elected to remove these fields from the V5 transaction format as part of the
+continuing process of deprecation of the Sprout shielded pool. As a consequence
+of these fields being removed:</p>
+<ul class="simple">
+<li><p>This effectively prohibits migration transactions that would directly move funds from
+the Sprout pool to the Orchard pool. Sprout -&gt; Transparent and Sprout -&gt; Sapling
+migration transactions will still be supported when using the V4 transaction format.</p></li>
+</ul>
+<p>Removing these fields reduces the complexity of the NU5 upgrade in the following ways:</p>
+<ul class="simple">
+<li><p>V5 parsing and serialization code does not need to take these fields into account.</p></li>
+<li><p>ZIP 244 <a class="brackets" href="#zip-0244" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a> transaction identifier, signature hash, and authorizing
+data commitment computations are simplified by excluding consideration of
+these fields.</p></li>
+</ul>
+<p>Removal of these fields means that that in the future, removing the support for the V4
+transaction format will also effectively end support for Sprout transactions on the Zcash
+network, though it might be possible to restore limited support for migration via a future
+ZIP 222 <a class="brackets" href="#zip-0222" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> extension or by other means not yet determined.</p>
+<p>The original definitions for the transaction fields that have been removed are:</p>
+<table>
+<tbody>
+<tr><td colspan="4"><p><strong>Sprout Transaction Fields</strong></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">nJoinSplit</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>The number of JoinSplit descriptions in <span class="docutils literal">vJoinSplit</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">1698 * nJoinSplit</span></p></td>
+<td><p><span class="docutils literal">vJoinSplit</span></p></td>
+<td><p><span class="docutils literal">JSDescriptionGroth16[nJoinSplit]</span></p></td>
+<td><p>A sequence of JoinSplit descriptions using Groth16 proofs,
+encoded per §7.2 ‘JoinSplit Description Encoding and Consensus’.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">joinSplitPubKey</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>An encoding of a JoinSplitSig public validating key.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">64</span></p></td>
+<td><p><span class="docutils literal">joinSplitSig</span></p></td>
+<td><p><span class="docutils literal">byte[64]</span></p></td>
+<td><p>A signature on a prefix of the transaction encoding,
+to be verfied using joinSplitPubKey as specified in §4.11
+‘Non-malleability (Sprout)’.</p></td>
+</tr>
+</tbody>
+</table>
+<ul class="simple">
+<li><p>The <span class="docutils literal">joinSplitPubKey</span> and <span class="docutils literal">joinSplitSig</span> fields were specified to be
+present if and only if <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙹</mi>
+    <mi>𝚘</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚂</mi>
+    <mi>𝚙</mi>
+    <mi>𝚕</mi>
+    <mi>𝚒</mi>
+    <mi>𝚝</mi>
+  </mrow>
+  <mo>&gt;</mo>
+  <mn>0</mn>
+</math>.</p></li>
+</ul>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/5202">https://github.com/zcash/zcash/pull/5202</a> (in <cite>zcashd</cite>)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/librustzcash/pull/375">https://github.com/zcash/librustzcash/pull/375</a> (in <cite>librustzcash</cite>)</p></li>
+</ul>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-3">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2021.2.16 or later [NU5 proposal]</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-spenddesc" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#spenddesc">Zcash Protocol Specification, Version 2021.2.16 [NU5 proposal]. Section 4.4: Spend Descriptions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-outputdesc" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#outputdesc">Zcash Protocol Specification, Version 2021.2.16 [NU5 proposal]. Section 4.5: Output Descriptions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-actiondesc" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#actiondesc">Zcash Protocol Specification, Version 2021.2.16 [NU5 proposal]. Section 4.6: Action Descriptions</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0222" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0222.rst">ZIP 222: Transparent Zcash Extensions</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-8">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0307" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0307.rst">ZIP 307: Light Client Protocol for Payment Detection</a></p>
+</aside>
+</aside>
+</section>

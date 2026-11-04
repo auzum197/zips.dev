@@ -1,0 +1,3011 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot;, &quot;MUST NOT&quot;, &quot;SHOULD&quot;, and &quot;MAY&quot; in this document are to
+be interpreted as described in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they
+appear in all capitals.</p>
+<p>The character § is used when referring to sections of the Zcash Protocol
+Specification. <a class="brackets" href="#protocol" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a></p>
+<p>The terms &quot;Mainnet&quot; and &quot;Testnet&quot; are to be interpreted as described in § 3.12
+‘Mainnet and Testnet’. <a class="brackets" href="#protocol-networks" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p>
+<p>The term &quot;full validator&quot; in this document is to be interpreted as defined in §
+3.3 ‘The Block Chain’. <a class="brackets" href="#protocol-blockchain" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<p>The terms &quot;Orchard protocol&quot;, &quot;<em>Orchard pool</em>&quot;, and &quot;<em>Ironwood pool</em>&quot; are to be
+interpreted as described in ZIP 229. <a class="brackets" href="#zip-0229" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a> Following the convention in
+the Zcash Protocol Specification, <em>slanted text</em> refers to pool names, to
+distinguish them from shielded protocols.</p>
+<p>The terms below are to be interpreted as follows:</p>
+<dl class="simple">
+<dt>V7 transaction format</dt>
+<dd><p>The transaction format defined by this ZIP, identified by transaction
+version 7. Its version group ID is not yet assigned.</p>
+</dd>
+<dt>V7 transaction</dt>
+<dd><p>A transaction that is encoded using the V7 transaction format.</p>
+</dd>
+<dt>pre-V7 transaction format</dt>
+<dd><p>Any transaction format that precedes the V7 transaction format; that is, any
+of the V1 to V6 transaction formats.</p>
+</dd>
+<dt>transparent transaction value pool</dt>
+<dd><p>An ephemeral value for the balance of an asset within the scope of a single
+transaction, which is modified by additions and subtractions in the
+processing of the effects of transaction bundles. When all of the effects of
+a transaction are accounted for, each such balance is zero; i.e., the total of
+additions to the balance equals the total of subtractions from it.</p>
+</dd>
+</dl>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP proposes an encoding for V7 Zcash transactions that is intended to
+reduce the impact of future changes to the Zcash transaction format on the
+Zcash ecosystem. It defines a new typecode-length-value encoding for a sequence
+of protocol bundles, and a &quot;value balance&quot; map that describes the effect of
+each bundle on the transparent transaction value pool for each asset. The
+entries of this map serve the same purpose as the Sapling and Orchard value
+balance fields have done in the past.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>In the past, Zcash network upgrades that changed the transaction format have
+resulted in substantial disruption for wallets and other third-party clients in
+the Zcash ecosystem. In order to continue functioning after a network upgrade,
+clients were required to upgrade their Zcash transaction parsers to read the
+new format, even if the context in which those parsers were being used didn't
+need or couldn't make use of newly added transaction data. An example of this
+is that transparent-only wallets were forced to update their parsers to
+understand the Sapling and Orchard parts of transactions, even if they would
+never read or act upon those parts. This has led on occasion to significant
+problems in the Zcash ecosystem, including situations where funds have been
+locked and rendered unspendable from transparent-only wallets.</p>
+<p>For some kinds of changes to consensus features, it's imperative that every
+wallet be aware of and be adapted to those changes, and in those cases making a
+major (breaking) transaction version update as we've done in the past is
+appropriate. For many new features, however, it is possible for a wallet to
+continue functioning correctly without having to fully understand a transaction
+using that feature.</p>
+<p>For example, if TZEs were to be added to the protocol, it would be possible
+for wallets to continue operating with transparent/Sapling/Orchard
+functionality, ignoring TZE parts. There is substantial precedent for this sort
+of behavior; transparent-only hardware wallets are currently still important in
+the Zcash ecosystem, and many wallets didn't begin interacting with Orchard
+transaction parts until quite a while after Orchard activation.</p>
+<p>After this change to transaction encoding, wallets and other third parties will
+not be required to update their transaction parsers in advance of a network
+upgrade for the introduction of many (and perhaps most) types of new protocol
+features. This will enable the Zcash ecosystem to make smaller and more
+incremental network upgrades without breaking existing wallets.</p>
+</section>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>This change alters the encoding of transactions, but does not alter the
+information content of the transaction. As such, the only implication of this
+change is that the use of this transaction format acts as a 1-bit distinguisher
+that reveals that the wallet that generated the transaction has been updated to
+be aware of the new format. This information leakage is unavoidable for any
+transaction format change.</p>
+<p>In the future, this change may reduce the amount of information leakage, since
+transactions created using the proposed TLV format will include bundles only
+for those protocols for which the transaction modifies chain state. For example,
+if this transaction format change is deployed in NU8 and a hypothetical NU9
+defines a bundle type for TZE components, it will not be possible for a chain observer to
+distinguish whether or not the wallet that produced an Orchard-only transaction
+is one that has been updated to understand the TZE component. Under prior
+practices for changing the transaction format, this would have been
+distinguishable.</p>
+<p>In summary, this proposal provides a net improvement in user privacy in
+addition to its other benefits.</p>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul class="simple">
+<li><p>The transaction format can be parsed without any knowledge of any Zcash
+payment protocols.</p></li>
+<li><p>Movement of value into and out of the transparent value pools (the ZEC
+transparent value pool, plus the transparent value pool for each ZSA asset)
+can be understood with only partial knowledge of the Zcash payment protocols.</p></li>
+<li><p>The information content of transactions should not change as part of
+this ZIP. Other ZIPs activated along with this ZIP may however make
+use of it in introducing such changes.</p></li>
+<li><p>It must be possible for wallets to parse any transaction that is valid within
+a version group that it understands, even if it doesn't have handling for or
+understand all of the bundle types that are valid for that version group. In
+such a situation, however, such a wallet must still be able to accurately
+describe any transparent movement of funds effected by the transaction, and
+alert the user if the transaction contains bundles that it does not
+understand.</p></li>
+<li><p>It must be possible for a wallet to correctly construct and sign transactions
+for a given transaction version group that it understands, even if it doesn't
+have handling for or understand all of the bundle types that are valid for
+transactions in that version group.</p></li>
+</ul>
+</section>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="protocol-bundles"><a class="hanchor" href="#protocol-bundles" aria-hidden="true" tabindex="-1">#</a>Protocol Bundles</h2>
+<p>This ZIP refines and codifies the concept of &quot;protocol bundles&quot; that emerged
+from the implementation of the ZIP 225 <a class="brackets" href="#zip-0225" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a> transaction format. It
+makes bundles first-class objects and defines a registry of bundle type and
+variant identifiers. Within the period that a given transaction format version
+is used on the Zcash network, the semantics of the bundle associated with a
+given <span class="docutils literal">(bundleType, bundleVariant)</span> pair are fixed.</p>
+<p>A <strong>protocol bundle</strong> is a self-contained component of a transaction that
+implements a specific piece of protocol functionality. Each bundle is
+identified by a <span class="docutils literal">(bundleType, bundleVariant)</span> pair, where:</p>
+<ul class="simple">
+<li><p>The <strong>bundle type</strong> identifies the protocol or value pool that the bundle
+operates on (e.g., Transparent, Sapling, Orchard).</p></li>
+<li><p>The <strong>bundle variant</strong> identifies a specific variant of that protocol. New
+variants of an existing bundle type may be introduced by subsequent ZIPs
+to evolve a protocol's functionality while preserving the association with
+the same value pool.</p></li>
+</ul>
+<p>A transaction MUST NOT contain more than one variant of any given bundle type.
+This constraint is enforced by the map structure of the transaction encoding:
+the maps <span class="docutils literal">mEffectBundles</span>, and <span class="docutils literal">mAuthBundles</span> are each keyed by
+<span class="docutils literal">bundleType</span> alone; <span class="docutils literal">mValuePoolDeltas</span> is keyed by bundle type and asset
+ID.</p>
+<p>Each bundle type/variant pair defines:</p>
+<ul class="simple">
+<li><p>What <strong>effecting data</strong> the bundle contains — the data that determines what
+state changes the bundle produces (e.g., which notes are spent, which outputs
+are created, which transparent UTXOs are consumed or produced).</p></li>
+<li><p>What <strong>authorizing data</strong> the bundle contains — the proofs and signatures
+that authorize the state changes specified by the effecting data.</p></li>
+<li><p>How the bundle affects the <strong>transparent transaction value pool</strong> — whether
+the bundle adds value to, removes value from, or has no effect on this
+ephemeral pool that balances value flows within a transaction.</p></li>
+</ul>
+<h3 id="rationale-for-effecting-data-and-authorizing-data"><a class="hanchor" href="#rationale-for-effecting-data-and-authorizing-data" aria-hidden="true" tabindex="-1">#</a>Rationale for Effecting Data and Authorizing Data</h3>
+<details>
+<summary>Click to show/hide</summary><p>The separation of effecting data from authorizing data serves several purposes:</p>
+<ol class="arabic simple">
+<li><p><strong>Transaction identifier stability</strong>: The transaction identifier (txid) is
+computed only from the effecting data. This means that the txid is
+determined by <em>what</em> the transaction does, not by <em>how</em> it is authorized.
+Third parties cannot change a transaction's identifier by modifying
+signatures or proofs.</p></li>
+<li><p><strong>Efficient pruning</strong>: Full nodes that have validated a transaction may
+prune the authorizing data while retaining the effecting data. Since
+authorizing data appears at the end of the encoded transaction, pruning
+is simply truncation.</p></li>
+<li><p><strong>Partial validation</strong>: A wallet that does not understand a particular
+bundle type can still compute the transaction identifier by hashing the
+effecting data opaquely, without needing to parse its internal structure.</p></li>
+</ol>
+</details></section>
+<h3 id="the-transparent-transaction-value-pool"><a class="hanchor" href="#the-transparent-transaction-value-pool" aria-hidden="true" tabindex="-1">#</a>The Transparent Transaction Value Pool</h3>
+<p>The transparent transaction value pool is an ephemeral concept that exists only
+within the scope of processing a single transaction. It serves as a balancing
+mechanism through which value flows between bundles.</p>
+<p>Each bundle may contribute a <strong>value pool delta</strong> — a signed value indicating
+how much the bundle adds to or removes from the transparent transaction value
+pool for a given asset. A positive delta means the bundle is adding value to
+the pool (e.g., a shielded spend releasing value), while a negative delta means
+the bundle is consuming value from the pool (e.g., a shielded output absorbing
+value, or a transaction fee).</p>
+<p>For a valid transaction, the sum of all value pool deltas for each asset MUST
+equal zero. This ensures that value is neither created nor destroyed — it is
+only transferred between bundles within the transaction.</p>
+<p>This holds for coinbase transactions as well. The part of the block subsidy
+that the transaction pays out enters the transparent transaction value pool as
+the value pool delta of the coinbase bundle, and the fees collected from the
+other transactions in the block enter it as the value pool delta of the fee
+bundle; the coinbase outputs then consume that value like any other bundle.</p>
+</section>
+<h3 id="bundle-type-registration"><a class="hanchor" href="#bundle-type-registration" aria-hidden="true" tabindex="-1">#</a>Bundle Type Registration</h3>
+<p>When a ZIP introduces a new bundle type or a new variant of an existing bundle
+type, it MUST:</p>
+<ol class="arabic simple">
+<li><p>Request allocation of a <span class="docutils literal">(bundleType, bundleVariant)</span> pair in the registry
+defined below. The <span class="docutils literal">bundleType</span> and <span class="docutils literal">bundleVariant</span> are each
+non-negative integers. If the ZIP introduces a new bundle type, it requests
+a new <span class="docutils literal">bundleType</span> value with <span class="docutils literal">bundleVariant</span> 0. If it introduces a new
+variant of an existing bundle type, it requests a new <span class="docutils literal">bundleVariant</span>
+value for the existing <span class="docutils literal">bundleType</span>.</p></li>
+<li><p>Specify whether entries for this bundle type are permitted in
+<span class="docutils literal">mValuePoolDeltas</span> (the value pool delta map).</p></li>
+<li><p>Specify whether entries for this bundle type are permitted in
+<span class="docutils literal">mEffectBundles</span> (the effecting data map).</p></li>
+<li><p>Specify whether entries for this bundle type are permitted in
+<span class="docutils literal">mAuthBundles</span> (the authorizing data map).</p></li>
+<li><p>If effecting data is permitted, define the encoding of that data.</p></li>
+<li><p>If authorizing data is permitted, define the encoding of that data.</p></li>
+<li><p>Define the digest algorithm for the bundle's contribution to the transaction
+identifier, if effecting data is present.</p></li>
+<li><p>Define the digest algorithm for the bundle's contribution to the authorizing
+data commitment, if authorizing data is present.</p></li>
+</ol>
+<p>A bundle type MUST NOT permit entries in <span class="docutils literal">mAuthBundles</span> unless it also permits
+entries in <span class="docutils literal">mEffectBundles</span>. That is, authorizing data cannot exist without
+corresponding effecting data for a given bundle type.</p>
+<p>Once a <span class="docutils literal">(bundleType, bundleVariant)</span> pair is assigned for a given transaction
+version, its semantics are fixed for the lifetime of that transaction version.
+A subsequent network upgrade may define a new transaction version that
+reassigns identifiers or changes bundle semantics, but within a single
+transaction version, bundle type and variant identifiers have stable,
+unchanging meanings.</p>
+<p>A new variant of an existing bundle type MUST affect the same value pool(s) as
+the original bundle type. This ensures that a client that does not recognize a
+particular <span class="docutils literal">bundleVariant</span> can still determine which pool(s) are affected by
+the bundle and inform its user accordingly.</p>
+</section>
+<h3 id="v7-transaction-bundle-type-registry"><a class="hanchor" href="#v7-transaction-bundle-type-registry" aria-hidden="true" tabindex="-1">#</a>V7 Transaction Bundle Type Registry</h3>
+<p>The following <span class="docutils literal">(bundleType, bundleVariant)</span> pairs are registered for the V7
+transaction format. All currently-defined values are encoded as single-byte
+<span class="docutils literal">compactSize</span> values where they appear in the transaction format.</p>
+<p>The <span class="docutils literal">mValuePoolDeltas</span> column indicates whether or not an entry for this
+bundle type MAY appear in <span class="docutils literal">mValuePoolDeltas</span>. For rows where an ❌
+is present, the value pool delta for every pool is guaranteed to be zero, and
+so entries in <span class="docutils literal">mValuePoolDeltas</span> MUST NOT be present.</p>
+<p>The <span class="docutils literal">mEffectBundles</span> column indicates whether or not an entry for this bundle
+type MAY appear in <span class="docutils literal">mEffectBundles</span>. For rows where an ❌ is present, the
+bundle has no effecting data, and so an entry in <span class="docutils literal">mEffectBundles</span> MUST NOT
+be present.</p>
+<p>The <span class="docutils literal">mAuthBundles</span> column indicates whether or not an entry for this bundle
+type MAY appear in <span class="docutils literal">mAuthBundles</span>. For rows where an ❌ is present, the
+bundle has no authorizing data, and so an entry in <span class="docutils literal">mAuthBundles</span> MUST NOT
+be present.</p>
+<table>
+<thead>
+<tr><th class="head"><p>BundleType</p></th>
+<th class="head"><p>BundleVariant</p></th>
+<th class="head"><p><span class="docutils literal">mValuePoolDeltas</span></p></th>
+<th class="head"><p><span class="docutils literal">mEffectBundles</span></p></th>
+<th class="head"><p><span class="docutils literal">mAuthBundles</span></p></th>
+<th class="head"><p>Defining ZIP</p></th>
+<th class="head"><p>Bundle kind</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>0</p></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>This ZIP</p></td>
+<td><p>Transparent</p></td>
+</tr>
+<tr><td><p>1</p></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>This ZIP</p></td>
+<td><p>Coinbase</p></td>
+</tr>
+<tr><td><p>2</p></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>This ZIP</p></td>
+<td><p>Sapling</p></td>
+</tr>
+<tr><td><p>3</p></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>This ZIP</p></td>
+<td><p>Orchard</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>This ZIP</p></td>
+<td><p>Ironwood</p></td>
+</tr>
+<tr><td><p>5</p></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>ZIP 2002</p></td>
+<td><p>Transaction fee</p></td>
+</tr>
+<tr><td><p>6</p></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>ZIP 233</p></td>
+<td><p>ZIP 233 NSM field</p></td>
+</tr>
+</tbody>
+</table>
+<p>Additional bundle types or variants MAY be added to this registry via
+modifications to this ZIP specified in other ZIPs. Such modifications MUST
+specify all of the information required by the <a class="reference internal" href="#bundle-type-registration">Bundle Type Registration</a>
+section above.</p>
+</section>
+<h3 id="potential-future-bundle-types"><a class="hanchor" href="#potential-future-bundle-types" aria-hidden="true" tabindex="-1">#</a>Potential Future Bundle Types</h3>
+<details>
+<summary>Click to show/hide</summary><p>The following bundle kinds have no allocated <span class="docutils literal">(bundleType, bundleVariant)</span>
+pair. Where a bundle type is given, the kind is a new variant of that existing
+type and only its variant identifier is unassigned. Those proposed by a ZIP
+name it; the rest are provided to illustrate how potential future upgrades
+might affect the bundle registry:</p>
+<table>
+<thead>
+<tr><th class="head"><p>BundleType</p></th>
+<th class="head"><p>BundleVariant</p></th>
+<th class="head"><p><span class="docutils literal">mValuePoolDeltas</span></p></th>
+<th class="head"><p><span class="docutils literal">mEffectBundles</span></p></th>
+<th class="head"><p><span class="docutils literal">mAuthBundles</span></p></th>
+<th class="head"><p>Defining ZIP</p></th>
+<th class="head"><p>Bundle kind</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>2</p></td>
+<td><p>1 (provisional)</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>ZIP 231</p></td>
+<td><p>Sapling-post-ZIP 231</p></td>
+</tr>
+<tr><td><p>3</p></td>
+<td><p>1 (provisional)</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>ZIP 231</p></td>
+<td><p>Orchard post-ZIP 231</p></td>
+</tr>
+<tr><td><p>3</p></td>
+<td><p>2 (provisional)</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>ZIP 226</p></td>
+<td><p>OrchardZSA</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p>1 (provisional)</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>ZIP 231</p></td>
+<td><p>Ironwood post-ZIP 231</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>❌</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>ZIP 270</p></td>
+<td><p>Key rotation</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>TBD</p></td>
+<td><p>Lockbox disbursement</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>❌</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>ZIP 231</p></td>
+<td><p>Memos</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>ZIP 227</p></td>
+<td><p>ZSA Issuance</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td></td>
+<td><p>TZEs</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td></td>
+<td><p>Pool that only has a long-term storage protocol (PQ, very
+simple thus insulated from counterfeiting fears, can be
+used for payments but higher latency for that purpose)</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td></td>
+<td><p>Tachyon</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td></td>
+<td><p>Staking</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td></td>
+<td><p>Unstaking (if it can't be combined with the Staking bundle)</p></td>
+</tr>
+<tr><td></td>
+<td><p>0</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td></td>
+<td><p>Post-quantum fast payment protocol</p></td>
+</tr>
+</tbody>
+</table>
+</details></section>
+</section>
+<h2 id="transaction-format"><a class="hanchor" href="#transaction-format" aria-hidden="true" tabindex="-1">#</a>Transaction Format</h2>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td colspan="4"><p><strong>Common Transaction Fields</strong></p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">header</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>Contains:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">fOverwintered</span> flag (bit 31, always set)</p></li>
+<li><p><span class="docutils literal">version</span> (bits 30 .. 0) – transaction version.</p></li>
+</ul>
+</td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">nVersionGroupId</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>Version group ID (nonzero).</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">nConsensusBranchId</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>Consensus branch ID (nonzero).</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">lock_time</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>Unix-epoch UTC time or block height, encoded as in Bitcoin.</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">nExpiryHeight</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>A block height in the range {1 .. 499999999} after which
+the transaction will expire, or 0 to disable expiry. <a class="brackets" href="#zip-0203" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a></p></td>
+</tr>
+<tr><td colspan="4"><p><strong>Transaction transparent value pool balance map</strong></p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">nValuePoolDeltas</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of entries in the <span class="docutils literal">mValuePoolDeltas</span> map.</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">mValuePoolDeltas</span></p></td>
+<td><p><span class="docutils literal">ValuePoolDelta[nValuePoolDeltas]</span></p></td>
+<td><p>A map describing the change to the transparent value pool produced by
+each bundle. Only bundles that produces changes to the transparent
+value balance will have corresponding entries in this map. For
+bundles that have no data except for a value, such as the ZIP 233
+amount, no additional bundle data will be present in the <span class="docutils literal">Bundles</span>
+section.</p></td>
+</tr>
+<tr><td colspan="4"><p><strong>Bundles</strong></p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">nEffectBundles</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of bundles in the transaction that have per-bundle data.</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">mEffectBundles</span></p></td>
+<td><p><span class="docutils literal">BundleData[nEffectBundles]</span></p></td>
+<td><p>A map from bundle identifier to the effecting data of a bundle.</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">nAuthBundles</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of bundles in the transaction that have per-bundle data.</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">mAuthBundles</span></p></td>
+<td><p><span class="docutils literal">BundleData[nAuthBundles]</span></p></td>
+<td><p>A map from bundle identifier to the authorizing data of a bundle.</p></td>
+</tr>
+</tbody>
+</table>
+<p><span class="docutils literal">mValuePoolDeltas</span> is interpreted as a map keyed by the tuple
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖳</mi>
+    <mi>𝗒</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖴</mi>
+    <mi>𝗎</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>. Lookups in this map are denoted
+with the syntax
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝗅</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝗍</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">[</mo>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖳</mi>
+    <mi>𝗒</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖴</mi>
+    <mi>𝗎</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">]</mo>
+  <mo>.</mo>
+</math> A
+lookup for a key that is not present yields 0, consistent with the requirement
+that a record having zero value is elided from the encoding.</p>
+<p><span class="docutils literal">mEffectBundles</span> and <span class="docutils literal">mAuthBundles</span> are interpreted as maps keyed by
+<span class="docutils literal">bundleType</span>.</p>
+<p>Encoding constraints on these maps (uniqueness, ordering, and cross-map
+consistency) are specified in <a class="reference internal" href="#parsing-rules">Parsing Rules</a>.</p>
+</section>
+<h2 id="valuepooldelta"><a class="hanchor" href="#valuepooldelta" aria-hidden="true" tabindex="-1">#</a>ValuePoolDelta</h2>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">bundleType</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>An encoding of the bundle type identifier.</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">bundleVariant</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>An encoding of the bundle variant identifier.</p></td>
+</tr>
+<tr><td><p>1</p></td>
+<td><p><span class="docutils literal">assetClass</span></p></td>
+<td><p><span class="docutils literal">uint8</span></p></td>
+<td><p>An asset class identifier. 0x00 for the ZEC asset, 0x01 for other
+assets.</p></td>
+</tr>
+<tr><td><p>one of {0, 64}</p></td>
+<td><p><span class="docutils literal">assetUuid</span></p></td>
+<td><p><span class="docutils literal">byte[0] or byte[64]</span></p></td>
+<td><p>If <cite>assetClass == 0</cite>, the zero-length byte array, otherwise a byte
+array containing a universally unique 64-byte identifier for the
+asset.</p></td>
+</tr>
+<tr><td><p>8</p></td>
+<td><p><span class="docutils literal">value</span></p></td>
+<td><p><span class="docutils literal">nonzero int64</span></p></td>
+<td><p>The net change to the transparent transaction value pool for the
+given asset, produced by the bundle with this bundle type identifier.
+This value MUST be nonzero; if a <span class="docutils literal">ValuePoolDelta</span> record would
+have zero value, it MUST be elided from the encoding
+of <span class="docutils literal">mValuePoolDeltas</span> instead.</p></td>
+</tr>
+</tbody>
+</table>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math> be a distinguished value representing the ZEC asset. It is
+used as the asset identifier when <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖢</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>.</p>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖴</mi>
+    <mi>𝗎</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo stretchy="false">)</mo>
+</math> be the asset indicated by the <span class="docutils literal">mValuePoolDeltas</span> entry <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖽</mi>
+  <mo>.</mo>
+</math></p>
+<div>
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖴</mi>
+    <mi>𝗎</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mrow>
+    <mo rspace="0.17em">{</mo>
+    <mtable columnalign="left" class="cases">
+      <mtr>
+        <mtd>
+          <mrow>
+            <mi>𝖹</mi>
+            <mi>𝖾</mi>
+            <mi>𝖼</mi>
+          </mrow>
+        </mtd>
+        <mtd>
+          <mtext>if </mtext>
+          <mi>𝖽</mi>
+          <mo>.</mo>
+          <mrow>
+            <mi>𝖺</mi>
+            <mi>𝗌</mi>
+            <mi>𝗌</mi>
+            <mi>𝖾</mi>
+            <mi>𝗍</mi>
+            <mi>𝖢</mi>
+            <mi>𝗅</mi>
+            <mi>𝖺</mi>
+            <mi>𝗌</mi>
+            <mi>𝗌</mi>
+          </mrow>
+          <mo>=</mo>
+          <mn>0</mn>
+        </mtd>
+      </mtr>
+      <mtr>
+        <mtd>
+          <mi>𝖽</mi>
+          <mo>.</mo>
+          <mrow>
+            <mi>𝖺</mi>
+            <mi>𝗌</mi>
+            <mi>𝗌</mi>
+            <mi>𝖾</mi>
+            <mi>𝗍</mi>
+            <mi>𝖴</mi>
+            <mi>𝗎</mi>
+            <mi>𝗂</mi>
+            <mi>𝖽</mi>
+          </mrow>
+        </mtd>
+        <mtd>
+          <mtext>if </mtext>
+          <mi>𝖽</mi>
+          <mo>.</mo>
+          <mrow>
+            <mi>𝖺</mi>
+            <mi>𝗌</mi>
+            <mi>𝗌</mi>
+            <mi>𝖾</mi>
+            <mi>𝗍</mi>
+            <mi>𝖢</mi>
+            <mi>𝗅</mi>
+            <mi>𝖺</mi>
+            <mi>𝗌</mi>
+            <mi>𝗌</mi>
+          </mrow>
+          <mo>=</mo>
+          <mn>1</mn>
+        </mtd>
+      </mtr>
+      <mtr>
+        <mtd>
+          <mi>⊥</mi>
+        </mtd>
+        <mtd>
+          <mtext>otherwise</mtext>
+        </mtd>
+      </mtr>
+    </mtable>
+  </mrow>
+</math>
+</div>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖴</mi>
+    <mi>𝗎</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> groups the entries of <span class="docutils literal">mValuePoolDeltas</span> by asset. The
+values of the entries in each such group are required to sum to zero; this
+balance rule is specified in <a class="reference internal" href="#cross-bundle-and-chain-context-rules">Cross-bundle and chain-context rules</a>.</p>
+</section>
+<h2 id="bundledata"><a class="hanchor" href="#bundledata" aria-hidden="true" tabindex="-1">#</a>BundleData</h2>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">bundleType</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>An encoding of the bundle type identifier.</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">bundleVariant</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>An encoding of the bundle variant identifier.</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">nBundleDataLen</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>The length of the <span class="docutils literal">vBundleData</span> byte array.</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">vBundleData</span></p></td>
+<td><p><span class="docutils literal">byte[nBundleDataLen]</span></p></td>
+<td><p>The effecting or authorizing data for the bundle, dependent upon
+whether the <span class="docutils literal">BundleData</span> occurs in <span class="docutils literal">mEffectBundles</span> or
+<span class="docutils literal">mAuthBundles</span>.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h2 id="parsing-rules"><a class="hanchor" href="#parsing-rules" aria-hidden="true" tabindex="-1">#</a>Parsing Rules</h2>
+<p>The rules in this section are requirements on the byte encoding of a V7
+transaction. A byte stream that violates any of these rules is not a
+well-formed V7 transaction and MUST be rejected by any parser, regardless
+of which bundle types the parser understands. Enforcement of these rules
+is what makes it safe for a wallet to parse, identify, and compute the
+transaction identifier for a transaction containing bundle types that the
+wallet does not itself implement.</p>
+<ul class="simple">
+<li><p>Each of <span class="docutils literal">mValuePoolDeltas</span>, <span class="docutils literal">mEffectBundles</span>, and <span class="docutils literal">mAuthBundles</span> MUST
+contain at most one entry per key, and the entries MUST be encoded in
+strictly increasing key order. For <span class="docutils literal">mValuePoolDeltas</span> the key order is
+<span class="docutils literal">(bundleType, assetClass, assetUuid)</span> compared lexicographically (with
+<span class="docutils literal">assetUuid</span> compared as a byte string). For <span class="docutils literal">mEffectBundles</span> and
+<span class="docutils literal">mAuthBundles</span> the key order is <span class="docutils literal">bundleType</span>.</p></li>
+<li><p>Every <span class="docutils literal">ValuePoolDelta</span> record MUST have a nonzero <span class="docutils literal">value</span> field. A
+<span class="docutils literal">ValuePoolDelta</span> record that would have <span class="docutils literal">value = 0</span> MUST be elided from
+the encoding of <span class="docutils literal">mValuePoolDeltas</span>.</p></li>
+<li><p>In every <span class="docutils literal">ValuePoolDelta</span> record, <span class="docutils literal">assetUuid</span> MUST be the zero-length
+byte array if <span class="docutils literal">assetClass = 0</span>, and MUST be a 64-byte value if
+<span class="docutils literal">assetClass = 1</span>. No other value of <span class="docutils literal">assetClass</span> is permitted.</p></li>
+<li><p>For each <span class="docutils literal">bundleType</span> that appears in any of <span class="docutils literal">mValuePoolDeltas</span>,
+<span class="docutils literal">mEffectBundles</span>, or <span class="docutils literal">mAuthBundles</span>, all entries for that <span class="docutils literal">bundleType</span>
+across all three maps MUST encode the same <span class="docutils literal">bundleVariant</span>. (This,
+combined with the constraint that each of <span class="docutils literal">mEffectBundles</span> and
+<span class="docutils literal">mAuthBundles</span> is keyed by <span class="docutils literal">bundleType</span>, ensures that a transaction
+uses at most one variant of any given bundle type.)</p></li>
+<li><p>For each <span class="docutils literal">bundleType</span> that appears in <span class="docutils literal">mAuthBundles</span>, a corresponding
+entry with the same <span class="docutils literal">bundleVariant</span> MUST exist in <span class="docutils literal">mEffectBundles</span>.</p></li>
+<li><p>Within the encoding of any bundle's effecting and authorizing data, every
+per-element sequence in the authorizing data that is described as
+corresponding to a per-element sequence in the effecting data MUST have
+exactly the same length as that effecting-data sequence, and the element at
+each index in the authorizing-data sequence corresponds to the element at
+the same index in the effecting-data sequence. For the bundle types
+defined by this ZIP this requires:</p>
+<ul>
+<li><p><span class="docutils literal">vSpendProofsSapling</span> and <span class="docutils literal">vSpendAuthSigsSapling</span> each have
+<span class="docutils literal">nSpendsSapling</span> elements;</p></li>
+<li><p><span class="docutils literal">vOutputProofsSapling</span> has <span class="docutils literal">nOutputsSapling</span> elements;</p></li>
+<li><p>in each Orchard protocol bundle, <span class="docutils literal">vSpendAuthSigsOrchard</span> has
+<span class="docutils literal">nActionsOrchard</span> elements, and <span class="docutils literal">proofsOrchard</span> aggregates exactly
+<span class="docutils literal">nActionsOrchard</span> per-action proofs.</p></li>
+</ul>
+</li>
+</ul>
+<p>A wallet that successfully parses a V7 transaction under these rules is
+guaranteed to be able to compute the transaction identifier (given, for
+each bundle type it does not understand, the corresponding 32-byte
+<span class="docutils literal">bundle_effects_digest</span> value as described in <a class="reference internal" href="#implications-for-wallets">Implications for Wallets</a>),
+and to enumerate the transparent value flows of the transaction at the
+granularity of bundle types.</p>
+</section>
+<h2 id="consensus-rules"><a class="hanchor" href="#consensus-rules" aria-hidden="true" tabindex="-1">#</a>Consensus Rules</h2>
+<p>This ZIP requires the following modifications to the consensus rules in the
+Zcash Protocol Specification. These rules are additional to the parsing rules
+above; a transaction that satisfies the parsing rules but violates any of
+these consensus rules is well-formed but invalid.</p>
+<p>Let <span class="docutils literal">CoinbaseBundleId</span> be the identifier of the coinbase bundle, and
+<span class="docutils literal">FeeBundleId</span> be the identifier of the fee bundle. In V7 transactions,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝗈</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖻</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1</mn>
+</math> and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖥</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>5</mn>
+</math> as defined in
+the table above.</p>
+<h3 id="bundle-local-rules"><a class="hanchor" href="#bundle-local-rules" aria-hidden="true" tabindex="-1">#</a>Bundle-local rules</h3>
+<p>The following rules constrain the contents of individual bundles. A wallet
+or full validator only needs to enforce a given rule in this subsection if
+it understands the bundle type that the rule applies to.</p>
+<ul class="simple">
+<li><p>A bundle type MUST NOT appear in any map for which the corresponding column
+of the <a class="reference internal" href="#v7-transaction-bundle-type-registry">V7 Transaction Bundle Type Registry</a> is marked ❌, and MUST NOT
+appear in any map at all if its row in the registry is marked as Reserved.</p></li>
+<li><p>The <span class="docutils literal">assetClass</span> value for any entry in <span class="docutils literal">mValuePoolDeltas</span> having
+<span class="docutils literal">bundleType = FeeBundleId</span> MUST be 0 (fee amounts are denominated in ZEC
+and no other asset).</p></li>
+<li><p>The <span class="docutils literal">assetClass</span> value for any entry in <span class="docutils literal">mValuePoolDeltas</span> having
+<span class="docutils literal">bundleType = CoinbaseBundleId</span> MUST be 0 (the block subsidy is
+denominated in ZEC and no other asset). The same applies to the
+<span class="docutils literal">blockSubsidy</span> and <span class="docutils literal">lockboxValue</span> fields of its effecting data.</p></li>
+<li><p>A coinbase transaction MUST NOT spend any transparent output. If a
+transparent bundle is present in a coinbase transaction, its effecting data
+MUST have <span class="docutils literal">tx_in_count = 0</span>.</p></li>
+<li><p>For coinbase transactions, the <span class="docutils literal">nSpendsSapling</span> field of the Sapling
+bundle's effecting data MUST be 0.</p></li>
+<li><p>For coinbase transactions, the <span class="docutils literal">enableSpends</span> bit of the <span class="docutils literal">flagsOrchard</span>
+field of every Orchard protocol bundle MUST be 0.</p></li>
+<li><p>In an Orchard bundle, the <span class="docutils literal">enableCrossAddress</span> bit of <span class="docutils literal">flagsOrchard</span> MUST
+be 0; that is, transfers into the <em>Orchard pool</em> are restricted to the
+protocol-level address of the action's spend. <a class="brackets" href="#zip-2006" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a> The bit is
+unrestricted in an Ironwood bundle.</p></li>
+</ul>
+</section>
+<h3 id="cross-bundle-and-chain-context-rules"><a class="hanchor" href="#cross-bundle-and-chain-context-rules" aria-hidden="true" tabindex="-1">#</a>Cross-bundle and chain-context rules</h3>
+<p>The following rules relate the contents of a bundle to the other bundles of
+its transaction, or to the block that contains it. They MUST be enforced by
+full validators.</p>
+<ul>
+<li><p>For coinbase transactions, the value of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝗅</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝗍</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">[</mo>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖥</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">]</mo>
+</math>
+MUST be nonnegative. This represents the total transaction fees collected from
+all other transactions in the block.</p></li>
+<li><p>For non-coinbase transactions, the value of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝗅</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝗍</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">[</mo>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖥</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">]</mo>
+</math>
+MUST be nonpositive. This represents the transaction fee paid by the
+transaction (expressed as a negative value, since it is removed from the
+transparent transaction value pool).</p></li>
+<li><p>Within the scope of a block, the sum of the fee bundle values MUST equal 0.
+That is, the fees collected by the coinbase transaction MUST equal the sum of
+fees paid by all other transactions in the block.</p></li>
+<li><p>Exactly one transaction in a block MUST be a coinbase transaction, and it
+MUST be the first transaction in the block.</p></li>
+<li><p>The <span class="docutils literal">blockHeight</span> field of the coinbase bundle's effecting data MUST equal
+the height of the block containing the transaction.</p></li>
+<li><p>The <span class="docutils literal">blockSubsidy</span> field of the coinbase bundle's effecting data MUST equal
+the block subsidy for that block, as defined in § 7.8 'Block Subsidy and
+Founders' Reward'. <a class="brackets" href="#protocol-subsidies" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a></p></li>
+<li><p>The <span class="docutils literal">lockboxValue</span> field of the coinbase bundle's effecting data MUST equal
+the total value that the funding streams for that block deposit into the
+deferred pool, as defined in § 7.10 'Payment of Funding Streams, Deferred
+Lockbox, and Lockbox Disbursement'. <a class="brackets" href="#protocol-fundingstreams" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a></p></li>
+<li><p>The value of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝗅</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝗍</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">[</mo>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝗈</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖻</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">]</mo>
+</math>
+MUST equal the part of the block subsidy that is not deposited into the
+lockbox.</p>
+<div>
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝗅</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝗍</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">[</mo>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝗈</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖻</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">]</mo>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗈</mi>
+    <mi>𝖼</mi>
+    <mi>𝗄</mi>
+    <mi>𝖲</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+    <mi>𝗒</mi>
+  </mrow>
+  <mo>−</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝗈</mi>
+    <mi>𝖼</mi>
+    <mi>𝗄</mi>
+    <mi>𝖻</mi>
+    <mi>𝗈</mi>
+    <mi>𝗑</mi>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>
+</div>
+</li>
+<li><p>For every transaction, the sum of value pool delta values in each asset MUST
+equal 0.</p>
+<div>
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi>∀</mi>
+  <mi>𝖺</mi>
+  <mo>.</mo>
+  <munder>
+    <mo movablelimits="true">∑</mo>
+    <mrow>
+      <mi>𝖽</mi>
+      <mo>∈</mo>
+      <mrow>
+        <mi>𝗆</mi>
+        <mi>𝖵</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+        <mi>𝗎</mi>
+        <mi>𝖾</mi>
+        <mi>𝖯</mi>
+        <mi>𝗈</mi>
+        <mi>𝗈</mi>
+        <mi>𝗅</mi>
+        <mi>𝖣</mi>
+        <mi>𝖾</mi>
+        <mi>𝗅</mi>
+        <mi>𝗍</mi>
+        <mi>𝖺</mi>
+        <mi>𝗌</mi>
+      </mrow>
+      <mo stretchy="false">|</mo>
+      <mrow>
+        <mi>𝖠</mi>
+        <mi>𝗌</mi>
+        <mi>𝗌</mi>
+        <mi>𝖾</mi>
+        <mi>𝗍</mi>
+        <mi>𝖴</mi>
+        <mi>𝗎</mi>
+        <mi>𝗂</mi>
+        <mi>𝖽</mi>
+      </mrow>
+      <mo stretchy="false">(</mo>
+      <mi>𝖽</mi>
+      <mo stretchy="false">)</mo>
+      <mo>=</mo>
+      <mi>𝖺</mi>
+    </mrow>
+  </munder>
+  <mrow>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>
+</div>
+</li>
+</ul>
+</section>
+</section>
+<h2 id="sighash-versioning"><a class="hanchor" href="#sighash-versioning" aria-hidden="true" tabindex="-1">#</a>Sighash Versioning</h2>
+<p>This ZIP introduces sighash algorithm versioning. Where previously each
+transaction version had a single associated sighash algorithm, going forward it
+is possible for signers to use any sighash algorithm within the closed set
+specified for a given transaction version (and made available in consensus via
+network upgrades).</p>
+<p>The sighash version is encoded as a single byte alongside any associated data
+that the sighash algorithm version requires (for deterministically computing the
+digest):</p>
+<p><span class="docutils literal">sighashInfo = [sighashVersion] || associatedData</span></p>
+<p>where <span class="docutils literal">associatedData</span> is specific to the bundle it appears in.</p>
+<p>Each bundle type defines the sighash algorithm versions available to its
+signers, the <span class="docutils literal">associatedData</span> that each version requires, and the digest that
+a signature using it commits to. Those definitions are given for the bundle
+types registered by this ZIP in <a class="reference internal" href="#bundle-definitions">Bundle Definitions</a>.</p>
+<p>Version 0 is by convention the &quot;commit to all effecting data&quot; sighash algorithm.
+Other versions can commit to whatever makes sense for desired functionality
+within a given transaction version. Consensus rules choose the digest algorithm
+for each signer based on <span class="docutils literal">sighashVersion</span>.</p>
+<p>Sighash version information is present alongside each signature in the
+authorizing data of each bundle.</p>
+</section>
+<h2 id="digest-algorithms"><a class="hanchor" href="#digest-algorithms" aria-hidden="true" tabindex="-1">#</a>Digest Algorithms</h2>
+<p>All digests are personalized BLAKE2b-256 hashes. In cases where no elements are
+available for hashing (for example, if there are no transparent transaction
+inputs), a personalized hash of the empty byte array will be used. The
+personalization string therefore provides domain separation for the hashes of
+even empty data fields.</p>
+<p>The notation <span class="docutils literal"><span class="pre">BLAKE2b-256(personalization_string,</span> [])</span> is used to refer to
+hashes constructed in this manner.</p>
+<h3 id="txid-digest"><a class="hanchor" href="#txid-digest" aria-hidden="true" tabindex="-1">#</a>TxId Digest</h3>
+<p>A new transaction digest algorithm is defined that constructs the identifier for
+a V7 transaction from a tree of hashes. The overall structure of the hash is as
+follows:</p>
+<pre class="literal-block">txid_digest
+├── header_digest
+├── value_pool_deltas_digest
+└── effects_bundles_digest
+    ├─ (bundle_type_id || bundle_variant || transparent_effects_digest)
+    ├─ (bundle_type_id || bundle_variant || coinbase_effects_digest)
+    ├─ (bundle_type_id || bundle_variant || sapling_effects_digest)
+    │   ├── sapling_spends_digest
+    │   │   ├── sapling_spends_compact_digest
+    │   │   └── sapling_spends_noncompact_digest
+    │   └── sapling_outputs_digest
+    │       ├── sapling_outputs_compact_digest
+    │       ├── sapling_outputs_memos_digest
+    │       └── sapling_outputs_noncompact_digest
+    ├─ (bundle_type_id || bundle_variant || orchard_effects_digest)
+    │   ├── orchard_actions_compact_digest
+    │   ├── orchard_actions_memos_digest
+    │   └── orchard_actions_noncompact_digest
+    ├─ (bundle_type_id || bundle_variant || ironwood_effects_digest)
+    │   ├── ironwood_actions_compact_digest
+    │   ├── ironwood_actions_memos_digest
+    │   └── ironwood_actions_noncompact_digest
+    └─ (bundle_type_id || bundle_variant || unknown_bundle_effects_digest) ...</pre>
+<p>Each node written as <span class="docutils literal">snake_case</span> in this tree is a BLAKE2b-256 hash of its
+children, initialized with a personalization string specific to that branch
+of the tree. Nodes that are not themselves digests are written in <span class="docutils literal">camelCase</span>.
+In the specification below, nodes of the tree are presented in depth-first order.</p>
+<h4 id="txid-digest-1"><a class="hanchor" href="#txid-digest-1" aria-hidden="true" tabindex="-1">#</a>txid_digest</h4>
+<p>A BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">T.1: header_digest             (32-byte hash output)
+T.2: value_pool_deltas_digest  (32-byte hash output)
+T.3: effects_bundles_digest    (32-byte hash output)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZcashTxHash_&quot; || CONSENSUS_BRANCH_ID</pre>
+<p><span class="docutils literal">ZcashTxHash_</span> has 1 underscore character.</p>
+<p>As in ZIP 244 <a class="brackets" href="#zip-0244" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>, CONSENSUS_BRANCH_ID is the 4-byte little-endian
+encoding of the consensus branch ID for the epoch of the block containing the
+transaction.</p>
+</section>
+<h4 id="t-1-header-digest"><a class="hanchor" href="#t-1-header-digest" aria-hidden="true" tabindex="-1">#</a>T.1: header_digest</h4>
+<p>A BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">T.1a: version             (4-byte little-endian version identifier including overwintered flag)
+T.1b: nVersionGroupId    (4-byte little-endian version group identifier)
+T.1c: nConsensusBranchId (4-byte little-endian consensus branch id)
+T.1d: lock_time           (4-byte little-endian nLockTime value)
+T.1e: nExpiryHeight       (4-byte little-endian block height)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdHeadersHash&quot;</pre>
+</section>
+<h4 id="t-2-value-pool-deltas-digest"><a class="hanchor" href="#t-2-value-pool-deltas-digest" aria-hidden="true" tabindex="-1">#</a>T.2: value_pool_deltas_digest</h4>
+<p>A BLAKE2b-256 hash of the concatenated encodings of all entries in
+<span class="docutils literal">mValuePoolDeltas</span>, in transaction order. For each entry, the following
+values are concatenated:</p>
+<pre class="literal-block">T.2a: bundleType    (compactSize encoding)
+T.2b: bundleVariant (compactSize encoding)
+T.2c: assetClass    (1 byte)
+T.2d: assetUuid     (0 or 64 bytes, depending on assetClass)
+T.2e: value         (8-byte signed little-endian)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdVPDeltaHash&quot;</pre>
+<p>In the case that the transaction has no value pool delta entries (which would
+only occur for transactions that have no effect on any value pool),
+<span class="docutils literal">value_pool_deltas_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdVPDeltaHash&quot;, [])</pre>
+</section>
+<h4 id="t-3-effects-bundles-digest"><a class="hanchor" href="#t-3-effects-bundles-digest" aria-hidden="true" tabindex="-1">#</a>T.3: effects_bundles_digest</h4>
+<p>A BLAKE2b-256 hash of the concatenated tagged bundle effect digests for all
+bundles present in <span class="docutils literal">mEffectBundles</span>, in transaction order. For each bundle,
+the following values are concatenated:</p>
+<pre class="literal-block">T.3a: bundleType            (compactSize encoding)
+T.3b: bundleVariant         (compactSize encoding)
+T.3c: bundle_effects_digest (32-byte hash output)</pre>
+<p>where <span class="docutils literal">bundle_effects_digest</span> is the root hash of the bundle's effecting data
+tree, as defined for each bundle type in <a class="reference internal" href="#bundle-definitions">Bundle Definitions</a>.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdEffBnd_Hash&quot; (1 underscore character)</pre>
+<p>In the case that the transaction has no effect bundles, <span class="docutils literal">effects_bundles_digest</span>
+is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdEffBnd_Hash&quot;, [])</pre>
+</section>
+</section>
+<h3 id="v0-signature-digest"><a class="hanchor" href="#v0-signature-digest" aria-hidden="true" tabindex="-1">#</a>v0 Signature Digest</h3>
+<p>A new per-input transaction digest algorithm is defined that constructs a hash
+that may be signed by a transaction creator to commit to the effects of the
+transaction. This follows closely the algorithm from ZIP 244 <a class="brackets" href="#zip-0244" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p>
+<p>The digest algorithm used for a given signature is determined by the
+<span class="docutils literal">sighashVersion</span> from the signer's <span class="docutils literal">sighashInfo</span>, as specified in the
+<a class="reference internal" href="#sighash-versioning">Sighash Versioning</a> section. For sighash version 0 (the only version
+currently defined for V7 transactions), the digest algorithm is as specified
+below. Future network upgrades may define additional sighash algorithm versions
+with divergent behavior.</p>
+<p>For transactions that have no transparent inputs, the v0 signature digest is
+identical to the transaction identifier digest.</p>
+<p>For transactions with transparent inputs, the signature digest replaces
+<span class="docutils literal">effects_bundles_digest</span> with a <span class="docutils literal">signature_bundles_digest</span> that incorporates
+<span class="docutils literal">hash_type</span>-dependent transparent signing data:</p>
+<pre class="literal-block">signature_digest
+├── header_digest
+├── value_pool_deltas_digest
+└── signature_bundles_digest</pre>
+<h4 id="signature-digest"><a class="hanchor" href="#signature-digest" aria-hidden="true" tabindex="-1">#</a>signature_digest</h4>
+<p>A BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">S.1: header_digest             (32-byte hash output)
+S.2: value_pool_deltas_digest  (32-byte hash output)
+S.3: signature_bundles_digest  (32-byte hash output)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZcashTxHash_&quot; || CONSENSUS_BRANCH_ID</pre>
+<p>This value has the same personalization as the transaction identifier digest,
+so that what is being signed in the case that there are no transparent inputs
+is exactly the transaction id.</p>
+</section>
+<h4 id="s-3-signature-bundles-digest"><a class="hanchor" href="#s-3-signature-bundles-digest" aria-hidden="true" tabindex="-1">#</a>S.3: signature_bundles_digest</h4>
+<p>If the transaction has no transparent inputs, <span class="docutils literal">signature_bundles_digest</span> is
+identical to <span class="docutils literal">effects_bundles_digest</span>.</p>
+<p>Otherwise, <span class="docutils literal">signature_bundles_digest</span> is constructed the same as
+<span class="docutils literal">effects_bundles_digest</span>, except that <span class="docutils literal">transparent_effects_digest</span> is
+replaced with <span class="docutils literal">transparent_sig_digest</span>.</p>
+</section>
+</section>
+<h3 id="authorizing-data-commitment"><a class="hanchor" href="#authorizing-data-commitment" aria-hidden="true" tabindex="-1">#</a>Authorizing Data Commitment</h3>
+<p>A transaction digest algorithm is defined that constructs a digest committing to
+the authorizing data of a transaction. The overall structure is:</p>
+<pre class="literal-block">auth_digest
+└── auth_bundles_digest
+    ├─ (bundle_type_id || bundle_variant || transparent_auth_digest)
+    ├─ (bundle_type_id || bundle_variant || sapling_auth_digest)
+    ├─ (bundle_type_id || bundle_variant || orchard_auth_digest)
+    ├─ (bundle_type_id || bundle_variant || ironwood_auth_digest)
+    └─ (bundle_type_id || bundle_variant || unknown_bundle_auth_digest) ...</pre>
+<h4 id="auth-digest"><a class="hanchor" href="#auth-digest" aria-hidden="true" tabindex="-1">#</a>auth_digest</h4>
+<p>A BLAKE2b-256 hash of the following value:</p>
+<pre class="literal-block">A.1: auth_bundles_digest (32-byte hash output)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxAuthHash_&quot; || CONSENSUS_BRANCH_ID</pre>
+<p>For transaction versions before V7, a placeholder value consisting of 32 bytes
+of <span class="docutils literal">0xFF</span> is used in place of the authorizing data commitment.</p>
+</section>
+<h4 id="a-1-auth-bundles-digest"><a class="hanchor" href="#a-1-auth-bundles-digest" aria-hidden="true" tabindex="-1">#</a>A.1: auth_bundles_digest</h4>
+<p>A BLAKE2b-256 hash of the concatenated tagged bundle auth digests for all
+bundles present in <span class="docutils literal">mAuthBundles</span>, in transaction order. For each bundle,
+the following values are concatenated:</p>
+<pre class="literal-block">A.1a: bundleType          (compactSize encoding)
+A.1b: bundleVariant       (compactSize encoding)
+A.1c: bundle_auth_digest  (32-byte hash output)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxAuthBnd__Hash&quot; (2 underscore characters)</pre>
+<p>In the case that the transaction has no auth bundles, <span class="docutils literal">auth_bundles_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxAuthBnd__Hash&quot;, [])</pre>
+</section>
+</section>
+</section>
+<h2 id="implications-for-wallets"><a class="hanchor" href="#implications-for-wallets" aria-hidden="true" tabindex="-1">#</a>Implications for Wallets</h2>
+<h3 id="sending-v7-transactions"><a class="hanchor" href="#sending-v7-transactions" aria-hidden="true" tabindex="-1">#</a>Sending V7 transactions</h3>
+<p><em>All</em> Zcash wallets SHOULD, without undue delay, switch to sending only V7
+transactions once they are allowed on the network. This applies to all
+transactions regardless of whether they use new V7 features.</p>
+</section>
+<h3 id="support-for-receiving-funds-in-v7-transactions"><a class="hanchor" href="#support-for-receiving-funds-in-v7-transactions" aria-hidden="true" tabindex="-1">#</a>Support for receiving funds in V7 transactions</h3>
+<p>Zcash wallets MUST support parsing V7 transactions by the time they are allowed
+on the network.</p>
+<p>Because the V7 transaction format uses a type-length-value encoding for
+bundles, a wallet is not required to understand the internal encoding of every
+bundle in order to parse a transaction. However, a wallet that encounters a
+bundle with an unrecognized <span class="docutils literal">bundleType</span> SHOULD alert the user that the
+transaction contains components it does not understand. A wallet that
+encounters a bundle with a recognized <span class="docutils literal">bundleType</span> but unrecognized
+<span class="docutils literal">bundleVariant</span> SHOULD alert the user that the transaction affects a pool the
+wallet is aware of, but in a way the wallet does not fully understand.</p>
+<p>For bundle types not understood by a wallet, the wallet can compute the
+transaction identifier so long as it has been provided with the 32-byte
+<span class="docutils literal">bundle_effects_digest</span> value for each bundle that it does not understand.
+This enables partial verification of transactions containing unknown bundle
+types.</p>
+<p>A wallet MUST NOT construct or sign a transaction containing a bundle type or
+variant that it does not fully understand.</p>
+</section>
+</section>
+<h2 id="bundle-definitions"><a class="hanchor" href="#bundle-definitions" aria-hidden="true" tabindex="-1">#</a>Bundle Definitions</h2>
+<p>The sections above are independent of any particular bundle type. This section
+defines the bundle types that this ZIP registers: the encoding of their
+effecting and authorizing data, the sighash algorithm versions available to
+their signers, and their contributions to the digests defined in
+<a class="reference internal" href="#digest-algorithms">Digest Algorithms</a>. A ZIP that registers a further bundle type defines the
+same things for it, as required by <a class="reference internal" href="#bundle-type-registration">Bundle Type Registration</a>.</p>
+<h3 id="transparent-bundle"><a class="hanchor" href="#transparent-bundle" aria-hidden="true" tabindex="-1">#</a>Transparent Bundle</h3>
+<p>The transparent bundle's value pool delta in <span class="docutils literal">mValuePoolDeltas</span> represents
+the net value flowing from the transparent inputs to the transparent outputs.</p>
+<p>A full validator MUST verify that the ZEC value pool delta for
+<span class="docutils literal">bundleType = 0</span> equals the total value of the transparent inputs minus the
+total value of the transparent outputs. (The input values are not encoded in
+the transaction itself; they are obtained from the UTXOs being spent.)</p>
+<p>This rule applies to coinbase transactions unchanged. A coinbase transaction
+has no transparent inputs, so its transparent value pool delta is the negation
+of the total value of its transparent outputs; the value that those outputs
+consume is contributed to the transparent transaction value pool by the
+coinbase bundle and the fee bundle.</p>
+<h4 id="transparent-effecting-data"><a class="hanchor" href="#transparent-effecting-data" aria-hidden="true" tabindex="-1">#</a>Transparent Effecting Data</h4>
+<p>The effecting data for the transparent bundle describes the transparent inputs
+being spent and the transparent outputs being created.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">tx_in_count</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of transparent inputs.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">tx_in_effecting</span></p></td>
+<td><p><span class="docutils literal">TransparentInputEffecting[tx_in_count]</span></p></td>
+<td><p>Effecting data for each transparent input.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">tx_out_count</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of transparent outputs.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">tx_out</span></p></td>
+<td><p><span class="docutils literal">TransparentOutput[tx_out_count]</span></p></td>
+<td><p>Transparent outputs.</p></td>
+</tr>
+</tbody>
+</table>
+<h5 id="transparentinputeffecting">TransparentInputEffecting</h5>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">prevout_hash</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The transaction ID of the output being spent.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">4</span></p></td>
+<td><p><span class="docutils literal">prevout_index</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>The index of the output being spent within that transaction.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">4</span></p></td>
+<td><p><span class="docutils literal">nSequence</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>Sequence number, encoded as in Bitcoin.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h5 id="transparentoutput">TransparentOutput</h5>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">8</span></p></td>
+<td><p><span class="docutils literal">value</span></p></td>
+<td><p><span class="docutils literal">int64</span></p></td>
+<td><p>The value of the output in zatoshi.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">scriptPubKeyLen</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Length of the scriptPubKey.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">scriptPubKeyLen</span></p></td>
+<td><p><span class="docutils literal">scriptPubKey</span></p></td>
+<td><p><span class="docutils literal">byte[scriptPubKeyLen]</span></p></td>
+<td><p>The script that must be satisfied to spend this output.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<h4 id="transparent-authorizing-data"><a class="hanchor" href="#transparent-authorizing-data" aria-hidden="true" tabindex="-1">#</a>Transparent Authorizing Data</h4>
+<p>The authorizing data for the transparent bundle contains the scripts that
+authorize spending of the referenced transparent inputs.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">tx_in_auth</span></p></td>
+<td><p><span class="docutils literal">TransparentInputAuth[tx_in_count]</span></p></td>
+<td><p>Authorizing data for each transparent input. The number of entries
+MUST equal <span class="docutils literal">tx_in_count</span> from the effecting data.</p></td>
+</tr>
+</tbody>
+</table>
+<h5 id="transparentinputauth">TransparentInputAuth</h5>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">sighashInfo</span></p></td>
+<td><p><span class="docutils literal">TransparentSighashInfo</span></p></td>
+<td><p>The sighash version and associated information for this input,
+as defined in
+<cite>Transparent Sighash Information (``TransparentSighashInfo`</cite>)`_.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">scriptSigLen</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Length of the scriptSig.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">scriptSigLen</span></p></td>
+<td><p><span class="docutils literal">scriptSig</span></p></td>
+<td><p><span class="docutils literal">byte[scriptSigLen]</span></p></td>
+<td><p>The script satisfying the conditions of the referenced output's
+scriptPubKey.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h5 id="transparent-sighash-information-transparentsighashinfo">Transparent Sighash Information (<span class="docutils literal">TransparentSighashInfo</span>)</h5>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">sizeSighashInfo</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>The size in bytes of <span class="docutils literal">sighashInfo</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">sizeSighashInfo</span></p></td>
+<td><p><span class="docutils literal">sighashInfo</span></p></td>
+<td><p><span class="docutils literal">byte[sizeSighashInfo]</span></p></td>
+<td><p>The sighash version and associated information,
+as defined in <a class="reference internal" href="#sighash-versioning">Sighash Versioning</a>.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<h4 id="transparent-sighash-algorithms"><a class="hanchor" href="#transparent-sighash-algorithms" aria-hidden="true" tabindex="-1">#</a>Transparent Sighash Algorithms</h4>
+<p>For the transparent bundle at <span class="docutils literal">bundleVariant = 0</span>, sighash version 0 is the
+only version defined, and its <span class="docutils literal">associatedData</span> is the empty byte string. A
+signature made with it commits to the digest defined in
+<a class="reference internal" href="#s-3-0-transparent-sig-digest">S.3.0: transparent_sig_digest</a>.</p>
+</section>
+<h4 id="transparent-digests"><a class="hanchor" href="#transparent-digests" aria-hidden="true" tabindex="-1">#</a>Transparent Digests</h4>
+<h5 id="t-3-0-transparent-effects-digest">T.3.0: transparent_effects_digest</h5>
+<p>In the case that transparent inputs or outputs are present, the transparent
+effects digest is a BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">T.3.0a: prevouts_digest  (32-byte hash)
+T.3.0b: sequence_digest  (32-byte hash)
+T.3.0c: outputs_digest   (32-byte hash)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdTranspaHash&quot;</pre>
+<p>In the case that the transaction has no transparent components,
+<span class="docutils literal">transparent_effects_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdTranspaHash&quot;, [])</pre>
+<h6 id="t-3-0a-prevouts-digest">T.3.0a: prevouts_digest</h6>
+<p>A BLAKE2b-256 hash of the field encoding of all <span class="docutils literal">(prevout_hash, prevout_index)</span>
+pairs from the transparent effecting data.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdPrevoutHash&quot;</pre>
+<p>In the case that the transaction has transparent outputs but no transparent
+inputs, <span class="docutils literal">prevouts_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdPrevoutHash&quot;, [])</pre>
+</section>
+<h6 id="t-3-0b-sequence-digest">T.3.0b: sequence_digest</h6>
+<p>A BLAKE2b-256 hash of the 32-bit little-endian representation of all <span class="docutils literal">nSequence</span>
+field values from the transparent effecting data.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSequencHash&quot;</pre>
+<p>In the case that the transaction has transparent outputs but no transparent
+inputs, <span class="docutils literal">sequence_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdSequencHash&quot;, [])</pre>
+</section>
+<h6 id="t-3-0c-outputs-digest">T.3.0c: outputs_digest</h6>
+<p>A BLAKE2b-256 hash of the concatenated field encodings of all transparent
+outputs. The field encoding of each output consists of the encoded output
+<span class="docutils literal">value</span> (8-byte little endian) followed by the <span class="docutils literal">scriptPubKey</span> byte array
+(with leading <span class="docutils literal">compactSize</span> length).</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdOutputsHash&quot;</pre>
+<p>In the case that the transaction has transparent inputs but no transparent
+outputs, <span class="docutils literal">outputs_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdOutputsHash&quot;, [])</pre>
+</section>
+</section>
+<h5 id="s-3-0-transparent-sig-digest">S.3.0: transparent_sig_digest</h5>
+<p>This digest is a BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">S.3.0a: hash_type                (1 byte)
+S.3.0b: prevouts_sig_digest      (32-byte hash)
+S.3.0c: amounts_sig_digest       (32-byte hash)
+S.3.0d: scriptpubkeys_sig_digest (32-byte hash)
+S.3.0e: sequence_sig_digest      (32-byte hash)
+S.3.0f: outputs_sig_digest       (32-byte hash)
+S.3.0g: txin_sig_digest          (32-byte hash)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdTranspaHash&quot;</pre>
+<h6 id="s-3-0a-hash-type">S.3.0a: hash_type</h6>
+<p>An 8-bit unsigned value. The <span class="docutils literal">SIGHASH</span> encodings from the legacy script system
+are used: one of <span class="docutils literal">SIGHASH_ALL</span> (0x01), <span class="docutils literal">SIGHASH_NONE</span> (0x02), or
+<span class="docutils literal">SIGHASH_SINGLE</span> (0x03), optionally combined with <span class="docutils literal">SIGHASH_ANYONECANPAY</span> (0x80).</p>
+<p>The following restrictions apply:</p>
+<ul class="simple">
+<li><p>Using any undefined <span class="docutils literal">hash_type</span> (not 0x01, 0x02, 0x03, 0x81, 0x82, or 0x83)
+causes validation failure.</p></li>
+<li><p>Using <span class="docutils literal">SIGHASH_SINGLE</span> without a corresponding output at the same index
+causes validation failure.</p></li>
+</ul>
+</section>
+<h6 id="s-3-0b-prevouts-sig-digest">S.3.0b: prevouts_sig_digest</h6>
+<p>If the <span class="docutils literal">SIGHASH_ANYONECANPAY</span> flag is not set, identical to <span class="docutils literal">prevouts_digest</span>
+(T.3.0a).</p>
+<p>Otherwise:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdPrevoutHash&quot;, [])</pre>
+</section>
+<h6 id="s-3-0c-amounts-sig-digest">S.3.0c: amounts_sig_digest</h6>
+<p>If the <span class="docutils literal">SIGHASH_ANYONECANPAY</span> flag is not set, a BLAKE2b-256 hash of the
+concatenation of the 8-byte signed little-endian representations of all <span class="docutils literal">value</span>
+fields for the coins spent by the transparent inputs to the transaction.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxTrAmountsHash&quot;</pre>
+<p>If the <span class="docutils literal">SIGHASH_ANYONECANPAY</span> flag is set:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxTrAmountsHash&quot;, [])</pre>
+</section>
+<h6 id="s-3-0d-scriptpubkeys-sig-digest">S.3.0d: scriptpubkeys_sig_digest</h6>
+<p>If the <span class="docutils literal">SIGHASH_ANYONECANPAY</span> flag is not set, a BLAKE2b-256 hash of the
+concatenation of the field encodings (each including a leading <span class="docutils literal">compactSize</span>)
+of all <span class="docutils literal">scriptPubKey</span> fields for the coins spent by the transparent inputs.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxTrScriptsHash&quot;</pre>
+<p>If the <span class="docutils literal">SIGHASH_ANYONECANPAY</span> flag is set:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxTrScriptsHash&quot;, [])</pre>
+</section>
+<h6 id="s-3-0e-sequence-sig-digest">S.3.0e: sequence_sig_digest</h6>
+<p>Identical to <span class="docutils literal">sequence_digest</span> (T.3.0b) regardless of <span class="docutils literal">hash_type</span>.</p>
+</section>
+<h6 id="s-3-0f-outputs-sig-digest">S.3.0f: outputs_sig_digest</h6>
+<p>If the sighash type is neither <span class="docutils literal">SIGHASH_SINGLE</span> nor <span class="docutils literal">SIGHASH_NONE</span>, identical
+to <span class="docutils literal">outputs_digest</span> (T.3.0c).</p>
+<p>If the sighash type is <span class="docutils literal">SIGHASH_SINGLE</span> and a transparent output exists at the
+same index as the input being signed, a hash of that output's encoding.</p>
+<p>Otherwise:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdOutputsHash&quot;, [])</pre>
+</section>
+<h6 id="s-3-0g-txin-sig-digest">S.3.0g: txin_sig_digest</h6>
+<p>For signatures over a transparent input, a BLAKE2b-256 hash of:</p>
+<pre class="literal-block">S.3.0g.i:   prevout      (36 bytes: 32-byte hash + 4-byte index)
+S.3.0g.ii:  value        (8-byte signed little-endian)
+S.3.0g.iii: scriptPubKey (with compactSize length prefix)
+S.3.0g.iv:  nSequence    (4-byte unsigned little-endian)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;Zcash___TxInHash&quot; (3 underscores)</pre>
+<p>For signatures over a Sapling Spend or Orchard Action:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;Zcash___TxInHash&quot;, [])</pre>
+</section>
+</section>
+<h5 id="a-1-0-transparent-auth-digest">A.1.0: transparent_auth_digest</h5>
+<p>In the case that the transaction contains transparent inputs, this is a
+BLAKE2b-256 hash of the following concatenated values for each transparent
+input:</p>
+<pre class="literal-block">A.1.0a: TransparentSighashInfo (field encoding bytes)
+A.1.0b: scriptSig              (field encoding bytes, with compactSize length prefix)</pre>
+<p>The field encoding of <span class="docutils literal">TransparentSighashInfo</span> is defined in
+<cite>Transparent Sighash Information (``TransparentSighashInfo`</cite>)`_.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxAuthTransHash&quot;</pre>
+<p>In the case that the transaction has no transparent inputs:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxAuthTransHash&quot;, [])</pre>
+</section>
+</section>
+</section>
+<h3 id="coinbase-bundle"><a class="hanchor" href="#coinbase-bundle" aria-hidden="true" tabindex="-1">#</a>Coinbase Bundle</h3>
+<p>A transaction is a <em>coinbase transaction</em> if and only if <span class="docutils literal">mEffectBundles</span>
+contains an entry with <span class="docutils literal">bundleType = 1</span>. The coinbase bundle replaces the
+otherwise-unspendable transparent input that identified a coinbase transaction
+in previous transaction versions, and carries the block height that that input
+was required to encode.</p>
+<p>The block subsidy is the whole of the new issuance for the block, which
+consensus splits between the miner, the funding streams that pay to an address,
+and the funding streams that deposit into the deferred pool (the &quot;lockbox&quot;)
+<a class="brackets" href="#zip-2001" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a>. Only the part that is not deposited into the lockbox is paid out
+by this transaction, so the coinbase bundle's value pool delta in
+<span class="docutils literal">mValuePoolDeltas</span> is the block subsidy less the lockbox deposit. The fees
+collected from the other transactions in the block are contributed separately,
+as the value pool delta of the fee bundle.</p>
+<p>The bundle's own effecting data carries the two components, as <span class="docutils literal">blockSubsidy</span>
+and <span class="docutils literal">lockboxValue</span>, so that the split is recoverable from the transaction
+rather than only their difference.</p>
+<p>The coinbase bundle has no authorizing data.</p>
+<h4 id="coinbase-effecting-data"><a class="hanchor" href="#coinbase-effecting-data" aria-hidden="true" tabindex="-1">#</a>Coinbase Effecting Data</h4>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">4</span></p></td>
+<td><p><span class="docutils literal">blockHeight</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>The height of the block in which the transaction is mined.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">8</span></p></td>
+<td><p><span class="docutils literal">blockSubsidy</span></p></td>
+<td><p><span class="docutils literal">uint64</span></p></td>
+<td><p>The block subsidy for that block, in zatoshis.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">8</span></p></td>
+<td><p><span class="docutils literal">lockboxValue</span></p></td>
+<td><p><span class="docutils literal">uint64</span></p></td>
+<td><p>The part of that block subsidy deposited into the lockbox, in
+zatoshis.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">coinbaseDataLen</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Length of the <span class="docutils literal">coinbaseData</span> byte array.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">coinbaseDataLen</span></p></td>
+<td><p><span class="docutils literal">coinbaseData</span></p></td>
+<td><p><span class="docutils literal">byte[coinbaseDataLen]</span></p></td>
+<td><p>Data chosen by the miner. Consensus assigns no meaning to its
+contents.</p></td>
+</tr>
+</tbody>
+</table>
+<ul class="simple">
+<li><p><span class="docutils literal">blockHeight</span> MUST be in the range {1 .. 499999999}.</p></li>
+<li><p><span class="docutils literal">lockboxValue</span> MUST be in the range {0 .. <span class="docutils literal">blockSubsidy</span>}.</p></li>
+<li><p><span class="docutils literal">coinbaseDataLen</span> MUST be at most 94.</p></li>
+</ul>
+</section>
+<h4 id="coinbase-digests"><a class="hanchor" href="#coinbase-digests" aria-hidden="true" tabindex="-1">#</a>Coinbase Digests</h4>
+<h5 id="t-3-1-coinbase-effects-digest">T.3.1: coinbase_effects_digest</h5>
+<p>A BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">T.3.1a: blockHeight   (4-byte little-endian block height)
+T.3.1b: blockSubsidy  (8-byte unsigned little-endian)
+T.3.1c: lockboxValue  (8-byte unsigned little-endian)
+T.3.1d: coinbaseData  (byte array with leading ``compactSize`` length)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdCoinbasHash&quot;</pre>
+<p>This digest is present only for coinbase transactions; a transaction that has
+no coinbase bundle contributes no entry for it to <span class="docutils literal">effects_bundles_digest</span>.</p>
+</section>
+</section>
+</section>
+<h3 id="sapling-bundle"><a class="hanchor" href="#sapling-bundle" aria-hidden="true" tabindex="-1">#</a>Sapling Bundle</h3>
+<h4 id="sapling-effecting-data"><a class="hanchor" href="#sapling-effecting-data" aria-hidden="true" tabindex="-1">#</a>Sapling Effecting Data</h4>
+<p>The effecting data for the Sapling bundle describes the Sapling spends and
+outputs. Unlike the V5 transaction format defined in ZIP 225 <a class="brackets" href="#zip-0225" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>,
+the value balance is not included here; it appears in <span class="docutils literal">mValuePoolDeltas</span>
+instead.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">nSpendsSapling</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of Sapling Spend descriptions.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">96 * nSpendsSapling</span></p></td>
+<td><p><span class="docutils literal">vSpendsSapling</span></p></td>
+<td><p><span class="docutils literal">SaplingSpendEffecting[nSpendsSapling]</span></p></td>
+<td><p>Effecting data for each Sapling Spend.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">nOutputsSapling</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Number of Sapling Output descriptions.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">756 * nOutputsSapling</span></p></td>
+<td><p><span class="docutils literal">vOutputsSapling</span></p></td>
+<td><p><span class="docutils literal">SaplingOutput[nOutputsSapling]</span></p></td>
+<td><p>Sapling Output descriptions.</p></td>
+</tr>
+</tbody>
+</table>
+<p>The anchor is not part of the effecting data; it appears in
+<a class="reference internal" href="#sapling-authorizing-data">Sapling Authorizing Data</a>.</p>
+<h5 id="saplingspendeffecting">SaplingSpendEffecting</h5>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cv</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A value commitment to the net value of the input note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">nullifier</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The nullifier of the input note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">rk</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The randomized validating key for this Spend.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h5 id="saplingoutput">SaplingOutput</h5>
+<p>This is identical to <span class="docutils literal">OutputDescriptionV5</span> as defined in ZIP 225 <a class="brackets" href="#zip-0225" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cv</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A value commitment to the net value of the output note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cmu</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>u</mi>
+  <mspace width="-0.1667em"></mspace>
+</math>-coordinate of the note commitment for the output
+note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">ephemeralKey</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>An encoding of an ephemeral Jubjub public key.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">580</span></p></td>
+<td><p><span class="docutils literal">encCiphertext</span></p></td>
+<td><p><span class="docutils literal">byte[580]</span></p></td>
+<td><p>The encrypted contents of the note plaintext.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">80</span></p></td>
+<td><p><span class="docutils literal">outCiphertext</span></p></td>
+<td><p><span class="docutils literal">byte[80]</span></p></td>
+<td><p>The encrypted contents of the byte string created by concatenation
+of the transmission key with the ephemeral secret key.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<h4 id="sapling-authorizing-data"><a class="hanchor" href="#sapling-authorizing-data" aria-hidden="true" tabindex="-1">#</a>Sapling Authorizing Data</h4>
+<p>The authorizing data for the Sapling bundle contains the proofs and signatures
+that authorize the spends and validate the outputs.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">anchorSapling</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A root of the Sapling note commitment tree at some block height
+in the past.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">192 * nSpendsSapling</span></p></td>
+<td><p><span class="docutils literal">vSpendProofsSapling</span></p></td>
+<td><p><span class="docutils literal">byte[192 * nSpendsSapling]</span></p></td>
+<td><p>Encodings of the zk-SNARK proofs for each Sapling Spend.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">vSpendAuthSigsSapling</span></p></td>
+<td><p><span class="docutils literal">SaplingSignature[nSpendsSapling]</span></p></td>
+<td><p>Authorizing signatures for each Sapling Spend.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">192 * nOutputsSapling</span></p></td>
+<td><p><span class="docutils literal">vOutputProofsSapling</span></p></td>
+<td><p><span class="docutils literal">byte[192 * nOutputsSapling]</span></p></td>
+<td><p>Encodings of the zk-SNARK proofs for each Sapling Output.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">bindingSigSapling</span></p></td>
+<td><p><span class="docutils literal">SaplingSignature</span></p></td>
+<td><p>A Sapling binding signature on the SIGHASH transaction hash.</p></td>
+</tr>
+</tbody>
+</table>
+<ul class="simple">
+<li><p>The field <span class="docutils literal">anchorSapling</span> is present if and only if
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝚂</mi>
+    <mi>𝚙</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚜</mi>
+    <mi>𝚂</mi>
+    <mi>𝚊</mi>
+    <mi>𝚙</mi>
+    <mi>𝚕</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚐</mi>
+  </mrow>
+  <mo>&gt;</mo>
+  <mn>0</mn>
+</math>. A Sapling bundle with outputs but no spends
+references no anchor.</p></li>
+<li><p>The values of <span class="docutils literal">nSpendsSapling</span> and <span class="docutils literal">nOutputsSapling</span> are not re-encoded in
+the authorizing data; they are taken from the corresponding effecting data.</p></li>
+<li><p>The field <span class="docutils literal">bindingSigSapling</span> is present if and only if
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝚂</mi>
+    <mi>𝚙</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚜</mi>
+    <mi>𝚂</mi>
+    <mi>𝚊</mi>
+    <mi>𝚙</mi>
+    <mi>𝚕</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚐</mi>
+  </mrow>
+  <mo>+</mo>
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙾</mi>
+    <mi>𝚞</mi>
+    <mi>𝚝</mi>
+    <mi>𝚙</mi>
+    <mi>𝚞</mi>
+    <mi>𝚝</mi>
+    <mi>𝚜</mi>
+    <mi>𝚂</mi>
+    <mi>𝚊</mi>
+    <mi>𝚙</mi>
+    <mi>𝚕</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚐</mi>
+  </mrow>
+  <mo>&gt;</mo>
+  <mn>0</mn>
+</math>.</p></li>
+</ul>
+<h5 id="sapling-signature-saplingsignature">Sapling Signature (<span class="docutils literal">SaplingSignature</span>)</h5>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">sizeSighashInfo</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>The size in bytes of <span class="docutils literal">sighashInfo</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">sizeSighashInfo</span></p></td>
+<td><p><span class="docutils literal">sighashInfo</span></p></td>
+<td><p><span class="docutils literal">byte[sizeSighashInfo]</span></p></td>
+<td><p>The sighash version and associated information,
+as defined in <a class="reference internal" href="#sighash-versioning">Sighash Versioning</a>.</p></td>
+</tr>
+<tr><td><p>64</p></td>
+<td><p><span class="docutils literal">signature</span></p></td>
+<td><p><span class="docutils literal">byte[64]</span></p></td>
+<td><p>An encoding of a RedJubjub signature, which may be
+either a <span class="docutils literal">spendAuthSig</span> or <span class="docutils literal">bindingSig</span>
+depending on context.</p></td>
+</tr>
+</tbody>
+</table>
+<p>The 1:1 correspondences between Sapling authorizing-data elements and the
+elements of the corresponding effecting data are required by the parsing
+rules in <a class="reference internal" href="#parsing-rules">Parsing Rules</a>.</p>
+</section>
+</section>
+<h4 id="sapling-sighash-algorithms"><a class="hanchor" href="#sapling-sighash-algorithms" aria-hidden="true" tabindex="-1">#</a>Sapling Sighash Algorithms</h4>
+<p>For the Sapling bundle at <span class="docutils literal">bundleVariant = 0</span>, sighash version 0 is the only
+version defined, and its <span class="docutils literal">associatedData</span> is the empty byte string. A Sapling
+<span class="docutils literal">spendAuthSig</span> or <span class="docutils literal">bindingSig</span> made with it commits to the digest defined
+in <a class="reference internal" href="#v0-signature-digest">v0 Signature Digest</a>, computed with <span class="docutils literal">hash_type = SIGHASH_ALL</span> (0x01).</p>
+</section>
+<h4 id="sapling-digests"><a class="hanchor" href="#sapling-digests" aria-hidden="true" tabindex="-1">#</a>Sapling Digests</h4>
+<h5 id="t-3-2-sapling-effects-digest">T.3.2: sapling_effects_digest</h5>
+<p>In the case that Sapling spends or outputs are present, the Sapling effects
+digest is a BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">T.3.2a: sapling_spends_digest   (32-byte hash)
+T.3.2b: sapling_outputs_digest  (32-byte hash)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSaplingH_v7&quot;</pre>
+<p>Note that unlike ZIP 244, neither the value balance nor the anchor is included
+here. The value balance is committed via <span class="docutils literal">value_pool_deltas_digest</span>, and the
+anchor via <span class="docutils literal">sapling_auth_digest</span>; the personalization differs from ZIP 244's
+<span class="docutils literal">ZTxIdSaplingHash</span> because what is directly hashed has changed.</p>
+<p>In the case that the transaction has no Sapling spends or outputs,
+<span class="docutils literal">sapling_effects_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdSaplingH_v7&quot;, [])</pre>
+<h6 id="t-3-2a-sapling-spends-digest">T.3.2a: sapling_spends_digest</h6>
+<p>In the case that Sapling spends are present, this digest is a BLAKE2b-256 hash
+of the following values:</p>
+<pre class="literal-block">T.3.2a.i:  sapling_spends_compact_digest    (32-byte hash)
+T.3.2a.ii: sapling_spends_noncompact_digest (32-byte hash)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSSpendsHash&quot;</pre>
+<p>In the case that the transaction has Sapling outputs but no Sapling spends,
+<span class="docutils literal">sapling_spends_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdSSpendsHash&quot;, [])</pre>
+</section>
+<h6 id="t-3-2a-i-sapling-spends-compact-digest">T.3.2a.i: sapling_spends_compact_digest</h6>
+<p>A BLAKE2b-256 hash of the field encoding of all <span class="docutils literal">nullifier</span> field values
+of Sapling spends belonging to the transaction.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSSpendCHash&quot;</pre>
+</section>
+<h6 id="t-3-2a-ii-sapling-spends-noncompact-digest">T.3.2a.ii: sapling_spends_noncompact_digest</h6>
+<p>A BLAKE2b-256 hash of the non-nullifier information for all Sapling spends
+belonging to the transaction. For each spend, the following elements are
+included in the hash:</p>
+<pre class="literal-block">T.3.2a.ii.1: cv     (32 bytes)
+T.3.2a.ii.2: anchor (32 bytes)
+T.3.2a.ii.3: rk     (32 bytes)</pre>
+<p>The anchor is hashed for <em>each</em> spend (even though it is shared in the encoding).</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSSpendNHash&quot;</pre>
+</section>
+<h6 id="t-3-2b-sapling-outputs-digest">T.3.2b: sapling_outputs_digest</h6>
+<p>In the case that Sapling outputs are present, this digest is a BLAKE2b-256 hash
+of the following values:</p>
+<pre class="literal-block">T.3.2b.i:   sapling_outputs_compact_digest    (32-byte hash)
+T.3.2b.ii:  sapling_outputs_memos_digest      (32-byte hash)
+T.3.2b.iii: sapling_outputs_noncompact_digest (32-byte hash)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSOutputHash&quot;</pre>
+<p>In the case that the transaction has Sapling spends but no Sapling outputs,
+<span class="docutils literal">sapling_outputs_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdSOutputHash&quot;, [])</pre>
+</section>
+<h6 id="t-3-2b-i-sapling-outputs-compact-digest">T.3.2b.i: sapling_outputs_compact_digest</h6>
+<p>A BLAKE2b-256 hash of the subset of Sapling output information included in the
+ZIP 307 <a class="brackets" href="#zip-0307" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a> <span class="docutils literal">CompactBlock</span> format for all Sapling outputs belonging
+to the transaction. For each output, the following elements are included:</p>
+<pre class="literal-block">T.3.2b.i.1: cmu                  (32 bytes)
+T.3.2b.i.2: ephemeralKey         (32 bytes)
+T.3.2b.i.3: encCiphertext[..52]  (first 52 bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSOutC__Hash&quot; (2 underscore characters)</pre>
+</section>
+<h6 id="t-3-2b-ii-sapling-outputs-memos-digest">T.3.2b.ii: sapling_outputs_memos_digest</h6>
+<p>A BLAKE2b-256 hash of the memo field data for all Sapling outputs belonging to
+the transaction. For each output:</p>
+<pre class="literal-block">T.3.2b.ii.1: encCiphertext[52..564] (512 bytes, encrypted memo)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSOutM__Hash&quot; (2 underscore characters)</pre>
+</section>
+<h6 id="t-3-2b-iii-sapling-outputs-noncompact-digest">T.3.2b.iii: sapling_outputs_noncompact_digest</h6>
+<p>A BLAKE2b-256 hash of the remaining Sapling output information not included in
+the <span class="docutils literal">CompactBlock</span> format. For each output:</p>
+<pre class="literal-block">T.3.2b.iii.1: cv                    (32 bytes)
+T.3.2b.iii.2: encCiphertext[564..]  (post-memo AEAD tag, 16 bytes)
+T.3.2b.iii.3: outCiphertext         (80 bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSOutN__Hash&quot; (2 underscore characters)</pre>
+</section>
+</section>
+<h5 id="a-1-2-sapling-auth-digest">A.1.2: sapling_auth_digest</h5>
+<p>In the case that Sapling spends or outputs are present, this is a BLAKE2b-256
+hash of the following concatenated values:</p>
+<pre class="literal-block">A.1.2a: anchorSapling          (32 bytes, present iff nSpendsSapling &gt; 0)
+A.1.2b: vSpendProofsSapling    (192 bytes per spend)
+A.1.2c: vSpendAuthSigsSapling  (SaplingSignature field encoding per spend)
+A.1.2d: vOutputProofsSapling   (192 bytes per output)
+A.1.2e: bindingSigSapling      (SaplingSignature field encoding)</pre>
+<p>The <span class="docutils literal">SaplingSignature</span> field encoding is defined in
+<cite>Sapling Signature (``SaplingSignature`</cite>)`_ and includes <span class="docutils literal">sighashInfo</span>.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxAuthSapliH_v7&quot;</pre>
+<p>The personalization differs from ZIP 244's <span class="docutils literal">ZTxAuthSapliHash</span> because this
+digest now also commits to the anchor.</p>
+<p>In the case that the transaction has no Sapling spends or outputs:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxAuthSapliH_v7&quot;, [])</pre>
+</section>
+</section>
+</section>
+<h3 id="orchard-protocol-bundles"><a class="hanchor" href="#orchard-protocol-bundles" aria-hidden="true" tabindex="-1">#</a>Orchard Protocol Bundles</h3>
+<p>The Orchard protocol supports two value pools, each with its own note
+commitment tree, nullifier set, and chain value pool balance. Each is acted
+upon by its own bundle type: the Orchard bundle, <span class="docutils literal">bundleType = 3</span>, acts on
+the <em>Orchard pool</em>, and the Ironwood bundle, <span class="docutils literal">bundleType = 4</span>, acts on the
+<em>Ironwood pool</em>.</p>
+<p>Both bundle types use the encoding defined in this section. Where a field is
+described below as belonging to the bundle's pool, that pool is the
+<em>Orchard pool</em> for an Orchard bundle and the <em>Ironwood pool</em> for an Ironwood
+bundle.</p>
+<p>The bits of <span class="docutils literal">flagsOrchard</span> have the same meaning for both pools, and so are
+named without the <span class="docutils literal">Orchard</span> suffix they carried in the V5 transaction format,
+following ZIP 229 <a class="brackets" href="#zip-0229" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. Their values are constrained per pool by the
+<a class="reference internal" href="#bundle-local-rules">Bundle-local rules</a>.</p>
+<h4 id="orchard-protocol-effecting-data"><a class="hanchor" href="#orchard-protocol-effecting-data" aria-hidden="true" tabindex="-1">#</a>Orchard Protocol Effecting Data</h4>
+<p>The effecting data for an Orchard protocol bundle describes the Orchard
+actions. Unlike the V5 transaction format defined in ZIP 225 <a class="brackets" href="#zip-0225" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>, the
+value balance is not included here; it appears in <span class="docutils literal">mValuePoolDeltas</span>
+instead.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">nActionsOrchard</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>The number of Orchard Action descriptions.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">820 * nActionsOrchard</span></p></td>
+<td><p><span class="docutils literal">vActionsOrchard</span></p></td>
+<td><p><span class="docutils literal">OrchardActionEffecting[nActionsOrchard]</span></p></td>
+<td><p>Effecting data for each Orchard Action.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">1</span></p></td>
+<td><p><span class="docutils literal">flagsOrchard</span></p></td>
+<td><p><span class="docutils literal">byte</span></p></td>
+<td><p>An 8-bit value representing a set of flags. Ordered from LSB to MSB:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">enableSpends</span></p></li>
+<li><p><span class="docutils literal">enableOutputs</span></p></li>
+<li><p><span class="docutils literal">enableCrossAddress</span> <a class="brackets" href="#zip-2006" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a></p></li>
+<li><p>The remaining bits are set to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+  <mspace width="-0.1667em"></mspace>
+</math>.</p></li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<ul class="simple">
+<li><p>The field <span class="docutils literal">flagsOrchard</span> is present if and only if
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝚜</mi>
+    <mi>𝙾</mi>
+    <mi>𝚛</mi>
+    <mi>𝚌</mi>
+    <mi>𝚑</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+    <mi>𝚍</mi>
+  </mrow>
+  <mo>&gt;</mo>
+  <mn>0</mn>
+</math>.</p></li>
+</ul>
+<p>The anchor is not part of the effecting data; it appears in
+<a class="reference internal" href="#orchard-protocol-authorizing-data">Orchard Protocol Authorizing Data</a>.</p>
+<h5 id="orchardactioneffecting">OrchardActionEffecting</h5>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cv</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A value commitment to the net value of the input note minus the
+output note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">nullifier</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The nullifier of the input note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">rk</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The randomized validating key for this Action.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">cmx</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>x</mi>
+  <mspace width="-0.1667em"></mspace>
+</math>-coordinate of the note commitment for the output
+note.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">ephemeralKey</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>An encoding of an ephemeral Pallas public key.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">580</span></p></td>
+<td><p><span class="docutils literal">encCiphertext</span></p></td>
+<td><p><span class="docutils literal">byte[580]</span></p></td>
+<td><p>The encrypted contents of the note plaintext.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">80</span></p></td>
+<td><p><span class="docutils literal">outCiphertext</span></p></td>
+<td><p><span class="docutils literal">byte[80]</span></p></td>
+<td><p>The encrypted contents of the byte string created by concatenation
+of the transmission key with the ephemeral secret key.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<h4 id="orchard-protocol-authorizing-data"><a class="hanchor" href="#orchard-protocol-authorizing-data" aria-hidden="true" tabindex="-1">#</a>Orchard Protocol Authorizing Data</h4>
+<p>The authorizing data for an Orchard protocol bundle contains the proofs and
+signatures that authorize the actions.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">32</span></p></td>
+<td><p><span class="docutils literal">anchorOrchard</span></p></td>
+<td><p><span class="docutils literal">byte[32]</span></p></td>
+<td><p>A root of the note commitment tree of the bundle's pool, at some
+block height in the past.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">sizeProofsOrchard</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>Length in bytes of <span class="docutils literal">proofsOrchard</span>. Value is
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>2720</mn>
+  <mo>+</mo>
+  <mn>2272</mn>
+  <mo>⋅</mo>
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝚜</mi>
+    <mi>𝙾</mi>
+    <mi>𝚛</mi>
+    <mi>𝚌</mi>
+    <mi>𝚑</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+    <mi>𝚍</mi>
+  </mrow>
+  <mspace width="-0.1667em"></mspace>
+</math>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">sizeProofsOrchard</span></p></td>
+<td><p><span class="docutils literal">proofsOrchard</span></p></td>
+<td><p><span class="docutils literal">byte[sizeProofsOrchard]</span></p></td>
+<td><p>Encoding of aggregated zk-SNARK proofs for Orchard Actions.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">vSpendAuthSigsOrchard</span></p></td>
+<td><p><span class="docutils literal">OrchardSignature[nActionsOrchard]</span></p></td>
+<td><p>Authorizing signatures for each Orchard Action.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">bindingSigOrchard</span></p></td>
+<td><p><span class="docutils literal">OrchardSignature</span></p></td>
+<td><p>An Orchard binding signature on the SIGHASH transaction hash.</p></td>
+</tr>
+</tbody>
+</table>
+<ul class="simple">
+<li><p>The value of <span class="docutils literal">nActionsOrchard</span> is not re-encoded in the authorizing data; it
+is taken from the corresponding effecting data.</p></li>
+<li><p>The fields <span class="docutils literal">anchorOrchard</span>, <span class="docutils literal">sizeProofsOrchard</span>, <span class="docutils literal">proofsOrchard</span>,
+and <span class="docutils literal">bindingSigOrchard</span> are present if and only if
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝚜</mi>
+    <mi>𝙾</mi>
+    <mi>𝚛</mi>
+    <mi>𝚌</mi>
+    <mi>𝚑</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+    <mi>𝚍</mi>
+  </mrow>
+  <mo>&gt;</mo>
+  <mn>0</mn>
+</math>.</p></li>
+</ul>
+<h5 id="orchard-signature-orchardsignature">Orchard Signature (<span class="docutils literal">OrchardSignature</span>)</h5>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Data Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">sizeSighashInfo</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+<td><p>The size in bytes of <span class="docutils literal">sighashInfo</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">sizeSighashInfo</span></p></td>
+<td><p><span class="docutils literal">sighashInfo</span></p></td>
+<td><p><span class="docutils literal">byte[sizeSighashInfo]</span></p></td>
+<td><p>The sighash version and associated information,
+as defined in <a class="reference internal" href="#sighash-versioning">Sighash Versioning</a>.</p></td>
+</tr>
+<tr><td><p>64</p></td>
+<td><p><span class="docutils literal">signature</span></p></td>
+<td><p><span class="docutils literal">byte[64]</span></p></td>
+<td><p>An encoding of a RedPallas signature, which may be
+either a <span class="docutils literal">spendAuthSig</span> or <span class="docutils literal">bindingSig</span>
+depending on context.</p></td>
+</tr>
+</tbody>
+</table>
+<p>The 1:1 correspondences between the authorizing-data elements of an Orchard
+protocol bundle and the elements of the corresponding effecting data are
+required by the parsing rules in <a class="reference internal" href="#parsing-rules">Parsing Rules</a>.</p>
+</section>
+</section>
+<h4 id="orchard-protocol-sighash-algorithms"><a class="hanchor" href="#orchard-protocol-sighash-algorithms" aria-hidden="true" tabindex="-1">#</a>Orchard Protocol Sighash Algorithms</h4>
+<p>For the Orchard and Ironwood bundles at <span class="docutils literal">bundleVariant = 0</span>, sighash version
+0 is the only version defined, and its <span class="docutils literal">associatedData</span> is the empty byte
+string. An Orchard <span class="docutils literal">spendAuthSig</span> or <span class="docutils literal">bindingSig</span> made with it commits to
+the digest defined in <a class="reference internal" href="#v0-signature-digest">v0 Signature Digest</a>, computed with
+<span class="docutils literal">hash_type = SIGHASH_ALL</span> (0x01).</p>
+</section>
+<h4 id="orchard-protocol-digests"><a class="hanchor" href="#orchard-protocol-digests" aria-hidden="true" tabindex="-1">#</a>Orchard Protocol Digests</h4>
+<h5 id="t-3-3-orchard-effects-digest">T.3.3: orchard_effects_digest</h5>
+<p>The digest defined here and in its child sections is the Orchard bundle's
+instance of a digest shape shared with the Ironwood bundle; T.3.4 gives the
+Ironwood instance.</p>
+<p>In the case that Orchard actions are present, the Orchard effects digest is a
+BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">T.3.3a: orchard_actions_compact_digest    (32-byte hash)
+T.3.3b: orchard_actions_memos_digest      (32-byte hash)
+T.3.3c: orchard_actions_noncompact_digest (32-byte hash)
+T.3.3d: flagsOrchard                      (1 byte)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdOrchardH_v7&quot;</pre>
+<p>Note that unlike ZIP 244, neither the value balance nor the anchor is included
+here. The value balance is committed via <span class="docutils literal">value_pool_deltas_digest</span>, and the
+anchor via <span class="docutils literal">orchard_auth_digest</span>; the personalization differs from ZIP 244's
+<span class="docutils literal">ZTxIdOrchardHash</span> because what is directly hashed has changed.</p>
+<p>In the case that the transaction has no Orchard actions, <span class="docutils literal">orchard_effects_digest</span>
+is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdOrchardH_v7&quot;, [])</pre>
+<h6 id="t-3-3a-orchard-actions-compact-digest">T.3.3a: orchard_actions_compact_digest</h6>
+<p>A BLAKE2b-256 hash of the subset of Orchard action information intended for
+inclusion in the <span class="docutils literal">CompactBlock</span> format. For each action:</p>
+<pre class="literal-block">T.3.3a.i:   nullifier            (32 bytes)
+T.3.3a.ii:  cmx                  (32 bytes)
+T.3.3a.iii: ephemeralKey         (32 bytes)
+T.3.3a.iv:  encCiphertext[..52]  (first 52 bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdOrcActCHash&quot;</pre>
+</section>
+<h6 id="t-3-3b-orchard-actions-memos-digest">T.3.3b: orchard_actions_memos_digest</h6>
+<p>A BLAKE2b-256 hash of the memo field data for all Orchard actions. For each
+action:</p>
+<pre class="literal-block">T.3.3b.i: encCiphertext[52..564] (512 bytes, encrypted memo)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdOrcActMHash&quot;</pre>
+</section>
+<h6 id="t-3-3c-orchard-actions-noncompact-digest">T.3.3c: orchard_actions_noncompact_digest</h6>
+<p>A BLAKE2b-256 hash of the remaining Orchard action information not intended for
+inclusion in the <span class="docutils literal">CompactBlock</span> format. For each action:</p>
+<pre class="literal-block">T.3.3c.i:   cv                   (32 bytes)
+T.3.3c.ii:  rk                   (32 bytes)
+T.3.3c.iii: encCiphertext[564..] (post-memo AEAD tag, 16 bytes)
+T.3.3c.iv:  outCiphertext        (80 bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdOrcActNHash&quot;</pre>
+</section>
+</section>
+<h5 id="t-3-4-ironwood-effects-digest">T.3.4: ironwood_effects_digest</h5>
+<p>The Ironwood bundle uses the same effecting data encoding as the Orchard
+bundle, and <span class="docutils literal">ironwood_effects_digest</span> is computed over that data exactly as
+<span class="docutils literal">orchard_effects_digest</span> and its children are computed (T.3.3), except that
+each personalization string is replaced as follows:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Digest</p></th>
+<th class="head"><p>Orchard bundle</p></th>
+<th class="head"><p>Ironwood bundle</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>effects digest</p></td>
+<td><p><span class="docutils literal">ZTxIdOrchardH_v7</span></p></td>
+<td><p><span class="docutils literal">ZTxIdIronwd_Hash</span></p></td>
+</tr>
+<tr><td><p>actions compact digest</p></td>
+<td><p><span class="docutils literal">ZTxIdOrcActCHash</span></p></td>
+<td><p><span class="docutils literal">ZTxIdIrnActCHash</span></p></td>
+</tr>
+<tr><td><p>actions memos digest</p></td>
+<td><p><span class="docutils literal">ZTxIdOrcActMHash</span></p></td>
+<td><p><span class="docutils literal">ZTxIdIrnActMHash</span></p></td>
+</tr>
+<tr><td><p>actions noncompact digest</p></td>
+<td><p><span class="docutils literal">ZTxIdOrcActNHash</span></p></td>
+<td><p><span class="docutils literal">ZTxIdIrnActNHash</span></p></td>
+</tr>
+</tbody>
+</table>
+<p>The personalization strings differ so that the digest of a bundle acting on one
+pool cannot be reused as the digest of a bundle acting on the other.</p>
+<p>In the case that the transaction has no Ironwood actions,
+<span class="docutils literal">ironwood_effects_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdIronwd_Hash&quot;, [])</pre>
+</section>
+<h5 id="a-1-3-orchard-auth-digest">A.1.3: orchard_auth_digest</h5>
+<p>In the case that Orchard actions are present, this is a BLAKE2b-256 hash of the
+following concatenated values:</p>
+<pre class="literal-block">A.1.3a: anchorOrchard         (32 bytes)
+A.1.3b: proofsOrchard         (aggregated proofs)
+A.1.3c: vSpendAuthSigsOrchard (OrchardSignature field encoding per action)
+A.1.3d: bindingSigOrchard     (OrchardSignature field encoding)</pre>
+<p>The <span class="docutils literal">OrchardSignature</span> field encoding is defined in
+<cite>Orchard Signature (``OrchardSignature`</cite>)`_ and includes <span class="docutils literal">sighashInfo</span>.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxAuthOrchaH_v7&quot;</pre>
+<p>The personalization differs from ZIP 244's <span class="docutils literal">ZTxAuthOrchaHash</span> because this
+digest now also commits to the anchor.</p>
+<p>In the case that the transaction has no Orchard actions:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxAuthOrchaH_v7&quot;, [])</pre>
+</section>
+<h5 id="a-1-4-ironwood-auth-digest">A.1.4: ironwood_auth_digest</h5>
+<p>The Ironwood bundle uses the same authorizing data encoding as the Orchard
+bundle, and <span class="docutils literal">ironwood_auth_digest</span> is computed over that data exactly as
+<span class="docutils literal">orchard_auth_digest</span> (A.1.3), including its commitment to the anchor, except
+that the personalization field of the hash is set to:</p>
+<pre class="literal-block">&quot;ZTxAuthIrnwdHash&quot;</pre>
+<p>In the case that the transaction has no Ironwood actions:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxAuthIrnwdHash&quot;, [])</pre>
+</section>
+</section>
+</section>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>Effecting data bundles and authorizing data bundles are stored separately in
+the transaction format so that the authorizing data may be pruned by
+straightforward truncation of the encoded representation of the transaction.</p>
+<p>Representing the coinbase as a bundle makes the value pool delta balance rule
+universal. Previously the coinbase transaction was the sole exception: its
+deltas summed to the negation of the block subsidy rather than to zero, because
+the subsidy entered the transparent transaction value pool implicitly. With the
+subsidy carried in the coinbase bundle's value pool delta, every transaction
+balances to zero in every asset, and a wallet can enumerate the value flows of
+a coinbase transaction using the same rule it applies to any other transaction.</p>
+<p>Carrying <span class="docutils literal">blockSubsidy</span> and <span class="docutils literal">lockboxValue</span> in the effecting data states
+both components of the issuance in the bundle they belong to, and commits them
+to the transaction identifier along with the rest of that data. The value pool
+delta is their difference, so without them a client could see how much the
+coinbase pays out but not how much was issued or how much went to the lockbox.
+Deriving them instead is not open to every client: the subsidy is not a
+function of the block height alone once issuance depends on accumulated chain
+state, so evaluating the issuance schedule would require a client to track that
+state.</p>
+<p>The Orchard and Ironwood bundles share one encoding because the <em>Orchard pool</em>
+and the <em>Ironwood pool</em> are two pools of the same shielded protocol. The action
+encoding, proving system, authorization, and note encryption are common to
+both; the pools differ in their note commitment trees, nullifier sets, and
+chain value pool balances.</p>
+<p>Each pool gets its own bundle type rather than a variant of a single type
+because a variant is required to affect the same value pool(s) as the type it
+varies, so that a client encountering an unrecognized variant still knows which
+pools the bundle touches. Two pools therefore cannot share a bundle type, and
+separate types also keep the two value pool deltas separable, which a client
+needs in order to report the two chain value pool balances independently.</p>
+<p>The Sapling and Orchard protocol anchors are authorizing data rather than
+effecting data, following ZIP 229 <a class="brackets" href="#zip-0229" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. An anchor selects the note
+commitment tree state that the bundle's proofs are verified against, which is a
+property of how the spends are authorized rather than of what the transaction
+does. Placing it there lets a bundle be re-anchored to a more recent root
+without changing the transaction identifier, while the proofs still bind to the
+anchor actually used.</p>
+<p>The coinbase bundle also gives the coinbase metadata a place of its own. In
+previous transaction versions that metadata was encoded as the <span class="docutils literal">scriptSig</span> of
+a single transparent input whose previous output reference pointed at nothing,
+so a coinbase transaction had to be recognized by that unspendable reference,
+and the block height had to be encoded as a script push. The coinbase bundle
+encodes the height directly, and its presence identifies the transaction. The
+<span class="docutils literal">coinbaseData</span> limit of 94 bytes holds the encoded size of that field to
+what the previous encoding spent on the same content. A coinbase <span class="docutils literal">scriptSig</span>
+was limited to 100 bytes, of which the leading push of the block height took 5;
+of the 95 bytes that remained, the <span class="docutils literal">compactSize</span> length prefix of
+<span class="docutils literal">coinbaseData</span> now takes one.</p>
+<p>Neither the previous output reference nor the sequence number of the input
+being replaced is carried over. Both were artifacts of encoding the coinbase
+metadata as a transparent input: the reference identified no output, and the
+sequence number had no effect on the validity of a transaction that spends
+nothing.</p>
+</section>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+</section>
+<h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Open issues</h1>
+</section>
+<h1 id="notes-from-design-sessions"><a class="hanchor" href="#notes-from-design-sessions" aria-hidden="true" tabindex="-1">#</a>Notes from design sessions</h1>
+<p>This section should be removed as soon as all the considerations described here
+are accounted for in ZIP.</p>
+<p>Wallets or consensus-dependent applications that send transactions, might do
+something wrong that compromises user funds or privacy if they do not take into
+account consensus changes in an upgrade; therefore, only a subset of consensus
+changes can be safely adapted to using this mechanism.</p>
+<p>In particular, consensus rules may change in such a way that a wallet doing
+what it has done in the past causes risk of loss of funds.</p>
+<p>An example of this was ZIP 212 <a class="brackets" href="#zip-0212" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>. In that case
+the existing mechanisms failed to prevent loss of funds because in practice,
+wallets updated the consensus branch ID without updating note encryption. We
+made the mistake of requiring wallets to change their behaviour for an existing
+transaction version. Except for certain cases involving severe security flaws,
+we should avoid doing that again.</p>
+<p>If a wallet needs to actively do something differently (for example,
+advertising addresses in a new format or creating an output with a TZE
+precondition) in order to be affected by a new feature, then it is reasonably
+safe for it to ignore the feature as long as it can still parse transactions
+and, and create and sign transactions that don't make use of those features.</p>
+<p>It is okay that such a wallet might not be able to see funds that depend on new
+features, as long as they do not create such funds themselves.</p>
+<p>Loss of funds is unacceptable. Temporary inaccessibility of funds in certain
+circumstances can be okay -- provided that this potential inaccessibility and
+the circumstances where it can occur is documented and an explicit design
+decision.</p>
+<h2 id="strawman"><a class="hanchor" href="#strawman" aria-hidden="true" tabindex="-1">#</a>Strawman</h2>
+<p>Modify how we approach transaction format evolution, such that (after one more
+change to transaction encoding) it is possible for a wallet that has not
+adopted a parser for a given transaction format to continue to function after
+an <em>additive</em> change to the transaction format. Another way to state this is
+that we should make it possible to make &quot;semver-compatible&quot; transaction format
+changes.</p>
+<ul class="simple">
+<li><p>&#64;str4d: We could use a TLV approach where each &quot;bundle&quot; has a value balance.
+The NSM burn amount field could be its own bundle, the explicit fee data
+could be its own bundle and the consensus rule could be that all value
+balances sum to zero.</p>
+<ul>
+<li><p>generically, you want a value balance vector, where you have zero or more
+value balances moving between bundles in other assets.</p></li>
+</ul>
+</li>
+<li><p>&#64;nuttycom: You could have pre-ZSA and post-ZSA Orchard bundles.</p></li>
+</ul>
+</section>
+<h2 id="strawman-ii"><a class="hanchor" href="#strawman-ii" aria-hidden="true" tabindex="-1">#</a>Strawman II</h2>
+<p>Treat bundles as individually versioned.</p>
+<ul class="simple">
+<li><p>Each bundle is registered with an ID relative to a tx version group ID.</p></li>
+<li><p>The bundle ID encoding also has some flag bits indicating how it interacts
+with the tx as a whole.</p></li>
+<li><p>Transactions then have two &quot;bundle maps&quot;:</p>
+<ul>
+<li><p>The first encodes how value moves between the different bundles.</p></li>
+<li><p>The second encodes data specific to a bundle (e.g. how value moves within a bundle)</p></li>
+<li><p>Bundles that don't have any data would just appear in the first map, and
+bundles that don't produce or consume value would just appear in the
+second map.</p></li>
+</ul>
+</li>
+<li><p>We can re-interpret various other facets of transactions as &quot;bundles&quot;</p>
+<ul>
+<li><p>Explicit fees are a bundle that never produces value</p></li>
+<li><p>NSM field similarly never produces value</p></li>
+<li><p>ZSA burns would be split into &quot;value balance out of Orchard pool&quot; and
+&quot;value balance being removed from ZSA issuance&quot;</p></li>
+<li><p>The coinbase subsidy is a bundle that only produces value; see
+<a class="reference internal" href="#coinbase-bundle">Coinbase Bundle</a>.</p></li>
+</ul>
+</li>
+<li><p>Privacy effect is minimal</p>
+<ul>
+<li><p>We already follow a bundle approach with a transparent transaction value
+pool, for the turnstiles. This leans into it, while preserving the bundle
+boundary within which we implement each privacy protocol.</p></li>
+<li><p>Some combinations of bundles would be permitted by the tx format that
+were not previously permitted.</p>
+<ul>
+<li><p>However, we can still restrict which combinations of bundles can be
+mined in the consensus rules.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>Sketch of the format:</p>
+<ul class="simple">
+<li><p>Transaction version (like now)</p>
+<ul>
+<li><p>Version</p></li>
+<li><p>Version group ID</p></li>
+</ul>
+</li>
+<li><p>Transaction header</p>
+<ul>
+<li><p>Expiry height etc</p></li>
+<li><p>Likely need some kind of key-value map here to allow additional fields to
+be added, or maybe version the header to allow evolution?</p></li>
+</ul>
+</li>
+<li><p>Transparent transaction value pool &quot;traffic map&quot;</p>
+<ul>
+<li><p>Option 1: BundleVariantID -&gt; (valueBalance, AssetId -&gt; valueBalance)</p>
+<ul>
+<li><p>Key: Bundle variant ID</p></li>
+<li><p>Value:</p>
+<ul>
+<li><p>ZEC <cite>valueBalance</cite></p></li>
+<li><p>CompactSize len(generalizedValueBalances)</p></li>
+<li><p>Zero or more generalized value balances</p>
+<ul>
+<li><p><cite>AssetId</cite> (not <cite>AssetBase</cite> because those are
+protocol-specific, and we want generalized value balances to
+be understandable independently of protocol changes)</p></li>
+<li><p><cite>valueBalance</cite></p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>Option 2: (BundleVariantID, Option[AssetId]) -&gt; valueBalance</p>
+<ul>
+<li><p>Key: Bundle variant ID encoded as u8 || { Option[AssetId] }</p></li>
+<li><p>Value: <cite>valueBalance</cite></p></li>
+</ul>
+</li>
+<li><p>Option 3: BundleVariantID -&gt; Option[AssetId] -&gt; valueBalance</p>
+<ul>
+<li><p>Key: Bundle variant ID</p></li>
+<li><p>Value:</p>
+<ul>
+<li><p>Map containing one or more generalized value balances</p>
+<ul>
+<li><p>{ Option[AssetId] }</p></li>
+<li><p><cite>valueBalance</cite></p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>Sequence of bundles (maybe with a length prefix?)</p>
+<ul>
+<li><p>Bundle variant ID</p>
+<ul>
+<li><p>Maybe flag bits, either in the variant ID or next to it, that
+indicate how an opaquely-parsing wallet should interpret the bundle,
+e.g.:</p>
+<ul>
+<li><p>A bit that says whether or not the bundle interacts with the
+transparent transaction value pool (which memo bundles would not
+have).</p>
+<ul>
+<li><p>Counterpoint: The traffic map already specifies whether a
+given bundle <em>does</em> have an interaction with the transparent
+tx value pool for this tx. This is different from whether
+that kind of bundle <em>can</em> interact with the transparent tx
+value pool, but it the latter needed?</p></li>
+</ul>
+</li>
+<li><p>A bit that says whether the bundle has any other effect than what
+is specified in the traffic map.</p>
+<ul>
+<li><p>Counterpoint: We should split apart effecting and authorizing
+data in the encoding, and then a bundle must be assumed
+effecting iff it has non-null effecting data.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>CompactSize len(effectingData)</p></li>
+<li><p>effectingData</p></li>
+<li><p>CompactSize len(authorizingData)</p></li>
+<li><p>authorizingData</p>
+<ul>
+<li><p>effectingData and authorizingData would be opaque to the initial
+parser.</p></li>
+<li><p>Parsers that support parsing (tx_version, bundle_version) know how to
+interpret its internals</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</section>
+<h2 id="questions"><a class="hanchor" href="#questions" aria-hidden="true" tabindex="-1">#</a>Questions</h2>
+<ul class="simple">
+<li><p>Is it okay for fee calculations to be opaque to wallet parsers, as long as
+the fee amounts can be calculated in consensus?</p>
+<ul>
+<li><p>Yes:</p>
+<ul>
+<li><p>When receiving, all you care about is knowing the actual fee amount;
+you see that in the fee bundle's value balance.</p></li>
+<li><p>When sending, you need to understand all bundles you are including,
+and then you can calculate the fee.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>Can wallets still compute the txid and wtxid of an arbitrary transaction?</p>
+<ul>
+<li><p>Yes, provided that effecting and authorizing data is separated. Then they
+can hash the effecting data even without understanding it to compute the
+txid, and they can hash the authorizing data even without understanding
+it to compute the authorizing data commitment part of the wtxid (ZIP
+239 <a class="brackets" href="#zip-0239" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>).</p></li>
+<li><p><em>However</em>, this reintroduces a more direct linkage between the [w]txid
+computation and the transaction encoding. It's arguably fine, and
+potentially simpler -- since the [w]txid computation need not change at
+all for most protocol changes.</p></li>
+<li><p>If the hashing uses flat hashes over the effectingData and
+authorizingData of each bundle (which it has to because the internal
+structure is not known), then it might be more difficult to do Merkle
+proofs over subsets of the data within a bundle. We haven't used that so
+far; is it really needed?</p></li>
+<li><p>Should the authorizing data be entirely separate from the effecting data,
+and encoded at the end of the transaction in a batch, so that pruning is
+simply truncation?</p></li>
+</ul>
+</li>
+<li><p>The light wallet protocol will be updated to allow the client to specify the
+set of bundle types that the client understands. In the case that this
+information is provided, the light client server will then send the root
+hashes for each bundle type that the client <strong>does not</strong> understand when
+returning raw transaction data, so that the light client can correctly
+recompute and validate the txid; also, the compact transactions can be pruned
+to exclude bundles of bundle types. that the client will not understand.</p></li>
+</ul>
+</section>
+</section>
+<h1 id="todo"><a class="hanchor" href="#todo" aria-hidden="true" tabindex="-1">#</a>TODO</h1>
+<p>Rename <span class="docutils literal">assetDigest</span> to <span class="docutils literal">assetUuid</span> in ZIP 227</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.3 [NU6.1] or later</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-blockchain" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#blockchain">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 3.3: The Block Chain</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-subsidies" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#subsidies">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 7.8: Block Subsidy and Founders' Reward</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-fundingstreams" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#fundingstreams">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 7.10: Payment of Funding Streams, Deferred Lockbox, and Lockbox Disbursement</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0203" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://zips.z.cash/zip-0203">ZIP 203: Transaction Expiry</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0212" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-21">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://zips.z.cash/zip-0212">ZIP 212: Allow Recipient to Derive Ephemeral Secret from Note Plaintext</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0225" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-6">1</a>,<a role="doc-backlink" href="#footnote-reference-14">2</a>,<a role="doc-backlink" href="#footnote-reference-15">3</a>,<a role="doc-backlink" href="#footnote-reference-18">4</a>)</span>
+<p><a class="reference external" href="https://zips.z.cash/zip-0225">ZIP 225: Version 5 Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0229" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-17">2</a>,<a role="doc-backlink" href="#footnote-reference-20">3</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0229.md">ZIP 229: Version 6 Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0239" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-22">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://zips.z.cash/zip-0239">ZIP 239: Relay of Version 5 Transactions</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-11">1</a>,<a role="doc-backlink" href="#footnote-reference-12">2</a>)</span>
+<p><a class="reference external" href="https://zips.z.cash/zip-0244">ZIP 244: Transaction Identifier Non-Malleability</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0307" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-16">13</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://zips.z.cash/zip-0307">ZIP 307: Light Client Protocol for Payment Detection</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-2001" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">14</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-2001.rst">ZIP 2001: Lockbox Funding Streams</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-2006" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-8">1</a>,<a role="doc-backlink" href="#footnote-reference-19">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-2006.md">ZIP 2006: Restricting Transfers into the Orchard Pool</a></p>
+</aside>
+</aside>
+</section>

@@ -1,0 +1,395 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot; and &quot;MAY&quot; in this document are to be interpreted as described in
+BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they appear in all capitals.</p>
+<p>The term &quot;network upgrade&quot; in this document is to be interpreted as described in ZIP 200
+<a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+<p>The term &quot;prefix-free&quot; in this document is to be interpreted as to mean that no valid
+encoding of a value may have the same binary representation as any prefix of
+the binary encoding of another value of the same type.</p>
+<p>The term &quot;non-malleable&quot; in this document is to be interpreted as described in ZIP 244
+<a class="brackets" href="#zip-0244" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>.</p>
+<p>The value <span class="docutils literal">MAX_MONEY</span> is as defined in section 5.3 of the Zcash Protocol Specification
+<a class="brackets" href="#protocol-constants" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This proposal defines a modification to the consensus rules that enables complex forms of
+transparent output preconditions to be deployed in network upgrades. This in turn enables the
+creation of &quot;transparent Zcash extensions&quot; that augment the network's functionality in a
+carefully-defined and auditable fashion.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Zcash supports a limited set of preconditions that may be imposed upon how funds, both
+transparent and shielded, may be spent. Spending limitations on transparent funds are
+defined by what may be encoded in Bitcoin script, and spending of shielded funds is
+even more restricted. As such, some use cases (for example, integration of BOLT support
+<a class="brackets" href="#zip-draft-bolt" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>) are not yet supportable.</p>
+<p>Transparent Zcash Extensions are intended to make it possible to incrementally
+add new functionality without modifying interpretation of the existing Bitcoin
+script, which is complex and potentially error-prone. Extensions may also serve
+as laboratories for evaluating demand for functionality which may eventually be
+candidates for inclusion in the consensus rules for shielded transactions.</p>
+</section>
+<h1 id="definitions"><a class="hanchor" href="#definitions" aria-hidden="true" tabindex="-1">#</a>Definitions</h1>
+<dl class="simple">
+<dt>encumber</dt>
+<dd><p>To set conditions that must be satisfied in order to spend some or all of a
+transaction's outputs.</p>
+</dd>
+<dt>precondition</dt>
+<dd><p>A challenge that must be satisfied in order to gain spending authority over
+an encumbered amount.</p>
+</dd>
+<dt>witness</dt>
+<dd><p>Evidence to be evaluated against the challenge encoded by a precondition.</p>
+</dd>
+</dl>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="transparent-extensions"><a class="hanchor" href="#transparent-extensions" aria-hidden="true" tabindex="-1">#</a>Transparent Extensions</h2>
+<p>Transparent Extensions are modular software components that are distributed as
+part of the code of consensus implementations. An extension defines interpretation rules
+for several new pieces of data that are included as part of a transaction.</p>
+<p>A Transparent Extension is identified by a numeric <span class="docutils literal">type</span>. A Transparent
+Extension may also have several modes of operation, corresponding to different
+kinds of encumbrance within the extension's overall protocol.</p>
+<p>The following three values are made available to the extension (in addition to <span class="docutils literal">type</span>):</p>
+<ul class="simple">
+<li><p>A numeric <span class="docutils literal">mode</span>.</p></li>
+<li><p>A byte sequence <span class="docutils literal">precondition</span> containing an encoding of the precondition that is
+prefix-free within this <span class="docutils literal">(type, mode)</span>.</p></li>
+<li><p>A byte sequence <span class="docutils literal">witness</span> containing an encoding of evidence purporting
+to satisfy the precondition. This encoding MUST be prefix-free within this
+<span class="docutils literal">(type, mode)</span>.</p></li>
+</ul>
+<p>The extension is responsible for providing mode-specific parsing and
+serialization of these data fields. In addition, the extension MUST implement a
+deterministic verification algorithm <span class="docutils literal">tze_verify</span> that takes as arguments
+<span class="docutils literal">mode</span>, <span class="docutils literal">precondition</span>, <span class="docutils literal">witness</span>, and a context object. The context object
+provides deterministic public information about the transaction as well as the block
+chain (up to and including the block that the transaction is mined in). It returns
+<span class="docutils literal">true</span> if the precondition is satisfied in that context, and <span class="docutils literal">false</span> otherwise.</p>
+<p>An extension MAY request that arbitrary public information about the
+transaction and block chain be included in the context object provided to it;
+these requirements MUST be satisfied by a caller integrating the extension at
+the integration point. Extensions SHOULD restrict the information requested to
+that which may be provided by node implementations in an efficient manner. For
+example, an extension SHOULD NOT require that it be provided full blocks in
+order to be able to construct or validate a precondition, and SHOULD minimize
+transaction data requested to that which are essential for its computational
+needs. In addition, while some preprocessing by the consensus-validating node
+may be requested, construction of such contextual data SHOULD NOT impose
+significant computational costs.</p>
+<p>ZIPs that define a new transparent extension MUST completely specify the
+structure of all three of the specified values for each defined mode, as well
+as the behavior of <span class="docutils literal">tze_verify</span> and any contextual information required.</p>
+<p>The encoded forms of <span class="docutils literal">precondition</span> and <span class="docutils literal">witness</span> are not required to be
+constant-length, but SHOULD be solely determined by the pair <span class="docutils literal">(type, mode)</span>.</p>
+<p>The introduction of TZEs by this ZIP produces a new transparent unspent
+outpoint set, distinct from the UTXO set, such that indices into this set of
+outpoints may be referred to by TZE inputs in spending transactions.</p>
+</section>
+<h2 id="encoding-in-transactions"><a class="hanchor" href="#encoding-in-transactions" aria-hidden="true" tabindex="-1">#</a>Encoding in transactions</h2>
+<p>We define a new transaction format that contains two new fields:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">tze_outputs</span>: A list of pairs of:</p>
+<ul>
+<li><p>The value being encumbered.</p></li>
+<li><p>The precondition that must be satisfied to spend the value.</p></li>
+</ul>
+</li>
+<li><p><span class="docutils literal">tze_inputs</span>: A list of pairs of:</p>
+<ul>
+<li><p>An outpoint referencing a prior precondition.</p></li>
+<li><p>A witness that satisfies it.</p></li>
+</ul>
+</li>
+</ul>
+<p>The transaction format is required to be non-malleable, in the sense that any
+change to the effects of the transaction will change its transaction ID, but
+any valid change to a <span class="docutils literal">witness</span> inside <span class="docutils literal">tze_inputs</span> will not change the
+transaction ID. This will be specified in a separate ZIP.</p>
+<p>A new version &lt;TBD&gt; transaction format and corresponding version group
+identifier &lt;TBD&gt; will be introduced in the hard-fork network upgrade that
+introduces TZE functionality. The version &lt;TBD&gt; format differs from the version 4
+transaction format as follows: a length-prefixed encoding of TZE inputs and outputs are
+added to the serialized transaction format immediately following the fields
+representing transparent inputs and outputs.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Version</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Type</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">...</span></p></td>
+<td><p><span class="docutils literal">...</span> as before</p></td>
+<td><p><span class="docutils literal">...</span></p></td>
+<td><p><span class="docutils literal">...</span></p></td>
+</tr>
+<tr><td><p>&gt;= 1</p></td>
+<td><p><span class="docutils literal">tx_in_count</span></p></td>
+<td><p>variable-length integer</p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+</tr>
+<tr><td><p>&gt;= 1</p></td>
+<td><p><span class="docutils literal">tx_in</span></p></td>
+<td><p>list of inputs</p></td>
+<td><p><span class="docutils literal">vector</span></p></td>
+</tr>
+<tr><td><p>&gt;= 1</p></td>
+<td><p><span class="docutils literal">tx_out_count</span></p></td>
+<td><p>variable-length integer</p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+</tr>
+<tr><td><p>&gt;= 1</p></td>
+<td><p><span class="docutils literal">tx_out</span></p></td>
+<td><p>list of outputs</p></td>
+<td><p><span class="docutils literal">vector</span></p></td>
+</tr>
+<tr><td><p>&gt;= &lt;TBD&gt;</p></td>
+<td><p><span class="docutils literal">tze_in_count</span></p></td>
+<td><p>variable-length integer</p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+</tr>
+<tr><td><p>&gt;= &lt;TBD&gt;</p></td>
+<td><p><span class="docutils literal">tze_in</span></p></td>
+<td><p>list of TZE inputs</p></td>
+<td><p><span class="docutils literal">vector</span></p></td>
+</tr>
+<tr><td><p>&gt;= &lt;TBD&gt;</p></td>
+<td><p><span class="docutils literal">tze_out_count</span></p></td>
+<td><p>variable-length integer</p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+</tr>
+<tr><td><p>&gt;= &lt;TBD&gt;</p></td>
+<td><p><span class="docutils literal">tze_out</span></p></td>
+<td><p>list of TZE outputs</p></td>
+<td><p><span class="docutils literal">vector</span></p></td>
+</tr>
+<tr><td><p>&gt;= 1</p></td>
+<td><p><span class="docutils literal">lock_time</span></p></td>
+<td><p>block height or timestamp</p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">...</span></p></td>
+<td><p><span class="docutils literal">...</span> as before</p></td>
+<td><p><span class="docutils literal">...</span></p></td>
+<td><p><span class="docutils literal">...</span></p></td>
+</tr>
+</tbody>
+</table>
+<p>Both <span class="docutils literal">tze_in</span> and <span class="docutils literal">tze_out</span> vectors make use of the common serialized
+form <span class="docutils literal">tze_data</span> described below. Serialization of all integer and vector
+types is as with Bitcoin.</p>
+<p><span class="docutils literal">tze_data</span> encoding:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Type</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">tze_id</span></p></td>
+<td><p>extension <span class="docutils literal">type</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">tze_mode</span></p></td>
+<td><p>extension <span class="docutils literal">mode</span></p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">tze_data_payload_len</span></p></td>
+<td><p>length of precondition/witness data</p></td>
+<td><p><span class="docutils literal">compactSize</span></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">tze_data_payload</span></p></td>
+<td><p>serialized precondition/witness data</p></td>
+<td><p><span class="docutils literal">tze_data_payload_len</span> bytes</p></td>
+</tr>
+</tbody>
+</table>
+<p>TZE Input Encoding:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Type</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">prevout_hash</span></p></td>
+<td><p>previous txid</p></td>
+<td><p><span class="docutils literal">uint256</span></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">prevout_in</span></p></td>
+<td><p>index into previous txn's outputs</p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">witness</span></p></td>
+<td><p>witness for prevout's precondition</p></td>
+<td><p><span class="docutils literal">tze_data</span></p></td>
+</tr>
+</tbody>
+</table>
+<p>TZE Output Encoding:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Type</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">amount</span></p></td>
+<td><p>spendable amount, in zatoshi</p></td>
+<td><p><span class="docutils literal">int64</span></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">precondition</span></p></td>
+<td><p>encodes a precondition encumbering <span class="docutils literal">amount</span></p></td>
+<td><p><span class="docutils literal">tze_data</span></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h2 id="consensus-rules"><a class="hanchor" href="#consensus-rules" aria-hidden="true" tabindex="-1">#</a>Consensus rules</h2>
+<p>Once this ZIP becomes active, the following new consensus rules are enforced:</p>
+<ul class="simple">
+<li><p>For each <span class="docutils literal">(outpoint, witness)</span> pair in <span class="docutils literal">tze_inputs</span>:</p>
+<ul>
+<li><p><span class="docutils literal">outpoint</span> MUST reference a precondition of the same type and mode in an already-mined
+transaction.</p></li>
+<li><p><span class="docutils literal">tze_verify(mode, precondition, witness, context)</span> MUST return <span class="docutils literal">true</span>.</p></li>
+</ul>
+</li>
+<li><p>If a transaction has non-empty <span class="docutils literal">tze_inputs</span> and non-empty <span class="docutils literal">tze_outputs</span>,
+then every element in both fields MUST have the same <span class="docutils literal">type</span> in order to
+eliminate the possibility for cross-extension attacks. As this is not a
+consideration in the case that only <span class="docutils literal">tze_inputs</span> or only <span class="docutils literal">tze_outputs</span>
+are present, the extension <span class="docutils literal">type</span> MAY vary between elements in that case.</p></li>
+<li><p>Non-coinbase transactions MUST have at least one of the following:
+- nonempty transparent inputs
+- nonempty shielded inputs
+- nonempty <span class="docutils literal">tze_inputs</span></p></li>
+</ul>
+<p>The above rule replaces <span class="docutils literal">[Sapling onward] At least one of tx_in_count, nShieldedSpend, and nJoinSplit MUST be nonzero</span> in <a class="brackets" href="#protocol-txnconsensus" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+<ul class="simple">
+<li><p>Transactions MUST have at least one of the following:
+- nonempty transparent outputs
+- nonempty shielded outputs
+- nonempty <span class="docutils literal">tze_outputs</span></p></li>
+<li><p>All <span class="docutils literal">amount</span> field values of <span class="docutils literal">tze_output</span> records MUST be nonnegative and not greater
+than <span class="docutils literal">MAX_MONEY</span>.</p></li>
+<li><p>The sum of amounts going out of the transparent value pool of a transaction (that is,
+Bitcoin-style outputs and TZE outputs, plus JoinSplit <span class="docutils literal">vpub_old</span> values) MUST NOT
+exceed the sum of amounts going into that pool (that is, Bitcoin-style inputs and TZE
+inputs, plus JoinSplit <span class="docutils literal">vpub_new</span> values, plus the Sapling <span class="docutils literal">valueBalance</span> amount).</p></li>
+</ul>
+</section>
+<h2 id="changes-to-signatures-over-transaction-digests"><a class="hanchor" href="#changes-to-signatures-over-transaction-digests" aria-hidden="true" tabindex="-1">#</a>Changes to signatures over transaction digests</h2>
+<p>This ZIP MUST be deployed in conjunction with or after ZIP 244 <a class="brackets" href="#zip-0244" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>, which defines
+new non-malleable transaction identifier and signature digest algorithms.</p>
+<p>The newly added parts of the transaction, excluding witness information (i.e. not the
+<span class="docutils literal">witness</span> fields of TZE Input Encodings), will be included in transaction digests for
+transaction identifiers and signatures.  See ZIP 245 <a class="brackets" href="#zip-0245" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> for the specification of
+these new digests. If the changes in this ZIP are deployed, those described in ZIP 245
+MUST be deployed as well.</p>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>Transactions that have both TZE inputs and outputs are required to use a single extension
+type, in order to prevent cross-protocol attacks. The downside is that this prevents all
+TZE-encumbered value from being spent directly into a different TZE type; the value needs
+to go through a regular address in between. This restriction might be relaxed in future
+ZIPs for specific combinations of <span class="docutils literal">(type, mode)</span> pairs that have been analyzed for
+cross-protocol attacks, but we opt here for a fail-safe default behaviour.</p>
+<p>Transactions with TZE inputs which do not contain TZE outputs are not subject
+to single-extension or single-mode restrictions; likewise, transactions which
+contain TZE outputs without any TZE inputs may produce TZE outputs for multiple
+extension-type/mode pairs as the potential for cross-protocol attacks in this
+situation is negligible.</p>
+<p>An earlier draft version of this ZIP stored the payloads inside transparent inputs and
+outputs. Although this had the advantage of not requiring a transaction format change,
+the consensus rules were significantly more complicated, and the design coupled the
+extension logic too tightly to the transparent address logic. Instead, this ZIP uses
+dedicated transaction fields, and a separate unspent output set.</p>
+</section>
+<h1 id="security-and-privacy-considerations-for-future-tze-implementations"><a class="hanchor" href="#security-and-privacy-considerations-for-future-tze-implementations" aria-hidden="true" tabindex="-1">#</a>Security and Privacy Considerations for Future TZE Implementations</h1>
+<p>This ZIP assumes that the base transaction format is non-malleable. However, the
+<span class="docutils literal">precondition</span> and <span class="docutils literal">witness</span> byte sequences are treated here as opaque. It is the
+responsibility of <span class="docutils literal">tze_verify</span> to enforce the following:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">precondition</span> MUST be non-malleable: any malleation MUST cause <span class="docutils literal">tze_verify</span> to
+return <span class="docutils literal">false</span>.</p></li>
+<li><p>The output of <span class="docutils literal">tze_verify(mode, precondition, witness, context)</span> MUST be deterministic.</p></li>
+</ul>
+<p>ZIPs defining new extension types MUST include a section explaining how any potential
+sources of malleability are handled.</p>
+<p>This ZIP includes restrictions to prevent cross-protocol attacks, but the extension mode
+is another potential attack surface. It is the responsibility of ZIPs defining new
+extensions to examine the potential for cross-mode attacks within their security analysis,
+and/or appropriately restrict which modes may be combined within a single transaction.</p>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h1>
+<ul class="simple">
+<li><p>Librustzcash reference implementation of TZE API: <a class="brackets" href="#librustzcash-zip222" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a></p></li>
+<li><p>Zcashd reference implementation of consensus rule changes: <a class="brackets" href="#zcashd-zip222" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a></p></li>
+</ul>
+</section>
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Acknowledgements</h1>
+<p>The handler semantics of <span class="docutils literal">tze_verify</span> were suggested by Zaki Manian, drawing on the
+design of Cosmos. Daira-Emma Hopwood and Sean Bowe gave useful feedback on an early draft of
+this ZIP, and helped to analyse the various sources of transaction ID malleability.</p>
+<p>We would also like to thank the numerous other individuals who participated in discussions
+at Zcon1 that led to the earlier draft version of this ZIP.</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2021.2.16 or later</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-constants" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#constants">Zcash Protocol Specification, Version 2021.2.16. Section 5.3: Constants</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnconsensus" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnconsensus">Zcash Protocol Specification, Version 2021.2.16. Section 7.1: Transaction Consensus Rules</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-3">1</a>,<a role="doc-backlink" href="#footnote-reference-7">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0244.rst">ZIP 244: Transaction Non-Malleability Support</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0245" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0245.rst">ZIP 245: Transaction Identifier Digests &amp; Signature Validation for Transparent Zcash Extensions</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-draft-bolt" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/pull/216">Draft ZIP: Add support for Blind Off-chain Lightweight Transactions (Bolt) protocol</a></p>
+</aside>
+<aside class="footnote brackets" id="librustzcash-zip222" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/librustzcash/pull/286">Rust language reference implementation of TZE API</a></p>
+</aside>
+<aside class="footnote brackets" id="zcashd-zip222" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/pull/4480">zcashd reference implementation of consensus rule changes</a></p>
+</aside>
+</aside>
+</section>

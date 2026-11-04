@@ -1,0 +1,238 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot;, &quot;SHOULD&quot;, and &quot;MAY&quot; in this document are to be interpreted
+as described in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they appear in all capitals.</p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This proposal specifies a change to the behaviour of <cite>zcashd</cite> nodes intended to
+mitigate denial-of-service from transaction flooding.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Adoption of this proposal would increase robustness of Zcash nodes against
+denial-of-service attack, in particular attacks that attempt to exhaust node
+memory.</p>
+<p>Bitcoin Core added size limitation for the mempool in version 0.12
+<a class="brackets" href="#bitcoincore-pr6722" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>, defaulting to 300 MB. This was after Zcash forked from
+Bitcoin Core.</p>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>The memory usage of a node’s mempool should be bounded.</p>
+<p>The eviction policy should as far as possible not be “gameable” by an adversary,
+i.e. an adversary should not be able to cause legitimate transactions (that do not
+themselves present any denial-of-service problem) to be preferentially evicted
+relative to its own transactions.</p>
+<p>Any configuration options should have reasonable defaults, i.e. without changing
+relevant configuration, a node should be adequately protected from denial-of-service
+via mempool memory exhaustion.</p>
+</section>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<p>The current architecture of Zcash imposes fundamental limits on scaling of
+transaction throughput. This proposal does not increase the aggregate transaction
+capacity of the network. (The Blossom upgrade does increase transaction capacity,
+by a factor of two <a class="brackets" href="#zip-0208" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.)</p>
+<p>Denial-of-service issues in the messaging layer of the peer-to-peer protocol are
+out of scope for this proposal.</p>
+<p>This proposal is focused primarily on memory exhaustion attacks. It does not
+attempt to use fees to make denial-of-service economically prohibitive, since that
+is unlikely to be feasible while maintaining low fees for legitimate users. It
+does not preclude changes in fee policy.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>This specification describes the intended behaviour of <cite>zcashd</cite> nodes. Other node
+implementations MAY implement the same or similar behaviour, but this is not a
+requirement of the network protocol. Thus, RFC 2119 conformance keywords below are
+to be interpreted only as placing requirements on the <cite>zcashd</cite> implementation (and
+potentially other implementations that have adopted this specification in full).</p>
+<p>The mempool of a node holds a set of transactions. Each transaction has a <em>cost</em>,
+which is an integer defined as:</p>
+<blockquote>
+<p>max(memory size in bytes, 10000)</p>
+</blockquote>
+<p>The memory size is an estimate of the size that a transaction occupies in the
+memory of a node. It MAY be approximated as the serialized transaction size in
+bytes.</p>
+<p>Each transaction also has an <em>eviction weight</em>, which is <em>cost</em> + <em>low_fee_penalty</em>,
+where <em>low_fee_penalty</em> is 40000 if the transaction pays a fee less than the
+conventional fee, otherwise 0. The conventional fee is currently defined in
+ZIP 317 <a class="brackets" href="#zip-0317" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>.</p>
+<p>Each node also MUST hold a FIFO queue RecentlyEvicted of pairs (txid, time), where
+the time indicates when the transaction with the given txid was evicted. The txid
+(rather than the wtxid as defined in <a class="brackets" href="#zip-0239" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>) is used even for version 5
+transactions after activation of NU5 <a class="brackets" href="#zip-0252" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+<p>The RecentlyEvicted queue SHOULD be empty on node startup. The size of RecentlyEvicted
+SHOULD never exceed <span class="docutils literal">eviction_memory_entries</span> entries, which is the constant 40000.</p>
+<p>There MUST be a configuration option <span class="docutils literal">mempooltxcostlimit</span>, which SHOULD default
+to 80000000.</p>
+<p>There MUST be a configuration option <span class="docutils literal">mempoolevictionmemoryminutes</span>, which
+SHOULD default to 60.</p>
+<p>On receiving a transaction:</p>
+<ul class="simple">
+<li><p>If it is in RecentlyEvicted, the transaction MUST be dropped.</p></li>
+<li><p>Calculate its cost. If the total cost of transactions in the mempool including
+this one would exceed <span class="docutils literal">mempooltxcostlimit</span>, then the node MUST repeatedly
+call EvictTransaction (with the new transaction included as a candidate to evict)
+until the total cost does not exceed <span class="docutils literal">mempooltxcostlimit</span>.</p></li>
+</ul>
+<p>EvictTransaction MUST do the following:</p>
+<ul class="simple">
+<li><p>Select a random transaction to evict, with probability in direct proportion to
+eviction weight.</p></li>
+<li><p>Add the txid and the current time to RecentlyEvicted, dropping the oldest entry
+in RecentlyEvicted if necessary to keep it to at most <span class="docutils literal">eviction_memory_entries</span>
+entries.</p></li>
+<li><p>Remove it from the mempool.</p></li>
+</ul>
+<p>Nodes SHOULD remove transactions from RecentlyEvicted that were evicted more than
+<span class="docutils literal">mempoolevictionmemoryminutes</span> minutes ago. This MAY be done periodically,
+and/or just before RecentlyEvicted is accessed when receiving a transaction.</p>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>The accounting for transaction size should include some overhead per transaction,
+to reflect the cost to the network of processing them (proof and signature
+verification; networking overheads; size of in-memory data structures). The
+implication of not including overhead is that a denial-of-service attacker would
+be likely to use minimum-size transactions so that more of them would fit in a
+block, increasing the unaccounted-for overhead. A possible counterargument would
+be that the complexity of accounting for this overhead is unwarranted given that
+the format of a transaction already imposes a minimum size. However, the proposed
+cost function is almost as simple as using transaction size directly.</p>
+<p>There is some ambiguity in the specification of a transaction's &quot;memory size&quot;,
+allowing implementations to use different approximations. Currently, <cite>zcashd</cite>
+uses a size computed by the <span class="docutils literal">RecursiveDynamicUsage</span> function, and <cite>zebrad</cite> uses
+the serialized size. This has been changed from a previous version of this ZIP
+that specified use of the serialized size, to reflect how the implementation in
+<cite>zcashd</cite> has worked since it was first deployed <a class="brackets" href="#size-ambiguity" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>.</p>
+<p>The threshold 10000 for the cost function is chosen so that the size in bytes of
+a minimal fully shielded Orchard transaction with 2 shielded actions (having a
+serialized size of 9165 bytes) will fall below the threshold. This has the effect
+of ensuring that such transactions are not evicted preferentially to typical
+transparent or Sapling transactions because of their size. This constant has been
+updated <a class="brackets" href="#constants-update" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> from 4000 to 10000 in parallel with the changes for
+deployment of ZIP 317 <a class="brackets" href="#zip-0317" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>; the previous value had been chosen based on
+the typical size of fully shielded Sapling transactions.</p>
+<p>The proposed eviction policy differs significantly from that of Bitcoin Core
+<a class="brackets" href="#bitcoincore-pr6722" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>, which is primarily fee-based. This reflects differing
+philosophies about the motivation for fees and the level of fee that legitimate
+users can reasonably be expected to pay. The proposed eviction weight function
+does involve a penalty for transactions with a fee lower than the ZIP 317
+<a class="brackets" href="#zip-0317" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a> conventional fee, but since there is no further benefit (as far
+as mempool limiting is concerned) to increasing the fee above the conventional
+fee value, it creates no pressure toward escalating fees. For transactions
+with a memory size up to 10000 bytes, this penalty makes a transaction that
+pays less than the conventional fee five times as likely to be chosen for
+eviction (because <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>10000</mn>
+  <mo>+</mo>
+  <mn>40000</mn>
+  <mo>=</mo>
+  <mn>50000</mn>
+  <mo>=</mo>
+  <mn>10000</mn>
+  <mo>×</mo>
+  <mn>5</mn>
+</math>).</p>
+<p>The fee penalty is not included in the cost that determines whether the mempool
+is considered full. This ensures that a DoS attacker does not have an incentive
+to pay less than the conventional fee in order to cause the mempool to be
+considered full sooner.</p>
+<p>The default value of 80000000 for <span class="docutils literal">mempooltxcostlimit</span> represents no more
+than 40 full blocks’ worth of transactions in the worst case. At the
+75-second target spacing after Blossom <a class="brackets" href="#zip-0208" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>, this corresponds to
+approximately 50 minutes of block production, matching the default
+transaction expiry delta in ZIP 203 <a class="brackets" href="#zip-0203" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>. At the 25-second target
+spacing specified for NU7 in ZIP 218 <a class="brackets" href="#zip-0218" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, it corresponds to
+approximately 17 minutes, while the recommended default expiry delta is
+120 blocks (approximately 50 minutes). The cost limit bounds node memory;
+it does not guarantee that a transaction remains in the mempool until expiry.</p>
+<p>The <span class="docutils literal">mempooltxcostlimit</span> is a per-node configurable parameter in order to
+provide flexibility for node operators to change it either in response to
+attempted denial-of-service attacks, or if needed to handle spikes in transaction
+demand. It may also be useful for nodes running in memory-constrained environments
+to reduce this parameter.</p>
+<p>The limit of <span class="docutils literal">eviction_memory_entries</span> = 40000 entries in RecentlyEvicted bounds
+the memory needed for this data structure. Since a txid is 32 bytes and a
+timestamp 8 bytes, 40000 entries can be stored in ~1.6 MB, which is small compared
+to other node memory usage (in particular, small compared to the maximum memory
+usage of the mempool itself under the default <span class="docutils literal">mempooltxcostlimit</span>).
+<span class="docutils literal">eviction_memory_entries</span> entries should be sufficient to mitigate any
+performance loss caused by re-accepting transactions that were previously evicted.
+In particular, since a transaction has a minimum cost of 10000, and the default
+<span class="docutils literal">mempooltxcostlimit</span> is 80000000, at most 8000 transactions can be in the
+mempool of a node using the default parameters. While the number of transactions
+“in flight” or across the mempools of all nodes in the network could exceed this
+number, we believe that is unlikely to be a problem in practice.</p>
+<p>Note that the RecentlyEvicted queue is intended as a performance optimization
+under certain conditions, rather than as a DoS-mitigation measure in itself.</p>
+<p>The recommended default expiry is 40 blocks after Blossom activation
+and 120 blocks after NU7 activation <a class="brackets" href="#zip-0203" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> <a class="brackets" href="#zip-0218" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>. Both
+represent an expected time of 50 minutes. Even if some blocks are slow,
+most legitimate transactions are expected to expire within 60 minutes.
+An attacker’s transactions cannot be relied on to expire.</p>
+</section>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This specification was implemented in <cite>zcashd</cite> v2.1.0-1. It is independent of
+the Blossom network upgrade.</p>
+<p>The fee threshold for applying the <em>low_fee_penalty</em> was reduced from 10000 to
+1000 zatoshis as part of the deployment of ZIP 313 in <cite>zcashd</cite> v4.2.0.</p>
+<p>The fee threshold for applying the <em>low_fee_penalty</em> changed again in <cite>zcashd</cite>
+v5.5.0 and <cite>zebrad</cite> v1.0.0-rc.7 to match the ZIP 317 conventional fee. At the
+same time, the minimum cost threshold and the <em>low_fee_penalty</em> constant was
+increased as proposed in <a class="brackets" href="#constants-update" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/4145">zcashd PR 4145: DoS protection: Weighted random drop of txs if mempool full</a></p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/4166">zcashd PR 4166: Use same type when calling max (macOS compilation fix)</a></p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/4916">zcashd PR 4916: Reduce default fee to 1000 zatoshis</a></p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6564">zcashd PR 6564: Change ZIP 401 mempool limiting to use conventional fee and new constants</a></p></li>
+</ul>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0203" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-13">1</a>,<a role="doc-backlink" href="#footnote-reference-15">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0203.rst">ZIP 203: Transaction Expiry</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0208" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-3">1</a>,<a role="doc-backlink" href="#footnote-reference-12">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0208.rst">ZIP 208: Shorter Block Target Spacing</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0218" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-14">1</a>,<a role="doc-backlink" href="#footnote-reference-16">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0218.md">ZIP 218: 25-second Block Target Spacing</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0239" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0239.rst">ZIP 239: Relay of Version 5 Transactions</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0252" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0252.rst">ZIP 252: Deployment of the NU5 Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0317" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-9">2</a>,<a role="doc-backlink" href="#footnote-reference-11">3</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0317.rst">ZIP 317: Proportional Transfer Fee Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="constants-update" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-8">1</a>,<a role="doc-backlink" href="#footnote-reference-17">2</a>)</span>
+<p><a class="reference external" href="https://github.com/zcash/zips/issues/565">zcash/zips issue #565 - ZIP 401: Increase the minimum eviction cost to avoid penalizing Orchard</a></p>
+</aside>
+<aside class="footnote brackets" id="size-ambiguity" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/issues/673">zcash/zips issue #673 - ZIP 401 uses serialized size to calculate cost but the zcashd implementation uses RecursiveDynamicUsage</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcoincore-pr6722" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-10">2</a>)</span>
+<p><a class="reference external" href="https://github.com/bitcoin/bitcoin/pull/6722">Bitcoin Core PR 6722: Limit mempool by throwing away the cheapest txn and setting min relay fee to it</a></p>
+</aside>
+</aside>
+</section>

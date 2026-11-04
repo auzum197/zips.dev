@@ -1,0 +1,89 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" in this
+document are to be interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only
+when, they appear in all capitals.</p>
+<dl><dt>best tip</dt><dd>The tip of a node's best block chain.</dd><dt>limited peer</dt><dd>A peer that advertises <code>NODE_NETWORK_LIMITED</code> and not <code>NODE_NETWORK</code>.</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP defines the service flag <code>NODE_NETWORK_LIMITED</code> for the Zcash
+peer-to-peer protocol specified in ZIP 204 <sup><a href="#user-content-fn-zip-0204" id="user-content-fnref-zip-0204" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>. A node that sets it
+serves at least the most recent 2,304 blocks of its best chain, but not
+necessarily older blocks. It is the Zcash counterpart of BIP 159
+<sup><a href="#user-content-fn-bip-0159" id="user-content-fnref-bip-0159" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>A node that deletes old block bodies, such as a Zebra node with pruning
+enabled, cannot set <code>NODE_NETWORK</code>, which promises the complete block chain.
+ZIP 204 defines no other flag for serving blocks, so such a node advertises no
+services. Peers then cannot tell that it can serve recent blocks: some do not
+use it to follow the chain tip, and others request historical blocks from it
+that it cannot serve.</p>
+<p>The Version 2 P2P protocol draft <sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> defines the same flag with
+the same window. This ZIP specifies it for the current protocol, so that it
+can be deployed without the other changes in that draft.</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="service-flag"><a class="hanchor" href="#service-flag" aria-hidden="true" tabindex="-1">#</a>Service Flag</h2>
+<p>The service flag <code>NODE_NETWORK_LIMITED</code> is defined as bit 10
+(<code>0x0000000000000400</code>) of the <code>services</code> field.</p>
+<p>A node that sets <code>NODE_NETWORK_LIMITED</code> MUST be able to serve every block of
+its best chain at a height greater than its best tip height minus 2,304, in
+response to <code>getdata</code> requests with <code>MSG_BLOCK</code>.</p>
+<p>A node that cannot serve the complete block chain MUST NOT set <code>NODE_NETWORK</code>.
+It SHOULD set <code>NODE_NETWORK_LIMITED</code> if it can meet the requirement above. A
+node that sets <code>NODE_NETWORK</code> MAY also set <code>NODE_NETWORK_LIMITED</code>.</p>
+<h2 id="serving"><a class="hanchor" href="#serving" aria-hidden="true" tabindex="-1">#</a>Serving</h2>
+<p>A limited peer SHOULD NOT serve blocks at heights more than 2,304 below its
+best tip, so that peers cannot infer how many blocks it retains. It MAY
+disconnect a peer that requests a block more than 2,306 blocks below its best
+tip; the 2-block margin allows for the best tip advancing while a request is
+in flight.</p>
+<h2 id="requesting"><a class="hanchor" href="#requesting" aria-hidden="true" tabindex="-1">#</a>Requesting</h2>
+<p>A node MUST NOT request a block from a limited peer if that block is more than
+2,304 blocks below the node's own best tip. A node SHOULD rely on limited
+peers for blocks only while its best tip is within 1,152 blocks of the
+network's best tip, leaving half of the window for chain reorganizations and
+for differences between the two nodes' best tips.</p>
+<h2 id="address-relay"><a class="hanchor" href="#address-relay" aria-hidden="true" tabindex="-1">#</a>Address Relay</h2>
+<p>Nodes SHOULD relay addresses advertising <code>NODE_NETWORK_LIMITED</code> as they relay
+other addresses.</p>
+<h2 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h2>
+<p>This ZIP requires no network upgrade. Nodes ignore service flags they do not
+recognize, so a node can set <code>NODE_NETWORK_LIMITED</code> as soon as it implements
+this ZIP.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>Bit 10 and the 2,304-block window match the Version 2 P2P protocol draft
+<sup><a href="#user-content-fn-draft-p2p-v2" id="user-content-fnref-draft-p2p-v2-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, so a node can advertise the same capability in both
+protocols. Bit 10 is also the bit that BIP 159 assigns to the same capability
+in Bitcoin.</p>
+<p>The window is defined in blocks rather than time, so that a peer can check a
+request against it without knowing the block target spacing. At 75, 25 and 10
+seconds per block it covers about 48, 16 and 6.4 hours.</p>
+<p>The 1,152-block margin for requesters, and the rule against serving older
+blocks, follow BIP 159's 144-block reorganization buffer and its
+fingerprinting countermeasure. BIP 159 does not specify disconnection; the
+2-block margin follows Bitcoin Core's implementation <sup><a href="#user-content-fn-bitcoin-core-limited" id="user-content-fnref-bitcoin-core-limited" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.</p>
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Security and Privacy Considerations</h1>
+<p>A limited peer that served all blocks it retains would reveal how many that
+is, which can help distinguish it from other nodes. Serving only the window
+avoids this.</p>
+<p>A node that relies only on limited peers cannot synchronize from more than
+2,304 blocks behind the tip. Nodes SHOULD keep connections to peers that set
+<code>NODE_NETWORK</code> while synchronizing.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0204">
+<p><a href="/upstream/zip-0204.rst">ZIP 204: Zcash P2P Network Protocol</a> <a href="#user-content-fnref-zip-0204" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0159">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0159.mediawiki">BIP 159: NODE_NETWORK_LIMITED service bit</a> <a href="#user-content-fnref-bip-0159" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-draft-p2p-v2">
+<p><a href="/upstream/draft-arya-jvff-p2p-quic-transport.md">Draft ZIP: Version 2 Zcash P2P Network Protocol</a> <a href="#user-content-fnref-draft-p2p-v2" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-p2p-v2-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-bitcoin-core-limited">
+<p><a href="https://github.com/bitcoin/bitcoin/blob/master/src/net_processing.cpp">Bitcoin Core: block requests below the NODE_NETWORK_LIMITED threshold (<code>net_processing.cpp</code>)</a> <a href="#user-content-fnref-bitcoin-core-limited" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

@@ -1,0 +1,1926 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot;, &quot;MUST NOT&quot;, &quot;SHOULD&quot;, &quot;SHOULD NOT&quot;, and &quot;RECOMMENDED&quot; in this
+document are to be interpreted as described in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when,
+they appear in all capitals.</p>
+<p>The terms &quot;Mainnet&quot; and &quot;Testnet&quot; are to be interpreted as described in section 3.12 of
+the Zcash Protocol Specification. <a class="brackets" href="#protocol-networks" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<p>The term &quot;network upgrade&quot; is to be interpreted as described in ZIP 200. <a class="brackets" href="#zip-0200" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a></p>
+<p>The term &quot;block chain&quot; in this document is to be interpreted as described in section 3.3
+of the Zcash Protocol Specification. <a class="brackets" href="#protocol-blockchain" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p>
+<dl class="simple">
+<dt>peer</dt>
+<dd><p>A network node that participates in the Zcash P2P protocol by maintaining one or more
+TCP connections to other peers and exchanging protocol messages.</p>
+</dd>
+<dt>connection</dt>
+<dd><p>A TCP session between two peers over which P2P messages are exchanged.</p>
+</dd>
+<dt>inbound connection</dt>
+<dd><p>A connection that was initiated by the remote peer.</p>
+</dd>
+<dt>outbound connection</dt>
+<dd><p>A connection that was initiated by the local node.</p>
+</dd>
+<dt>protocol version</dt>
+<dd><p>A 32-bit integer identifying the set of protocol features supported by a node. Higher
+values indicate support for more recent features.</p>
+</dd>
+</dl>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP specifies the Zcash peer-to-peer network protocol, including connection setup,
+message framing, message types, and relay behavior. It is intended to be sufficient for
+an implementor to build a conformant Zcash network peer.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>There is currently no single document that specifies the full Zcash P2P network
+protocol. While Bitcoin protocol documentation exists, the Zcash protocol has diverged
+in several significant ways: network magic bytes differ, protocol version numbers follow
+an independent numbering scheme, inventory types include <span class="docutils literal">MSG_WTX</span> <a class="brackets" href="#zip-0239" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>,
+and network upgrade activation drives protocol versioning and peer management
+<a class="brackets" href="#zip-0200" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a> <a class="brackets" href="#zip-0201" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.</p>
+<p>This ZIP consolidates the protocol specification into a single normative reference,
+enabling independent implementations and protocol analysis.</p>
+<p>This ZIP does not specify the encoding of transactions and blocks; for those, refer to
+the Zcash Protocol Specification <a class="brackets" href="#protocol-txnencoding" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> <a class="brackets" href="#protocol-blockencoding" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="network-parameters"><a class="hanchor" href="#network-parameters" aria-hidden="true" tabindex="-1">#</a>Network Parameters</h2>
+<h3 id="magic-bytes"><a class="hanchor" href="#magic-bytes" aria-hidden="true" tabindex="-1">#</a>Magic Bytes</h3>
+<p>Each Zcash network is identified by a 4-byte magic value that appears at the start of
+every protocol message. A node MUST reject messages whose magic bytes do not match the
+expected network.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Network</p></th>
+<th class="head"><p>Magic Bytes (hex)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>Mainnet</p></td>
+<td><p><span class="docutils literal">24 e9 27 64</span></p></td>
+</tr>
+<tr><td><p>Testnet</p></td>
+<td><p><span class="docutils literal">fa 1a f9 bf</span></p></td>
+</tr>
+<tr><td><p>Regtest</p></td>
+<td><p><span class="docutils literal">aa e8 3f 5f</span></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h3 id="default-ports"><a class="hanchor" href="#default-ports" aria-hidden="true" tabindex="-1">#</a>Default Ports</h3>
+<table>
+<thead>
+<tr><th class="head"><p>Network</p></th>
+<th class="head"><p>Default Port</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>Mainnet</p></td>
+<td><p>8233</p></td>
+</tr>
+<tr><td><p>Testnet</p></td>
+<td><p>18233</p></td>
+</tr>
+<tr><td><p>Regtest</p></td>
+<td><p>18344</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h3 id="dns-seeds"><a class="hanchor" href="#dns-seeds" aria-hidden="true" tabindex="-1">#</a>DNS Seeds</h3>
+<p>The following DNS seed hostnames are used for initial peer discovery.</p>
+<p><strong>Mainnet:</strong></p>
+<ul class="simple">
+<li><p><span class="docutils literal">dnsseed.z.cash</span></p></li>
+<li><p><span class="docutils literal">dnsseed.str4d.xyz</span></p></li>
+<li><p><span class="docutils literal">mainnet.seeder.zfnd.org</span></p></li>
+<li><p><span class="docutils literal">mainnet.is.yolo.money</span></p></li>
+</ul>
+<p><strong>Testnet:</strong></p>
+<ul class="simple">
+<li><p><span class="docutils literal">dnsseed.testnet.z.cash</span></p></li>
+<li><p><span class="docutils literal">testnet.seeder.zfnd.org</span></p></li>
+<li><p><span class="docutils literal">testnet.is.yolo.money</span></p></li>
+</ul>
+<p>Regtest does not use DNS seeds or hardcoded seed nodes.</p>
+</section>
+</section>
+<h2 id="peer-discovery"><a class="hanchor" href="#peer-discovery" aria-hidden="true" tabindex="-1">#</a>Peer Discovery</h2>
+<p>A node discovers peers through the following mechanisms:</p>
+<ol class="arabic simple">
+<li><p><strong>DNS seeding.</strong> On startup, a node queries the DNS seed hostnames listed above
+for A and AAAA records. The zcashd implementation does this only if the address
+manager is empty or if fewer than 2 outbound connections have been established
+within 11 seconds; the Zebra implementation always performs DNS lookups on
+startup (alongside consulting a persistent address cache).</p></li>
+<li><p><strong>Hardcoded seed nodes.</strong> If DNS seeding fails or is insufficient, the node
+MAY fall back to a compiled-in list of seed node addresses. In the zcashd
+implementation these hardcoded addresses may be found in the chain
+parameters for the relevant network. DNS seeding is preferred over
+hardcoded seed nodes.</p></li>
+<li><p><strong>Address relay.</strong> Connected peers exchange address information using <span class="docutils literal">addr</span> and
+<span class="docutils literal">getaddr</span> messages (see <a class="reference internal" href="#addr">addr</a> and <a class="reference internal" href="#getaddr">getaddr</a>). This mechanism operates
+independently of the above.</p></li>
+</ol>
+</section>
+<h2 id="connection-handling"><a class="hanchor" href="#connection-handling" aria-hidden="true" tabindex="-1">#</a>Connection Handling</h2>
+<h3 id="transport"><a class="hanchor" href="#transport" aria-hidden="true" tabindex="-1">#</a>Transport</h3>
+<p>All connections use unencrypted TCP. The protocol does not provide transport-layer
+encryption or authentication.</p>
+</section>
+<h3 id="connection-limits"><a class="hanchor" href="#connection-limits" aria-hidden="true" tabindex="-1">#</a>Connection Limits</h3>
+<p>The specific connection limits are implementation-defined. The zcashd implementation
+defaults to a maximum of 125 peer connections (<span class="docutils literal">DEFAULT_MAX_PEER_CONNECTIONS</span>), of
+which a maximum of 8 are outbound connections (<span class="docutils literal">MAX_OUTBOUND_CONNECTIONS</span>). The Zebra
+implementation computes its limits from a configurable initial target size (default 25),
+applying multipliers to derive an outbound limit of 75 and an inbound limit of 125.</p>
+</section>
+<h3 id="timeouts"><a class="hanchor" href="#timeouts" aria-hidden="true" tabindex="-1">#</a>Timeouts</h3>
+<p>A node SHOULD disconnect a peer if no message has been received from that peer within
+a reasonable timeout period. The zcashd implementation uses 1200 seconds (20 minutes,
+<span class="docutils literal">TIMEOUT_INTERVAL</span>) for this purpose; the Zebra implementation uses a 20-second
+request timeout (<span class="docutils literal">REQUEST_TIMEOUT</span>). Automatic <span class="docutils literal">ping</span> messages (see <a class="reference internal" href="#ping">ping</a>) are
+sent periodically to keep connections alive and measure latency.</p>
+<p>Additional timeout rules:</p>
+<ul class="simple">
+<li><p>A node SHOULD close the connection if a peer has not sent a <span class="docutils literal">version</span> message
+within a reasonable time after connection establishment. The zcashd implementation
+uses 60 seconds; the Zebra implementation uses 3 seconds (<span class="docutils literal">HANDSHAKE_TIMEOUT</span>).</p></li>
+<li><p>A node SHOULD close the connection if a peer has not responded to a <span class="docutils literal">ping</span> with
+a corresponding <span class="docutils literal">pong</span> within a reasonable time. The zcashd implementation uses
+1200 seconds (20 minutes); the Zebra implementation uses 20 seconds
+(<span class="docutils literal">REQUEST_TIMEOUT</span>).</p></li>
+</ul>
+<p>The specific timeout values are implementation-defined.</p>
+</section>
+</section>
+<h2 id="message-framing"><a class="hanchor" href="#message-framing" aria-hidden="true" tabindex="-1">#</a>Message Framing</h2>
+<p>Every protocol message consists of a 24-byte header followed by a variable-length
+payload.</p>
+<h3 id="message-header"><a class="hanchor" href="#message-header" aria-hidden="true" tabindex="-1">#</a>Message Header</h3>
+<table>
+<thead>
+<tr><th class="head"><p>Offset</p></th>
+<th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>0</p></td>
+<td><p>4</p></td>
+<td><p><span class="docutils literal">magic</span></p></td>
+<td><p>Network magic bytes (see <a class="reference internal" href="#magic-bytes">Magic Bytes</a>).</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p>12</p></td>
+<td><p><span class="docutils literal">command</span></p></td>
+<td><p>ASCII command string, NUL-padded to 12 bytes.</p></td>
+</tr>
+<tr><td><p>16</p></td>
+<td><p>4</p></td>
+<td><p><span class="docutils literal">length</span></p></td>
+<td><p>Payload size in bytes (<span class="docutils literal">uint32</span>, little-endian).</p></td>
+</tr>
+<tr><td><p>20</p></td>
+<td><p>4</p></td>
+<td><p><span class="docutils literal">checksum</span></p></td>
+<td><p>First 4 bytes of <span class="docutils literal"><span class="pre">SHA-256d(payload)</span></span>.</p></td>
+</tr>
+</tbody>
+</table>
+<p>The total header size is 24 bytes.</p>
+</section>
+<h3 id="command-string-validation"><a class="hanchor" href="#command-string-validation" aria-hidden="true" tabindex="-1">#</a>Command String Validation</h3>
+<p>The <span class="docutils literal">command</span> field MUST contain only printable ASCII characters (bytes in the range
+<span class="docutils literal">0x20</span> to <span class="docutils literal">0x7E</span> inclusive) up to the first NUL byte (<span class="docutils literal">0x00</span>). After the first NUL
+byte, all remaining bytes MUST be <span class="docutils literal">0x00</span>. A message that violates these constraints
+MUST be ignored.</p>
+<p>The following command strings are currently used on the Zcash network:</p>
+<p><span class="docutils literal">version</span>, <span class="docutils literal">verack</span>, <span class="docutils literal">ping</span>, <span class="docutils literal">pong</span>, <span class="docutils literal">reject</span>, <span class="docutils literal">addr</span>, <span class="docutils literal">addrv2</span>,
+<span class="docutils literal">getaddr</span>, <span class="docutils literal">inv</span>, <span class="docutils literal">getdata</span>, <span class="docutils literal">notfound</span>, <span class="docutils literal">getblocks</span>, <span class="docutils literal">getheaders</span>,
+<span class="docutils literal">headers</span>, <span class="docutils literal">block</span>, <span class="docutils literal">tx</span>, <span class="docutils literal">mempool</span>, <span class="docutils literal">filterload</span>, <span class="docutils literal">filteradd</span>,
+<span class="docutils literal">filterclear</span>, <span class="docutils literal">alert</span>.</p>
+</section>
+<h3 id="maximum-message-size"><a class="hanchor" href="#maximum-message-size" aria-hidden="true" tabindex="-1">#</a>Maximum Message Size</h3>
+<p>The maximum payload size is 2,097,152 bytes (2 MiB). A node MUST reject any message
+whose <span class="docutils literal">length</span> field exceeds this limit.</p>
+</section>
+<h3 id="checksum-verification"><a class="hanchor" href="#checksum-verification" aria-hidden="true" tabindex="-1">#</a>Checksum Verification</h3>
+<p>The <span class="docutils literal">checksum</span> field contains the first 4 bytes of the double-SHA-256 hash of the
+payload:</p>
+<blockquote>
+<p><span class="docutils literal">checksum = <span class="pre">SHA-256(SHA-256(payload))[0..4]</span></span></p>
+</blockquote>
+<p>A node MUST verify the checksum after receiving the full payload and MUST reject the
+message if the checksum does not match.</p>
+</section>
+</section>
+<h2 id="data-types-and-encoding"><a class="hanchor" href="#data-types-and-encoding" aria-hidden="true" tabindex="-1">#</a>Data Types and Encoding</h2>
+<p>All multi-byte integer types are encoded in little-endian byte order unless otherwise
+specified. The integer types used in this specification (<span class="docutils literal">uint8</span>, <span class="docutils literal">uint16</span>,
+<span class="docutils literal">int32</span>, <span class="docutils literal">uint32</span>, <span class="docutils literal">int64</span>, <span class="docutils literal">uint64</span>) have their conventional meanings.</p>
+<h3 id="compactsize"><a class="hanchor" href="#compactsize" aria-hidden="true" tabindex="-1">#</a>CompactSize</h3>
+<aside class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The CompactSize encoding is used in the Zcash Protocol Specification (section 7)
+but is not formally defined there. It is defined here for completeness.</p>
+</aside>
+<p>A variable-length unsigned integer encoding used for lengths and counts:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Value Range</p></th>
+<th class="head"><p>Encoding Size</p></th>
+<th class="head"><p>Format</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>0 to 252</p></td>
+<td><p>1 byte</p></td>
+<td><p>Single byte with the value directly.</p></td>
+</tr>
+<tr><td><p>253 to 0xFFFF</p></td>
+<td><p>3 bytes</p></td>
+<td><p><span class="docutils literal">0xFD</span> followed by the value as <span class="docutils literal">uint16</span>.</p></td>
+</tr>
+<tr><td><p>0x10000 to 0xFFFFFFFF</p></td>
+<td><p>5 bytes</p></td>
+<td><p><span class="docutils literal">0xFE</span> followed by the value as <span class="docutils literal">uint32</span>.</p></td>
+</tr>
+<tr><td><p>0x100000000 to 0xFFFFFFFFFFFFFFFF</p></td>
+<td><p>9 bytes</p></td>
+<td><p><span class="docutils literal">0xFF</span> followed by the value as <span class="docutils literal">uint64</span>.</p></td>
+</tr>
+</tbody>
+</table>
+<p>Encodings MUST be canonical: the shortest possible encoding MUST be used for any given
+value. A node MUST reject messages containing non-canonical CompactSize encodings.</p>
+</section>
+<h3 id="strings"><a class="hanchor" href="#strings" aria-hidden="true" tabindex="-1">#</a>Strings</h3>
+<p>Character strings are encoded as a CompactSize length prefix followed by that many bytes
+of string data. There is no NUL terminator.</p>
+</section>
+<h3 id="network-address-cservice"><a class="hanchor" href="#network-address-cservice" aria-hidden="true" tabindex="-1">#</a>Network Address (<span class="docutils literal">CService</span>)</h3>
+<p>A network address without associated metadata, as inherited from the Bitcoin protocol:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>16</p></td>
+<td><p><span class="docutils literal">ip</span></p></td>
+<td><p>IPv6 address (or IPv4-mapped IPv6 address <a class="brackets" href="#rfc4291" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> for
+IPv4 peers).</p></td>
+</tr>
+<tr><td><p>2</p></td>
+<td><p><span class="docutils literal">port</span></p></td>
+<td><p>TCP port number (big-endian, i.e. network byte order).</p></td>
+</tr>
+</tbody>
+</table>
+<p>IPv4 addresses are represented as IPv4-mapped IPv6 addresses as defined in RFC 4291
+section 2.5.5.2 <a class="brackets" href="#rfc4291" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>: the first 12 bytes are <span class="docutils literal">00 00 00 00 00 00 00 00 00 00 FF FF</span>
+followed by the 4-byte IPv4 address.</p>
+</section>
+<h3 id="peer-address-caddress"><a class="hanchor" href="#peer-address-caddress" aria-hidden="true" tabindex="-1">#</a>Peer Address (<span class="docutils literal">CAddress</span>)</h3>
+<p>A network address with associated metadata, used in <span class="docutils literal">version</span>, <span class="docutils literal">addr</span>, and other
+messages:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>8</p></td>
+<td><p><span class="docutils literal">services</span></p></td>
+<td><p>Bitfield of service flags (<span class="docutils literal">uint64</span>,
+little-endian).</p></td>
+</tr>
+<tr><td><p>16</p></td>
+<td><p><span class="docutils literal">ip</span></p></td>
+<td><p>IPv6 address (or IPv4-mapped IPv6).</p></td>
+</tr>
+<tr><td><p>2</p></td>
+<td><p><span class="docutils literal">port</span></p></td>
+<td><p>TCP port number (big-endian).</p></td>
+</tr>
+</tbody>
+</table>
+<p>When the negotiated protocol version (see <a class="reference internal" href="#protocol-version-negotiation">Protocol Version Negotiation</a>) is
+≥ 31402 (<span class="docutils literal">CADDR_TIME_VERSION</span>) and the address appears in a context other than a
+<span class="docutils literal">version</span> message, the encoding is preceded by a <span class="docutils literal">uint32</span> timestamp field:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">time</span></p></td>
+<td><p>Unix-epoch UTC time in seconds when the node
+was last seen (<span class="docutils literal">uint32</span>, little-endian).</p></td>
+</tr>
+<tr><td><p>8</p></td>
+<td><p><span class="docutils literal">services</span></p></td>
+<td><p>Bitfield of service flags (<span class="docutils literal">uint64</span>,
+little-endian).</p></td>
+</tr>
+<tr><td><p>16</p></td>
+<td><p><span class="docutils literal">ip</span></p></td>
+<td><p>IPv6 address (or IPv4-mapped IPv6).</p></td>
+</tr>
+<tr><td><p>2</p></td>
+<td><p><span class="docutils literal">port</span></p></td>
+<td><p>TCP port number (big-endian).</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<h2 id="service-flags"><a class="hanchor" href="#service-flags" aria-hidden="true" tabindex="-1">#</a>Service Flags</h2>
+<p>Service flags are advertised in the <span class="docutils literal">services</span> field of <span class="docutils literal">version</span> messages and
+<span class="docutils literal">CAddress</span> structures. In the table below, bit <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> refers to the bit with
+numeric weight <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mn>2</mn>
+    <mi>k</mi>
+  </msup>
+</math>; that is, the <span class="docutils literal">services</span> field has the corresponding flag
+set if and only if <span class="docutils literal">services &amp; (1 &lt;&lt; k) != 0</span>.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Name</p></th>
+<th class="head"><p>Bit</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">NODE_NETWORK</span></p></td>
+<td><p>0</p></td>
+<td><p>The node is capable of serving the complete block
+chain.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">NODE_BLOOM</span></p></td>
+<td><p>2</p></td>
+<td><p>The node supports Bloom-filtered connections
+(BIP 37 <a class="brackets" href="#bip-0037" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a>). Zcash nodes used to support
+this by default without advertising the bit, but no
+longer do as of protocol version 170004
+(<span class="docutils literal">NO_BLOOM_VERSION</span>).</p></td>
+</tr>
+</tbody>
+</table>
+<p>Bits 24–31 are reserved for temporary experiments.</p>
+</section>
+<h2 id="inventory-vectors"><a class="hanchor" href="#inventory-vectors" aria-hidden="true" tabindex="-1">#</a>Inventory Vectors</h2>
+<p>Inventory vectors identify objects (transactions and blocks) for relay. The format
+depends on the type:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Type</p></th>
+<th class="head"><p>Code</p></th>
+<th class="head"><p>Entry Size</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">MSG_TX</span></p></td>
+<td><p>1</p></td>
+<td><p>36 bytes</p></td>
+<td><p>Transaction identified by txid.
+4-byte type code + 32-byte txid.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">MSG_BLOCK</span></p></td>
+<td><p>2</p></td>
+<td><p>36 bytes</p></td>
+<td><p>Block identified by block hash.
+4-byte type code + 32-byte block hash.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">MSG_FILTERED_BLOCK</span></p></td>
+<td><p>3</p></td>
+<td><p>36 bytes</p></td>
+<td><p>Filtered block (<span class="docutils literal">getdata</span> only).
+4-byte type code + 32-byte block hash.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">MSG_WTX</span></p></td>
+<td><p>5</p></td>
+<td><p>68 bytes</p></td>
+<td><p>Transaction identified by wtxid.
+4-byte type code + 32-byte txid +
+32-byte authorizing data commitment
+(<span class="docutils literal">auth_digest</span>). Requires negotiated
+protocol version ≥ 170014
+(<span class="docutils literal">CINV_WTX_VERSION</span>).
+See ZIP 239 <a class="brackets" href="#zip-0239" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p></td>
+</tr>
+</tbody>
+</table>
+<p>Because <span class="docutils literal">MSG_TX</span> and <span class="docutils literal">MSG_WTX</span> entries have different sizes (36 and 68 bytes
+respectively), they may be mixed in a single <span class="docutils literal">inv</span> or <span class="docutils literal">getdata</span> message. The total
+message size is therefore not determined solely by the entry count and MUST be determined
+by parsing each entry individually.</p>
+<p>A node MUST reject inventory vectors with unrecognized type codes. A node MUST reject
+<span class="docutils literal">MSG_WTX</span> inventory vectors if the negotiated protocol version is less than 170014.</p>
+</section>
+<h2 id="connection-handshake"><a class="hanchor" href="#connection-handshake" aria-hidden="true" tabindex="-1">#</a>Connection Handshake</h2>
+<p>Peers perform a version handshake immediately upon establishing a TCP connection.</p>
+<h3 id="handshake-sequence"><a class="hanchor" href="#handshake-sequence" aria-hidden="true" tabindex="-1">#</a>Handshake Sequence</h3>
+<ol class="arabic simple">
+<li><p>The initiating (outbound) peer sends a <span class="docutils literal">version</span> message.</p></li>
+<li><p>The receiving (inbound) peer sends its own <span class="docutils literal">version</span> message.</p></li>
+<li><p>Each peer, upon receiving a valid <span class="docutils literal">version</span> message, responds with a <span class="docutils literal">verack</span>
+message.</p></li>
+<li><p>The negotiated protocol version is <span class="docutils literal">min(local_version, remote_version)</span>.</p></li>
+</ol>
+<p>A peer MUST NOT send any message other than <span class="docutils literal">version</span> before receiving the remote
+peer's <span class="docutils literal">version</span> message. A peer MUST NOT send any message other than <span class="docutils literal">verack</span> after
+sending its <span class="docutils literal">version</span> and before receiving the remote peer's <span class="docutils literal">verack</span>.</p>
+<p>If validation of the <span class="docutils literal">version</span> message received from a peer fails, the node
+MUST disconnect the peer. See (see <a class="reference internal" href="#version-validation">Version Validation</a>) below for additional
+details.</p>
+</section>
+<h3 id="protocol-version-negotiation"><a class="hanchor" href="#protocol-version-negotiation" aria-hidden="true" tabindex="-1">#</a>Protocol Version Negotiation</h3>
+<p>Each peer advertises its own protocol version in its <span class="docutils literal">version</span> message. The
+<em>negotiated protocol version</em> for the connection is defined as:</p>
+<blockquote>
+<p><span class="docutils literal">negotiated_version = min(local_version, remote_version)</span></p>
+</blockquote>
+<p>Before the handshake completes, messages are serialized using the initial protocol
+version 209 (<span class="docutils literal">INIT_PROTO_VERSION</span>). Once both <span class="docutils literal">version</span> and <span class="docutils literal">verack</span> messages
+have been exchanged, the negotiated protocol version is used for all subsequent
+interpretation of protocol features and message semantics on that connection. In
+particular, the negotiated protocol version determines:</p>
+<ul class="simple">
+<li><p>Whether <span class="docutils literal">CAddress</span> structures include a <span class="docutils literal">time</span> field (version ≥ 31402).</p></li>
+<li><p>Whether <span class="docutils literal">MSG_WTX</span> inventory vectors are permitted (version ≥ 170014).</p></li>
+<li><p>Whether <span class="docutils literal">addrv2</span> messages are supported (see <a class="reference internal" href="#addrv2">addrv2</a>).</p></li>
+<li><p>Whether the peer meets the minimum version requirements for the current network
+epoch (see <a class="reference internal" href="#network-upgrade-epoch-enforcement">Network Upgrade Epoch Enforcement</a>).</p></li>
+</ul>
+<p>Note that &quot;the protocol version&quot; as used in this document refers to the negotiated
+protocol version unless otherwise specified. A node's <em>advertised</em> protocol version
+is the version it includes in its <span class="docutils literal">version</span> message.</p>
+</section>
+<h3 id="version-message"><a class="hanchor" href="#version-message" aria-hidden="true" tabindex="-1">#</a>Version Message</h3>
+<p>The <span class="docutils literal">version</span> message payload has the following format:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Offset</p></th>
+<th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>0</p></td>
+<td><p>4</p></td>
+<td><p><span class="docutils literal">version</span></p></td>
+<td><p>Protocol version (<span class="docutils literal">int32</span>).</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p>8</p></td>
+<td><p><span class="docutils literal">services</span></p></td>
+<td><p>Bitfield of service flags (<span class="docutils literal">uint64</span>).</p></td>
+</tr>
+<tr><td><p>12</p></td>
+<td><p>8</p></td>
+<td><p><span class="docutils literal">timestamp</span></p></td>
+<td><p>Unix-epoch UTC time in seconds (<span class="docutils literal">int64</span>).</p></td>
+</tr>
+<tr><td><p>20</p></td>
+<td><p>26</p></td>
+<td><p><span class="docutils literal">addr_recv</span></p></td>
+<td><p>Address of the receiving node (<span class="docutils literal">CAddress</span>
+without <span class="docutils literal">time</span> field).</p></td>
+</tr>
+<tr><td><p>46</p></td>
+<td><p>26</p></td>
+<td><p><span class="docutils literal">addr_from</span></p></td>
+<td><p>Address of the sending node (<span class="docutils literal">CAddress</span>
+without <span class="docutils literal">time</span> field).</p></td>
+</tr>
+<tr><td><p>72</p></td>
+<td><p>8</p></td>
+<td><p><span class="docutils literal">nonce</span></p></td>
+<td><p>Random nonce for self-connection detection
+(<span class="docutils literal">uint64</span>).</p></td>
+</tr>
+<tr><td><p>80</p></td>
+<td><p>varies</p></td>
+<td><p><span class="docutils literal">user_agent</span></p></td>
+<td><p>User agent string (CompactSize-prefixed,
+max 256 bytes).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p>4</p></td>
+<td><p><span class="docutils literal">start_height</span></p></td>
+<td><p>Best block height known to the sender
+(<span class="docutils literal">int32</span>).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p>1</p></td>
+<td><p><span class="docutils literal">relay</span>
+(optional)</p></td>
+<td><p>Whether the sender wants transaction relay
+(<span class="docutils literal">uint8</span>; 0 for false, nonzero for true).</p></td>
+</tr>
+</tbody>
+</table>
+<p>The <span class="docutils literal">addr_recv</span> and <span class="docutils literal">addr_from</span> fields use the <span class="docutils literal">CAddress</span> encoding <em>without</em>
+the <span class="docutils literal">time</span> field, regardless of the protocol version being negotiated.</p>
+<p>The <span class="docutils literal">nonce</span> field is used for self-connection detection. If a node receives a
+<span class="docutils literal">version</span> message containing its own nonce, it MUST close the connection.</p>
+<p>The <span class="docutils literal">user_agent</span> string MUST NOT exceed 256 bytes. A node SHOULD disconnect peers
+that send a longer user agent.</p>
+<p>The <span class="docutils literal">relay</span> field is optional; if not present, its value MUST be interpreted as true.
+A node SHOULD reject <span class="docutils literal">version</span> messages in which the <span class="docutils literal">relay</span> field is present with
+a value other than 0 or 1. Nodes SHOULD create <cite>version</cite> messages with this field
+present.</p>
+</section>
+<h3 id="version-validation"><a class="hanchor" href="#version-validation" aria-hidden="true" tabindex="-1">#</a>Version Validation</h3>
+<p>A receiving node MUST validate the <span class="docutils literal">version</span> message as follows:</p>
+<ul class="simple">
+<li><p>The <span class="docutils literal">version</span> field MUST be at least 170002 (<span class="docutils literal">MIN_PEER_PROTO_VERSION</span>).</p></li>
+<li><p>On Testnet, the <span class="docutils literal">version</span> field MUST be at least 170040
+(<span class="docutils literal">MIN_TESTNET_PEER_PROTO_VERSION</span>).</p></li>
+<li><p>The <span class="docutils literal">version</span> field MUST be at least the protocol version associated with
+the current network epoch (see <a class="reference internal" href="#network-upgrade-peer-management">Network Upgrade Peer Management</a>).</p></li>
+<li><p>The <span class="docutils literal">nonce</span> MUST NOT match the local node's nonce (self-connection detection).</p></li>
+<li><p>A peer MUST NOT send more than one <span class="docutils literal">version</span> message per connection. Duplicate
+<span class="docutils literal">version</span> messages incur a misbehavior penalty.</p></li>
+</ul>
+<p>If any of these checks fail, the node MUST disconnect the peer. A <span class="docutils literal">reject</span> message
+with code <span class="docutils literal">REJECT_OBSOLETE</span> (<span class="docutils literal">0x11</span>) SHOULD be sent before disconnecting for
+version-related failures.</p>
+</section>
+</section>
+<h2 id="protocol-versioning"><a class="hanchor" href="#protocol-versioning" aria-hidden="true" tabindex="-1">#</a>Protocol Versioning</h2>
+<p>Protocol versions are 32-bit integers. The following versions are significant:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Version</p></th>
+<th class="head"><p>Constant</p></th>
+<th class="head"><p>Significance</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>209</p></td>
+<td><p><span class="docutils literal">INIT_PROTO_VERSION</span></p></td>
+<td><p>Initial protocol version. Used as the
+serialization version before the
+<span class="docutils literal">version</span>/<span class="docutils literal">verack</span> handshake
+completes.</p></td>
+</tr>
+<tr><td><p>31402</p></td>
+<td><p><span class="docutils literal">CADDR_TIME_VERSION</span></p></td>
+<td><p>Adds the <span class="docutils literal">time</span> field to <span class="docutils literal">CAddress</span>
+in <span class="docutils literal">addr</span> messages. Also affects
+encoding of the <span class="docutils literal">addr_from</span> field in
+<span class="docutils literal">version</span> messages.</p></td>
+</tr>
+<tr><td><p>60000</p></td>
+<td><p><span class="docutils literal">BIP0031_VERSION</span></p></td>
+<td><p><span class="docutils literal">ping</span> messages include a <span class="docutils literal">uint64</span>
+nonce and expect a <span class="docutils literal">pong</span> response.
+For protocol versions ≤ 60000, <span class="docutils literal">ping</span>
+has an empty payload.</p></td>
+</tr>
+<tr><td><p>170002</p></td>
+<td><p><span class="docutils literal">MIN_PEER_PROTO_VERSION</span></p></td>
+<td><p>Minimum protocol version for Mainnet
+peers.</p></td>
+</tr>
+<tr><td><p>170004</p></td>
+<td><p><span class="docutils literal">NO_BLOOM_VERSION</span></p></td>
+<td><p>Bloom filter commands (<span class="docutils literal">filterload</span>,
+<span class="docutils literal">filteradd</span>, <span class="docutils literal">filterclear</span>) are
+disabled unless the node advertises
+<span class="docutils literal">NODE_BLOOM</span>.</p></td>
+</tr>
+<tr><td><p>170014</p></td>
+<td><p><span class="docutils literal">CINV_WTX_VERSION</span></p></td>
+<td><p>Adds <span class="docutils literal">MSG_WTX</span> inventory type for v5
+transaction relay. See ZIP 239
+<a class="brackets" href="#zip-0239" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p></td>
+</tr>
+<tr><td><p>170040</p></td>
+<td><p><span class="docutils literal">MIN_TESTNET_PEER_PROTO_VERSION</span></p></td>
+<td><p>Minimum protocol version for Testnet
+peers.</p></td>
+</tr>
+<tr><td><p>170160</p></td>
+<td><p><span class="docutils literal">PROTOCOL_VERSION</span></p></td>
+<td><p>Current protocol version.</p></td>
+</tr>
+</tbody>
+</table>
+<h3 id="network-upgrade-epoch-enforcement"><a class="hanchor" href="#network-upgrade-epoch-enforcement" aria-hidden="true" tabindex="-1">#</a>Network Upgrade Epoch Enforcement</h3>
+<p>Each network upgrade defines a minimum protocol version. When a network upgrade activates
+(as defined in ZIP 200 <a class="brackets" href="#zip-0200" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>), a node MUST disconnect any peer whose negotiated
+protocol version is less than the protocol version associated with the current epoch.
+The node SHOULD send a <span class="docutils literal">reject</span> message with code <span class="docutils literal">REJECT_OBSOLETE</span> (<span class="docutils literal">0x11</span>)
+before disconnecting.</p>
+<p>The following protocol versions are associated with network upgrades on Mainnet:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Network Upgrade</p></th>
+<th class="head"><p>Protocol Version</p></th>
+<th class="head"><p>Activation Height</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>Sprout</p></td>
+<td><p>170002</p></td>
+<td><p>(always active)</p></td>
+</tr>
+<tr><td><p>Overwinter</p></td>
+<td><p>170005</p></td>
+<td><p>347,500</p></td>
+</tr>
+<tr><td><p>Sapling</p></td>
+<td><p>170007</p></td>
+<td><p>419,200</p></td>
+</tr>
+<tr><td><p>Blossom</p></td>
+<td><p>170009</p></td>
+<td><p>653,600</p></td>
+</tr>
+<tr><td><p>Heartwood</p></td>
+<td><p>170011</p></td>
+<td><p>903,000</p></td>
+</tr>
+<tr><td><p>Canopy</p></td>
+<td><p>170013</p></td>
+<td><p>1,046,400</p></td>
+</tr>
+<tr><td><p>NU5</p></td>
+<td><p>170100</p></td>
+<td><p>1,687,104</p></td>
+</tr>
+<tr><td><p>NU6</p></td>
+<td><p>170120</p></td>
+<td><p>2,726,400</p></td>
+</tr>
+<tr><td><p>NU6.1</p></td>
+<td><p>170140</p></td>
+<td><p>3,146,400</p></td>
+</tr>
+<tr><td><p>NU6.2</p></td>
+<td><p>170150</p></td>
+<td><p>3,364,600</p></td>
+</tr>
+<tr><td><p>NU6.3</p></td>
+<td><p>170160</p></td>
+<td><p>3,428,143</p></td>
+</tr>
+</tbody>
+</table>
+<p>The following protocol versions are associated with network upgrades on Testnet:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Network Upgrade</p></th>
+<th class="head"><p>Protocol Version</p></th>
+<th class="head"><p>Activation Height</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>Sprout</p></td>
+<td><p>170002</p></td>
+<td><p>(always active)</p></td>
+</tr>
+<tr><td><p>Overwinter</p></td>
+<td><p>170003</p></td>
+<td><p>207,500</p></td>
+</tr>
+<tr><td><p>Sapling</p></td>
+<td><p>170007</p></td>
+<td><p>280,000</p></td>
+</tr>
+<tr><td><p>Blossom</p></td>
+<td><p>170008</p></td>
+<td><p>584,000</p></td>
+</tr>
+<tr><td><p>Heartwood</p></td>
+<td><p>170010</p></td>
+<td><p>903,800</p></td>
+</tr>
+<tr><td><p>Canopy</p></td>
+<td><p>170012</p></td>
+<td><p>1,028,500</p></td>
+</tr>
+<tr><td><p>NU5</p></td>
+<td><p>170050</p></td>
+<td><p>1,842,420</p></td>
+</tr>
+<tr><td><p>NU6</p></td>
+<td><p>170110</p></td>
+<td><p>2,976,000</p></td>
+</tr>
+<tr><td><p>NU6.1</p></td>
+<td><p>170130</p></td>
+<td><p>3,536,500</p></td>
+</tr>
+<tr><td><p>NU6.2</p></td>
+<td><p>170150</p></td>
+<td><p>4,052,000</p></td>
+</tr>
+<tr><td><p>NU6.3</p></td>
+<td><p>170160</p></td>
+<td><p>4,134,000</p></td>
+</tr>
+</tbody>
+</table>
+<p>Note that Testnet protocol versions differ from Mainnet for several upgrades
+(Overwinter, Blossom, Heartwood, Canopy, NU5, NU6, and NU6.1), but coincide for
+Sapling, NU6.2, and NU6.3. The coincidences for NU6.2 and NU6.3 are a consequence of
+the ad hoc assignment used through NU6.3; see <a class="reference internal" href="#assigning-protocol-versions-to-network-upgrades">Assigning Protocol Versions to Network
+Upgrades</a> for the rule adopted to prevent such coincidences from NU7 onward.</p>
+</section>
+<h3 id="assigning-protocol-versions-to-network-upgrades"><a class="hanchor" href="#assigning-protocol-versions-to-network-upgrades" aria-hidden="true" tabindex="-1">#</a>Assigning Protocol Versions to Network Upgrades</h3>
+<p>When a new network upgrade is defined, it is assigned a protocol version for each network
+on which it will activate. In the tables above, the <em>Mainnet protocol version</em> and
+<em>Testnet protocol version</em> of an upgrade are the values in the Mainnet and Testnet tables
+respectively; Regtest uses the Testnet protocol version. These assignments MUST satisfy
+the following invariants:</p>
+<ol class="arabic simple">
+<li><p><strong>Zcash range.</strong> Every assigned protocol version is of the form <span class="docutils literal">170000 + n</span> with
+<span class="docutils literal">0 ≤ n ≤ 999</span>. The leading <span class="docutils literal">170</span> distinguishes Zcash protocol versions from those
+of Bitcoin Core, from which the <span class="docutils literal">version</span> message format is inherited. When this
+range nears exhaustion, a successor scheme will need to be specified.</p></li>
+<li><p><strong>Per-network monotonicity.</strong> For a given network, the protocol version assigned to an
+upgrade MUST be strictly greater than any preceding protocol version assigned to that
+network. This is what allows a node to reject peers that have not upgraded (see
+<a class="reference internal" href="#network-upgrade-epoch-enforcement">Network Upgrade Epoch Enforcement</a>).</p></li>
+</ol>
+<p>Through NU6.3, protocol versions were assigned by hand and do not follow a single rule;
+in particular the Testnet and Mainnet protocol versions of NU6.2 and NU6.3 are equal
+(<span class="docutils literal">170150</span> and <span class="docutils literal">170160</span> respectively), so those values do not by themselves identify
+a network. From NU7 onward, protocol versions MUST be assigned by the following
+procedure, which preserves the invariants above and additionally guarantees that no
+protocol version is ever assigned to more than one (network, upgrade) pair:</p>
+<blockquote>
+<p>Let <span class="docutils literal">M</span> be the Mainnet protocol version of the immediately preceding upgrade, and let
+<span class="docutils literal">base</span> be the least value of the form <span class="docutils literal">170000 + 20·k</span> that is strictly greater than
+<span class="docutils literal">M</span>. Then the Testnet protocol version of the new upgrade is <span class="docutils literal">base</span>, and its
+Mainnet protocol version is <span class="docutils literal">base + 10</span>.</p>
+</blockquote>
+<p>Equivalently, from NU7 onward Testnet protocol versions are congruent to 0 modulo 20 and
+Mainnet protocol versions are congruent to 10 modulo 20, so the two never coincide.</p>
+<p>For example, the preceding Mainnet protocol version at NU7 is NU6.3's <span class="docutils literal">170160</span>; the
+least <span class="docutils literal">170000 + 20·k</span> strictly greater than <span class="docutils literal">170160</span> is <span class="docutils literal">170180</span>, so NU7 is
+assigned Testnet protocol version <span class="docutils literal">170180</span> and Mainnet protocol version <span class="docutils literal">170190</span>.
+The upgrade following NU7 would then be assigned <span class="docutils literal">170200</span> (Testnet) and <span class="docutils literal">170210</span>
+(Mainnet).</p>
+</section>
+</section>
+<h2 id="message-types"><a class="hanchor" href="#message-types" aria-hidden="true" tabindex="-1">#</a>Message Types</h2>
+<p>This section defines each protocol message. For each message, the command string,
+direction, payload format, and semantics are specified.</p>
+<h3 id="control-messages"><a class="hanchor" href="#control-messages" aria-hidden="true" tabindex="-1">#</a>Control Messages</h3>
+<h4 id="version"><a class="hanchor" href="#version" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">version</span></h4>
+<dl class="field-list simple">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">version</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both (sent by each side during handshake)</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><p>See <a class="reference internal" href="#version-message">Version Message</a>.</p>
+</dd>
+</dl>
+<p>Initiates the connection handshake. The details of this message are specified in
+<a class="reference internal" href="#connection-handshake">Connection Handshake</a>.</p>
+</section>
+<h4 id="verack"><a class="hanchor" href="#verack" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">verack</span></h4>
+<dl class="field-list simple">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">verack</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><p>Empty (0 bytes).</p>
+</dd>
+</dl>
+<p>Acknowledges receipt of a <span class="docutils literal">version</span> message. After exchanging <span class="docutils literal">version</span> and
+<span class="docutils literal">verack</span> messages, the connection is considered established.</p>
+</section>
+<h4 id="ping"><a class="hanchor" href="#ping" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">ping</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">ping</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>8</p></td>
+<td><p><span class="docutils literal">nonce</span></p></td>
+<td><p>Random value (<span class="docutils literal">uint64</span>).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Sent periodically to measure latency and detect dead connections. The zcashd
+implementation sends <span class="docutils literal">ping</span> messages every 120 seconds (<span class="docutils literal">PING_INTERVAL</span>); the Zebra
+implementation uses a 59-second heartbeat interval (<span class="docutils literal">HEARTBEAT_INTERVAL</span>).
+The receiving node MUST respond with a <span class="docutils literal">pong</span> message containing the same nonce.</p>
+<aside class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Historically (BIP 31 <a class="brackets" href="#bip-0031" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a>), <span class="docutils literal">ping</span> messages had an empty payload for
+protocol versions ≤ 60000 (<span class="docutils literal">BIP0031_VERSION</span>). Since the minimum Zcash peer
+protocol version is 170002 (<span class="docutils literal">MIN_PEER_PROTO_VERSION</span>), well above this threshold,
+all conformant Zcash peers use the nonce-bearing format. The empty-payload variant
+will never be encountered on the Zcash network.</p>
+</aside>
+</section>
+<h4 id="pong"><a class="hanchor" href="#pong" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">pong</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">pong</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>8</p></td>
+<td><p><span class="docutils literal">nonce</span></p></td>
+<td><p>The nonce from the corresponding <span class="docutils literal">ping</span> message
+(<span class="docutils literal">uint64</span>).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Sent in response to a <span class="docutils literal">ping</span>. The <span class="docutils literal">nonce</span> MUST match the <span class="docutils literal">nonce</span> from the <span class="docutils literal">ping</span>
+that is being responded to.</p>
+</section>
+<h4 id="reject"><a class="hanchor" href="#reject" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">reject</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">reject</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">message</span></p></td>
+<td><p>The command string of the rejected message
+(CompactSize-prefixed string).</p></td>
+</tr>
+<tr><td><p>1</p></td>
+<td><p><span class="docutils literal">ccode</span></p></td>
+<td><p>Reject code (<span class="docutils literal">uint8</span>). See <a class="reference internal" href="#reject-codes">Reject Codes</a>.</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">reason</span></p></td>
+<td><p>Human-readable rejection reason
+(CompactSize-prefixed string).</p></td>
+</tr>
+<tr><td><p>0 or 32</p></td>
+<td><p><span class="docutils literal">data</span></p></td>
+<td><p>Optional. For <span class="docutils literal">tx</span> and <span class="docutils literal">block</span> rejections,
+the 32-byte hash of the rejected object.</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Notifies the peer of a rejected message. This message is informational; receipt of a
+<span class="docutils literal">reject</span> message does not require any specific action by the receiving node.</p>
+</section>
+<h4 id="alert"><a class="hanchor" href="#alert" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">alert</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">alert</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">payload</span></p></td>
+<td><p>Serialized alert data (CompactSize-prefixed
+byte vector).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">signature</span></p></td>
+<td><p>ECDSA signature over the payload
+(CompactSize-prefixed byte vector).</p></td>
+</tr>
+</tbody>
+</table>
+<p>The serialized alert data contains:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">version</span></p></td>
+<td><p>Alert format version (<span class="docutils literal">int32</span>).</p></td>
+</tr>
+<tr><td><p>8</p></td>
+<td><p><span class="docutils literal">relay_until</span></p></td>
+<td><p>Timestamp after which nodes should stop
+relaying (<span class="docutils literal">int64</span>).</p></td>
+</tr>
+<tr><td><p>8</p></td>
+<td><p><span class="docutils literal">expiration</span></p></td>
+<td><p>Timestamp after which the alert is no longer
+in effect (<span class="docutils literal">int64</span>).</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">id</span></p></td>
+<td><p>Unique alert identifier (<span class="docutils literal">int32</span>).</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">cancel</span></p></td>
+<td><p>ID of a previous alert to cancel (<span class="docutils literal">int32</span>).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">set_cancel</span></p></td>
+<td><p>Set of alert IDs to cancel
+(CompactSize-prefixed vector of <span class="docutils literal">int32</span>).</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">min_ver</span></p></td>
+<td><p>Minimum applicable client version (<span class="docutils literal">int32</span>).</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">max_ver</span></p></td>
+<td><p>Maximum applicable client version (<span class="docutils literal">int32</span>).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">set_sub_ver</span></p></td>
+<td><p>Set of applicable user agent substrings
+(CompactSize-prefixed vector of strings).</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">priority</span></p></td>
+<td><p>Alert priority (<span class="docutils literal">int32</span>).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">comment</span></p></td>
+<td><p>Comment for operators (CompactSize-prefixed
+string, max 65536 bytes).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">status_bar</span></p></td>
+<td><p>Status bar message (CompactSize-prefixed
+string, max 256 bytes).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">rpc_error</span></p></td>
+<td><p>RPC error message (CompactSize-prefixed
+string, max 256 bytes).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>The <span class="docutils literal">alert</span> message is deprecated. It is documented here for completeness, as it
+remains part of the zcashd implementation but has been proposed for removal
+<a class="brackets" href="#zcashd-remove-alert" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a>, and implementations MAY choose not to
+support it. Nodes that do support <span class="docutils literal">alert</span> messages SHOULD validate the alert
+signature against the network's alert public key before processing or relaying alerts.</p>
+</section>
+</section>
+<h3 id="address-messages"><a class="hanchor" href="#address-messages" aria-hidden="true" tabindex="-1">#</a>Address Messages</h3>
+<h4 id="addr"><a class="hanchor" href="#addr" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">addr</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">addr</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">count</span></p></td>
+<td><p>Number of addresses (CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">addr_list</span></p></td>
+<td><p>List of <span class="docutils literal">CAddress</span> entries (with <span class="docutils literal">time</span>
+field).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>The <span class="docutils literal">count</span> MUST NOT exceed 1000. A node receiving an <span class="docutils literal">addr</span> message with more than
+1000 entries SHOULD assign a misbehavior penalty of 20 points to the sending peer.</p>
+</section>
+<h4 id="getaddr"><a class="hanchor" href="#getaddr" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">getaddr</span></h4>
+<dl class="field-list simple">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">getaddr</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both (but typically only sent to inbound peers)</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><p>Empty (0 bytes).</p>
+</dd>
+</dl>
+<p>Requests peer addresses from the remote node. The remote node responds by sending one or
+more <span class="docutils literal">addr</span> messages. A node SHOULD only send <span class="docutils literal">getaddr</span> once per connection, and
+SHOULD only process <span class="docutils literal">getaddr</span> from inbound peers to prevent address-based fingerprinting
+attacks.</p>
+</section>
+<h4 id="addrv2"><a class="hanchor" href="#addrv2" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">addrv2</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">addrv2</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">count</span></p></td>
+<td><p>Number of addresses (CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">addr_list</span></p></td>
+<td><p>List of address entries in <span class="docutils literal">addrv2</span> format
+(see below).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Each address entry has the following format:</p>
+<blockquote>
+<table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">time</span></p></td>
+<td><p>Unix-epoch UTC time in seconds when the node
+was last seen (<span class="docutils literal">uint32</span>, little-endian).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">services</span></p></td>
+<td><p>Service bits (CompactSize-encoded <span class="docutils literal">uint64</span>).</p></td>
+</tr>
+<tr><td><p>1</p></td>
+<td><p><span class="docutils literal">networkID</span></p></td>
+<td><p>Network identifier (<span class="docutils literal">uint8</span>).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">sizeAddr</span></p></td>
+<td><p>Length of <span class="docutils literal">addr</span> in bytes (CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">addr</span></p></td>
+<td><p>Network address (<span class="docutils literal">sizeAddr</span> bytes).
+Interpretation depends on <span class="docutils literal">networkID</span>.</p></td>
+</tr>
+<tr><td><p>2</p></td>
+<td><p><span class="docutils literal">port</span></p></td>
+<td><p>Network port (<span class="docutils literal">uint16</span>, big-endian). MUST
+be 0 if not relevant for the network.</p></td>
+</tr>
+</tbody>
+</table>
+</blockquote>
+<p>The <span class="docutils literal">count</span> MUST NOT exceed 1000. A node MUST reject messages with more than 1000
+addresses.</p>
+<p>The <span class="docutils literal">addr</span> field MUST NOT exceed 512 bytes. A node MUST reject messages with a longer
+<span class="docutils literal">addr</span> field, irrespective of the network ID.</p>
+<p>The <span class="docutils literal">services</span> field is encoded as a CompactSize, unlike the fixed 8-byte <span class="docutils literal">uint64</span>
+encoding used in <span class="docutils literal">addr</span> messages. This makes the common case (few service bits) more
+compact.</p>
+<p>The following network IDs are defined:</p>
+<blockquote>
+<table>
+<thead>
+<tr><th class="head"><p>Network ID</p></th>
+<th class="head"><p>Name</p></th>
+<th class="head"><p>Address Size</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">0x01</span></p></td>
+<td><p><span class="docutils literal">IPV4</span></p></td>
+<td><p>4 bytes</p></td>
+<td><p>IPv4 address.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x02</span></p></td>
+<td><p><span class="docutils literal">IPV6</span></p></td>
+<td><p>16 bytes</p></td>
+<td><p>IPv6 address.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x04</span></p></td>
+<td><p><span class="docutils literal">TORV3</span></p></td>
+<td><p>32 bytes</p></td>
+<td><p>Tor v3 onion service address
+(Ed25519 public key).</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x05</span></p></td>
+<td><p><span class="docutils literal">I2P</span></p></td>
+<td><p>32 bytes</p></td>
+<td><p>I2P overlay network address
+(SHA-256 hash).</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x06</span></p></td>
+<td><p><span class="docutils literal">CJDNS</span></p></td>
+<td><p>16 bytes</p></td>
+<td><p>Cjdns overlay network address
+(IPv6 in <span class="docutils literal"><span class="pre">fc00::/8</span></span>).</p></td>
+</tr>
+</tbody>
+</table>
+</blockquote>
+<p>Network ID <span class="docutils literal">0x03</span> is reserved (it was assigned to Tor v2 in BIP 155 <a class="brackets" href="#bip-0155" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a>, but
+Tor v2 addresses are no longer supported and MUST NOT be used).</p>
+<p>A node MUST reject addresses whose length does not match the expected length for the
+given network ID. A node MUST NOT gossip addresses with unrecognized network IDs.</p>
+<p><span class="docutils literal">IPV4</span> and <span class="docutils literal">IPV6</span> addresses are encoded in network byte order (big-endian). <span class="docutils literal">TORV3</span>
+addresses consist of the 32-byte Ed25519 master public key of the onion service.
+<span class="docutils literal">I2P</span> addresses consist of the decoded 32-byte SHA-256 hash. <span class="docutils literal">CJDNS</span> addresses are
+16-byte IPv6 addresses in the <span class="docutils literal"><span class="pre">fc00::/8</span></span> range, encoded in network byte order.</p>
+<p><strong>Deployment:</strong> Unlike BIP 155 <a class="brackets" href="#bip-0155" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a>, which uses a <span class="docutils literal">sendaddrv2</span> handshake
+message, Zcash signals <span class="docutils literal">addrv2</span> support through protocol version negotiation, as
+specified in ZIP 155 <a class="brackets" href="#zip-0155" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>. The deployment version has not yet been assigned;
+see ZIP 155 for the status of this assignment.
+A node MUST NOT send <span class="docutils literal">addrv2</span> messages on connections where the negotiated protocol
+version is below the deployment threshold. A node that supports <span class="docutils literal">addrv2</span> MAY still
+send <span class="docutils literal">addr</span> messages on any connection.</p>
+<p>The full specification of the <span class="docutils literal">addrv2</span> message, including network address encoding
+details, is given in ZIP 155 <a class="brackets" href="#zip-0155" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+<h3 id="inventory-messages"><a class="hanchor" href="#inventory-messages" aria-hidden="true" tabindex="-1">#</a>Inventory Messages</h3>
+<h4 id="inv"><a class="hanchor" href="#inv" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">inv</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">inv</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">count</span></p></td>
+<td><p>Number of inventory vectors (CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">inventory</span></p></td>
+<td><p>List of inventory vectors (see
+<a class="reference internal" href="#inventory-vectors">Inventory Vectors</a>).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Announces one or more objects (transactions or blocks) that the sender has available.
+The <span class="docutils literal">count</span> MUST NOT exceed 50,000. A node receiving an <span class="docutils literal">inv</span> message with more than
+50,000 entries SHOULD assign a misbehavior penalty of 20 points.</p>
+</section>
+<h4 id="getdata"><a class="hanchor" href="#getdata" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">getdata</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">getdata</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">count</span></p></td>
+<td><p>Number of inventory vectors (CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">inventory</span></p></td>
+<td><p>List of inventory vectors (see
+<a class="reference internal" href="#inventory-vectors">Inventory Vectors</a>).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Requests one or more objects from the remote peer. The <span class="docutils literal">count</span> MUST NOT exceed 50,000.
+A node receiving a <span class="docutils literal">getdata</span> message with more than 50,000 entries MUST assign a
+misbehavior penalty of 20 points.</p>
+<p>If the requested object is not available, the receiving node SHOULD respond with a
+<span class="docutils literal">notfound</span> message.</p>
+</section>
+<h4 id="notfound"><a class="hanchor" href="#notfound" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">notfound</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">notfound</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">count</span></p></td>
+<td><p>Number of inventory vectors (CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">inventory</span></p></td>
+<td><p>List of inventory vectors identifying objects
+not found.</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Sent in response to a <span class="docutils literal">getdata</span> message for objects that the node does not have.</p>
+</section>
+</section>
+<h3 id="block-messages"><a class="hanchor" href="#block-messages" aria-hidden="true" tabindex="-1">#</a>Block Messages</h3>
+<h4 id="getblocks"><a class="hanchor" href="#getblocks" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">getblocks</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">getblocks</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">version</span></p></td>
+<td><p>Protocol version (<span class="docutils literal">uint32</span>).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">block_locator_count</span></p></td>
+<td><p>Number of block locator hashes
+(CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">block_locator_hashes</span></p></td>
+<td><p>Block locator hashes (each 32 bytes),
+from highest to lowest height.</p></td>
+</tr>
+<tr><td><p>32</p></td>
+<td><p><span class="docutils literal">hash_stop</span></p></td>
+<td><p>Hash of the last desired block, or all
+zeros to request as many as possible.</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Requests an <span class="docutils literal">inv</span> message containing block hashes starting after the first block
+locator hash found in the responder's best chain, up to and including <span class="docutils literal">hash_stop</span> or
+500 blocks, whichever comes first. A node MUST NOT return more than 500 blocks.</p>
+</section>
+<h4 id="getheaders"><a class="hanchor" href="#getheaders" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">getheaders</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">getheaders</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">version</span></p></td>
+<td><p>Protocol version (<span class="docutils literal">uint32</span>).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">block_locator_count</span></p></td>
+<td><p>Number of block locator hashes
+(CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">block_locator_hashes</span></p></td>
+<td><p>Block locator hashes (each 32 bytes),
+from highest to lowest height.</p></td>
+</tr>
+<tr><td><p>32</p></td>
+<td><p><span class="docutils literal">hash_stop</span></p></td>
+<td><p>Hash of the last desired header, or all
+zeros to request as many as possible.</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Requests a <span class="docutils literal">headers</span> message containing block headers starting after the first
+block locator hash found in the responder's best chain, up to and including
+<span class="docutils literal">hash_stop</span> or 160 headers, whichever comes first. A node MUST NOT return more than
+160 headers (<span class="docutils literal">MAX_HEADERS_RESULTS</span>).</p>
+</section>
+<h4 id="headers"><a class="hanchor" href="#headers" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">headers</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">headers</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">count</span></p></td>
+<td><p>Number of headers (CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">headers</span></p></td>
+<td><p>Block headers. Each header is followed by a
+transaction count field (CompactSize, always 0 in
+<span class="docutils literal">headers</span> messages).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>The <span class="docutils literal">count</span> MUST NOT exceed 160. The headers MUST form a contiguous chain
+(each header's <span class="docutils literal">hashPrevBlock</span> must match the hash of the preceding header). A
+node receiving non-contiguous headers SHOULD assign a misbehavior penalty of 20 points.</p>
+<p>For the encoding of block headers, see the Zcash Protocol Specification
+<a class="brackets" href="#protocol-blockheader" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h4 id="block"><a class="hanchor" href="#block" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">block</span></h4>
+<dl class="field-list simple">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">block</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><p>A single serialized block.</p>
+</dd>
+</dl>
+<p>Sent in response to a <span class="docutils literal">getdata</span> request for a <span class="docutils literal">MSG_BLOCK</span> inventory entry. For the
+encoding of blocks, see the Zcash Protocol Specification <a class="brackets" href="#protocol-blockencoding" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+<h3 id="transaction-messages"><a class="hanchor" href="#transaction-messages" aria-hidden="true" tabindex="-1">#</a>Transaction Messages</h3>
+<h4 id="tx"><a class="hanchor" href="#tx" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">tx</span></h4>
+<dl class="field-list simple">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">tx</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><p>A single serialized transaction.</p>
+</dd>
+</dl>
+<p>Sent in response to a <span class="docutils literal">getdata</span> request for a <span class="docutils literal">MSG_TX</span> or <span class="docutils literal">MSG_WTX</span> inventory
+entry. For the encoding of transactions, see the Zcash Protocol Specification
+<a class="brackets" href="#protocol-txnencoding" id="footnote-reference-24" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+<h3 id="bloom-filter-messages"><a class="hanchor" href="#bloom-filter-messages" aria-hidden="true" tabindex="-1">#</a>Bloom Filter Messages</h3>
+<p>These messages implement BIP 37 <a class="brackets" href="#bip-0037" id="footnote-reference-25" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a> Bloom filtering. As of protocol
+version 170004, a node MUST NOT send Bloom filter commands to a peer that does
+not advertise <span class="docutils literal">NODE_BLOOM</span> in its service flags. Sending Bloom filter
+commands to a peer that does not advertise <span class="docutils literal">NODE_BLOOM</span> SHOULD incur a
+misbehavior penalty of 100 points (immediate ban).</p>
+<h4 id="filterload"><a class="hanchor" href="#filterload" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">filterload</span></h4>
+<dl class="field-list simple">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">filterload</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><p>A serialized Bloom filter, as defined in BIP 37 <a class="brackets" href="#bip-0037" id="footnote-reference-26" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a>.</p>
+</dd>
+</dl>
+<p>Sets a Bloom filter on the connection. After a filter is set, the peer will only relay
+transactions that match the filter.</p>
+</section>
+<h4 id="filteradd"><a class="hanchor" href="#filteradd" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">filteradd</span></h4>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">filteradd</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">data</span></p></td>
+<td><p>Element to add to the Bloom filter
+(CompactSize-prefixed, max 520 bytes).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Adds an element to the existing Bloom filter. The data MUST NOT exceed 520 bytes. A node
+receiving data exceeding 520 bytes SHOULD assign a misbehavior penalty of 100 points.</p>
+</section>
+<h4 id="filterclear"><a class="hanchor" href="#filterclear" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">filterclear</span></h4>
+<dl class="field-list simple">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">filterclear</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><p>Empty (0 bytes).</p>
+</dd>
+</dl>
+<p>Removes the Bloom filter from the connection. Transaction relay resumes normally.</p>
+</section>
+</section>
+<h3 id="memory-pool"><a class="hanchor" href="#memory-pool" aria-hidden="true" tabindex="-1">#</a>Memory Pool</h3>
+<h4 id="mempool"><a class="hanchor" href="#mempool" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">mempool</span></h4>
+<dl class="field-list simple">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">mempool</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><p>Empty (0 bytes).</p>
+</dd>
+</dl>
+<p>Requests the contents of the peer's transaction memory pool. The peer responds by sending
+one or more <span class="docutils literal">inv</span> messages listing the transactions in its mempool.</p>
+</section>
+</section>
+</section>
+<h2 id="block-relay"><a class="hanchor" href="#block-relay" aria-hidden="true" tabindex="-1">#</a>Block Relay</h2>
+<h3 id="headers-first-synchronization"><a class="hanchor" href="#headers-first-synchronization" aria-hidden="true" tabindex="-1">#</a>Headers-First Synchronization</h3>
+<p>Nodes MAY synchronize the block chain using a headers-first approach. The Zebra
+implementation uses headers-first synchronization; zcashd does not <a class="brackets" href="#zcashd-6292" id="footnote-reference-27" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a>.</p>
+<ol class="arabic simple">
+<li><p>The synchronizing node sends a <span class="docutils literal">getheaders</span> message with a block locator.</p></li>
+<li><p>The remote peer responds with a <span class="docutils literal">headers</span> message containing up to 160 headers.</p></li>
+<li><p>The synchronizing node validates the headers and requests full blocks via <span class="docutils literal">getdata</span>
+with <span class="docutils literal">MSG_BLOCK</span> inventory entries.</p></li>
+<li><p>Steps 1–3 repeat until the node is synchronized with the network.</p></li>
+</ol>
+</section>
+<h3 id="block-download-parameters"><a class="hanchor" href="#block-download-parameters" aria-hidden="true" tabindex="-1">#</a>Block Download Parameters</h3>
+<ul class="simple">
+<li><p><strong>Download window:</strong> A node SHOULD NOT request blocks more than 1024 blocks ahead
+of its current validated tip (<span class="docutils literal">BLOCK_DOWNLOAD_WINDOW</span>).</p></li>
+<li><p><strong>Per-peer limit:</strong> A node SHOULD NOT have more than 16 blocks in transit from a
+single peer simultaneously (<span class="docutils literal">MAX_BLOCKS_IN_TRANSIT_PER_PEER</span>).</p></li>
+<li><p><strong>Stalling timeout:</strong> If a peer has not delivered a requested block within 2 seconds
+(<span class="docutils literal">BLOCK_STALLING_TIMEOUT</span>) and there are other peers available with the same
+block, the node MAY request the block from an alternative peer.</p></li>
+<li><p><strong>Maximum headers per response:</strong> 160 (<span class="docutils literal">MAX_HEADERS_RESULTS</span>).</p></li>
+</ul>
+</section>
+<h3 id="block-announcement"><a class="hanchor" href="#block-announcement" aria-hidden="true" tabindex="-1">#</a>Block Announcement</h3>
+<p>Blocks are announced immediately via <span class="docutils literal">inv</span> messages; they are not subject to the
+trickling delay applied to transactions.</p>
+</section>
+</section>
+<h2 id="transaction-relay"><a class="hanchor" href="#transaction-relay" aria-hidden="true" tabindex="-1">#</a>Transaction Relay</h2>
+<h3 id="inventory-based-relay"><a class="hanchor" href="#inventory-based-relay" aria-hidden="true" tabindex="-1">#</a>Inventory-Based Relay</h3>
+<p>Transaction relay follows an inventory-based protocol:</p>
+<ol class="arabic simple">
+<li><p>A node with a new transaction sends an <span class="docutils literal">inv</span> message to its peers.</p></li>
+<li><p>Peers that want the transaction respond with a <span class="docutils literal">getdata</span> message.</p></li>
+<li><p>The originating node sends the transaction in a <span class="docutils literal">tx</span> message.</p></li>
+</ol>
+<p>Transactions with version ≤ 4 MUST be announced using <span class="docutils literal">MSG_TX</span> inventory vectors.
+Transactions with version ≥ 5 MUST be announced using <span class="docutils literal">MSG_WTX</span> inventory vectors.
+Using the wrong inventory type for a transaction version SHOULD incur a misbehavior
+penalty. See ZIP 239 <a class="brackets" href="#zip-0239" id="footnote-reference-28" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h3 id="trickling"><a class="hanchor" href="#trickling" aria-hidden="true" tabindex="-1">#</a>Trickling</h3>
+<p>To impede network topology inference, transaction inventory SHOULD NOT be sent
+immediately but SHOULD instead be &quot;trickled&quot; at random intervals. The specific
+trickling parameters are implementation-defined. The zcashd implementation uses the
+following values:</p>
+<ul class="simple">
+<li><p>The average broadcast interval is 5 seconds (<span class="docutils literal">INVENTORY_BROADCAST_INTERVAL</span>).</p></li>
+<li><p>For outbound peers, the effective interval in seconds is halved rounding down
+(2 seconds on average).</p></li>
+<li><p>At most 35 inventory entries (<span class="docutils literal">INVENTORY_BROADCAST_MAX</span>) are sent per trickle
+interval.</p></li>
+<li><p>Broadcast times follow a Poisson distribution centered on the broadcast interval.</p></li>
+</ul>
+<p>The Zebra implementation uses a 7-second gossip delay (<span class="docutils literal">PEER_GOSSIP_DELAY</span>).</p>
+</section>
+<h3 id="transaction-expiry"><a class="hanchor" href="#transaction-expiry" aria-hidden="true" tabindex="-1">#</a>Transaction Expiry</h3>
+<p>A node SHOULD NOT relay a transaction that will expire within 3 blocks of its view of
+the current chain tip (<span class="docutils literal">TX_EXPIRING_SOON_THRESHOLD</span>).</p>
+</section>
+<h3 id="orphan-transactions"><a class="hanchor" href="#orphan-transactions" aria-hidden="true" tabindex="-1">#</a>Orphan Transactions</h3>
+<p>An orphan transaction is one that references inputs from unknown parent transactions.</p>
+<ul class="simple">
+<li><p>A node SHOULD store at most 100 orphan transactions
+(<span class="docutils literal">DEFAULT_MAX_ORPHAN_TRANSACTIONS</span>).</p></li>
+<li><p>Orphan transactions expire and are removed after 1200 seconds (20 minutes,
+<span class="docutils literal">ORPHAN_TX_EXPIRE_TIME</span>).</p></li>
+<li><p>Only fully transparent transactions are eligible for orphan storage.</p></li>
+<li><p>When the orphan pool is full, the oldest orphan transactions are evicted.</p></li>
+</ul>
+</section>
+<h3 id="relay-fee"><a class="hanchor" href="#relay-fee" aria-hidden="true" tabindex="-1">#</a>Relay Fee</h3>
+<p>Transactions are subject to a minimum relay fee. Both the zcashd and Zebra
+implementations use a base rate of 100 zatoshis per 1000 bytes
+(<span class="docutils literal">DEFAULT_MIN_RELAY_TX_FEE</span>), though the zcashd implementation applies additional
+logic for low-fee and free transactions <a class="brackets" href="#zcashd-relay-fee" id="footnote-reference-29" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>. A node SHOULD NOT relay
+transactions with fees below its minimum relay fee threshold.</p>
+</section>
+</section>
+<h2 id="address-relay"><a class="hanchor" href="#address-relay" aria-hidden="true" tabindex="-1">#</a>Address Relay</h2>
+<p>Address relay allows nodes to discover peers by propagating <span class="docutils literal">CAddress</span> records through
+the network.</p>
+<h3 id="rate-limiting"><a class="hanchor" href="#rate-limiting" aria-hidden="true" tabindex="-1">#</a>Rate Limiting</h3>
+<p>Address records SHOULD be subject to rate limiting to prevent address flooding. The
+specific rate-limiting mechanism is implementation-defined. The zcashd-specific
+rate-limiting mechanism uses a token-bucket algorithm:</p>
+<ul class="simple">
+<li><p>Rate: 0.1 address records per second per peer (<span class="docutils literal">MAX_ADDR_RATE_PER_SECOND</span>).</p></li>
+<li><p>Bucket capacity: 1000 (<span class="docutils literal">MAX_ADDR_PROCESSING_TOKEN_BUCKET</span>), replenished at 0.1
+tokens per second.</p></li>
+<li><p>Upon receiving a <span class="docutils literal">getaddr</span> response, 1000 tokens (<span class="docutils literal">MAX_ADDR_TO_SEND</span>) are added
+to the bucket, exempt from the soft limit.</p></li>
+<li><p>Whitelisted peers bypass address rate limiting.</p></li>
+</ul>
+</section>
+<h3 id="address-broadcasting"><a class="hanchor" href="#address-broadcasting" aria-hidden="true" tabindex="-1">#</a>Address Broadcasting</h3>
+<p>The specific broadcast intervals are implementation-defined. The zcashd implementation
+uses the following values:</p>
+<ul class="simple">
+<li><p>Addresses are broadcast to peers at an average interval of 30 seconds
+(<span class="docutils literal">AVG_ADDRESS_BROADCAST_INTERVAL</span>).</p></li>
+<li><p>A node's own address is broadcast approximately every 9.6 hours
+(<span class="docutils literal">AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL = 24 * 24 * 60 = 34560</span> seconds).</p></li>
+</ul>
+</section>
+</section>
+<h2 id="misbehavior-and-banning"><a class="hanchor" href="#misbehavior-and-banning" aria-hidden="true" tabindex="-1">#</a>Misbehavior and Banning</h2>
+<p>Nodes SHOULD track misbehavior scores for each connected peer. The zcashd
+implementation bans a peer when its cumulative score reaches or exceeds 100
+(<span class="docutils literal">DEFAULT_BANSCORE_THRESHOLD</span>), with bans lasting 24 hours
+(<span class="docutils literal">DEFAULT_MISBEHAVING_BANTIME</span>). The Zebra implementation also uses a threshold of
+100 (<span class="docutils literal">MAX_PEER_MISBEHAVIOR_SCORE</span>) but bans persist indefinitely. The ban threshold
+and duration are implementation-defined.</p>
+<p>Whitelisted peers accumulate misbehavior scores but are exempt from banning.</p>
+<p>The following table lists the misbehavior penalties assigned for specific protocol
+violations:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Points</p></th>
+<th class="head"><p>Violation</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>1</p></td>
+<td><p>Duplicate <span class="docutils literal">version</span> message.</p></td>
+</tr>
+<tr><td><p>1</p></td>
+<td><p>Message received before <span class="docutils literal">version</span> handshake.</p></td>
+</tr>
+<tr><td><p>1</p></td>
+<td><p>Duplicate <span class="docutils literal">verack</span> message.</p></td>
+</tr>
+<tr><td><p>10</p></td>
+<td><p>Alert processing failure.</p></td>
+</tr>
+<tr><td><p>20</p></td>
+<td><p><span class="docutils literal">addr</span> message with more than 1000 entries.</p></td>
+</tr>
+<tr><td><p>20</p></td>
+<td><p><span class="docutils literal">inv</span> message with more than 50,000 entries.</p></td>
+</tr>
+<tr><td><p>20</p></td>
+<td><p><span class="docutils literal">getdata</span> message with more than 50,000 entries.</p></td>
+</tr>
+<tr><td><p>20</p></td>
+<td><p><span class="docutils literal">headers</span> message with more than 160 entries.</p></td>
+</tr>
+<tr><td><p>20</p></td>
+<td><p>Non-contiguous headers sequence.</p></td>
+</tr>
+<tr><td><p>50</p></td>
+<td><p>Causing send buffer overflow.</p></td>
+</tr>
+<tr><td><p>100</p></td>
+<td><p>Bloom filter commands without <span class="docutils literal">NODE_BLOOM</span> support.</p></td>
+</tr>
+<tr><td><p>100</p></td>
+<td><p>Invalid Bloom filter parameters.</p></td>
+</tr>
+<tr><td><p>100</p></td>
+<td><p><span class="docutils literal">filteradd</span> data exceeding 520 bytes.</p></td>
+</tr>
+<tr><td><p>100</p></td>
+<td><p>Using <span class="docutils literal">MSG_TX</span> to announce a v5 transaction, or <span class="docutils literal">MSG_WTX</span>
+to announce a v4-or-earlier transaction (see ZIP 239
+<a class="brackets" href="#zip-0239" id="footnote-reference-30" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p>Transaction, block, or header validation failure. The penalty is
+determined by the severity of the validation error.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h2 id="network-upgrade-peer-management"><a class="hanchor" href="#network-upgrade-peer-management" aria-hidden="true" tabindex="-1">#</a>Network Upgrade Peer Management</h2>
+<p>Network upgrade peer management is specified in ZIP 201 <a class="brackets" href="#zip-0201" id="footnote-reference-31" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. This section
+summarizes the key behaviors.</p>
+<h3 id="pre-activation"><a class="hanchor" href="#pre-activation" aria-hidden="true" tabindex="-1">#</a>Pre-Activation</h3>
+<p>In the 1728-block window (<span class="docutils literal">NETWORK_UPGRADE_PEER_PREFERENCE_BLOCK_PERIOD</span>) before a
+network upgrade activation height, a node SHOULD preferentially connect to peers that
+advertise a protocol version at or above the version required by the upcoming upgrade.
+This period corresponds to approximately 1.5 days at the post-Blossom block interval.</p>
+</section>
+<h3 id="post-activation"><a class="hanchor" href="#post-activation" aria-hidden="true" tabindex="-1">#</a>Post-Activation</h3>
+<p>After a network upgrade activates, a node MUST disconnect any peer whose negotiated
+protocol version is below the version required by the active epoch. The node SHOULD send
+a <span class="docutils literal">reject</span> message with code <span class="docutils literal">REJECT_OBSOLETE</span> (<span class="docutils literal">0x11</span>) before disconnecting.</p>
+</section>
+</section>
+</section>
+<h1 id="reject-codes"><a class="hanchor" href="#reject-codes" aria-hidden="true" tabindex="-1">#</a>Reject Codes</h1>
+<table>
+<thead>
+<tr><th class="head"><p>Code</p></th>
+<th class="head"><p>Constant</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><span class="docutils literal">0x01</span></p></td>
+<td><p><span class="docutils literal">REJECT_MALFORMED</span></p></td>
+<td><p>The message could not be decoded.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x10</span></p></td>
+<td><p><span class="docutils literal">REJECT_INVALID</span></p></td>
+<td><p>The message was invalid (e.g., a block or
+transaction that fails validation).</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x11</span></p></td>
+<td><p><span class="docutils literal">REJECT_OBSOLETE</span></p></td>
+<td><p>The message uses an obsolete protocol
+version.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x12</span></p></td>
+<td><p><span class="docutils literal">REJECT_DUPLICATE</span></p></td>
+<td><p>The message is a duplicate of one already
+received.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x40</span></p></td>
+<td><p><span class="docutils literal">REJECT_NONSTANDARD</span></p></td>
+<td><p>The transaction is valid but not standard.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x41</span></p></td>
+<td><p><span class="docutils literal">REJECT_DUST</span></p></td>
+<td><p>One or more transaction outputs are below
+the dust threshold.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x42</span></p></td>
+<td><p><span class="docutils literal">REJECT_INSUFFICIENTFEE</span></p></td>
+<td><p>The transaction fee is insufficient.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x43</span></p></td>
+<td><p><span class="docutils literal">REJECT_CHECKPOINT</span></p></td>
+<td><p>The block conflicts with a checkpoint.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h1 id="formal-model"><a class="hanchor" href="#formal-model" aria-hidden="true" tabindex="-1">#</a>Formal Model</h1>
+<p>A TLA+ formal specification of the connection lifecycle described in this
+ZIP is available at <a class="brackets" href="#formal-model-1" id="footnote-reference-32" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>. The model covers the handshake,
+keepalive, block synchronization, and disconnection phases, verifying
+liveness (all peers eventually reach the same block height) and safety
+(message size bounds hold across all reachable states).</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc4291" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-10">1</a>,<a role="doc-backlink" href="#footnote-reference-11">2</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc4291.html#section-2.5.5.2">RFC 4291: IP Version 6 Addressing Architecture, Section 2.5.5.2</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2024.5.1 [NU6]. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-blockchain" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#blockchain">Zcash Protocol Specification, Version 2024.5.1 [NU6]. Section 3.3: The Block Chain</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-8">1</a>,<a role="doc-backlink" href="#footnote-reference-24">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2024.5.1 [NU6]. Section 7.1: Transaction Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-blockencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-9">1</a>,<a role="doc-backlink" href="#footnote-reference-23">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#blockencoding">Zcash Protocol Specification, Version 2024.5.1 [NU6]. Section 7.6: Block Encoding</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-blockheader" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-22">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#blockheader">Zcash Protocol Specification, Version 2024.5.1 [NU6]. Section 7.5: Block Header Encoding</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0155" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-20">1</a>,<a role="doc-backlink" href="#footnote-reference-21">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0155.rst">ZIP 155: addrv2 message</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-3">1</a>,<a role="doc-backlink" href="#footnote-reference-6">2</a>,<a role="doc-backlink" href="#footnote-reference-15">3</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0201" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-7">1</a>,<a role="doc-backlink" href="#footnote-reference-31">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0201.rst">ZIP 201: Network Peer Management for Overwinter</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0225" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0225.rst">ZIP 225: Version 5 Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0239" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-13">2</a>,<a role="doc-backlink" href="#footnote-reference-14">3</a>,<a role="doc-backlink" href="#footnote-reference-28">4</a>,<a role="doc-backlink" href="#footnote-reference-30">5</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0239.rst">ZIP 239: Relay of Version 5 Transactions</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0031" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-16">14</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0031.mediawiki">BIP 31: Pong Message</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0037" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-12">1</a>,<a role="doc-backlink" href="#footnote-reference-25">2</a>,<a role="doc-backlink" href="#footnote-reference-26">3</a>)</span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0037.mediawiki">BIP 37: Connection Bloom filtering</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0111" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0111.mediawiki">BIP 111: NODE_BLOOM service bit</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0130" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0130.mediawiki">BIP 130: sendheaders message</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0155" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-18">1</a>,<a role="doc-backlink" href="#footnote-reference-19">2</a>)</span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0155.mediawiki">BIP 155: addrv2 message</a></p>
+</aside>
+<aside class="footnote brackets" id="zcashd-6292" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-27">19</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/issues/6292">zcashd issue 6292: zcashd does not use headers-first sync</a></p>
+</aside>
+<aside class="footnote brackets" id="zcashd-relay-fee" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-29">20</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/blob/cfcfcd93b06d2ee897f1d24eb62692c9e9e0e66d/src/policy/policy.h#L65-L77">zcashd relay fee policy (policy.h)</a></p>
+</aside>
+<aside class="footnote brackets" id="zcashd-remove-alert" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-17">21</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/pull/7039">zcashd PR 7039: Remove alert handling</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcoin-protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://developer.bitcoin.org/reference/p2p_networking.html">Bitcoin Developer Reference: P2P Network</a></p>
+</aside>
+<aside class="footnote brackets" id="formal-model-1" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-32">23</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/oxarbitrage/zcash-p2p-spec">Zcash P2P Protocol TLA+ Specification</a></p>
+</aside>
+</aside>
+</section>

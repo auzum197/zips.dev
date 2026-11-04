@@ -1,0 +1,54 @@
+name: sync
+
+on:
+  schedule:
+    - cron: "23 5 * * *" # daily, off the hour
+  workflow_dispatch:
+  repository_dispatch:
+    types: [zips-push]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install docutils
+
+      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Vendor zcash/zips
+        run: |
+          mkdir -p vendor
+          git clone --depth 1 https://github.com/zcash/zips vendor/zips
+
+      - name: Render + fetch PRs
+        run: pnpm sync
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish snapshots
+        run: |
+          git config user.name "zips-sync-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add content public/api public/upstream
+          if git diff --cached --quiet; then
+            echo "No snapshot changes — nothing to publish."
+          else
+            git commit -q -m "sync: refresh snapshots @ $(cd vendor/zips && git rev-parse --short HEAD)"
+            git push
+          fi

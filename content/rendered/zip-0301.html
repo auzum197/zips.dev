@@ -1,0 +1,479 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot;, &quot;MUST NOT&quot;, &quot;SHOULD&quot;, &quot;MAY&quot;, and &quot;RECOMMENDED&quot; in this
+document are to be interpreted as described in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only
+when, they appear in all capitals.</p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP describes the Zcash variant of the Stratum protocol, used by miners to
+communicate with mining pool servers.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Many existing cryptocurrency miners and pools use the original Stratum protocol
+<a class="brackets" href="#slushpool-stratum" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> <a class="brackets" href="#bitcointalk-stratum" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> for communication, in situations
+where the miner does not require any control over what they mine (for example, a
+miner connected to a local <a class="brackets" href="#p2pool" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> node). However, the protocol is very
+specific to Bitcoin, in that it makes assumptions about the block header format,
+and the available nonce space <a class="brackets" href="#bitcoin-block" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>. Zcash has made changes that
+invalidate these assumptions.</p>
+<p>Having a formal specification for a Zcash-compatible Stratum-style mining
+protocol means that existing pool operators and miner authors can quickly and
+easily migrate their frameworks to the Zcash network, with no ambiguity about
+interoperability.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>The Stratum protocol is an instance of <a class="brackets" href="#json-rpc-1-0" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>. The miner is a JSON-RPC
+client, and the Stratum server is a JSON-RPC server. The miner starts a session
+by opening a standard TCP connection to the server, which is then used for
+two-way line-based communication:</p>
+<ul class="simple">
+<li><p>The miner can send requests to the server.</p></li>
+<li><p>The server can respond to requests.</p></li>
+<li><p>The server can send notifications to the client.</p></li>
+</ul>
+<p>All communication for a particular session happens through a single connection,
+which is kept open for the duration of the session. If the connection is broken
+or either party disconnects, the active session is ended. Servers MAY support
+session resuming; this is negotiated between the client and server during
+initial setup (see <a class="reference internal" href="#session-resuming">Session Resuming</a>).</p>
+<p>Each request or response is a JSON string, terminated by an ASCII LF character
+(denoted in the rest of this specification by <span class="docutils literal">\n</span>). The LF character MUST NOT
+appear elsewhere in a request or response. Client and server implementations MAY
+assume that once they read a LF character, the current message has been
+completely received.</p>
+<p>Per <a class="brackets" href="#json-rpc-1-0" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>, there is no requirement for the <span class="docutils literal">id</span> property in requests
+and responses to be unique; only that servers MUST set <span class="docutils literal">id</span> in their responses
+equal to that in the request they are responding to (or <span class="docutils literal">null</span> for
+notifications). However, it is RECOMMENDED that clients use unique ids for their
+requests, to simplify their response parsing.</p>
+<p>In the protocol messages below, <span class="docutils literal">(content)</span> indicates that <span class="docutils literal">content</span> is
+optional. Variable names are indicated in <em>EMPHASIS</em>. All other characters are
+part of the protocol message.</p>
+<h2 id="error-objects"><a class="hanchor" href="#error-objects" aria-hidden="true" tabindex="-1">#</a>Error Objects</h2>
+<p>The <a class="brackets" href="#json-rpc-1-0" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a> specification allows for error objects in responses, but
+does not specify their format. The original Stratum protocol uses the following
+format for error responses <a class="brackets" href="#slushpool-stratum" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>:</p>
+<blockquote>
+<p>{&quot;id&quot;: ##, &quot;result&quot;: null, &quot;error&quot;: [<em>ERROR_CODE</em>, &quot;<em>ERROR_MESSAGE</em>&quot;, <em>TRACEBACK</em>]} <span class="docutils literal">\n</span></p>
+</blockquote>
+<p>For compatibility, this format is retained. We therefore define an error object
+as an array:</p>
+<blockquote>
+<p>[<em>ERROR_CODE</em>, &quot;<em>ERROR_MESSAGE</em>&quot;, <em>TRACEBACK</em>]</p>
+</blockquote>
+<dl>
+<dt><span class="docutils literal">ERROR_CODE</span> (int)</dt>
+<dd><p>Indicates the type of error that occurred.</p>
+<p>The error codes are to be interpreted as described in <a class="brackets" href="#json-rpc-2-0" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.
+The following application error codes are defined:</p>
+<ul class="simple">
+<li><p>20 - Other/Unknown</p></li>
+<li><p>21 - Job not found (=stale)</p></li>
+<li><p>22 - Duplicate share</p></li>
+<li><p>23 - Low difficulty share</p></li>
+<li><p>24 - Unauthorized worker</p></li>
+<li><p>25 - Not subscribed</p></li>
+</ul>
+</dd>
+<dt><span class="docutils literal">ERROR_MESSAGE</span> (str)</dt>
+<dd><p>A human-readable error message. The message SHOULD be limited to a concise
+single sentence.</p>
+</dd>
+<dt><span class="docutils literal">TRACEBACK</span></dt>
+<dd><p>Additional information for debugging errors. The format is server-specific.</p>
+<p>Miners MAY attempt to parse the field for displaying to the user, and SHOULD
+fall back to rendering it as a JSON string.</p>
+<p>Servers MUST set this to <span class="docutils literal">null</span> if they have no additional information.</p>
+</dd>
+</dl>
+<p>Miners SHOULD display a human-readable message to the user. This message can be
+derived from either <span class="docutils literal">ERROR_CODE</span> or <span class="docutils literal">ERROR_MESSAGE</span>, or both. An example of
+using <span class="docutils literal">ERROR_CODE</span> over <span class="docutils literal">ERROR_MESSAGE</span> might be that the miner UI offers
+localization.</p>
+</section>
+<h2 id="protocol-flow"><a class="hanchor" href="#protocol-flow" aria-hidden="true" tabindex="-1">#</a>Protocol Flow</h2>
+<ul class="simple">
+<li><p>Client sends <span class="docutils literal">mining.subscribe</span> to set up the session.</p></li>
+<li><p>Server replies with the session information.</p></li>
+<li><p>Client sends <span class="docutils literal">mining.authorize</span> for their worker(s).</p></li>
+<li><p>Server replies with the result of authorization.</p></li>
+<li><p>Server sends <span class="docutils literal">mining.set_target</span>.</p></li>
+<li><p>Server sends <span class="docutils literal">mining.notify</span> with a new job.</p></li>
+<li><p>Client mines on that job.</p></li>
+<li><p>Client sends <span class="docutils literal">mining.submit</span> for each solution found.</p></li>
+<li><p>Server replies with whether the solution was accepted.</p></li>
+<li><p>Server sends <span class="docutils literal">mining.notify</span> again when there is a new job.</p></li>
+</ul>
+</section>
+<h2 id="nonce-parts"><a class="hanchor" href="#nonce-parts" aria-hidden="true" tabindex="-1">#</a>Nonce Parts</h2>
+<p>In Bitcoin, blocks contain two nonces: the 4-byte block header nonce, and an
+extra nonce in the coinbase transaction <a class="brackets" href="#bitcoin-block" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>. The original Stratum
+protocol splits this extra nonce into two parts: one set by the server (used
+for splitting the search space amongst connected miners), and the other iterated
+by the miner <a class="brackets" href="#slushpool-stratum" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>. The nonce in Zcash's block header is 32 bytes
+long <a class="brackets" href="#protocol-blockheader" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>, and thus can serve both purposes simultaneously.</p>
+<p>We define two nonce parts:</p>
+<dl>
+<dt><span class="docutils literal">NONCE_1</span></dt>
+<dd><p>The server MUST pick such that <span class="docutils literal">len(NONCE_1) &lt; 32</span> in bytes.</p>
+</dd>
+<dt><span class="docutils literal">NONCE_2</span></dt>
+<dd><p>The miner MUST pick such that <span class="docutils literal">len(NONCE_2) = 32 - len(NONCE_1)</span> in bytes.</p>
+<p>In hex, <span class="docutils literal">lenHex(NONCE_2) = 64 - lenHex(NONCE_1)</span>, and both lengths are even.</p>
+</dd>
+</dl>
+<p>The nonce in the block header is the concatenation of <span class="docutils literal">NONCE_1</span> and
+<span class="docutils literal">NONCE_2</span> in hex. This means that a miner using bignum representations of nonce
+MUST increment by <span class="docutils literal">1 &lt;&lt; len(NONCE_1)</span> to avoid altering <span class="docutils literal">NONCE_1</span> (because
+the encoding of the nonce in the block header is little endian, in line with the
+other 32-byte fields <a class="brackets" href="#bitcoin-block" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a> <a class="brackets" href="#protocol-blockheader" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>).</p>
+</section>
+<h2 id="session-resuming"><a class="hanchor" href="#session-resuming" aria-hidden="true" tabindex="-1">#</a>Session Resuming</h2>
+<p>Servers that support session resuming identify this by setting a <span class="docutils literal">SESSION_ID</span>
+in their initial response. Servers MAY set <span class="docutils literal">SESSION_ID</span> to <span class="docutils literal">null</span> to
+indicate that they do not support session resuming. Servers that do not set
+<span class="docutils literal">SESSION_ID</span> to <span class="docutils literal">null</span> MUST cache the following information:</p>
+<ul class="simple">
+<li><p>The session ID.</p></li>
+<li><p><span class="docutils literal">NONCE_1</span></p></li>
+<li><p>Any active job IDs.</p></li>
+</ul>
+<p>Servers MAY drop entries from the cache on their own schedule.</p>
+<p>When a miner connects using a previous <span class="docutils literal">SESSION_ID</span>:</p>
+<ul class="simple">
+<li><p>If the cache contains the <span class="docutils literal">SESSION_ID</span>, the server's initial response MUST
+be constructed from the cached information.</p></li>
+<li><p>If the server does not recognise the session, the <span class="docutils literal">SESSION_ID</span> in the
+server's initial response MUST NOT equal the <span class="docutils literal">SESSION_ID</span> provided by the
+miner.</p></li>
+</ul>
+<p>Miners MUST re-authorize all workers upon resuming a session.</p>
+</section>
+<h2 id="methods"><a class="hanchor" href="#methods" aria-hidden="true" tabindex="-1">#</a>Methods</h2>
+<h3 id="mining-subscribe"><a class="hanchor" href="#mining-subscribe" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">mining.subscribe()</span></h3>
+<p>Request:</p>
+<blockquote>
+<p>{&quot;id&quot;: 1, &quot;method&quot;: &quot;mining.subscribe&quot;, &quot;params&quot;: [&quot;<em>MINER_USER_AGENT</em>&quot;, &quot;<em>SESSION_ID</em>&quot;, &quot;<em>CONNECT_HOST</em>&quot;, <em>CONNECT_PORT</em>]} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl>
+<dt><span class="docutils literal">MINER_USER_AGENT</span> (str)</dt>
+<dd><p>A free-form string specifying the type and version of the mining software.
+Recommended syntax is the User Agent format used by Zcash nodes.</p>
+<p>Example: <span class="docutils literal">MagicBean/1.0.0</span></p>
+</dd>
+<dt><span class="docutils literal">SESSION_ID</span> (str)</dt>
+<dd><p>The id for a previous session that the miner wants to resume (e.g. after a
+temporary network disconnection) (see <a class="reference internal" href="#session-resuming">Session Resuming</a>).</p>
+<p>This MAY be <span class="docutils literal">null</span> indicating that the miner wants to start a new session.</p>
+</dd>
+<dt><span class="docutils literal">CONNECT_HOST</span> (str)</dt>
+<dd><p>The host that the miner is connecting to (from the server URL).</p>
+<p>Example: <span class="docutils literal">pool.example.com</span></p>
+</dd>
+<dt><span class="docutils literal">CONNECT_PORT</span> (int)</dt>
+<dd><p>The port that the miner is connecting to (from the server URL).</p>
+<p>Example: <span class="docutils literal">3337</span></p>
+</dd>
+</dl>
+<p>Response:</p>
+<blockquote>
+<p>{&quot;id&quot;: 1, &quot;result&quot;: [&quot;<em>SESSION_ID</em>&quot;, &quot;<em>NONCE_1</em>&quot;], &quot;error&quot;: null} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl class="simple">
+<dt><span class="docutils literal">SESSION_ID</span> (str)</dt>
+<dd><p>The session id, for use when resuming (see <a class="reference internal" href="#session-resuming">Session Resuming</a>).</p>
+</dd>
+<dt><span class="docutils literal">NONCE_1</span> (hex)</dt>
+<dd><p>The first part of the block header nonce (see <a class="reference internal" href="#nonce-parts">Nonce Parts</a>).</p>
+</dd>
+</dl>
+</section>
+<h3 id="mining-authorize"><a class="hanchor" href="#mining-authorize" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">mining.authorize()</span></h3>
+<p>A miner MUST authorize a worker in order to submit solutions. A miner MAY
+authorize multiple workers in the same session; this could be for statistical
+purposes on the particular server being used. Details of such purposes are
+outside the scope of this specification.</p>
+<p>Request:</p>
+<blockquote>
+<p>{&quot;id&quot;: 2, &quot;method&quot;: &quot;mining.authorize&quot;, &quot;params&quot;: [&quot;<em>WORKER_NAME</em>&quot;, &quot;<em>WORKER_PASSWORD</em>&quot;]} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl class="simple">
+<dt><span class="docutils literal">WORKER_NAME</span> (str)</dt>
+<dd><p>The worker name.</p>
+</dd>
+<dt><span class="docutils literal">WORKER_PASSWORD</span> (str)</dt>
+<dd><p>The worker password.</p>
+</dd>
+</dl>
+<p>Response:</p>
+<blockquote>
+<p>{&quot;id&quot;: 2, &quot;result&quot;: <em>AUTHORIZED</em>, &quot;error&quot;: <em>ERROR</em>} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl>
+<dt><span class="docutils literal">AUTHORIZED</span> (bool)</dt>
+<dd><p>This MUST be <span class="docutils literal">true</span> if authorization succeeded. Per <a class="brackets" href="#json-rpc-1-0" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>, it MUST be
+<span class="docutils literal">null</span> if there was an error.</p>
+</dd>
+<dt><span class="docutils literal">ERROR</span> (obj)</dt>
+<dd><p>An error object. This MUST be <span class="docutils literal">null</span> if authorization succeeded.</p>
+<p>If authorization failed, the server MUST provide an error object describing
+the reason. See <a class="reference internal" href="#error-objects">Error Objects</a> for the object format.</p>
+</dd>
+</dl>
+</section>
+<h3 id="mining-set-target"><a class="hanchor" href="#mining-set-target" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">mining.set_target()</span></h3>
+<p>Server message:</p>
+<blockquote>
+<p>{&quot;id&quot;: null, &quot;method&quot;: &quot;mining.set_target&quot;, &quot;params&quot;: [&quot;<em>TARGET</em>&quot;]} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl>
+<dt><span class="docutils literal">TARGET</span> (hex)</dt>
+<dd><p>The server target for the next received job and all subsequent jobs (until the
+next time this message is sent). The miner compares proposed block hashes with
+this target as a 256-bit big-endian integer, and valid blocks MUST NOT have
+hashes larger than (above) the current target (in accordance with the Zcash
+network consensus rules <a class="brackets" href="#protocol-difficulty" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>).</p>
+<p>Miners SHOULD NOT submit work above this target. Miners SHOULD validate their
+solutions before submission (to avoid both unnecessary network traffic and
+wasted miner time).</p>
+<p>Servers MUST NOT accept submissions above this target for jobs sent after this
+message. Servers MAY accept submissions above this target for jobs sent before
+this message, but MUST check them against the previous target.</p>
+</dd>
+</dl>
+<p>When displaying the current target in the UI to users, miners MAY convert the
+target to an integer difficulty as used in Bitcoin miners. When doing so, miners
+SHOULD use <span class="docutils literal">powLimit</span> (as defined in <span class="docutils literal">src/chainparams.cpp</span>) as the basis for
+conversion.</p>
+</section>
+<h3 id="mining-notify"><a class="hanchor" href="#mining-notify" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">mining.notify()</span></h3>
+<p>Server message:</p>
+<blockquote>
+<p>{&quot;id&quot;: null, &quot;method&quot;: &quot;mining.notify&quot;, &quot;params&quot;: [&quot;<em>JOB_ID</em>&quot;, &quot;<em>VERSION</em>&quot;, &quot;<em>PREVHASH</em>&quot;, &quot;<em>MERKLEROOT</em>&quot;, &quot;<em>RESERVED</em>&quot;, &quot;<em>TIME</em>&quot;, &quot;<em>BITS</em>&quot;, <em>CLEAN_JOBS</em>]} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl>
+<dt><span class="docutils literal">JOB_ID</span> (str)</dt>
+<dd><p>The id of this job.</p>
+</dd>
+<dt><span class="docutils literal">VERSION</span> (hex)</dt>
+<dd><p>The block header version, encoded as in a block header (little-endian
+<span class="docutils literal">int32_t</span>).</p>
+<p>Used as a switch for subsequent parameters. At time of writing, the only
+defined block header version is 4. Miners SHOULD alert the user upon receiving
+jobs containing block header versions they do not know about or support, and
+MUST ignore such jobs.</p>
+<p>Example: <span class="docutils literal">04000000</span></p>
+</dd>
+</dl>
+<p>The following parameters are only valid for <span class="docutils literal">VERSION == &quot;04000000&quot;</span>:</p>
+<dl class="simple">
+<dt><span class="docutils literal">PREVHASH</span> (hex)</dt>
+<dd><p>The 32-byte hash of the previous block, encoded as in a block header.</p>
+</dd>
+<dt><span class="docutils literal">MERKLEROOT</span> (hex)</dt>
+<dd><p>The 32-byte Merkle root of the transactions in this block, encoded as in a
+block header.</p>
+</dd>
+<dt><span class="docutils literal">RESERVED</span> (hex)</dt>
+<dd><p>A 32-byte reserved field, encoded as in a block header. Zero by convention (in
+hex, <span class="docutils literal">0000000000000000000000000000000000000000000000000000000000000000</span>).</p>
+</dd>
+<dt><span class="docutils literal">TIME</span> (hex)</dt>
+<dd><p>The block time suggested by the server, encoded as in a block header.</p>
+</dd>
+<dt><span class="docutils literal">BITS</span> (hex)</dt>
+<dd><p>The current network difficulty target, represented in compact format, encoded
+as in a block header.</p>
+</dd>
+<dt><span class="docutils literal">CLEAN_JOBS</span> (bool)</dt>
+<dd><p>If true, a new block has arrived. The miner SHOULD abandon all previous jobs.</p>
+</dd>
+</dl>
+</section>
+<h3 id="mining-submit"><a class="hanchor" href="#mining-submit" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">mining.submit()</span></h3>
+<p>Request:</p>
+<blockquote>
+<p>{&quot;id&quot;: 4, &quot;method&quot;: &quot;mining.submit&quot;, &quot;params&quot;: [&quot;<em>WORKER_NAME</em>&quot;, &quot;<em>JOB_ID</em>&quot;, &quot;<em>TIME</em>&quot;, &quot;<em>NONCE_2</em>&quot;, &quot;<em>EQUIHASH_SOLUTION</em>&quot;]} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl>
+<dt><span class="docutils literal">WORKER_NAME</span> (str)</dt>
+<dd><p>A previously-authenticated worker name.</p>
+<p>Servers MUST NOT accept submissions from unauthenticated workers.</p>
+</dd>
+<dt><span class="docutils literal">JOB_ID</span> (str)</dt>
+<dd><p>The id of the job this submission is for.</p>
+<p>Miners MAY make multiple submissions for a single job id.</p>
+</dd>
+<dt><span class="docutils literal">TIME</span> (hex)</dt>
+<dd><p>The block time used in the submission, encoded as in a block header.</p>
+<p>MAY be enforced by the server to be unchanged.</p>
+</dd>
+<dt><span class="docutils literal">NONCE_2</span> (hex)</dt>
+<dd><p>The second part of the block header nonce (see <a class="reference internal" href="#nonce-parts">Nonce Parts</a>).</p>
+</dd>
+<dt><span class="docutils literal">EQUIHASH_SOLUTION</span> (hex)</dt>
+<dd><p>The Equihash solution, encoded as in a block header (including the compactSize
+at the beginning in canonical form <a class="brackets" href="#bitcoin-compactsize" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>).</p>
+</dd>
+</dl>
+<p>Result:</p>
+<blockquote>
+<p>{&quot;id&quot;: 4, &quot;result&quot;: <em>ACCEPTED</em>, &quot;error&quot;: <em>ERROR</em>} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl>
+<dt><span class="docutils literal">ACCEPTED</span> (bool)</dt>
+<dd><p>This MUST be <span class="docutils literal">true</span> if the submission was accepted. Per <a class="brackets" href="#json-rpc-1-0" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>, it
+MUST be <span class="docutils literal">null</span> if there was an error.</p>
+</dd>
+<dt><span class="docutils literal">ERROR</span> (obj)</dt>
+<dd><p>An error object. Per <a class="brackets" href="#json-rpc-1-0" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>, this MUST be <span class="docutils literal">null</span> if the submission
+was accepted without error.</p>
+<p>If the submission was not accepted, the server MUST provide an error object
+describing the reason for not accepting the submission. See <a class="reference internal" href="#error-objects">Error Objects</a>
+for the object format.</p>
+</dd>
+</dl>
+</section>
+<h3 id="client-reconnect"><a class="hanchor" href="#client-reconnect" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">client.reconnect()</span></h3>
+<p>Server message:</p>
+<blockquote>
+<p>{&quot;id&quot;: null, &quot;method&quot;: &quot;client.reconnect&quot;, &quot;params&quot;: [(&quot;<em>HOST</em>&quot;, <em>PORT</em>, <em>WAIT_TIME</em>)]} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl>
+<dt><span class="docutils literal">HOST</span> (str)</dt>
+<dd><p>The host to reconnect to.</p>
+<p>Example: <span class="docutils literal">pool.example.com</span></p>
+</dd>
+<dt><span class="docutils literal">PORT</span> (int)</dt>
+<dd><p>The port to reconnect to.</p>
+<p>Example: <span class="docutils literal">3337</span></p>
+</dd>
+<dt><span class="docutils literal">WAIT_TIME</span> (int)</dt>
+<dd><p>Time in seconds that the miner should wait before reconnecting.</p>
+</dd>
+</dl>
+<p>If <span class="docutils literal">client.reconnect</span> is sent with an empty parameter array, the miner SHOULD
+reconnect to the same host and port it is currently connected to.</p>
+</section>
+<h3 id="mining-suggest-target"><a class="hanchor" href="#mining-suggest-target" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">mining.suggest_target()</span></h3>
+<p>Request (optional):</p>
+<blockquote>
+<p>{&quot;id&quot;: 3, &quot;method&quot;: &quot;mining.suggest_target&quot;, &quot;params&quot;: [&quot;<em>TARGET</em>&quot;]} <span class="docutils literal">\n</span></p>
+</blockquote>
+<dl class="simple">
+<dt><span class="docutils literal">TARGET</span> (hex)</dt>
+<dd><p>The target suggested by the miner for the next received job and all subsequent
+jobs (until the next time this message is sent).</p>
+</dd>
+</dl>
+<p>The server SHOULD reply with <span class="docutils literal">mining.set_target</span>. The server MAY set the
+result id equal to the request id.</p>
+</section>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>Why does <span class="docutils literal">mining.subscribe</span> include the host and port?</p>
+<ul class="simple">
+<li><p>It has the same use cases as the <span class="docutils literal">Host:</span> header in HTTP. Specifically, it
+enables virtual hosting, where virtual pools or private URLs might be used
+for DDoS protection, but that are aggregated on Stratum server backends.
+As with HTTP, the server CANNOT trust the host string.</p></li>
+<li><p>The port is included separately to parallel the <span class="docutils literal">client.reconnect</span> method;
+both are extracted from the server URL that the miner is connecting to (e.g.
+<span class="docutils literal"><span class="pre">stratum+tcp://pool.example.com:3337</span></span>).</p></li>
+</ul>
+<p>Why use the 256-bit target instead of a numerical difficulty?</p>
+<ul class="simple">
+<li><p>There is no protocol ambiguity when using a target. A server can pick a
+specific target (by whatever algorithm), and enforce it cleanly on submitted
+jobs.</p>
+<ul>
+<li><p>A numerical difficulty must be converted into a target by miners, which adds
+unnecessary complexity, results in a loss of precision, and leaves ambiguity
+over the conversion and the validity of resulting submissions.</p></li>
+</ul>
+</li>
+<li><p>The minimum numerical difficulty in Bitcoin's Stratum protocol is 1, which
+corresponds to <span class="docutils literal">powLimit</span>. This makes it harder to test miners and servers.
+A target can represent difficulties lower than the minimum.</p></li>
+</ul>
+<p>Does a 256-bit target waste bandwidth?</p>
+<ul class="simple">
+<li><p>The target is generally not set as often as solutions are submitted, so any
+effect is minimal.</p></li>
+<li><p>Zcash's proof-of-work, Equihash, is much slower than Bitcoin's, so any latency
+caused by the size of the target is minimal compared to the overall solver
+time.</p></li>
+<li><p>For the current Equihash parameters (200/9), the Equihash solution dominates
+bandwidth usage.</p></li>
+</ul>
+<p>Why does <span class="docutils literal">mining.submit</span> include <span class="docutils literal">WORKER_NAME</span>?</p>
+<ul class="simple">
+<li><p><span class="docutils literal">WORKER_NAME</span> is only included here for statistical purposes (like
+monitoring performance and/or downtime). <span class="docutils literal">JOB_ID</span> is used for pairing
+server-stored jobs with submissions.</p></li>
+</ul>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h1>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/str4d/zcash/tree/standalone-miner">str4d's standalone miner</a></p></li>
+</ul>
+</section>
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Acknowledgements</h1>
+<p>Thanks to:</p>
+<ul class="simple">
+<li><p>5a1t for the initial brainstorming session.</p></li>
+<li><p>Daira-Emma Hopwood for hir input on API selection and design.</p></li>
+<li><p>Marek Palatinus (slush) and his colleagues for their refinements, suggestions, and
+robust discussion.</p></li>
+<li><p>Jelle Bourdeaud'hui (razakal) and ocminer for their help with testing and
+finding implementation bugs in the specification.</p></li>
+</ul>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-blockheader" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-13">1</a>,<a role="doc-backlink" href="#footnote-reference-15">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#blockheader">Zcash Protocol Specification, Version 2020.1.15. Section 7.3: Block Headers</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-difficulty" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-17">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#difficulty">Zcash Protocol Specification, Version 2020.1.15. Section 7.6.2: Difficulty filter</a></p>
+</aside>
+<aside class="footnote brackets" id="slushpool-stratum" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-9">2</a>,<a role="doc-backlink" href="#footnote-reference-12">3</a>)</span>
+<p><a class="reference external" href="https://slushpool.com/help/stratum-protocol/">Stratum Mining Protocol. Slush Pool</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcointalk-stratum" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://bitcointalk.org/index.php?topic=557866.0">Stratum protocol documentation. Bitcoin Forum</a></p>
+</aside>
+<aside class="footnote brackets" id="p2pool" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/P2Pool">P2Pool. Bitcoin Wiki</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcoin-block" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-11">2</a>,<a role="doc-backlink" href="#footnote-reference-14">3</a>)</span>
+<p><a class="reference external" href="https://developer.bitcoin.org/reference/block_chain.html#block-headers">Block Headers - Bitcoin Developer Reference.</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcoin-compactsize" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-18">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer">Variable length integer. Bitcoin Wiki</a></p>
+</aside>
+<aside class="footnote brackets" id="json-rpc-1-0" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-6">1</a>,<a role="doc-backlink" href="#footnote-reference-7">2</a>,<a role="doc-backlink" href="#footnote-reference-8">3</a>,<a role="doc-backlink" href="#footnote-reference-16">4</a>,<a role="doc-backlink" href="#footnote-reference-19">5</a>,<a role="doc-backlink" href="#footnote-reference-20">6</a>)</span>
+<p><a class="reference external" href="https://www.jsonrpc.org/specification_v1">JSON-RPC 1.0 Specification (2005).</a></p>
+</aside>
+<aside class="footnote brackets" id="json-rpc-2-0" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.jsonrpc.org/specification">JSON-RPC 2.0 Specification. The JSON-RPC Working Group.</a></p>
+</aside>
+</aside>
+</section>

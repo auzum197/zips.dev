@@ -1,0 +1,143 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot; and &quot;MAY&quot; in this document are to be interpreted as described in RFC 2119. <a class="brackets" href="#rfc2119" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a></p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This document proposes a change of the database zcashd wallet currently use from BerkeleyDB into SQLite. It also proposes the separation of wallet transaction and other recoverable data into a separated database file.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The main reason of the database change is reliability, SQLite haves a very good atomicity implementation <a class="brackets" href="#sqliteatomic" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>. Relational databases reduces redundancy and SQLite specifically is the world most used for local storage, it is also well mantained, have a good C++ interface, it is portable and open source.</p>
+<p>The database separation between recoverable versus non-recoverable data is to avoid writting too often to the file where the important non-recoverable data like public and private keys are located. Isolating transactions and others from the main wallet database will increase performance and reduce the risk of corruption.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>After <a class="brackets" href="#zip400" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> and its detailed information about all database keys-values and functionality we know what is needed to change the fundamental database to something else.</p>
+<p>This document proposes a new relational schema for 2 new SQLite databases where all the original properties are present but just organized in a different way. Below schema is an aproximation and can change during implementation.</p>
+<p>The following sql schema is proposed for a database named <strong>wallet.sqlite</strong> with non-recoverable information:</p>
+<pre class="literal-block">CREATE TABLE accounts(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT
+    id_address        INTEGER
+    name              TEXT
+    account           BLOB);
+
+CREATE TABLE account_entries(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_account        INTEGER,
+    entry             BLOB);
+
+CREATE TABLE addresses(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    address           TEXT,
+    id_account        INTEGER,
+    name              TEXT,
+    purpose           TEXT);
+
+CREATE TABLE destdata(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_address        INTEGER,
+    key               TEXT,
+    value             TEXT);
+
+CREATE TABLE sapling(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_address        INTEGER,
+    key               BLOB,
+    ckey              BLOB,
+    meta              BLOB,
+    cmeta             BLOB,
+    ivk               BLOB,
+    extfvk            BLOB);
+
+CREATE TABLE settings(
+    chdseed           BLOB
+    hdchain           BLOB
+    hdseed            BLOB
+    minversion        TEXT
+    mkey              BLOB
+    version           TEXT
+    cscript           BLOB);
+
+CREATE TABLE sprout(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_address        INTEGER,
+    key               BLOB,
+    ckey              BLOB,
+    meta              BLOB,
+    cmeta             BLOB,
+    vkey              BLOB);
+
+CREATE TABLE transparent(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_address        INTEGER,
+    key               BLOB,
+    ckey              BLOB,
+    poolindex         INTEGER,
+    meta              BLOB,
+    cmeta             BLOB,
+    destination       TEXT,
+    is_default        BOOLEAN);</pre>
+<p>A separated database named <strong>transactions.sqlite</strong> with recoverable information and the following tables is proposed:</p>
+<pre class="literal-block">CREATE TABLE transactions(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash              BLOB,
+    tx                BLOB);
+
+CREATE TABLE state(
+    bestblock         BLOB,
+    orderposnext      INTEGER,
+    witnesscachesize  INTEGER);</pre>
+<p>A new class <span class="docutils literal">SQLite</span> will be added to the wallet collection of classes where the following low level functions can be found:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">Open(strFile)</span> - Open a new database file.</p></li>
+<li><p><span class="docutils literal">Exist(strFile)</span> - Check if a database exist.</p></li>
+<li><p><span class="docutils literal">Schema(strSchema)</span> - Create a new schema.</p></li>
+<li><p><span class="docutils literal">Write(strSql)</span> - Insert or update a database table.</p></li>
+<li><p><span class="docutils literal">Read(strSql)</span> - Select data from a table.</p></li>
+<li><p><span class="docutils literal">Erase(strSql)</span> - Delete rows from a table.</p></li>
+<li><p><span class="docutils literal">Count(strSql)</span> - Get the count of rows from a select query. This is a special case of <span class="docutils literal">Read()</span>.</p></li>
+<li><p><span class="docutils literal">GetRow(strSql)</span> - Get a single row from a table. This is a special case of <span class="docutils literal">Read()</span>.</p></li>
+<li><p><span class="docutils literal">GetVersion(strFile)</span> - Get the version of the current database.</p></li>
+</ul>
+<p><span class="docutils literal">CWalletDB</span> is renamed to <span class="docutils literal">CWalletDBD</span> to avoid ambiguity. A new class <span class="docutils literal">CWalletSQLite</span> will be created as a copy of the same definition. This means the new class will have the same member functions with the same arguments and the same return values as the original version, the difference is in the implementation of functions where the ones in the new class will write/read to/from SQLite using the low level functions listed above.</p>
+<p>As an example, in <span class="docutils literal">CWalletDB</span> we currently have <span class="docutils literal">WriteSaplingPaymentAddress</span>:</p>
+<pre class="literal-block">return Write(std::make_pair(std::string(&quot;sapzaddr&quot;), addr), ivk, false);</pre>
+<p>After implementation this function will be located at <span class="docutils literal"><span class="pre">CWalletDBD::WriteSaplingPaymentAddress()</span></span> with the same functionality.</p>
+<p>In <span class="docutils literal"><span class="pre">CWalletSQLite::WriteSaplingPaymentAddress()</span></span> a possible implementation can be something similar to:</p>
+<pre class="literal-block">auto id_address = GetRow(&quot;SELECT id from addresses WHERE address=addr&quot;);
+return Write(&quot;INSERT OR REPLACE INTO sapling(id_address, ivk) VALUES(id_address, ivk)&quot;);</pre>
+<p>All member functions in the new <span class="docutils literal">CWalletSQLite</span> class need to be refactored to interact with the new database. Exceptions to this rule can happen if performance can be increased by changing the inputs/outputs of any of the member functions or by combining 2 or more functions into 1.</p>
+<h2 id="adding-more-keys"><a class="hanchor" href="#adding-more-keys" aria-hidden="true" tabindex="-1">#</a>Adding more keys</h2>
+<p>It is common practice for the zcashd developers to add new keys and values to the database for different purposes, to do it in SQLite the schema need to change.
+The implementation must guarantee that adding new fields to any table will be a non breaking change while renaming tables, renaming columns or changing column types may be fatal if not implemented propertly.</p>
+<p>To mitigate the risk a version system must be implemented so older database schema can be updated propertly.
+Schema tests must be created by the implementation.</p>
+</section>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>Sqlite3 is needed as a dependendency of zcashd <a class="brackets" href="#sqlitegithub" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>. No additional dependencies are needed.</p>
+</section>
+<h1 id="backward-compatilibility"><a class="hanchor" href="#backward-compatilibility" aria-hidden="true" tabindex="-1">#</a>Backward compatilibility</h1>
+<p>A new wallet created after the code is implemented and tested will be created with SQLite. Command line options to choose the underlying database may be provided. A converter tool from/to SQLite/BDB may be useful and can be provided as part of the implementation.</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="rfc2119" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc2119.html">Key words for use in RFCs to Indicate Requirement Levels</a></p>
+</aside>
+<aside class="footnote brackets" id="sqliteatomic" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.sqlite.org/atomiccommit.html">SQLite atomic implementation</a></p>
+</aside>
+<aside class="footnote brackets" id="zip400" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/pull/372">ZIP 400 - Wallet database format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip402issue" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/issues/365">ZIP 402 Issue</a></p>
+</aside>
+<aside class="footnote brackets" id="sqlitegithub" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/sqlite/sqlite">SQLite Github mirror</a></p>
+</aside>
+</aside>
+</section>

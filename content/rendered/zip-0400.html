@@ -1,0 +1,403 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot; and &quot;MAY&quot; in this document are to be interpreted as described in
+BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they appear in all capitals.</p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This proposal defines the current format used in zcashd for wallet persistent storage, commonly known as <span class="docutils literal">wallet.dat</span>.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The process of saving wallet data into disk is currently unspecified. The key-values used in the current implementation are undocumented, and their structure and functionality are unknown without a deep analysis of the involved source code. This document details the schema and the mechanics of the wallet database. This is an informational document, no changes will be done to the source code.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>Zcash stores wallet information in a Berkeley database (BDB) <a class="brackets" href="#bdb" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> commonly known as <span class="docutils literal">wallet.dat</span>.
+The main purpose of this is the persistence of public and private keys the user created and the ability to recover the wallet state after a node restart. This file also allows the migration of user information from one node to another by moving the database to the corresponding new data directory, assuming both zcashd instances are running the same or similar version. A re-index may be necessary after this operation.</p>
+<p>The current database is a key-value store where keys and values can have multiple data types in binary format. The first data found in a database key is always the property name, the rest of the key is generally used to identify a record, for example:</p>
+<pre class="literal-block">&lt;------ KEY ----+- VALUE -&gt;
+---------------------------
+| zkey | pubkey | privkey |
+---------------------------</pre>
+<p>Here <span class="docutils literal">zkey</span> is the property name located at the first position of the database key; the public key is also part of the database key, and it is located in the second position; the private key is saved in the database value column at the first position.</p>
+<h2 id="schema"><a class="hanchor" href="#schema" aria-hidden="true" tabindex="-1">#</a>Schema</h2>
+<p>According to Zcash v3.0.0-rc1 the following key-values can be found: the property names in <strong>bold</strong> mean only one instance of this type can exist in the entire database, while the others, suffixed by '*' can have multiple instances. Keys and Values columns of the table contain the types that the stored data is representing. Included also there are the variable names hoping it will add some clarity to what the stored data is representing.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Name</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Keys</p></th>
+<th class="head"><p>Values</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>acc*</p></td>
+<td><p>Account data</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAccount</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CAccount account</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>acentry*</p></td>
+<td><p>Track internal transfers between accounts in the same wallet</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAccount</span></p></li>
+<li><p><span class="docutils literal">uint64_t nNumber</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CAccountingEntry acentry</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>bestblock</strong></p></td>
+<td><p>The current best block of the blockchain.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CBlockLocator locator</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>chdseed</strong></p></td>
+<td><p>Encrypted HD seed</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint256 seedFp</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">vector&lt;unsigned char&gt; vchCryptedSecret</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>ckey*</p></td>
+<td><p>Encrypted transparent pubkey and private key.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">vector&lt;unsigned char&gt; vchPubKey</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">vector&lt;unsigned char&gt; vchPrivKey</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>csapzkey*</p></td>
+<td><p>Encrypted Sapling pubkey and private key.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingIncomingViewingKey</span> ivk</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingExtendedFullViewingKey</span> extfvk</span></p></li>
+<li><p><span class="docutils literal">vector&lt;unsigned char&gt; vchCryptedSecret</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>cscript</strong></p></td>
+<td><p>Serialized script, used inside transaction inputs and outputs</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint160 hash</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CScript script</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>czkey*</p></td>
+<td><p>Encrypted Sprout pubkey and private key.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutPaymentAddress</span> addr</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint256 rkValue</span></p></li>
+<li><p><span class="docutils literal">vector&lt;unsigned char&gt; vchCryptedSecret</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>defaultkey</strong></p></td>
+<td><p>Default Transparent key.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CPubKey <span class="pre">CWallet::vchDefaultKey</span></span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>destdata*</p></td>
+<td><p>Adds a destination data tuple to the store.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">std::string</span> strAddress</span></p></li>
+<li><p><span class="docutils literal"><span class="pre">std::string</span> strKey</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">std::string</span> strValue</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>hdchain</strong></p></td>
+<td><p>Hierarchical Deterministic chain code, derived from   seed.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CHDChain chain</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>hdseed*</p></td>
+<td><p>Hierarchical Deterministic seed. <a class="brackets" href="#zip-0032" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint256 seedFp</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">RawHDSeed rawSeed</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>key*</p></td>
+<td><p>Transparent pubkey and privkey.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CPubKey vchPubKey</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CPrivKey pkey</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>keymeta*</p></td>
+<td><p>Transparent key metadata.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CPubKey vchPubKey</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CKeyMetadata keyMeta</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>minversion</strong></p></td>
+<td><p>Wallet required minimal version.</p></td>
+<td></td>
+<td></td>
+</tr>
+<tr><td><p><strong>mkey</strong></p></td>
+<td><p>Master key, used to encrypt public and private keys of the database.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">unsigned int nID</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CMasterKey kMasterKey</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>name*</p></td>
+<td><p>Name of an address to insert in the address book.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAddress</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAddress</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>orderposnext</strong></p></td>
+<td><p>Index of next tx.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">int64_t nOrderPosNext</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>pool*</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">int64_t nIndex</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CKeyPool keypool</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>purpose*</p></td>
+<td><p>Short description or identifier of an address.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAddress</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strPurpose</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>sapzaddr*</p></td>
+<td><p>Sapling z-addr Incoming Viewing key and address.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingPaymentAddress</span> addr</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingIncomingViewingKey</span> ivk</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>sapextfvk*</p></td>
+<td><p>Sapling Extended Full Viewing Key</p></td>
+<td></td>
+<td></td>
+</tr>
+<tr><td><p>sapzkey*</p></td>
+<td><p>Sapling Incoming Viewing Key and Extended Spending Key</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingIncomingViewingKey</span> ivk</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingExtendedSpendingKey</span> key</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>tx*</p></td>
+<td><p>Store all transactions that are related to wallet.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint256 hash</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CWalletTx wtx</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>version</strong></p></td>
+<td><p>The <span class="docutils literal">CLIENT_VERSION</span> from <span class="docutils literal">clientversion.h</span>.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">int nFileVersion</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>vkey*</p></td>
+<td><p>Sprout Viewing Keys.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutViewingKey</span> vk</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">char fYes</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>watchs*</p></td>
+<td><p>Watch-only t-addresses.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CScript script</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">char fYes</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>witnesscachesize</strong></p></td>
+<td><p>Shielded Note Witness cache size.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">int64_t nWitnessCacheSize</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>wkey*</p></td>
+<td><p>Wallet key.</p></td>
+<td></td>
+<td></td>
+</tr>
+<tr><td><p>zkey*</p></td>
+<td><p>Sprout Payment Address and Spending Key.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutPaymentAddress</span> addr</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutSpendingKey</span> key</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>zkeymeta*</p></td>
+<td><p>Sprout Payment Address and key metadata.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutPaymentAddress</span> addr</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CKeyMetadata keyMeta</span></p></li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</section>
+<h2 id="functionality"><a class="hanchor" href="#functionality" aria-hidden="true" tabindex="-1">#</a>Functionality</h2>
+<p>When a zcashd node built with wallet support is started for the first time, a
+new wallet database is created. By default the node will automatically execute
+wallet actions that will be saved in the database at the first flush time.</p>
+<p>The following flow will happen when a node with wallet support is started for the first time:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">DEFAULT_KEYPOOL_SIZE</span> (100 by default) keys will be added to the pool, creating 100 records with <span class="docutils literal">pool</span> as property name (first value of database key).</p></li>
+<li><p>Also 100 <span class="docutils literal">key</span> properties will be added.</p></li>
+<li><p>100 <span class="docutils literal">keymeta</span>.</p></li>
+<li><p>Wallet will create a default transparent key to receive, this will be also added as <span class="docutils literal">key</span>, <span class="docutils literal">pool</span> and <span class="docutils literal">keymeta</span> properties.</p></li>
+<li><p>This default key is also added as a <span class="docutils literal">defaultkey</span> property.</p></li>
+<li><p>The last action created an entry in the address book that is reflected in the database by the <span class="docutils literal">name</span>  and <span class="docutils literal">purpose</span> properties.</p></li>
+<li><p>If the wallet is created with HD support, it will have additional properties <span class="docutils literal">hdseed</span> and <span class="docutils literal">hdchain</span> that will be saved.</p></li>
+<li><p><span class="docutils literal">version</span>, <span class="docutils literal">minversion</span>, <span class="docutils literal">witnesscachesize</span> and <span class="docutils literal">bestblock</span> properties are added. These are settings and state information: the <span class="docutils literal">bestblock</span> property is a good example of the database being populated that is happening without any user interaction, but it will just update as the best block of the current chain changes.</p></li>
+</ul>
+<p>At any time after the database is created, new properties can be added as the wallet users perform actions. For example, if the user creates a new Sapling address with the RPC command <span class="docutils literal">z_getnewaddress</span> then new records with properties <cite>sapzkey</cite> and <cite>sapzkeymeta</cite> will be added to the database.</p>
+<p>In zcashd, database changes do not happen immediately but they are flushed in its own thread by <span class="docutils literal">ThreadFlushWalletDB()</span> function periodically to avoid overhead. The internal counter <span class="docutils literal">nWalletDBUpdated</span> is increased each time a new write operation to the database is done, this is compared with the last flush in order to commit new stuff.</p>
+<p>When the node goes down for whatever reason the information in the wallet database SHOULD persist in the disk; the next time the node starts, the software will detect the database file, read from there and add the values into memory structures that will guarantee wallet functionality.</p>
+<h3 id="transactions"><a class="hanchor" href="#transactions" aria-hidden="true" tabindex="-1">#</a>Transactions</h3>
+<p>The wallet database will not save all the transactions that are happening in the blockchain however it will save all transactions where wallet keys are involved. This is needed for example to get balances. Therefore the wallet must have all the transactions related to a key to compute the final value of coin available in the derived address.</p>
+<p>The <span class="docutils literal">tx</span> property will hold the transaction-related data with the transaction hash as the key and the full transaction as the value.</p>
+</section>
+<h3 id="wallet-state-and-transaction-reordering"><a class="hanchor" href="#wallet-state-and-transaction-reordering" aria-hidden="true" tabindex="-1">#</a>Wallet state and transaction reordering</h3>
+<p>Transactions are saved in the database <span class="docutils literal">tx</span> key as they arrive, this means transactions have a sequence.  The set of all transactions from the begging to a specified timestamp is the wallet state at that instant. Wallet state is important among other things to get current balance for a wallet or address.</p>
+<p>In the blockchain, transactions can be invalidated by rollbacks; wallet code will handle this by updating the transactions in the memory database. New state needs to be reflected in the disk database, this is done in zcashd by the flag <span class="docutils literal">fAnyUnordered</span> where if true at start time, will launch a rescan over all transactions again.</p>
+</section>
+<h3 id="wallet-recovery"><a class="hanchor" href="#wallet-recovery" aria-hidden="true" tabindex="-1">#</a>Wallet Recovery</h3>
+<p>The wallet database file may become corrupted. There are utilities in the <cite>zcutil/bin</cite>
+directory that may help with recovering it if this happens. Please ask for help on the
+Zcash forum or Community Discord.</p>
+</section>
+<h3 id="wallet-encryption"><a class="hanchor" href="#wallet-encryption" aria-hidden="true" tabindex="-1">#</a>Wallet Encryption</h3>
+<p>Encryption will not be discussed in this document in detail as it is expected for the algorithm to change in the future according to the Wallet format ZIP issue: <a class="brackets" href="#zip400issue" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>For a deeper understanding of the current encryption mechanism please refer to <a class="brackets" href="#cryptercode" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a></p>
+</section>
+</section>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="bdb" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.oracle.com/database/berkeley-db/db.html">Oracle Berkeley Database</a></p>
+</aside>
+<aside class="footnote brackets" id="zip400issue" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/issues/350">ZIP 400 issue</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="cryptercode" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/blob/master/src/wallet/crypter.h">Database key encryption implementation</a></p>
+</aside>
+</aside>
+</section>

@@ -1,0 +1,1450 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot; and &quot;SHOULD&quot; in this document is to be interpreted as described in
+BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they appear in all capitals.</p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This proposal describes a mechanism for creating signatures with Sapling addresses,
+suitable for use by the <span class="docutils literal">signmessage</span> and <span class="docutils literal">verifymessage</span> RPC methods in <span class="docutils literal">zcashd</span>.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>There are a variety of situations where it is useful for a user to be able to prove that
+they control a given payment address. For example, before a high-value transfer of funds,
+the sender may want to verify that the recipient will definitely be able to spend them,
+to ensure that the funds won't be stuck in an invalid or unusable address.</p>
+<p>A payment address is analogous (in some cases, identical) to a public key in a signature
+scheme. A transaction that spends funds received by the address, is authorized by making
+(the equivalent of) a signature with the corresponding spending key. This authorization
+protocol can be repurposed to instead sign a message provided by a third party.</p>
+<p>Bitcoin Core's <span class="docutils literal">bitcoind</span> provides a <span class="docutils literal">signmessage</span> RPC method that implements message
+signing for Bitcoin addresses, leveraging the fact that a Bitcoin private key is just a
+<span class="docutils literal">secp256k</span> private key, and a Bitcoin transaction authorizes spends with a signature.
+<span class="docutils literal">zcashd</span> inherited this RPC method, and it can be used to make signatures for
+transparent Zcash addresses.</p>
+<p>However, support for signing messages with shielded addresses was not possible when Zcash
+launched, because of the design of the Sprout protocol (and the state of zero-knowledge
+proof R&amp;D at the time). Shielded transactions, by design, do not expose the payment
+address of the sender when creating a transaction; in Sprout, this meant that the spending
+key was a private input to the zero-knowledge proof, and not a key that could be used to
+create a signature.</p>
+<p>One of the R&amp;D achievements behind the Sapling protocol was the ability to use elliptic
+curves inside a circuit. With this primitive available, Sapling keys and payment addresses
+could be designed such that transaction authorization involved a signature. While this was
+designed to enable hardware wallets (which lack the power to create zero-knowledge proofs,
+but can easily create signatures), it also enables the creation of a mechanism for signing
+arbitrary messages. That mechanism is the subject of this ZIP.</p>
+</section>
+<h1 id="conventions"><a class="hanchor" href="#conventions" aria-hidden="true" tabindex="-1">#</a>Conventions</h1>
+<p>The following constants and functions used in this ZIP are defined in the Zcash protocol
+specification: <a class="brackets" href="#protocol" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖬</mi>
+      <mi>𝖾</mi>
+      <mi>𝗋</mi>
+      <mi>𝗄</mi>
+      <mi>𝗅</mi>
+      <mi>𝖾</mi>
+      <mi>𝖣</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗍</mi>
+      <mi>𝗁</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> and
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖴</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗆</mi>
+      <mi>𝗂</mi>
+      <mi>𝗍</mi>
+      <mi>𝗍</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> <a class="brackets" href="#protocol-constants" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖬</mi>
+      <mi>𝖾</mi>
+      <mi>𝗋</mi>
+      <mi>𝗄</mi>
+      <mi>𝗅</mi>
+      <mi>𝖾</mi>
+      <mi>𝖢</mi>
+      <mi>𝖱</mi>
+      <mi>𝖧</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> <a class="brackets" href="#protocol-saplingmerklecrh" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo stretchy="false">)</mo>
+</math> <a class="brackets" href="#protocol-concretediversifyhash" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖬</mi>
+    <mi>𝗂</mi>
+    <mi>𝗑</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖯</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>p</mi>
+  <mi>o</mi>
+  <mi>s</mi>
+  <mi>i</mi>
+  <mi>t</mi>
+  <mi>i</mi>
+  <mi>o</mi>
+  <mi>n</mi>
+  <mo stretchy="false">)</mo>
+</math> <a class="brackets" href="#protocol-concretemixinghash" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msubsup>
+    <mrow>
+      <mi>𝖯</mi>
+      <mi>𝖱</mi>
+      <mi>𝖥</mi>
+    </mrow>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝖿</mi>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msubsup>
+  <mo stretchy="false">(</mo>
+  <mi>ρ</mi>
+  <mo stretchy="false">)</mo>
+</math> <a class="brackets" href="#protocol-concreteprfs" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>α</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>α</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>m</mi>
+  <mo stretchy="false">)</mo>
+</math>, and
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>m</mi>
+  <mo>,</mo>
+  <mi>σ</mi>
+  <mo stretchy="false">)</mo>
+</math> <a class="brackets" href="#protocol-concretespendauthsig" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msubsup>
+    <mrow>
+      <mi>𝖭</mi>
+      <mi>𝗈</mi>
+      <mi>𝗍</mi>
+      <mi>𝖾</mi>
+      <mi>𝖢</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗆</mi>
+      <mi>𝗂</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗆</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msubsup>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mi>v</mi>
+  <mi>a</mi>
+  <mi>l</mi>
+  <mi>u</mi>
+  <mi>e</mi>
+  <mo stretchy="false">)</mo>
+</math> <a class="brackets" href="#protocol-concretewindowedcommit" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖵</mi>
+      <mi>𝖺</mi>
+      <mi>𝗅</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖢</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗆</mi>
+      <mi>𝗂</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗏</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>v</mi>
+  <mi>a</mi>
+  <mi>l</mi>
+  <mi>u</mi>
+  <mi>e</mi>
+  <mo stretchy="false">)</mo>
+</math> <a class="brackets" href="#protocol-concretehomomorphiccommit" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a></p></li>
+</ul>
+<p>We also reproduce some notation and functions here for convenience:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>b</mi>
+</math> means the concatenation of sequences <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+</math> then <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>b</mi>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math> is the representation of the Jubjub elliptic curve
+point <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>P</mi>
+</math> as a bit sequence, defined in <a class="brackets" href="#protocol-jubjub" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖡</mi>
+    <mi>𝖫</mi>
+    <mi>𝖠</mi>
+    <mi>𝖪</mi>
+    <mi>𝖤</mi>
+    <mn>𝟤</mn>
+    <mi>𝖻</mi>
+  </mrow>
+  <mtext>-</mtext>
+  <mn>𝟤𝟧𝟨</mn>
+  <mo stretchy="false">(</mo>
+  <mi>p</mi>
+  <mo>,</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+</math> refers to unkeyed BLAKE2b-256 in
+sequential mode, with an output digest length of 32 bytes, 16-byte personalization
+string <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+</math>, and input <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>x</mi>
+</math>.</p></li>
+</ul>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>Given a payment address, a message, and a valid signature, the following properties should
+hold:</p>
+<ul class="simple">
+<li><p><strong>Authentication:</strong> the signature will not verify with any other payment address.</p></li>
+<li><p><strong>Binding:</strong> the signature will not verify with any modification, extension, or
+truncation of the message.</p></li>
+<li><p><strong>Non-malleability:</strong> it should not be possible to obtain a second valid signature (with
+a different encoding) for the same payment address and message without access to the
+spending key for that payment address.</p></li>
+</ul>
+</section>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<p>Multiple signatures by a single payment addresses are not required to be unlinkable.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>A Sapling address signature is created by taking the process for creating a Sapling Spend
+description, and running it with fixed inputs:</p>
+<ul class="simple">
+<li><p>A fake Sapling note with a value of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math> zatoshi and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>.</p></li>
+<li><p>A Sapling commitment tree that is empty except for the commitment for the fake note.</p></li>
+</ul>
+<h2 id="signature-algorithm"><a class="hanchor" href="#signature-algorithm" aria-hidden="true" tabindex="-1">#</a>Signature algorithm</h2>
+<p>The inputs to the signature algorithm are:</p>
+<ul class="simple">
+<li><p>The payment address <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>,</p></li>
+<li><p>Its corresponding expanded spending key <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>,</p></li>
+<li><p>The SLIP-44 <a class="brackets" href="#slip-0044" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a> coin type, and</p></li>
+<li><p>The message $msg$ to be signed.</p></li>
+</ul>
+<p>The signature is created as follows:</p>
+<ul class="simple">
+<li><p>Derive the full viewing key <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> from the expanded spending key.</p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Let $mathsf{cm} = mathsf{NoteCommit}^mathsf{Sapling}_0(mathsf{repr}_mathbb{J}(mathsf{g_d}), mathsf{repr}_mathbb{J}(mathsf{pk_d}), 1)$.</p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> be the root of a Merkle tree with depth
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖬</mi>
+      <mi>𝖾</mi>
+      <mi>𝗋</mi>
+      <mi>𝗄</mi>
+      <mi>𝗅</mi>
+      <mi>𝖾</mi>
+      <mi>𝖣</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗍</mi>
+      <mi>𝗁</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> and hashing function
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖬</mi>
+      <mi>𝖾</mi>
+      <mi>𝗋</mi>
+      <mi>𝗄</mi>
+      <mi>𝗅</mi>
+      <mi>𝖾</mi>
+      <mi>𝖢</mi>
+      <mi>𝖱</mi>
+      <mi>𝖧</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math>, containing <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> at position 0, and
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖴</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗆</mi>
+      <mi>𝗂</mi>
+      <mi>𝗍</mi>
+      <mi>𝗍</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> at all other positions.</p></li>
+<li><p>Let $path$ be the Merkle path from position 0 to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math>. <a class="brackets" href="#protocol-merklepath" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗏</mi>
+  </mrow>
+  <mo>=</mo>
+  <msub>
+    <mrow>
+      <mi>𝖵</mi>
+      <mi>𝖺</mi>
+      <mi>𝗅</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖢</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗆</mi>
+      <mi>𝗂</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <mn>0</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mn>1</mn>
+  <mo stretchy="false">)</mo>
+</math>.</p>
+<ul>
+<li><p>This is a constant and may be pre-computed.</p></li>
+</ul>
+</li>
+<li><p>Let $mathsf{nf} = mathsf{PRF}^mathsf{nfSapling}_{mathsf{repr}_mathbb{J}(mathsf{nk})}(mathsf{repr}_mathbb{J}(mathsf{MixingPedersenHash}(mathsf{cm}, 0)))$.</p></li>
+<li><p>Select a random $α$.</p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>α</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Let $zkproof$ be the byte sequence representation of a Sapling spend proof with primary input
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗏</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖿</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>
+and auxiliary input <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mo>,</mo>
+  <mn>0</mn>
+  <mo>,</mo>
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mn>1</mn>
+  <mo>,</mo>
+  <mn>0</mn>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+  <mo>,</mo>
+  <mn>0</mn>
+  <mo>,</mo>
+  <mi>α</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.
+<a class="brackets" href="#protocol-spendstatement" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a></p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>α</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Let $coinType$ be the 4-byte little-endian encoding of the coin type in its index
+form, not its hardened form (i.e. 133 for mainnet Zcash).</p></li>
+<li><p>Let <tt class="math">digest = \mathsf{BLAKE2b}\text{-}\mathsf{256}(\texttt{“ZIP304Signed”}\,||\,coinType, zkproof\,||\,msg)</tt>.</p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>s</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>A</mi>
+  <mi>u</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mi>S</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>d</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>t</mi>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖿</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>z</mi>
+  <mi>k</mi>
+  <mi>p</mi>
+  <mi>r</mi>
+  <mi>o</mi>
+  <mi>o</mi>
+  <mi>f</mi>
+  <mo>,</mo>
+  <mi>s</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>A</mi>
+  <mi>u</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mi>S</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+</section>
+<h2 id="verification-algorithm"><a class="hanchor" href="#verification-algorithm" aria-hidden="true" tabindex="-1">#</a>Verification algorithm</h2>
+<p>The inputs to the verification algorithm are:</p>
+<ul class="simple">
+<li><p>The payment address <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>,</p></li>
+<li><p>The SLIP-44 <a class="brackets" href="#slip-0044" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a> coin type,</p></li>
+<li><p>The message $msg$ that is claimed to be signed, and</p></li>
+<li><p>The ZIP 304 signature <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖿</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>z</mi>
+  <mi>k</mi>
+  <mi>p</mi>
+  <mi>r</mi>
+  <mi>o</mi>
+  <mi>o</mi>
+  <mi>f</mi>
+  <mo>,</mo>
+  <mi>s</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>A</mi>
+  <mi>u</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mi>S</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+<p>The signature MUST be verified as follows:</p>
+<ul class="simple">
+<li><p>Let $coinType$ be the 4-byte little-endian encoding of the coin type in its index
+form, not its hardened form (i.e. 133 for mainnet Zcash).</p></li>
+<li><p>Let <tt class="math">digest = \mathsf{BLAKE2b}\text{-}\mathsf{256}(\texttt{“ZIP304Signed”}\,||\,coinType, zkproof\,||\,msg)</tt>.</p></li>
+<li><p>If <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>d</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>t</mi>
+  <mo>,</mo>
+  <mi>s</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>A</mi>
+  <mi>u</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mi>S</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>, return false.</p></li>
+<li><p>Let $mathsf{cm} = mathsf{NoteCommit}^mathsf{Sapling}_0(mathsf{repr}_mathbb{J}(mathsf{DiversifyHash}(mathsf{d})), mathsf{repr}_mathbb{J}(mathsf{pk_d}), 1)$.</p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> be the root of a Merkle tree with depth
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖬</mi>
+      <mi>𝖾</mi>
+      <mi>𝗋</mi>
+      <mi>𝗄</mi>
+      <mi>𝗅</mi>
+      <mi>𝖾</mi>
+      <mi>𝖣</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗍</mi>
+      <mi>𝗁</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> and hashing function
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖬</mi>
+      <mi>𝖾</mi>
+      <mi>𝗋</mi>
+      <mi>𝗄</mi>
+      <mi>𝗅</mi>
+      <mi>𝖾</mi>
+      <mi>𝖢</mi>
+      <mi>𝖱</mi>
+      <mi>𝖧</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math>, containing <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> at position 0, and
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖴</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗆</mi>
+      <mi>𝗂</mi>
+      <mi>𝗍</mi>
+      <mi>𝗍</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> at all other positions.</p></li>
+<li><p>Let $path$ be the Merkle path from position 0 to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math>. <a class="brackets" href="#protocol-merklepath" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗏</mi>
+  </mrow>
+  <mo>=</mo>
+  <msub>
+    <mrow>
+      <mi>𝖵</mi>
+      <mi>𝖺</mi>
+      <mi>𝗅</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖢</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗆</mi>
+      <mi>𝗂</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <mn>0</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mn>1</mn>
+  <mo stretchy="false">)</mo>
+</math>.</p>
+<ul>
+<li><p>This is a constant and may be pre-computed.</p></li>
+</ul>
+</li>
+<li><p>Decode and verify $zkproof$ as a Sapling spend proof with primary input
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗏</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖿</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>. <a class="brackets" href="#protocol-spendstatement" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> If verification fails, return false.</p></li>
+<li><p>Return true.</p></li>
+</ul>
+</section>
+<h2 id="signature-encoding"><a class="hanchor" href="#signature-encoding" aria-hidden="true" tabindex="-1">#</a>Signature encoding</h2>
+<p>The raw form of a ZIP 304 signature is
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖿</mi>
+  </mrow>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖡</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>z</mi>
+  <mi>k</mi>
+  <mi>p</mi>
+  <mi>r</mi>
+  <mi>o</mi>
+  <mi>o</mi>
+  <mi>f</mi>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>s</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>A</mi>
+  <mi>u</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mi>S</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+</math>,
+for a total size of 320 bytes.</p>
+<p>When encoding a ZIP 304 signature in a human-readable format, implementations <strong>SHOULD</strong>
+use standard Base64 for compatibility with the <span class="docutils literal">signmessage</span> and <span class="docutils literal">verifymessage</span> RPC
+methods in <span class="docutils literal">zcashd</span>. ZIP 304 signatures in this form are 428 bytes. The encoded form is
+the string <tt class="math">\texttt{“zip304:”}</tt> followed by the result of Base64-encoding <a class="brackets" href="#rfc4648" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>
+the raw form of the signature.</p>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>We use a fake note within the signature scheme in order to reuse the Sapling Spend circuit
+and its parameters. It is possible to construct a signature scheme with a smaller encoded
+signature, but this would require a new circuit and another parameter-generation ceremony
+(if Groth16 were used).</p>
+<p>We use a note value of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math> zatoshi instead of zero to ensure that the payment address is
+fully bound to $zkproof$. Notes with zero value have certain constraints disabled
+inside the circuit.</p>
+<p>We set <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝖼</mi>
+    <mi>𝗏</mi>
+  </mrow>
+</math> to zero because we do not need the hiding properties of
+the note commitment or value commitment schemes (as we are using a fixed-value fake note),
+and can thus omit both <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝖼</mi>
+    <mi>𝗏</mi>
+  </mrow>
+</math> from the signature.</p>
+</section>
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Security and Privacy Considerations</h1>
+<p>A normal (and desired) property of signature schemes is that all signatures for a specific
+public key are linkable if the public key is known. ZIP 304 signatures have the additional
+property that all signatures for a specific payment address are linkable without knowing
+the payment address, as the first 32 bytes of each signature will be identical.</p>
+<p>A signature is bound to a specific diversified address of the spending key. Signatures for
+different diversified addresses of the same spending key are unlinkable, as long as
+$α$ is never re-used across signatures.</p>
+<p>Most of the data within a ZIP 304 signature is inherently non-malleable:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖿</mi>
+  </mrow>
+</math> is a binary public input to $zkproof$.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> is internally bound to $spendAuthSig$ by the design of RedJubjub.</p></li>
+<li><p>RedJubjub signatures are themselves non-malleable.</p></li>
+</ul>
+<p>The one component that is inherently malleable is $zkproof$. The zero-knowledge
+property of a Groth16 proof implies that anyone can take a valid proof, and re-randomize
+it to obtain another valid proof with a different encoding. We prevent this by binding the
+encoding of $zkproof$ to $spendAuthSig$, by including $zkproof$ in the
+message digest.</p>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p><a class="reference external" href="https://github.com/zcash/librustzcash/pull/210">https://github.com/zcash/librustzcash/pull/210</a></p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc4648" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-18">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc4648">RFC 4648: The Base16, Base32, and Base64 Data Encodings</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2020.1.15 or later</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-merklepath" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-13">1</a>,<a role="doc-backlink" href="#footnote-reference-16">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#merklepath">Zcash Protocol Specification, Version 2020.1.15. Section 4.8: Merkle path validity</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-spendstatement" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-14">1</a>,<a role="doc-backlink" href="#footnote-reference-17">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#spendstatement">Zcash Protocol Specification, Version 2020.1.15. Section 4.15.2: Spend Statement (Sapling)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-constants" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#constants">Zcash Protocol Specification, Version 2020.1.15. Section 5.3: Constants</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingmerklecrh" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingmerklecrh">Zcash Protocol Specification, Version 2020.1.15. Section 5.4.1.3: Merkle Tree Hash Function</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretediversifyhash" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretediversifyhash">Zcash Protocol Specification, Version 2020.1.15. Section 5.4.1.6: DiversifyHash Hash Function</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretemixinghash" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretemixinghash">Zcash Protocol Specification, Version 2020.1.15. Section 5.4.1.8: Mixing Pedersen Hash Function</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concreteprfs" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concreteprfs">Zcash Protocol Specification, Version 2020.1.15. Section 5.4.2: Pseudo Random Functions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretespendauthsig" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretespendauthsig">Zcash Protocol Specification, Version 2020.1.15. Section 5.4.6.1: Spend Authorization Signature</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretewindowedcommit" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretewindowedcommit">Zcash Protocol Specification, Version 2020.1.15. Section 5.4.7.2: Windowed Pedersen commitments</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretehomomorphiccommit" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">13</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretehomomorphiccommit">Zcash Protocol Specification, Version 2020.1.15. Section 5.4.7.3: Homomorphic Pedersen commitments</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-jubjub" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-11">14</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#jubjub">Zcash Protocol Specification, Version 2020.1.15. Section 5.4.8.3: Jubjub</a></p>
+</aside>
+<aside class="footnote brackets" id="slip-0044" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-12">1</a>,<a role="doc-backlink" href="#footnote-reference-15">2</a>)</span>
+<p><a class="reference external" href="https://github.com/satoshilabs/slips/blob/master/slip-0044.md">SLIP-0044 : Registered coin types for BIP-0044</a></p>
+</aside>
+</aside>
+</section>

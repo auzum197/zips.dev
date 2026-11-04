@@ -1,0 +1,346 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key word &quot;MUST&quot; in this document is to be interpreted as described in BCP 14
+<a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, it appears in all capitals.</p>
+<p>The term &quot;network upgrade&quot; in this document is to be interpreted as described in
+ZIP 200. <a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p>
+<p>The character § is used when referring to sections of the Zcash Protocol
+Specification. <a class="brackets" href="#protocol" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a></p>
+<p>The terms &quot;Mainnet&quot; and &quot;Testnet&quot; are to be interpreted as described in
+§ 3.12 ‘Mainnet and Testnet’. <a class="brackets" href="#protocol-networks" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>ZIP 213 <a class="brackets" href="#zip-0213" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> added the ability for coinbase outputs to be shielded. An
+unfortunate side effect of this was to make consensus dependent on the details
+of note encryption. This has unnecessarily complicated the specification and
+implementation of consensus rules.</p>
+<p>This proposal disentangles note encryption from consensus, by instead requiring
+coinbase outputs for v6 and later transaction versions to be unencrypted. The
+disentanglement will be complete once earlier transaction versions are no longer
+allowed on the network, which is likely to happen in some later upgrade.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>In the original design of Zcash, the consensus protocol was carefully isolated
+from the details of note encryption. This property, which was preserved through
+the Overwinter, Sapling, and Blossom upgrades, reduces the complexity and attack
+surface of the consensus protocol. It also potentially allows changes to note
+encryption to be made outside network upgrades.</p>
+<p>A dependency on note encryption crept into the consensus protocol as a result
+of the changes to support shielded coinbase outputs in ZIP 213 <a class="brackets" href="#zip-0213" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>,
+deployed in the Heartwood network upgrade. These changes added the requirement
+that it must be possible to decrypt Sapling and Orchard outputs in coinbase
+transactions using a sequence of 32 zero bytes as the outgoing viewing key.</p>
+<p>The complexity impact of this change was overlooked. This became apparent during
+the design of ZIP 212 <a class="brackets" href="#zip-0212" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> for the Heartwood network upgrade. In fact
+for a time there were separate and slightly diverging implementations of note
+decryption for the consensus checks in <cite>zcashd</cite>, and in <cite>librustzcash</cite>. This
+could have led to a chain fork between <cite>zcashd</cite> and <cite>zebrad</cite> before the
+implementations were reconciled.</p>
+<p>This ZIP restores the originally intended design property.</p>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>The consensus rule change specified in this ZIP must, from transaction version 6
+onward, make the implementation and specification of shielded coinbase outputs
+independent of note encryption.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="changes-to-the-zcash-protocol-specification"><a class="hanchor" href="#changes-to-the-zcash-protocol-specification" aria-hidden="true" tabindex="-1">#</a>Changes to the Zcash Protocol Specification</h2>
+<p>In § 5.4.3 'Symmetric Encryption', rename $Sym$ to $NoteSym$ and
+add the following text:</p>
+<blockquote>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+    <mo>.</mo>
+  </mrow>
+  <mi>𝐊</mi>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <msup>
+    <mi>𝔹</mi>
+    <mrow>
+      <mo stretchy="false">[</mo>
+      <mn>256</mn>
+      <mo stretchy="false">]</mo>
+    </mrow>
+  </msup>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+    <mo>.</mo>
+  </mrow>
+  <mi>𝐏</mi>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <msup>
+    <msup>
+      <mi>𝔹</mi>
+      <mi>𝕐</mi>
+    </msup>
+    <mi>ℕ</mi>
+  </msup>
+</math>, and
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+    <mo>.</mo>
+  </mrow>
+  <mi>𝐂</mi>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <msup>
+    <msup>
+      <mi>𝔹</mi>
+      <mi>𝕐</mi>
+    </msup>
+    <mi>ℕ</mi>
+  </msup>
+</math>.</p>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+    <mo>.</mo>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗋</mi>
+    <mi>𝗒</mi>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗍</mi>
+      <mi>𝖪</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖯</mi>
+  <mo stretchy="false">)</mo>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <mi>𝖯</mi>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">[</mo>
+  <mn>0</mn>
+  <mi>x</mi>
+  <mn>00</mn>
+  <msup>
+    <mo stretchy="false">]</mo>
+    <mn>16</mn>
+  </msup>
+</math>.</p>
+<p>Define <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+    <mo>.</mo>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+    <mi>𝗋</mi>
+    <mi>𝗒</mi>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗍</mi>
+      <mi>𝖪</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖢</mi>
+  <mo stretchy="false">)</mo>
+</math> as follows:</p>
+<ul class="simple">
+<li><p>If the last 16 bytes of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖢</mi>
+</math> are not <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mn>0</mn>
+  <mi>x</mi>
+  <mn>00</mn>
+  <msup>
+    <mo stretchy="false">]</mo>
+    <mn>16</mn>
+  </msup>
+</math>,
+return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math>. Otherwise discard those 16 bytes and return the
+remaining prefix of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖢</mi>
+</math>.</p></li>
+</ul>
+<p>Note: These definitions intentionally ignore the key; <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math>
+is not a secure authenticated encryption scheme. It MUST be used only for
+notes in shielded coinbase outputs, which are intended to be visible as
+cleartext.</p>
+</blockquote>
+<p>In § 4.20 'In-band secret distribution (Sapling and Orchard)', change:</p>
+<blockquote>
+<p>let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> be the encryption scheme instantiated in
+§ 5.4.3 'Symmetric Encryption'.</p>
+</blockquote>
+<p>to</p>
+<blockquote>
+<p>let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> be as
+instantiated in § 5.4.3 'Symmetric Encryption'.</p>
+<p>[Pre-NU7] let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> be <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math>.</p>
+<p>[NU7 onward] if the note to be decrypted is in an output of a version 6
+or later coinbase transaction, let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> be
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math>, otherwise let it be <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝗒</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math>.</p>
+</blockquote>
+<p>These changes apply identically to Mainnet and Testnet.</p>
+<p>TODO: specify the handling of the <span class="docutils literal">ephemeralKey</span> field.</p>
+</section>
+</section>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This ZIP is proposed to be deployed with the next transaction version change,
+which is assumed to be v6. <a class="brackets" href="#zip-0230" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a></p>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p>TBD.</p>
+</section>
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Acknowledgements</h1>
+<p>The author would like to thank Jack Grigg and Kris Nuttycombe for discussions leading
+to the submission of this ZIP.</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.2 or later [NU6.1]</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0212" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0212.rst">ZIP 212: Allow Recipient to Derive Ephemeral Secret from Note Plaintext</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0213" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-6">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0213.rst">ZIP 213: Shielded Coinbase</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0230.rst">ZIP 230: Version 6 Transaction Format</a></p>
+</aside>
+</aside>
+</section>

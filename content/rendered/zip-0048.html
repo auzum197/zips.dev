@@ -1,0 +1,246 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "REQUIRED", "MUST NOT", "SHOULD", and "MAY" in this
+document are to be interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and
+only when, they appear in all capitals.</p>
+<p>The terms "Mainnet" and "Testnet" in this document are to be interpreted as
+defined in the Zcash protocol specification <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP defines how wallets should implement transparent multisignature addresses in the
+Zcash ecosystem. It specifies how to derive the necessary key material in a deterministic
+way, and how to create transactions spending transparent multisig-controlled funds.</p>
+<p>Any future changes, or new transparent protocols or scripts, will be made as Revisions to
+this ZIP.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>There are a variety of important use cases for funds being controlled by a quorum of
+signers. In Bitcoin, these use cases were served via "P2SH multisig", or more specifically
+a Pay-to-Multi-Signature (P2MS) script specified by a P2SH address.</p>
+<p>A P2SM script can be constructed from any set of secp256k1 public keys, and anyone can use
+any mechanism for obtaining or storing the corresponding signing keys by private agreement.
+However, in order to ensure that funds are easily recoverable from backups, several
+different BIPs emerged for P2MS scripts using BIP 32 Hierarchical Derivation <sup><a href="#user-content-fn-bip-0032" id="user-content-fnref-bip-0032" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.
+Each of these has some problem when attempting to apply it as-written to Zcash:</p>
+<ul>
+<li>
+<p>BIP 45 <sup><a href="#user-content-fn-bip-0045" id="user-content-fnref-bip-0045" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> uses <code>m / purpose' / cosigner_index / change / address_index</code>.</p>
+<ul>
+<li>The problem is that unlike BIP 44, this BIP does not include <code>coin_type' / account'</code>
+in its derivation path. If naively applied to Zcash, it would result in key reuse
+between Bitcoin and Zcash, which creates the potential for cross-protocol attacks
+that would be complex to rule out.</li>
+<li>This is the BIP that essentially all hardware wallets use for Bitcoin P2SH multisig.</li>
+</ul>
+</li>
+<li>
+<p>BIP 48 <sup><a href="#user-content-fn-bip-0048" id="user-content-fnref-bip-0048" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> uses <code>m / purpose' / coin_type' / account' / script_type' / change / address_index</code></p>
+<ul>
+<li>The problem is that <code>script_type</code> is specified solely for Bitcoin's Native Segwit (P2WSH)
+and Nested Segwit (P2SH-P2WSH). Several conflicting proposed <code>script_type</code> constants
+for P2SH have been considered at various points, and were rejected due to P2SH being
+considered "legacy" in the context of Bitcoin.</li>
+<li>This is the BIP that essentially all hardware wallets use for P2WSH and P2SH-P2WSH on
+any Bitcoin-compatible chain.</li>
+</ul>
+</li>
+<li>
+<p>BIP 87 <sup><a href="#user-content-fn-bip-0087" id="user-content-fnref-bip-0087" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> uses <code>m / purpose' / coin_type' / account' / change / address_index</code></p>
+<ul>
+<li>The problem is that this BIP does not consider key reuse across different scripts
+(which are to some degree different payment protocols) to be an issue, whereas we do.</li>
+<li>This BIP is essentially unused by hardware wallets (which instead implement BIPs 45
+and 48).</li>
+</ul>
+</li>
+</ul>
+<p>While there is verifiable usage of P2SH multisig on the Zcash chain, there has been no
+standard approach for public deployments (likely due to the above issues), and thus no
+support for it in Zcash-compatible hardware wallets. This ZIP fills the gap.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>This does not have any privacy implications beyond what users already accept by
+using the transparent protocol and BIP 44 in particular for transparent address
+derivation.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>Hardware wallet providers should only need to make limited changes relative to how they
+support Bitcoin P2SH multisig. As such, this specification should hew closely to the
+specifications used in the Bitcoin ecosystem for P2SH support.</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>This ZIP applies to both Mainnet and Testnet, using the same <math><mrow><mi>c</mi><mi>o</mi><mi>i</mi><mi>n</mi><mi>_</mi><mi>t</mi><mi>y</mi><mi>p</mi><mi>e</mi></mrow></math>
+constants as defined in <sup><a href="#user-content-fn-slip-0044" id="user-content-fnref-slip-0044" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup> where applicable. Note that in keeping with that
+document, all cryptocurrency testnets share <math><mrow><mi>c</mi><mi>o</mi><mi>i</mi><mi>n</mi><mi>_</mi><mi>t</mi><mi>y</mi><mi>p</mi><mi>e</mi></mrow></math> index 1.</p>
+<h2 id="output-descriptor-and-script"><a class="hanchor" href="#output-descriptor-and-script" aria-hidden="true" tabindex="-1">#</a>Output descriptor and script</h2>
+<p>Zcash wallets SHOULD use the BIP 383 <sup><a href="#user-content-fn-bip-0383" id="user-content-fnref-bip-0383" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup> <code>sortedmulti()</code> script expression to
+produce Zcash P2MS scripts, which would then be contained in the BIP 381 <sup><a href="#user-content-fn-bip-0381" id="user-content-fnref-bip-0381" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>
+<code>sh()</code> script expression to produce Zcash P2SH addresses.</p>
+<p>The following BIP 388 <sup><a href="#user-content-fn-bip-0388" id="user-content-fnref-bip-0388" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> wallet descriptor template produces a 2-of-3 P2SH
+multisig wallet compatible with this ZIP:</p>
+<pre><code>sh(sortedmulti(2,@0/**,@1/**,@2/**))
+</code></pre>
+<h2 id="hierarchical-derivation"><a class="hanchor" href="#hierarchical-derivation" aria-hidden="true" tabindex="-1">#</a>Hierarchical Derivation</h2>
+<p>Given a set of participants that each have some seed material (e.g. BIP 39 <sup><a href="#user-content-fn-bip-0039" id="user-content-fnref-bip-0039" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>
+mnemonic phrases), and a BIP 380 <sup><a href="#user-content-fn-bip-0380" id="user-content-fnref-bip-0380" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup> output descriptor that encodes the desired
+multisig policy, wallets need to produce their individual contributions to the BIP 388
+key information vector <sup><a href="#user-content-fn-bip-0388-key-information-vector" id="user-content-fnref-bip-0388-key-information-vector" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup>. This specification adopts
+BIP 48 <sup><a href="#user-content-fn-bip-0048" id="user-content-fnref-bip-0048-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> for this purpose, with the following modification:</p>
+<ul>
+<li>
+<p>The <math><mrow><mi>s</mi><mi>c</mi><mi>r</mi><mi>i</mi><mi>p</mi><mi>t</mi><mi>_</mi><mi>t</mi><mi>y</mi><mi>p</mi><mi>e</mi></mrow></math> values for Native Segwit and Nested Segwit MUST NOT be used
+in a Zcash context.</p>
+</li>
+<li>
+<p>The following Zcash-specific <math><mrow><mi>s</mi><mi>c</mi><mi>r</mi><mi>i</mi><mi>p</mi><mi>t</mi><mi>_</mi><mi>t</mi><mi>y</mi><mi>p</mi><mi>e</mi></mrow></math> key spaces are defined:</p>
+<ul>
+<li>A path component of <math><msup><mn>133000</mn><mo lspace="0em" rspace="0em" class="tml-prime">′</mo></msup></math> represents “Zcash P2SH”.</li>
+</ul>
+</li>
+</ul>
+<h2 id="transaction-construction"><a class="hanchor" href="#transaction-construction" aria-hidden="true" tabindex="-1">#</a>Transaction construction</h2>
+<p>The transaction construction workflow for a P2SH multisig wallet is as follows:</p>
+<ul>
+<li>
+<p>One of the participants uses their local wallet to construct a PCZT [^zip-pczt] that
+spends transparent UTXOs controlled by the multisig wallet, with the desired outputs,
+and a change output to a P2SH address derived at the path
+<code>m/48'/coin_type'/account'/133000'/1/*</code>.</p>
+</li>
+<li>
+<p>The PCZT is conveyed to the other wallet participants out-of-band (via a private and
+authenticated channel, such as a group end-to-end-encrypted messenger).</p>
+</li>
+<li>
+<p>Each participant's wallet MUST verify that the PCZT's change outputs are to an address
+that the multisig wallet controls.</p>
+</li>
+<li>
+<p>Each participant verifies that the PCZT performs the spend action that they expect.</p>
+</li>
+<li>
+<p>Each participant modifies their copy of the PCZT to include their signature(s) using
+their wallet.</p>
+</li>
+<li>
+<p>Each participant conveys their signed PCZT to one (or more) of the other wallet
+participants (likely via the same channel that the unsigned PCZT was received on).</p>
+</li>
+<li>
+<p>One participant takes a threshold of signed PCZTs, combines them, and extracts the final
+transaction for broadcasting to the network.</p>
+</li>
+</ul>
+<p>Wallets SHOULD ensure they are fully synced before proposing a transaction that generates
+transparent change, to minimize the likelihood of reusing a P2SH change address.</p>
+<h1 id="examples"><a class="hanchor" href="#examples" aria-hidden="true" tabindex="-1">#</a>Examples</h1>
+<h2 id="2-of-3-p2sh-multisig-on-zcash-mainnet"><a class="hanchor" href="#2-of-3-p2sh-multisig-on-zcash-mainnet" aria-hidden="true" tabindex="-1">#</a>2-of-3 P2SH multisig on Zcash mainnet</h2>
+<p>Let the seeds for the three participants be (in hex):</p>
+<pre><code>[
+  "0101010101010101010101010101010101010101010101010101010101010101",
+  "0202020202020202020202020202020202020202020202020202020202020202",
+  "0303030303030303030303030303030303030303030303030303030303030303"
+]
+</code></pre>
+<p>TODO: Update example below with actual key fingerprints and xpub encodings.</p>
+<p>The wallet descriptor template for this multisig is:</p>
+<pre><code>sh(sortedmulti(2,@0/**,@1/**,@2/**))
+</code></pre>
+<p>The three parties each derive their transparent extended public key from their respective
+wallet seed, using the path <code>m/48'/133'/0'/133000'</code>. The parties then combine their
+respective keys to produce a key information vector <sup><a href="#user-content-fn-bip-0388-key-information-vector" id="user-content-fnref-bip-0388-key-information-vector-2" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup>:</p>
+<pre><code>[
+  "[MSTKFP_0/48'/133'/0'/133000']EXTENDED_PUBLIC_KEY_0",
+  "[MSTKFP_1/48'/133'/0'/133000']EXTENDED_PUBLIC_KEY_1",
+  "[MSTKFP_2/48'/133'/0'/133000']EXTENDED_PUBLIC_KEY_2"
+]
+</code></pre>
+<p>The wallet policy is the composition of the wallet descriptor template and the key
+information vector. The corresponding multipath descriptor <sup><a href="#user-content-fn-bip-0389" id="user-content-fnref-bip-0389" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup> derived from this
+policy <sup><a href="#user-content-fn-bip-0388-descriptor-derivation" id="user-content-fnref-bip-0388-descriptor-derivation" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup> is (newlines and whitespace added for legibility):</p>
+<pre><code>sh(
+  sortedmulti(
+    2,
+    [MSTKFP_0/48'/133'/0'/133000']EXTENDED_PUBLIC_KEY_0/&#x3C;0;1>/*,
+    [MSTKFP_1/48'/133'/0'/133000']EXTENDED_PUBLIC_KEY_1/&#x3C;0;1>/*,
+    [MSTKFP_2/48'/133'/0'/133000']EXTENDED_PUBLIC_KEY_2/&#x3C;0;1>/*
+  )
+)
+</code></pre>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>The choice to use BIP 48 means that participants are not restricted to constructing a
+single P2SH address; once a wallet has obtained the completed wallet policy, it can
+(without additional coordination) produce the same deterministic sequence of P2SH
+addresses as every other participant.</p>
+<p>We specify a likely-non-colliding <math><mrow><mi>s</mi><mi>c</mi><mi>r</mi><mi>i</mi><mi>p</mi><mi>t</mi><mi>_</mi><mi>t</mi><mi>y</mi><mi>p</mi><mi>e</mi></mrow></math> instead of using a path
+component of either <math><msup><mn>0</mn><mo lspace="0em" rspace="0em" class="tml-prime">′</mo></msup></math> (the gap left in BIP 48) or <math><msup><mn>2</mn><mo lspace="0em" rspace="0em" class="tml-prime">′</mo></msup></math> (the next unassigned constant in
+BIP 48), because both of those values have in the past been proposed and rejected as
+referring to P2SH. This means that there is no compatibility benefit to trying to use one
+or the other, and the likelihood of a collision with some other use case is higher.
+Instead we pick a value that is prefixed (in decimal) with the SLIP 44 <sup><a href="#user-content-fn-slip-0044" id="user-content-fnref-slip-0044-2" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>
+<math><mrow><mi>c</mi><mi>o</mi><mi>i</mi><mi>n</mi><mi>_</mi><mi>t</mi><mi>y</mi><mi>p</mi><mi>e</mi></mrow></math> for Zcash mainnet, which is highly unlikely to organically occur in
+another related specification.</p>
+<p>By not using BIP 45, Zcash addresses will not be compatible with BIP 45 P2SH derivation
+paths. We consider this acceptable because we explicitly do not want users that use the
+same mnemonic phrase for both Bitcoin and Zcash to produce addresses that reuse the same
+public keys.</p>
+<p>By not using BIP 45 (with a <math><mrow><mi>c</mi><mi>o</mi><mi>s</mi><mi>i</mi><mi>g</mi><mi>n</mi><mi>e</mi><mi>r</mi><mi>_</mi><mi>i</mi><mi>n</mi><mi>d</mi><mi>e</mi><mi>x</mi></mrow></math> path element), all cosigners produce
+the same sequence of P2SH addresses. This is good for agreement on, for example, the ZIP 1016 <sup><a href="#user-content-fn-zip-1016" id="user-content-fnref-zip-1016" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>
+Key-Holder Organizations’ Mainnet address, but in general usage means that two cosigners
+proposing transactions can race and use the same P2SH address twice. This could result in a
+situation where different members of the signing set inadvertently give the same P2SH
+address to different counterparties, linking the associated payment
+activity. We consider this tradeoff acceptable because it aligns with what hardware
+wallets have done for years (implying that users are fine with the usability). We consider
+the risk acceptable because avoiding linkage between transparent addresses is hard in any
+case, and not something that Zcash actively attempts to avoid (the shielded protocols are
+designed for this use case).</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p>TBD</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2024.5.1. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0032">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki">BIP 32: Hierarchical Deterministic Wallets</a> <a href="#user-content-fnref-bip-0032" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0045">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0045.mediawiki">BIP 45: Structure for Deterministic P2SH Multisignature Wallets</a> <a href="#user-content-fnref-bip-0045" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0048">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0048.mediawiki">BIP 48: Multi-Script Hierarchy for Multi-Sig Wallets</a> <a href="#user-content-fnref-bip-0048" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-bip-0048-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-bip-0087">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0087.mediawiki">BIP 87: Hierarchy for Deterministic Multisig Wallets</a> <a href="#user-content-fnref-bip-0087" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-slip-0044">
+<p><a href="https://github.com/satoshilabs/slips/blob/master/slip-0044.md">SLIP-0044: Registered coin types for BIP-0044</a> <a href="#user-content-fnref-slip-0044" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-slip-0044-2" data-footnote-backref="" aria-label="Back to reference 7-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-bip-0383">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0383.mediawiki">BIP 383: Multisig Output Script Descriptors</a> <a href="#user-content-fnref-bip-0383" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0381">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0381.mediawiki">BIP 381: Non-Segwit Output Script Descriptors</a> <a href="#user-content-fnref-bip-0381" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0388">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0388.mediawiki">BIP 388: Wallet Policies for Descriptor Wallets</a> <a href="#user-content-fnref-bip-0388" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0039">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki">BIP 39: Mnemonic code for generating deterministic keys</a> <a href="#user-content-fnref-bip-0039" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0380">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0380.mediawiki">BIP 380: Output Script Descriptors General Operation</a> <a href="#user-content-fnref-bip-0380" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0388-key-information-vector">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0388.mediawiki#key-information-vector">BIP 388: Wallet Policies for Descriptor Wallets. Key information vector</a> <a href="#user-content-fnref-bip-0388-key-information-vector" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-bip-0388-key-information-vector-2" data-footnote-backref="" aria-label="Back to reference 13-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-bip-0389">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0389.mediawiki">BIP 389: Multipath Descriptor Key Expressions</a> <a href="#user-content-fnref-bip-0389" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0388-descriptor-derivation">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0388.mediawiki#descriptor-derivation">BIP 388: Wallet Policies for Descriptor Wallets. Descriptor derivation</a> <a href="#user-content-fnref-bip-0388-descriptor-derivation" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-1016">
+<p><a href="/upstream/zip-1016.md">ZIP 1016: Community and Coinholder Funding Model</a> <a href="#user-content-fnref-zip-1016" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

@@ -1,0 +1,917 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", "SHOULD", and "MAY" in this document are to be
+interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when, they appear in all
+capitals.</p>
+<p>The term "network upgrade" in this document is to be interpreted as described in
+ZIP 200. <sup><a href="#user-content-fn-zip-0200" id="user-content-fnref-zip-0200" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>The character § is used when referring to sections of the Zcash Protocol
+Specification. <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>The terms "Mainnet" and "Testnet" are to be interpreted as described in § 3.12
+‘Mainnet and Testnet’. <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>The term "Recovery Protocol" is to be interpreted as described in <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.</p>
+<p>The terms below are to be interpreted as follows:</p>
+<dl><dt>Orchard protocol (or Orchard shielded protocol)</dt><dd>The shared cryptographic design that supports the <em>Orchard pool</em> and the <em>Ironwood
+pool</em>, including the Pallas and Vesta curves, the Sinsemilla hash, the Action circuit
+(as modified by <sup><a href="#user-content-fn-zip-2006" id="user-content-fnref-zip-2006" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>), the note, note commitment, nullifier, and key
+constructions, and the note encryption (as modified by <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>) used for these
+two pools.</dd><dt><em>Orchard pool</em> (or Orchard shielded pool)</dt><dd>The value pool, with its own note commitment tree, anchor, and chain value pool
+balance, that was introduced by ZIP 224 <sup><a href="#user-content-fn-zip-0224" id="user-content-fnref-zip-0224" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>.</dd><dt><em>Ironwood pool</em> (or Ironwood shielded pool)</dt><dd>A new value pool of the Orchard protocol, introduced by this ZIP, with its own note
+commitment tree, anchor, and chain value pool balance, distinct from the
+<em>Orchard pool</em>.</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP defines version 6 of the Zcash transaction format, to be activated at NU6.3
+<sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>.</p>
+<p>NU6.3 <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258-2" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup> introduces the <em>Ironwood shielded pool</em>, an Orchard-protocol successor
+to the <em>Orchard pool</em>, that ensures quantum recoverability <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005-3" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> and has supply
+integrity supported from the start by formal verification efforts <sup><a href="#user-content-fn-ironwood-book" id="user-content-fnref-ironwood-book" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>.</p>
+<p>This requires a new transaction version that can hold an <strong>Ironwood component</strong>:
+a second Orchard-protocol shielded component that commits to, and spends from, the
+<em>Ironwood pool</em> rather than the <em>Orchard pool</em>. The Orchard Action encoding and the
+Halo 2 proof system are reused unchanged. The circuit is also shared between these
+pools, changed only slightly from the pre-NU6.3 circuit <sup><a href="#user-content-fn-zip-2006" id="user-content-fnref-zip-2006-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>. This ZIP defines
+the corresponding transaction format, txid, signature-hash, and block-commitment
+changes.</p>
+<p>The addition of the <em>Ironwood pool</em> does not change address structures or encodings.
+At the protocol level, Orchard spending-key and viewing-key material grants authority
+to spend or view notes in both the <em>Orchard</em> and <em>Ironwood pools</em>. However, NU6.3 enforces
+that outputs to the <em>Orchard pool</em> are sent to an Orchard-protocol-level address for
+which the transaction creator can authorize spends. The intent is that transfers
+between users will automatically create notes in the <em>Ironwood pool</em>. The address
+restriction discourages economic activity between users within the <em>Orchard pool</em>, and
+encourages faster migration to the <em>Ironwood pool</em>.</p>
+<p>This ZIP specifies only the transaction format and its associated hashing. The Action
+circuit changes needed to restrict address usage within the <em>Orchard pool</em> are specified
+in <sup><a href="#user-content-fn-zip-2006" id="user-content-fnref-zip-2006-3" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>, and implications for wallets are discussed in <sup><a href="#user-content-fn-zip-0318" id="user-content-fnref-zip-0318" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> and <sup><a href="#user-content-fn-zip-0326" id="user-content-fnref-zip-0326" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>.
+Activation parameters are specified in the NU6.3 deployment ZIP <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258-3" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The main purpose of the NU6.3 network upgrade is to bolster confidence in Zcash's supply
+integrity, after the discovery and remediation of the Orchard soundness vulnerability
+described in <sup><a href="#user-content-fn-zip-0257" id="user-content-fnref-zip-0257" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>. The turnstile mechanism <sup><a href="#user-content-fn-zip-0209" id="user-content-fnref-zip-0209" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> ensures that the overall
+ZEC supply is bounded. However, since a substantial portion of ZEC was in the
+<em>Orchard pool</em> at the time this vulnerability was remediated, it is necessary to take
+further steps to ensure confidence in the supply by migrating funds to a new pool.</p>
+<p>All funds in the <em>Ironwood pool</em> will be <strong>quantum-recoverable</strong> <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005-4" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.
+The existing Zcash shielded protocols are dependent on the hardness of finding
+discrete logarithms; an adversary who can do so (via quantum computers or otherwise)
+would be able to steal or forge funds. In the event of needing to disable these
+protocols in order to prevent such attacks, it will be possible to use a Recovery
+Protocol to recover funds from the <em>Ironwood pool</em>. This Recovery Protocol is expected
+to remain secure against discrete-log-breaking and quantum adversaries. This change
+does not by itself make Zcash secure against attacks using quantum computers, but is
+a necessary and substantial step toward that goal.</p>
+<p>Recovery would not be possible for funds still in the <em>Sprout</em>, <em>Sapling</em>, or
+<em>Orchard pools</em>; all such funds would be inaccessible after their respective
+protocols are disabled. They should be migrated to the <em>Ironwood pool</em> in
+order to take advantage of this change.</p>
+<p>The version 6 transaction format also changes the authorization structure for all
+supported shielded pools (<em>Sapling</em>, <em>Orchard</em>, and <em>Ironwood</em>) so that anchors are
+considered to be authorizing data rather than effecting data. This allows a transaction
+to be pre-authorized and its proofs computed independently after choosing an anchor,
+and also improves opportunities for parallelism in transaction creation.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>The turnstile mechanism reveals the amounts in each transaction that cross between pools,
+including the amounts migrated into the <em>Ironwood pool</em>. This is considered in full detail
+in <sup><a href="#user-content-fn-zip-0318" id="user-content-fnref-zip-0318-2" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>.</p>
+<p>There is no reason to believe that the soundness vulnerability described in <sup><a href="#user-content-fn-zip-0257" id="user-content-fnref-zip-0257-2" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>
+could have led to any compromise of key material associated with existing addresses.
+Independent of the soundness bug, we recommend address rotation for quantum privacy
+implications discussed in <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005-5" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>Changes relative to v5 transactions should be minimized.</p>
+<p>The version 6 transaction format must be able to carry an <em>Ironwood-pool</em> component in
+addition to transparent-pool, <em>Sapling-pool</em>, and <em>Orchard-pool</em> components similar to
+those in a version 5 transaction.</p>
+<p>The Ironwood component must reuse the Orchard Action design and component encoding, so
+that implementation is shared between them to the maximum extent possible.</p>
+<p>The transaction identifier, authorizing-data commitment, and signature digests must
+commit to the <em>Ironwood-pool</em> component when it is present, using personalizations
+distinct from those used for the <em>Orchard-pool</em> component.</p>
+<p>The changes to the authorization structure must support pre-authorizing transactions
+using spending key material, and later updating the anchor and proofs (for all
+supported shielded pools).</p>
+<p>Personalizations for nodes in the digest tree must be changed when what is hashed at
+that node changes.</p>
+<p>The <code>flags</code> fields in the <em>Orchard-pool</em> and <em>Ironwood-pool</em> components must support
+encoding an indication of whether outputs to the <em>Orchard pool</em> are required to use
+a protocol-level address for which the transaction creator can authorize spends.</p>
+<p>The one known Orchard-supporting hardware wallet, Keystone, must continue to be able to
+sign v5 tx format Orchard -> Transparent unshielding transactions, without firmware update.</p>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<p>The v6 transaction format need not support ZSAs, the <code>zip233Amount</code> field, the explicit
+<code>fee</code> field, or per-transparent-input sighash information that appeared in the withdrawn
+ZIP 230 <sup><a href="#user-content-fn-zip-0230" id="user-content-fnref-zip-0230" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup>, or those features and other extensibility affordances planned for
+ZIP 248 <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup>.</p>
+<p>The value 6 for the transaction version number need not avoid collisions with the
+withdrawn ZIP 230 or with the current draft of ZIP 248.</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="transaction-format"><a class="hanchor" href="#transaction-format" aria-hidden="true" tabindex="-1">#</a>Transaction Format</h2>
+<p>A version 6 transaction is encoded as follows. Fields up to and including the Orchard
+component are as in the version 5 format <sup><a href="#user-content-fn-zip-0225" id="user-content-fnref-zip-0225" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>, except as noted; the Ironwood component
+is new.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Note</th><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td><strong>Common Transaction Fields (unchanged from v5)</strong></td><td></td><td></td><td></td><td></td></tr><tr><td></td><td><math><mn>4</mn></math></td><td><code>header</code></td><td><code>uint32</code></td><td>Contains the <code>fOverwintered</code> flag (bit 31, always set) and <code>version</code> (bits 30 .. 0), which MUST be <code>6</code>.</td></tr><tr><td></td><td><math><mn>4</mn></math></td><td><code>nVersionGroupId</code></td><td><code>uint32</code></td><td>Version group ID (nonzero, specified in § 7.1.2).</td></tr><tr><td></td><td><math><mn>4</mn></math></td><td><code>nConsensusBranchId</code></td><td><code>uint32</code></td><td>Consensus branch ID (nonzero, constrained in § 7.1.2).</td></tr><tr><td></td><td><math><mn>4</mn></math></td><td><code>lock_time</code></td><td><code>uint32</code></td><td>Unix-epoch UTC time or block height, encoded as in Bitcoin.</td></tr><tr><td></td><td><math><mn>4</mn></math></td><td><code>nExpiryHeight</code></td><td><code>uint32</code></td><td>A block height in {1 .. 499999999} after which the transaction will expire, or 0 to disable expiry. <sup><a href="#user-content-fn-zip-0203" id="user-content-fnref-zip-0203" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup></td></tr><tr><td><strong>Transparent Transaction Fields (unchanged from v5)</strong></td><td></td><td></td><td></td><td></td></tr><tr><td></td><td><code>varies</code></td><td><code>tx_in_count</code></td><td><code>compactSize</code></td><td>Number of transparent inputs in <code>tx_in</code>.</td></tr><tr><td></td><td><code>varies</code></td><td><code>tx_in</code></td><td><code>tx_in</code></td><td>Transparent inputs, encoded as in Bitcoin.</td></tr><tr><td></td><td><code>varies</code></td><td><code>tx_out_count</code></td><td><code>compactSize</code></td><td>Number of transparent outputs in <code>tx_out</code>.</td></tr><tr><td></td><td><code>varies</code></td><td><code>tx_out</code></td><td><code>tx_out</code></td><td>Transparent outputs, encoded as in Bitcoin.</td></tr><tr><td><strong>Sapling Transaction Fields (unchanged from v5)</strong></td><td></td><td></td><td></td><td></td></tr><tr><td></td><td><code>varies</code></td><td><code>nSpendsSapling</code></td><td><code>compactSize</code></td><td>Number of Sapling Spend descriptions in <code>vSpendsSapling</code>.</td></tr><tr><td></td><td><math><mrow><mn>96</mn><mspace width="0.1667em"></mspace><mo>⋅</mo></mrow></math> <code>nSpendsSapling</code></td><td><code>vSpendsSapling</code></td><td><code>SpendDescriptionV5[nSpendsSapling]</code></td><td>Sapling Spend descriptions, encoded per § 7.3 ‘Spend Description Encoding and Consensus’.</td></tr><tr><td></td><td><code>varies</code></td><td><code>nOutputsSapling</code></td><td><code>compactSize</code></td><td>Number of Sapling Output descriptions in <code>vOutputsSapling</code>.</td></tr><tr><td></td><td><math><mrow><mn>756</mn><mspace width="0.1667em"></mspace><mo>⋅</mo></mrow></math> <code>nOutputsSapling</code></td><td><code>vOutputsSapling</code></td><td><code>OutputDescriptionV5[nOutputsSapling]</code></td><td>Sapling Output descriptions, encoded per § 7.4 ‘Output Description Encoding and Consensus’.</td></tr><tr><td>†</td><td><math><mn>8</mn></math></td><td><code>valueBalanceSapling</code></td><td><code>int64</code></td><td>The net value of Sapling Spends minus Outputs.</td></tr><tr><td>‡</td><td><math><mn>32</mn></math></td><td><code>anchorSapling</code></td><td><code>byte[32]</code></td><td>A root of the Sapling note commitment tree at some block height in the past.</td></tr><tr><td></td><td><math><mrow><mn>192</mn><mspace width="0.1667em"></mspace><mo>⋅</mo></mrow></math> <code>nSpendsSapling</code></td><td><code>vSpendProofsSapling</code></td><td><code>byte[192 * nSpendsSapling]</code></td><td>Encodings of the zk-SNARK proofs for each Sapling Spend.</td></tr><tr><td></td><td><math><mrow><mn>64</mn><mspace width="0.1667em"></mspace><mo>⋅</mo></mrow></math> <code>nSpendsSapling</code></td><td><code>vSpendAuthSigsSapling</code></td><td><code>byte[64 * nSpendsSapling]</code></td><td>Authorizing signatures for each Sapling Spend.</td></tr><tr><td></td><td><math><mrow><mn>192</mn><mspace width="0.1667em"></mspace><mo>⋅</mo></mrow></math> <code>nOutputsSapling</code></td><td><code>vOutputProofsSapling</code></td><td><code>byte[192 * nOutputsSapling]</code></td><td>Encodings of the zk-SNARK proofs for each Sapling Output.</td></tr><tr><td>†</td><td><math><mn>64</mn></math></td><td><code>bindingSigSapling</code></td><td><code>byte[64]</code></td><td>A Sapling binding signature on the SIGHASH transaction hash.</td></tr><tr><td><strong>Orchard Transaction Fields</strong></td><td></td><td></td><td></td><td></td></tr><tr><td></td><td><code>varies</code></td><td><code>nActionsOrchard</code></td><td><code>compactSize</code></td><td>The number of Orchard Action descriptions in <code>vActionsOrchard</code>.</td></tr><tr><td></td><td><math><mrow><mn>820</mn><mspace width="0.1667em"></mspace><mo>⋅</mo></mrow></math> <code>nActionsOrchard</code></td><td><code>vActionsOrchard</code></td><td><code>OrchardAction[nActionsOrchard]</code></td><td>A sequence of Orchard Action descriptions, encoded per § 7.5 ‘Action Description Encoding and Consensus’.</td></tr><tr><td>§</td><td><math><mn>1</mn></math></td><td><code>flagsOrchard</code></td><td><code>byte</code></td><td>An 8-bit value representing a set of flags. From LSB to MSB: <code>enableSpends</code>, <code>enableOutputs</code>, <code>enableCrossAddress</code> (new at NU6.3); the remaining bits MUST be 0.</td></tr><tr><td>§</td><td><math><mn>8</mn></math></td><td><code>valueBalanceOrchard</code></td><td><code>int64</code></td><td>The net value of Orchard spends minus outputs.</td></tr><tr><td>§</td><td><math><mn>32</mn></math></td><td><code>anchorOrchard</code></td><td><code>byte[32]</code></td><td>A root of the Orchard note commitment tree at some block height in the past.</td></tr><tr><td>§</td><td><code>varies</code></td><td><code>sizeProofsOrchard</code></td><td><code>compactSize</code></td><td>Length in bytes of <code>proofsOrchard</code>. Value is <code>2720 + 2272 * nActionsOrchard</code>.</td></tr><tr><td>§</td><td><code>sizeProofsOrchard</code></td><td><code>proofsOrchard</code></td><td><code>byte[sizeProofsOrchard]</code></td><td>Encoding of aggregated zk-SNARK proofs for Orchard Actions.</td></tr><tr><td></td><td><math><mrow><mn>64</mn><mspace width="0.1667em"></mspace><mo>⋅</mo></mrow></math> <code>nActionsOrchard</code></td><td><code>vSpendAuthSigsOrchard</code></td><td><code>byte[64 * nActionsOrchard]</code></td><td>Authorizing signatures for each Orchard Action.</td></tr><tr><td>§</td><td><math><mn>64</mn></math></td><td><code>bindingSigOrchard</code></td><td><code>byte[64]</code></td><td>An Orchard binding signature on the SIGHASH transaction hash.</td></tr><tr><td><strong>Ironwood Transaction Fields (new)</strong></td><td></td><td></td><td></td><td></td></tr><tr><td></td><td><code>varies</code></td><td><code>nActionsIronwood</code></td><td><code>compactSize</code></td><td>The number of Ironwood Action descriptions in <code>vActionsIronwood</code>.</td></tr><tr><td></td><td><math><mrow><mn>820</mn><mspace width="0.1667em"></mspace><mo>⋅</mo></mrow></math> <code>nActionsIronwood</code></td><td><code>vActionsIronwood</code></td><td><code>OrchardAction[nActionsIronwood]</code></td><td>A sequence of Ironwood Action descriptions, using the same encoding as Orchard Actions (§ 7.5).</td></tr><tr><td>◊</td><td><math><mn>1</mn></math></td><td><code>flagsIronwood</code></td><td><code>byte</code></td><td>The same layout as <code>flagsOrchard</code>, including <code>enableCrossAddress</code> at bit 2; the remaining bits MUST be 0.</td></tr><tr><td>◊</td><td><math><mn>8</mn></math></td><td><code>valueBalanceIronwood</code></td><td><code>int64</code></td><td>The net value of Ironwood spends minus outputs.</td></tr><tr><td>◊</td><td><math><mn>32</mn></math></td><td><code>anchorIronwood</code></td><td><code>byte[32]</code></td><td>A root of the <strong>Ironwood</strong> note commitment tree at some block height in the past.</td></tr><tr><td>◊</td><td><code>varies</code></td><td><code>sizeProofsIronwood</code></td><td><code>compactSize</code></td><td>Length in bytes of <code>proofsIronwood</code>. Value is <code>2720 + 2272 * nActionsIronwood</code>.</td></tr><tr><td>◊</td><td><code>sizeProofsIronwood</code></td><td><code>proofsIronwood</code></td><td><code>byte[sizeProofsIronwood]</code></td><td>Encoding of aggregated zk-SNARK proofs for Ironwood Actions.</td></tr><tr><td></td><td><math><mrow><mn>64</mn><mspace width="0.1667em"></mspace><mo>⋅</mo></mrow></math> <code>nActionsIronwood</code></td><td><code>vSpendAuthSigsIronwood</code></td><td><code>byte[64 * nActionsIronwood]</code></td><td>Authorizing signatures for each Ironwood Action.</td></tr><tr><td>◊</td><td><math><mn>64</mn></math></td><td><code>bindingSigIronwood</code></td><td><code>byte[64]</code></td><td>An Ironwood binding signature on the SIGHASH transaction hash.</td></tr></tbody></table>
+<p>Fields marked in the Note column are conditionally present:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Note</th><th>Description</th></tr></thead><tbody><tr><td>†</td><td><code>valueBalanceSapling</code> and <code>bindingSigSapling</code> are present if and only if <code>nSpendsSapling + nOutputsSapling > 0</code>. If <code>valueBalanceSapling</code> is not present, it is taken to be 0.</td></tr><tr><td>‡</td><td><code>anchorSapling</code> is present if and only if <code>nSpendsSapling > 0</code>.</td></tr><tr><td>§</td><td><code>flagsOrchard</code>, <code>valueBalanceOrchard</code>, <code>anchorOrchard</code>, <code>sizeProofsOrchard</code>, <code>proofsOrchard</code>, and <code>bindingSigOrchard</code> are present if and only if <code>nActionsOrchard > 0</code>. If <code>valueBalanceOrchard</code> is not present, it is taken to be 0.</td></tr><tr><td>◊</td><td><code>flagsIronwood</code>, <code>valueBalanceIronwood</code>, <code>anchorIronwood</code>, <code>sizeProofsIronwood</code>, <code>proofsIronwood</code>, and <code>bindingSigIronwood</code> are present if and only if <code>nActionsIronwood > 0</code>. If <code>valueBalanceIronwood</code> is not present, it is taken to be 0.</td></tr></tbody></table>
+<p>The encoding of the transparent and Sapling fields is unchanged from version 5
+<sup><a href="#user-content-fn-zip-0225" id="user-content-fnref-zip-0225-2" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>. Ironwood Action descriptions use the same <code>OrchardAction</code> encoding as
+Orchard Action descriptions. Every <em>Ironwood-pool</em> output note uses the quantum-recoverable
+note plaintext format (lead byte <code>0x03</code>) defined in ZIP 2005 <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005-6" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>; no <em>Orchard-pool</em>
+output note uses that format. This is the only note-level distinction between the two pools.</p>
+<p>Two <code>flagsOrchard</code> bits have been renamed relative to version 5: <code>enableSpendsOrchard</code> →
+<code>enableSpends</code> and <code>enableOutputsOrchard</code> → <code>enableOutputs</code>. In version 6 these bits
+—together with <code>enableCrossAddress</code>— are defined with the same meaning in both <code>flagsOrchard</code>
+and <code>flagsIronwood</code>, so the previous <code>...Orchard</code> suffix would be misleading.</p>
+<h2 id="consensus-rules"><a class="hanchor" href="#consensus-rules" aria-hidden="true" tabindex="-1">#</a>Consensus Rules</h2>
+<p>The version 6 transaction format requires the changes below to the transaction consensus rules in
+§ 7.1.2 'Transaction Consensus Rules' <sup><a href="#user-content-fn-protocol-txnconsensus" id="user-content-fnref-protocol-txnconsensus" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup>, effective from NU6.3 activation.
+Purely editorial generalizations — such as replacing <em>Orchard pool</em> with <em>Orchard or Ironwood pool</em>,
+or updating cross-references — are not enumerated.</p>
+<ul>
+<li>
+<p>Replace</p>
+<blockquote>
+<p>[Pre-NU6.3] The transaction version number MUST be 4 or 5.</p>
+</blockquote>
+<p>with</p>
+<blockquote>
+<p>[NU6.3 onward] The transaction version number MUST be 4 or 5 or 6.</p>
+</blockquote>
+</li>
+<li>
+<p>Add</p>
+<blockquote>
+<p>[NU6.3 onward] If the transaction version number is 6 then the version group ID MUST be
+<code>0xD884B698</code>.</p>
+</blockquote>
+</li>
+<li>
+<p>Add</p>
+<blockquote>
+<p>[NU6.3 onward] If <code>effectiveVersion</code> <math><mrow><mo>≥</mo><mn>6</mn></mrow></math>, then <code>nActionsIronwood</code> MUST be less than
+<math><msup><mn>2</mn><mn>16</mn></msup></math>.</p>
+</blockquote>
+</li>
+<li>
+<p>Replace</p>
+<blockquote>
+<p>[NU5 onward] If <code>effectiveVersion</code> <math><mrow><mo>≥</mo><mn>5</mn></mrow></math> then this condition MUST hold: <code>tx_in_count</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math>
+or <code>nSpendsSapling</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math> or (<code>nActionsOrchard</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math> and <code>enableSpendsOrchard</code> <math><mrow><mo>=</mo><mn>1</mn></mrow></math>).</p>
+</blockquote>
+<p>with</p>
+<blockquote>
+<p>[NU5, pre-NU6.3] If <code>effectiveVersion</code> <math><mrow><mo>=</mo><mn>5</mn></mrow></math> then this condition MUST hold: <code>tx_in_count</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math>
+or <code>nSpendsSapling</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math> or (<code>nActionsOrchard</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math> and <code>enableSpendsOrchard</code> <math><mrow><mo>=</mo><mn>1</mn></mrow></math>).</p>
+<p>[NU6.3 onward] If <code>effectiveVersion</code> <math><mrow><mo>≥</mo><mn>6</mn></mrow></math> then this condition MUST hold: <code>tx_in_count</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math>
+or <code>nSpendsSapling</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math> or (<code>nActionsOrchard</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math> and <code>enableSpendsOrchard</code> <math><mrow><mo>=</mo><mn>1</mn></mrow></math>) or
+(<code>nActionsIronwood</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math> and <code>enableSpendsIronwood</code> <math><mrow><mo>=</mo><mn>1</mn></mrow></math>).</p>
+</blockquote>
+<p>and likewise for the corresponding output-side condition, with <code>tx_out_count</code>, <code>nOutputsSapling</code>,
+<code>enableOutputsOrchard</code>, and <code>enableOutputsIronwood</code> in place of <code>tx_in_count</code>, <code>nSpendsSapling</code>,
+<code>enableSpendsOrchard</code>, and <code>enableSpendsIronwood</code> respectively.</p>
+</li>
+<li>
+<p>Add</p>
+<blockquote>
+<p>[NU6.3 onward] If <code>effectiveVersion</code> <math><mrow><mo>≥</mo><mn>6</mn></mrow></math> and <code>nActionsIronwood</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math>, then at least one of
+<code>enableSpendsIronwood</code> and <code>enableOutputsIronwood</code> MUST be 1.</p>
+</blockquote>
+</li>
+<li>
+<p>Add, parallel to the Orchard-pool binding-signature rule,</p>
+<blockquote>
+<p>[NU6.3 onward] If <code>effectiveVersion</code> <math><mrow><mo>≥</mo><mn>6</mn></mrow></math> and <code>nActionsIronwood</code> <math><mrow><mo>></mo><mn>0</mn></mrow></math>, then
+<code>bindingSigIronwood</code> MUST represent a valid signature, under the <em>Ironwood pool</em>'s transaction
+binding validating key, of the SIGHASH transaction hash — with the binding validating key and
+SIGHASH as defined for the <em>Ironwood pool</em> in § 4.14 'Balance and Binding Signature (Orchard)'.
+As for the <em>Orchard pool</em>, validation of the <code>R</code> component of the signature prohibits
+non-canonical point encodings.</p>
+</blockquote>
+</li>
+<li>
+<p>Add</p>
+<blockquote>
+<p>[NU6.3 onward] A coinbase transaction MUST NOT have any <em>Orchard-pool</em> Action Descriptions.</p>
+</blockquote>
+</li>
+<li>
+<p>Replace</p>
+<blockquote>
+<p>[NU5 onward] In a version 5 coinbase transaction, the <code>enableSpendsOrchard</code> flag MUST be 0.</p>
+</blockquote>
+<p>with</p>
+<blockquote>
+<p>[NU5 onward] In a version 5 or version 6 coinbase transaction, the <code>enableSpendsOrchard</code> flag
+MUST be 0.</p>
+</blockquote>
+</li>
+<li>
+<p>Add</p>
+<blockquote>
+<p>[NU6.3 onward] In a version 6 coinbase transaction, the <code>enableSpendsIronwood</code> flag MUST be 0.</p>
+</blockquote>
+</li>
+<li>
+<p>Replace</p>
+<blockquote>
+<p>[NU5 onward] In a version 5 transaction, the reserved bits 2..7 of the <code>flagsOrchard</code> field
+MUST be zero.</p>
+</blockquote>
+<p>with</p>
+<blockquote>
+<p>[NU5 onward] In a version 5 or version 6 transaction, the reserved bits 2..7 of the
+<code>flagsOrchard</code> field MUST be zero.</p>
+</blockquote>
+</li>
+<li>
+<p>Add</p>
+<blockquote>
+<p>[NU6.3 onward] In a version 6 transaction, the reserved bits 3..7 of the <code>flagsIronwood</code> field
+MUST be zero.</p>
+</blockquote>
+</li>
+</ul>
+<p>The <code>enableCrossAddress</code> bit is specified in <sup><a href="#user-content-fn-zip-2006" id="user-content-fnref-zip-2006-4" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>. Note that the reserved-bit rules above
+leave bit 2 of <code>flagsOrchard</code> reserved as 0 (bits 2..7), while bit 2 of <code>flagsIronwood</code> is the
+<code>enableCrossAddress</code> bit (reserved bits 3..7); the <em>Orchard pool</em>'s cross-address restriction is
+enforced for its Actions from NU6.3 onward as specified in <sup><a href="#user-content-fn-zip-2006" id="user-content-fnref-zip-2006-5" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</p>
+<p>This ZIP additionally specifies, for the version 6 format, that the proofs in <code>proofsOrchard</code> and the
+signatures in <code>vSpendAuthSigsOrchard</code> each correspond 1:1 to the elements of <code>vActionsOrchard</code>, in
+the same order; and likewise the proofs in <code>proofsIronwood</code> and the signatures in
+<code>vSpendAuthSigsIronwood</code> to the elements of <code>vActionsIronwood</code>. (Conditional presence of fields is
+given in the format table above.)</p>
+<p>Version 4, version 5, and version 6 transactions are all valid from NU6.3 activation onward;
+this ZIP defines only the version 6 format (the version 4 and version 5 formats are
+unchanged). The NU6.3 consensus rules on Orchard actions apply regardless of transaction
+version. In particular, the Orchard-protocol cross-address restriction is enforced for every
+<em>Orchard-pool</em> Action mined from NU6.3 onward <sup><a href="#user-content-fn-zip-2006" id="user-content-fnref-zip-2006-6" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>, so that it cannot be bypassed
+by using a version 5 transaction.</p>
+<p>See <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258-4" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup> for additional consensus requirements that apply
+to <strong>all</strong> transactions from NU6.3 onward, regardless of transaction version. (Briefly and
+non-normatively, these are that coinbase transactions must have an empty Orchard component;
+that the <code>enableCrossAddress</code> bit of <code>flagsOrchard</code> must be 0; and that
+<math><msup><mi>𝗏</mi><mtext>𝑂𝑟𝑐ℎ𝑎𝑟𝑑𝑃𝑜𝑜𝑙𝐵𝑎𝑙𝑎𝑛𝑐𝑒</mtext></msup></math> must be nonnegative.)</p>
+<h2 id="transaction-identifiers-auth-digests-and-signature-digests"><a class="hanchor" href="#transaction-identifiers-auth-digests-and-signature-digests" aria-hidden="true" tabindex="-1">#</a>Transaction Identifiers, Auth Digests, and Signature Digests</h2>
+<p>Version 6 transaction identifiers (txids), authorizing-data commitments ("auth digests"),
+and signature digests are computed as in ZIP 244 <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup>, with two changes: an
+<strong>Ironwood component digest</strong> is added, and for version 6 the Sapling, Orchard and Ironwood
+anchors move from effecting data to authorizing data. The version 5 algorithm is unchanged.</p>
+<h3 id="ironwood-component-digest"><a class="hanchor" href="#ironwood-component-digest" aria-hidden="true" tabindex="-1">#</a>Ironwood component digest</h3>
+<p>Relative to the txid digest for v5 transactions <sup><a href="#user-content-fn-zip-0244-txiddigest" id="user-content-fnref-zip-0244-txiddigest" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup>, the version 6
+txid digest adds an Ironwood component digest as the last child, after the Orchard component
+digest:</p>
+<pre><code>txid_digest_v6 = BLAKE2b-256("ZcashTxHash_" || consensusBranchId,
+                             header_digest || transparent_digest || sapling_digest_v6 ||
+                             orchard_digest_v6 || ironwood_digest_v6)
+</code></pre>
+<p>Relative to the auth digest for v5 transactions <sup><a href="#user-content-fn-zip-0244-authorizingdatacommitment" id="user-content-fnref-zip-0244-authorizingdatacommitment" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup>, the
+version 6 auth digest adds an Ironwood auth digest as the last child, after the Orchard one:</p>
+<pre><code>auth_digest_v6 = BLAKE2b-256("ZTxAuthHash_" || consensusBranchId,
+                             transparent_auth_digest || sapling_auth_digest_v6 ||
+                             orchard_auth_digest_v6 || ironwood_auth_digest_v6)
+</code></pre>
+<h3 id="anchor-commitment-version-6"><a class="hanchor" href="#anchor-commitment-version-6" aria-hidden="true" tabindex="-1">#</a>Anchor commitment (version 6)</h3>
+<p>In version 5, the Sapling anchor (encoded redundantly as <code>anchor</code> in each
+<code>sapling_spends_noncompact_digest</code>) and the Orchard anchor (<code>anchorOrchard</code> in <code>orchard_digest</code>)
+are part of the <strong>effecting data</strong>: they are committed to in <code>txid_digest</code>, while the Sapling and
+Orchard auth digests commit only to proofs and signatures <sup><a href="#user-content-fn-zip-0244-authorizingdatacommitment" id="user-content-fnref-zip-0244-authorizingdatacommitment-2" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup>.</p>
+<p>In version 6, for Sapling, Orchard, and Ironwood components, the anchor is instead part of the
+<strong>authorizing data</strong>. Relative to ZIP 244, for version 6 transactions:</p>
+<ul>
+<li><code>sapling_spends_noncompact_digest_v6</code>, <code>orchard_digest_v6</code>, and <code>ironwood_digest_v6</code> omit the anchor.</li>
+<li><code>sapling_auth_digest_v6</code>, <code>orchard_auth_digest_v6</code>, and <code>ironwood_auth_digest_v6</code> additionally commit
+to <code>anchorSapling</code>, <code>anchorOrchard</code>, or <code>anchorIronwood</code> respectively, after the existing fields.
+As in the serialization, each anchor is present only when its component has a spend or
+action referencing it: <code>anchorSapling</code> iff <code>nSpendsSapling > 0</code>, <code>anchorOrchard</code> iff
+<code>nActionsOrchard > 0</code>, and <code>anchorIronwood</code> iff <code>nActionsIronwood > 0</code>. In particular,
+a Sapling component with outputs but no spends (for example a transparent-to-Sapling
+transfer) commits to no <code>anchorSapling</code>.</li>
+</ul>
+<p>This lets the anchor be updated (re-anchored to a more recent note commitment tree root) without
+changing the transaction ID, while the proofs still bind to the specific anchor used.</p>
+<p><code>ironwood_digest_v6</code> and <code>ironwood_auth_digest_v6</code> are computed with <em>the same structure</em> as
+<code>orchard_digest_v6</code> and <code>orchard_auth_digest_v6</code>, but with Ironwood-specific 16-byte BLAKE2b-256
+personalizations at each node. Also, distinct personalizations are used for Sapling and Orchard nodes
+where what is directly hashed has been affected as a result of moving the anchor commitments to auth
+data, as follows:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th align="left">Node</th><th>v5 personalization</th><th>v6 personalization</th><th>Comment for v6</th></tr></thead><tbody><tr><td align="left"><math><mspace width="22em"></mspace></math> <strong>Sapling</strong></td><td></td><td></td><td></td></tr><tr><td align="left"><code>sapling_digest[_v6]</code></td><td><code>ZTxIdSaplingHash</code></td><td><code>ZTxIdSaplingHash</code></td><td>not changed directly</td></tr><tr><td align="left"><code>sapling_spends_digest</code></td><td><code>ZTxIdSSpendsHash</code></td><td><code>ZTxIdSSpendsHash</code></td><td>unchanged</td></tr><tr><td align="left"><code>sapling_spends_compact_digest</code></td><td><code>ZTxIdSSpendCHash</code></td><td><code>ZTxIdSSpendCHash</code></td><td>unchanged</td></tr><tr><td align="left"><code>sapling_spends_noncompact_digest[_v6]</code></td><td><code>ZTxIdSSpendNHash</code></td><td><code>ZTxIdSSpendNH_v6</code></td><td>omits <code>anchor</code></td></tr><tr><td align="left"><code>sapling_auth_digest[_v6]</code></td><td><code>ZTxAuthSapliHash</code></td><td><code>ZTxAuthSapliH_v6</code></td><td>includes <code>anchorSapling</code></td></tr><tr><td align="left"><math><mspace width="22em"></mspace></math> <strong>Orchard</strong></td><td></td><td></td><td></td></tr><tr><td align="left"><code>orchard_digest[_v6]</code></td><td><code>ZTxIdOrchardHash</code></td><td><code>ZTxIdOrchardH_v6</code></td><td>omits <code>anchorOrchard</code></td></tr><tr><td align="left"><code>orchard_actions_compact_digest</code></td><td><code>ZTxIdOrcActCHash</code></td><td><code>ZTxIdOrcActCHash</code></td><td>unchanged</td></tr><tr><td align="left"><code>orchard_actions_memos_digest</code></td><td><code>ZTxIdOrcActMHash</code></td><td><code>ZTxIdOrcActMHash</code></td><td>unchanged</td></tr><tr><td align="left"><code>orchard_actions_noncompact_digest</code></td><td><code>ZTxIdOrcActNHash</code></td><td><code>ZTxIdOrcActNHash</code></td><td>unchanged</td></tr><tr><td align="left"><code>orchard_auth_digest[_v6]</code></td><td><code>ZTxAuthOrchaHash</code></td><td><code>ZTxAuthOrchaH_v6</code></td><td>includes <code>anchorOrchard</code></td></tr><tr><td align="left"><math><mspace width="22em"></mspace></math> <strong>Ironwood</strong></td><td></td><td></td><td></td></tr><tr><td align="left"><code>ironwood_digest_v6</code></td><td>n/a</td><td><code>ZTxIdIronwd_H_v6</code></td><td>omits <code>anchorIronwood</code></td></tr><tr><td align="left"><code>ironwood_actions_compact_digest_v6</code></td><td>n/a</td><td><code>ZTxIdIrnActCH_v6</code></td><td></td></tr><tr><td align="left"><code>ironwood_actions_memos_digest_v6</code></td><td>n/a</td><td><code>ZTxIdIrnActMH_v6</code></td><td></td></tr><tr><td align="left"><code>ironwood_actions_noncompact_digest_v6</code></td><td>n/a</td><td><code>ZTxIdIrnActNH_v6</code></td><td></td></tr><tr><td align="left"><code>ironwood_auth_digest_v6</code></td><td>n/a</td><td><code>ZTxAuthIrnwdH_v6</code></td><td>includes <code>anchorIronwood</code></td></tr></tbody></table>
+<p>As in the case of Sapling and Orchard, when a version 6 transaction has no Ironwood actions,
+<code>ironwood_digest_v6</code> and <code>ironwood_auth_digest_v6</code> are the hashes of empty input under the component
+and auth personalizations respectively, i.e. <code>BLAKE2b-256("ZTxIdIronwd_H_v6", [])</code> and
+<code>BLAKE2b-256("ZTxAuthIrnwdH_v6", [])</code>, which are distinct from the Orchard empty-component digests.</p>
+<h3 id="summary-of-the-resulting-digest-structure"><a class="hanchor" href="#summary-of-the-resulting-digest-structure" aria-hidden="true" tabindex="-1">#</a>Summary of the resulting digest structure</h3>
+<p>Below, <code>(*)</code> indicates a node that is directly changed relative to v5, and <code>(+)</code> indicates a node
+that is added relative to v5.</p>
+<p>The txid digest structure becomes:</p>
+<pre><code>txid_digest_v6
+├── header_digest
+├── transparent_digest
+│   ├── prevouts_digest
+│   ├── sequence_digest
+│   └── outputs_digest
+├── sapling_digest_v6
+│   ├── sapling_spends_digest_v6
+│   │   ├── sapling_spends_compact_digest
+│   │   └── sapling_spends_noncompact_digest_v6 (*)
+│   │       ├── cv
+│   │       └── rk
+│   ├── sapling_outputs_digest
+│   │   ├── sapling_outputs_compact_digest
+│   │   ├── sapling_outputs_memos_digest
+│   │   └── sapling_outputs_noncompact_digest
+│   └── valueBalance
+├── orchard_digest_v6 (*)
+│   ├── orchard_actions_compact_digest
+│   ├── orchard_actions_memos_digest
+│   ├── orchard_actions_noncompact_digest
+│   ├── flagsOrchard
+│   └── valueBalanceOrchard
+└── ironwood_digest_v6 (+)
+    ├── ironwood_actions_compact_digest_v6
+    ├── ironwood_actions_memos_digest_v6
+    ├── ironwood_actions_noncompact_digest_v6
+    ├── flagsIronwood
+    └── valueBalanceIronwood
+</code></pre>
+<p>The auth digest structure becomes:</p>
+<pre><code>auth_digest_v6
+├── transparent_scripts_digest
+├── sapling_auth_digest_v6 (*)
+│   ├── vSpendProofsSapling
+│   ├── vSpendAuthSigsSapling
+│   ├── vOutputProofsSapling
+│   ├── bindingSigSapling
+│   └── anchorSapling (+)
+├── orchard_auth_digest_v6 (*)
+│   ├── proofsOrchard
+│   ├── vSpendAuthSigsOrchard
+│   ├── bindingSigOrchard
+│   └── anchorOrchard (+)
+└── ironwood_auth_digest_v6 (+)
+    ├── proofsIronwood
+    ├── vSpendAuthSigsIronwood
+    ├── bindingSigIronwood
+    └── anchorIronwood
+</code></pre>
+<p>Note that the nodes under each of <code>sapling_digest_v6</code>, <code>orchard_digest_v6</code>, <code>ironwood_digest_v6</code>,
+and their <code>auth_digest</code>s are present only if the corresponding component is non-empty.</p>
+<h2 id="block-commitments"><a class="hanchor" href="#block-commitments" aria-hidden="true" tabindex="-1">#</a>Block Commitments</h2>
+<p>The <code>hashAuthDataRoot</code> component of <code>hashBlockCommitments</code> <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244-2" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup> incorporates the version 6 auth
+digest — which now includes the Ironwood auth digest, and (per the change above) the anchors — with
+no further structural change.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>The main purpose of the NU6.3 network upgrade is to bolster confidence in Zcash's supply
+integrity, after the discovery and remediation of the Orchard soundness vulnerability
+described in <sup><a href="#user-content-fn-zip-0257" id="user-content-fnref-zip-0257-3" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>.</p>
+<p>The urgency of this motivation called for an accelerated timeline, which necessitated
+a high bar for feature inclusion. Therefore, even fairly straightforward improvements
+(such as <sup><a href="#user-content-fn-zip-2002" id="user-content-fnref-zip-2002" data-footnote-ref="" aria-describedby="footnote-label">22</a></sup>, which had been "queued" for inclusion in the next transaction format
+update), were omitted from this upgrade.</p>
+<h2 id="reuse-of-the-orchard-protocol-with-minimal-changes"><a class="hanchor" href="#reuse-of-the-orchard-protocol-with-minimal-changes" aria-hidden="true" tabindex="-1">#</a>Reuse of the Orchard protocol with minimal changes</h2>
+<p>Carrying the <em>Ironwood pool</em> as a second Orchard-protocol component, rather than defining a
+new shielded protocol, keeps the transaction-format and implementation surface small:
+the Action encoding, proving system, authorization, and note encryption (modulo the new
+note plaintext format defined by <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005-7" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>) are inherited unchanged. The pools are
+distinguished by their note commitment trees, nullifier sets, value pool
+balances, and component position, not by separate circuits.</p>
+<h2 id="separate-state"><a class="hanchor" href="#separate-state" aria-hidden="true" tabindex="-1">#</a>Separate state</h2>
+<p>Giving the <em>Ironwood pool</em> its own note commitment tree, anchor, and nullifier set creates
+a state boundary from the <em>Orchard pool</em>, so that their chain value pool balance can be
+accounted for independently.</p>
+<h2 id="enablecrossaddress-polarity"><a class="hanchor" href="#enablecrossaddress-polarity" aria-hidden="true" tabindex="-1">#</a><code>enableCrossAddress</code> polarity</h2>
+<p>This flag is encoded in the enabled sense (<code>1</code> = cross-address transfers enabled, the
+normal case for <em>Ironwood-pool</em> actions; 0 = action outputs restricted to use the same
+protocol-level address as the action's spend), with bit 2 reserved as 0 before NU6.3.
+This is backward-compatible: an <em>Orchard-pool</em> spend after NU6.3 requires the restricted
+state, which is bit 2 = 0 — exactly the value that signers treating bit 2 as a
+reserved-zero bit already produce. The in-circuit constraint and the equivalent internal
+<code>disableCrossAddress</code> instance value are discussed in <sup><a href="#user-content-fn-zip-2006" id="user-content-fnref-zip-2006-7" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This transaction format is deployed at NU6.3. Activation heights and the NU6.3 consensus
+branch ID are specified in <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258-5" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>; the version 6 version group ID is specified in
+§ 7.1.2 <sup><a href="#user-content-fn-protocol-txnconsensus" id="user-content-fnref-protocol-txnconsensus-2" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup>.</p>
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Acknowledgements</h1>
+<p>We thank the developers of Penumbra <sup><a href="#user-content-fn-penumbra" id="user-content-fnref-penumbra" data-footnote-ref="" aria-describedby="footnote-label">23</a></sup> for demonstrating the advantages of
+treating the note commitment tree anchor as authorizing data rather than effecting data.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0200">
+<p><a href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a> <a href="#user-content-fnref-zip-0200" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2026.8.0 [NU6.3] or later</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-2005">
+<p><a href="/upstream/zip-2005.md">ZIP 2005: Ironwood Quantum Recoverability</a> <a href="#user-content-fnref-zip-2005" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-2005-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-2005-3" data-footnote-backref="" aria-label="Back to reference 5-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-2005-4" data-footnote-backref="" aria-label="Back to reference 5-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-zip-2005-5" data-footnote-backref="" aria-label="Back to reference 5-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-zip-2005-6" data-footnote-backref="" aria-label="Back to reference 5-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-zip-2005-7" data-footnote-backref="" aria-label="Back to reference 5-7" class="data-footnote-backref">↩<sup>7</sup></a></p>
+</li>
+<li id="user-content-fn-zip-2006">
+<p><a href="/upstream/zip-2006.md">ZIP 2006: Restricting Transfers into the Orchard Pool</a> <a href="#user-content-fnref-zip-2006" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-2006-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-2006-3" data-footnote-backref="" aria-label="Back to reference 6-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-2006-4" data-footnote-backref="" aria-label="Back to reference 6-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-zip-2006-5" data-footnote-backref="" aria-label="Back to reference 6-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-zip-2006-6" data-footnote-backref="" aria-label="Back to reference 6-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-zip-2006-7" data-footnote-backref="" aria-label="Back to reference 6-7" class="data-footnote-backref">↩<sup>7</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0224">
+<p><a href="/upstream/zip-0224.rst">ZIP 224: Orchard Shielded Protocol</a> <a href="#user-content-fnref-zip-0224" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0258">
+<p><a href="/upstream/zip-0258.md">ZIP 258: Deployment of the NU6.3 Network Upgrade</a> <a href="#user-content-fnref-zip-0258" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0258-2" data-footnote-backref="" aria-label="Back to reference 8-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0258-3" data-footnote-backref="" aria-label="Back to reference 8-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-0258-4" data-footnote-backref="" aria-label="Back to reference 8-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-zip-0258-5" data-footnote-backref="" aria-label="Back to reference 8-5" class="data-footnote-backref">↩<sup>5</sup></a></p>
+</li>
+<li id="user-content-fn-ironwood-book">
+<p><a href="https://zcash.github.io/ironwood/">The Ironwood Book</a> <a href="#user-content-fnref-ironwood-book" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0318">
+<p><a href="/upstream/zip-0318">ZIP 318: Orchard to Ironwood Migration</a> <a href="#user-content-fnref-zip-0318" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0318-2" data-footnote-backref="" aria-label="Back to reference 10-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0326">
+<p><a href="/upstream/zip-0326.md">ZIP 326: NU6.3 Consequences for Wallets</a> <a href="#user-content-fnref-zip-0326" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0257">
+<p><a href="/upstream/zip-0257.md">ZIP 257: Deployment of the Orchard Temporary Vulnerability Mitigation and NU6.2 Network Upgrade</a> <a href="#user-content-fnref-zip-0257" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0257-2" data-footnote-backref="" aria-label="Back to reference 12-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0257-3" data-footnote-backref="" aria-label="Back to reference 12-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0209">
+<p><a href="/upstream/zip-0209.rst">ZIP 209: Prohibit Out-of-Range Shielded Chain Value Pool Balances</a> <a href="#user-content-fnref-zip-0209" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0230">
+<p><a href="/upstream/zip-0230.rst">ZIP 230: Withdrawn Version 6 Transaction Format</a> <a href="#user-content-fnref-zip-0230" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0248">
+<p>ZIP 248: Extensible Transaction Format (unmerged; PR at <a href="https://github.com/zcash/zips/pull/1156">https://github.com/zcash/zips/pull/1156</a>) <a href="#user-content-fnref-zip-0248" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0225">
+<p><a href="/upstream/zip-0225.rst">ZIP 225: Version 5 Transaction Format</a> <a href="#user-content-fnref-zip-0225" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0225-2" data-footnote-backref="" aria-label="Back to reference 16-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0203">
+<p><a href="/upstream/zip-0203.rst">ZIP 203: Transaction Expiry</a> <a href="#user-content-fnref-zip-0203" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-txnconsensus">
+<p><a href="/upstream/protocol/protocol.pdf#txnconsensus">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 7.1.2: Transaction Consensus Rules</a> <a href="#user-content-fnref-protocol-txnconsensus" data-footnote-backref="" aria-label="Back to reference 18" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-txnconsensus-2" data-footnote-backref="" aria-label="Back to reference 18-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0244">
+<p><a href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a> <a href="#user-content-fnref-zip-0244" data-footnote-backref="" aria-label="Back to reference 19" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0244-2" data-footnote-backref="" aria-label="Back to reference 19-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0244-txiddigest">
+<p><a href="/upstream/zip-0244.rst#txid-digest">ZIP 244: Transaction Identifier Non-Malleability — TxId Digest</a> <a href="#user-content-fnref-zip-0244-txiddigest" data-footnote-backref="" aria-label="Back to reference 20" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0244-authorizingdatacommitment">
+<p><a href="/upstream/zip-0244.rst#authorizing-data-commitment">ZIP 244: Transaction Identifier Non-Malleability — Authorizing Data Commitment</a> <a href="#user-content-fnref-zip-0244-authorizingdatacommitment" data-footnote-backref="" aria-label="Back to reference 21" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0244-authorizingdatacommitment-2" data-footnote-backref="" aria-label="Back to reference 21-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-2002">
+<p><a href="/upstream/zip-2002.rst">ZIP 2002: Explicit Fees</a> <a href="#user-content-fnref-zip-2002" data-footnote-backref="" aria-label="Back to reference 22" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-penumbra">
+<p><a href="https://protocol.penumbra.zone/main/index.html">The Penumbra Protocol</a> <a href="#user-content-fnref-penumbra" data-footnote-backref="" aria-label="Back to reference 23" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

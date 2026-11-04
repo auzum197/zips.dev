@@ -1,0 +1,355 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot;, &quot;MUST NOT&quot;, &quot;SHOULD&quot;, and &quot;MAY&quot; in this document are to
+be interpreted as described in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they
+appear in all capitals.</p>
+<p>The terms below are to be interpreted as follows:</p>
+<dl class="simple">
+<dt>Sprout protocol</dt>
+<dd><p>Code-name for the Zcash shielded protocol at launch.</p>
+</dd>
+<dt>Sapling protocol</dt>
+<dd><p>Code-name for the Zcash shielded protocol added by the second Zcash network
+upgrade, also known as Network Upgrade 1.</p>
+</dd>
+</dl>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This proposal describes privacy-preserving procedures to migrate funds from
+Sprout to Sapling z-addresses; and supporting RPC operations to enable,
+disable, and monitor the migration process.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Zcash Sapling <a class="brackets" href="#zip-0205" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> introduces significant efficiency improvements
+relative to the previous iteration of the Zcash shielded protocol, Sprout.
+These improvements will pave the way for broad mobile, exchange and vendor
+adoption of shielded addresses.</p>
+<p>Therefore, we anticipate that users will want to migrate all their shielded
+funds from Sprout to Sapling.</p>
+<p>The Zcash consensus rules prohibit direct transfers from Sprout to Sapling
+z-addresses, unless the amount is revealed by sending it through the
+&quot;transparent value pool&quot; <a class="brackets" href="#transparent-value-pool" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>. The primary motivation
+for this is to allow detection of any overall inflation of the Zcash monetary
+base, due to exploitation of possible vulnerabilities in the shielded
+protocols or their implementation, or a compromise of the Sprout multi-party
+computation. (It is not necessary for Sprout -&gt; Sapling transfers to go via
+a t-address.)</p>
+<p>Since the exposure of the migrated amount potentially compromises the privacy
+of users, we wish to define a way to perform the migration that mitigates
+this privacy leak as far as possible. This can be done by hiding individual
+migration transactions among those of all users that are doing the migration
+at around the same time.</p>
+<p>The security analysis of migration strategies is quite subtle; the more
+obvious potential strategies can leak a lot of information.</p>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>Migration is performed &quot;in the background&quot; by a <span class="docutils literal">zcashd</span> (or equivalent)
+node. It does not significantly interfere with concurrent usage of the node,
+other than possibly increasing the latency of some other shielded operations.</p>
+<p>It is possible to enable or disable migration at any time.</p>
+<p>All shielded funds in Sprout z-addresses will eventually be transferred to
+Sapling z-addresses, provided the node is working.</p>
+<p>It should take a &quot;reasonable&quot; length of time to complete the transfer;
+less than a month for amounts up to 1000 ZEC.</p>
+<p>The design should mitigate information leakage via timing information and
+transaction data, including</p>
+<ul class="simple">
+<li><p>linkage of particular z-addresses or users, and the amounts held;</p></li>
+<li><p>information about the distribution of amounts of individual notes.</p></li>
+</ul>
+<p>The design and implementation is stateless, to the extent practical.</p>
+<p>Visibility is provided for the wallet/node user into the progress of the
+migration.</p>
+<p>There is sufficient information available to debug failed transactions that
+are part of the migration.</p>
+<p>The design recovers from failed operations to the extent possible.</p>
+<p>The total amount sent by each user is obscured, to the extent practical.</p>
+</section>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<p>There is no requirement or assumption of network layer anonymity. (Users may,
+but are not expected to, configure Tor.)</p>
+<p>The migration procedure does not have to provably leak no information.</p>
+<p>There is no need to preserve individual note values (i.e. notes can be
+consolidated).</p>
+<p>Migration txns need only be hidden among themselves, rather than among all
+kinds of transaction.</p>
+<p>A small amount (less than 0.01 ZEC) can be left unmigrated if this helps with
+privacy.</p>
+<p>It is not required to support the case of single wallet being used by multiple
+users whose funds should be kept distinct.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>There are two main aspects to a strategy for selecting migration transactions:</p>
+<ul class="simple">
+<li><p>how many transactions are sent, and when;</p></li>
+<li><p>the amount sent in each transaction.</p></li>
+</ul>
+<h2 id="transaction-schedule"><a class="hanchor" href="#transaction-schedule" aria-hidden="true" tabindex="-1">#</a>Transaction schedule</h2>
+<p>When migration is enabled, a node will send up to 5 transactions for inclusion
+in each block with height a multiple of 500 (that is, they are sent immediately
+after seeing a block with height 499, modulo 500). Up to the limit of 5, as
+many transactions are sent as are needed to migrate the remaining funds
+(possibly with a remainder less than 0.01 ZEC left unmigrated).</p>
+<p>Nodes SHOULD NOT send migration transactions during initial block download, or
+if the timestamp of the triggering block (with height 499, modulo 500) is more
+than three hours in the past according to the node's adjusted local clock.</p>
+<p>Note: the 500-block interval has <em>not</em> been altered as a result of the halving
+of target block spacing to 75 seconds with the Blossom upgrade. <a class="brackets" href="#zip-0208" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a></p>
+<p>The migration transactions to be sent in a particular batch can take
+significant time to generate, and this time depends on the speed of the user's
+computer. If they were generated only after a block is seen at the target
+height minus 1, then this could leak information. Therefore, for target
+height N, implementations SHOULD start generating the transactions at around
+height N-5 (provided that block's timestamp is not more than three hours in
+the past). Each migration transaction SHOULD specify an anchor at height N-10
+for each Sprout JoinSplit description (and therefore only notes created before
+this anchor are eligible for migration).</p>
+<p>Open questions:</p>
+<ul class="simple">
+<li><p>does this reliably give sufficient time to generate the transactions?</p></li>
+<li><p>what happens to a batch if the anchor is invalidated -- should it be
+regenerated, or cancelled?</p></li>
+</ul>
+<h3 id="rationale-for-transaction-schedule"><a class="hanchor" href="#rationale-for-transaction-schedule" aria-hidden="true" tabindex="-1">#</a>Rationale for transaction schedule</h3>
+<details>
+<summary>Click to show/hide</summary><p>Privacy is increased when the times at which to send transactions are
+coordinated between nodes. We choose to send a batch of transactions at each
+coordinated time. Sending multiple transactions in each batch ensures that:</p>
+<ul class="simple">
+<li><p>less information about balances is leaked;</p></li>
+<li><p>it is easier to finish in a reasonable length of time.</p></li>
+</ul>
+<p>The choice of 500 blocks as the batch interval ensures that each batch occurs
+at a different time of day (both before and after the Blossom upgrade), which
+may help to mitigate problems with the availability of nodes being correlated
+with the local time-of-day.</p>
+<p>Simulation shows that the migration process will typically complete reasonably
+quickly even if the amount to be migrated is large:</p>
+<table>
+<thead>
+<tr><th class="head" rowspan="2"><p>Amount</p></th>
+<th class="head" colspan="3"><p>Time in days to complete migration</p></th>
+</tr>
+<tr><th class="head"><p>10th-percentile</p></th>
+<th class="head"><p>median</p></th>
+<th class="head"><p>90th-percentile</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>1 ZEC</p></td>
+<td><p>1.00</p></td>
+<td><p>1.46</p></td>
+<td><p>1.72</p></td>
+</tr>
+<tr><td><p>10 ZEC</p></td>
+<td><p>1.43</p></td>
+<td><p>1.95</p></td>
+<td><p>2.48</p></td>
+</tr>
+<tr><td><p>100 ZEC</p></td>
+<td><p>1.93</p></td>
+<td><p>2.69</p></td>
+<td><p>3.60</p></td>
+</tr>
+<tr><td><p>1000 ZEC</p></td>
+<td><p>5.66</p></td>
+<td><p>6.95</p></td>
+<td><p>8.47</p></td>
+</tr>
+<tr><td><p>10000 ZEC</p></td>
+<td><p>45.31</p></td>
+<td><p>49.16</p></td>
+<td><p>53.24</p></td>
+</tr>
+</tbody>
+</table>
+<p>(The estimated times for larger amounts halved as a result of the target block
+spacing change in Blossom.)</p>
+<p>The simulation also depends on the amounts sent as specified in the next
+section. It includes the time spent waiting for the first batch to be sent.</p>
+<p>The code used for this simulation is at <a class="brackets" href="#migration-simulator" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+</details></section>
+</section>
+<h2 id="how-much-to-send-in-each-transaction"><a class="hanchor" href="#how-much-to-send-in-each-transaction" aria-hidden="true" tabindex="-1">#</a>How much to send in each transaction</h2>
+<p>If the remaining amount to be migrated is less than 0.01 ZEC, end the migration.</p>
+<p>Otherwise, the amount to send in each transaction is chosen according to the
+following distribution:</p>
+<ol class="arabic simple">
+<li><p>Choose an integer exponent uniformly in the range 6 to 8 inclusive.</p></li>
+<li><p>Choose an integer mantissa uniformly in the range 1 to 99 inclusive.</p></li>
+<li><p>Calculate amount := (mantissa * 10<sup>exponent</sup>) zatoshi.</p></li>
+<li><p>If amount is greater than the amount remaining to send, repeat from step 1.</p></li>
+</ol>
+<p>Implementations MAY optimize this procedure by selecting the exponent and
+mantissa based on the amount remaining to avoid repetition, but the resulting
+distribution MUST be identical.</p>
+<p>The amount chosen <em>includes</em> the 0.0001 ZEC fee for this transaction, i.e.
+the value of the Sapling output will be 0.0001 ZEC less.</p>
+<h3 id="rationale-for-how-much-to-send"><a class="hanchor" href="#rationale-for-how-much-to-send" aria-hidden="true" tabindex="-1">#</a>Rationale for how much to send</h3>
+<details>
+<summary>Click to show/hide</summary><p>Suppose that a user has an amount to migrate that is a round number of ZEC.
+Then, a potential attack would be to find some subset of all the migration
+transactions that sum to a round number of ZEC, and infer that all of those
+transactions are from the same user. If amounts sent were a random multiple
+of 1 zatoshi, then the resulting knapsack problem would be likely to have a
+unique solution and be practically solvable for the number of transactions
+involved. The chosen distribution of transaction amounts mitigates this
+potential vulnerability by ensuring that there will be many solutions for sets
+of transactions, including &quot;incorrect&quot; solutions (that is, solutions that mix
+transactions from different users, contrary to the supposed adversary's
+inference).</p>
+<p>Making the chosen amount inclusive of the fee avoids leaving any unmigrated
+funds at the end, in the case where the original amount to migrate was a
+multiple of 0.01 ZEC.</p>
+</details></section>
+</section>
+<h2 id="other-design-decisions"><a class="hanchor" href="#other-design-decisions" aria-hidden="true" tabindex="-1">#</a>Other design decisions</h2>
+<p>We assume use of the normal wallet note selection algorithm and change
+handling. Change is sent back to the default address, which is the z-address
+of the first selected Sprout note. The number of JoinSplits will therefore be
+the same as for a normal transaction sending the same amount with the same
+wallet state. Only the <span class="docutils literal">vpub_new</span> of the last JoinSplit will be nonzero.
+There will always be exactly one Sapling Output.</p>
+<p>The expiry delta for migration transactions MUST be 450 blocks. Since these
+transactions are sent when the block height is 499 modulo 500, their expiry
+height will be 451 blocks later, i.e. <span class="docutils literal">nExpiryHeight</span> will be 450 modulo 500.</p>
+<p>The fee for each migration transaction MUST be 0.0001 ZEC. This fee is taken
+from the funds to be migrated.</p>
+<p>Some wallets by default add a &quot;developer fee&quot; to each transaction, directed
+to the developer(s) of the wallet. This is typically implemented by adding
+the developer address as an explicit output, so if migration transactions are
+generated internally by <span class="docutils literal">zcashd</span>, they will not include the developer fee.
+We strongly recommend <em>not</em> patching the <span class="docutils literal">zcashd</span> code to add the developer
+fee output to migration transactions, because doing so partitions the anonymity
+set between users of that wallet and other users.</p>
+<p>There MUST NOT be any transparent inputs or outputs, or Sapling Spends, in a
+migration transaction.</p>
+<p>The <span class="docutils literal">lock_time</span> field MUST be set to 0 (unused).</p>
+<p>When creating Sapling shielded Outputs, the outgoing viewing key <span class="docutils literal">ovk</span>
+SHOULD be chosen in the same way as for a transfer sent from a t-address.</p>
+<p>A node SHOULD treat migration transactions in the same way as transactions
+submitted over the RPC interface.</p>
+</section>
+<h2 id="open-questions"><a class="hanchor" href="#open-questions" aria-hidden="true" tabindex="-1">#</a>Open questions</h2>
+<p>The above strategy has several &quot;magic number&quot; parameters:</p>
+<ul class="simple">
+<li><p>the interval between batches (500 blocks)</p></li>
+<li><p>the maximum number of transactions in a batch (5)</p></li>
+<li><p>the distribution of exponents (uniform integer in 6..8)</p></li>
+<li><p>the distribution of mantissae (uniform integer in 1..99).</p></li>
+</ul>
+<p>These have been chosen by guesswork. Should we change any of them?</p>
+<p>In particular, if the amount to migrate is large, then this strategy can
+result in fairly large amounts (up to 99 ZEC, worth USD ~6700 at time of
+writing) transferred in each transaction. This leaks the fact that the
+transaction was sent by a user who has at least that amount.</p>
+<p>The strategy does not migrate any remaining fractional amount less than
+0.01 ZEC (worth USD ~0.68 at time of writing). Is this reasonable?</p>
+<p>In deciding the amount to send in each transaction, the strategy does not
+take account of the values of individual Sprout notes, only the total amount
+remaining to migrate. Can a strategy that is sensitive to individual note
+values improve privacy?</p>
+<p>An adversary may attempt to interfere with the view of the block chain seen
+by a subset of nodes that are performing migrations, in order to cause those
+nodes to send migration batches at a different time, so that they may be
+distinguished. Is there anything further we can do to mitigate this
+vulnerability?</p>
+</section>
+<h2 id="rpc-calls"><a class="hanchor" href="#rpc-calls" aria-hidden="true" tabindex="-1">#</a>RPC calls</h2>
+<p>Nodes MUST maintain a boolean state variable during their execution, to
+determine whether migration is enabled. The default when a node starts, is
+set by a configuration option:</p>
+<pre class="literal-block">-migration=0/1</pre>
+<p>The destination z-address can optionally be set by another option:</p>
+<pre class="literal-block">-migrationdestaddress=&lt;zaddr&gt;</pre>
+<p>If this option is not present then the migration destination address is
+the address for Sapling account 0, with the default diversifier <a class="brackets" href="#zip-0032" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>The state variable can also be set for a running node using the following
+RPC method:</p>
+<pre class="literal-block">z_setmigration true/false</pre>
+<p>It is intentional that the only option associated with the migration is the
+destination z-address. Other options could potentially distinguish users.</p>
+<p>Nodes MUST also support the following RPC call to return the current status of
+the migration:</p>
+<pre class="literal-block">z_getmigrationstatus</pre>
+<p>Returns:</p>
+<pre class="literal-block">{
+  &quot;enabled&quot;: true|false,
+  &quot;destination_address&quot;: &quot;zaddr&quot;,
+  &quot;unmigrated_amount&quot;: nnn.n,
+  &quot;unfinalized_migrated_amount&quot;: nnn.n,
+  &quot;finalized_migrated_amount&quot;: nnn.n,
+  &quot;finalized_migration_transactions&quot;: nnn,
+  &quot;time_started&quot;: ttt, // Unix timestamp
+  &quot;migration_txids&quot;: [txids]
+}</pre>
+<p>The <span class="docutils literal">destination_address</span> field MAY be omitted if the <span class="docutils literal"><span class="pre">-migrationaddress</span></span>
+parameter is not set and no default address has yet been generated.</p>
+<p>The values of <span class="docutils literal">unmigrated_amount</span> and <span class="docutils literal">migrated_amount</span> MUST take into
+account failed transactions, that were not mined within their expiration
+height.</p>
+<p>The values of <span class="docutils literal">unfinalized_migrated_amount</span> and <span class="docutils literal">finalized_migrated_amount</span>
+are the total amounts sent to the Sapling destination address in migration
+transactions, excluding fees.</p>
+<p><span class="docutils literal">migration_txids</span> is a list of strings representing transaction IDs of all
+known migration transactions involving this wallet, as lowercase hexadecimal
+in RPC byte order. A given transaction is defined as a migration transaction
+iff it has:</p>
+<ul class="simple">
+<li><p>one or more Sprout JoinSplits with nonzero <span class="docutils literal">vpub_new</span> field; and</p></li>
+<li><p>no Sapling Spends, and;</p></li>
+<li><p>one or more Sapling Outputs.</p></li>
+</ul>
+<p>Note: it is possible that manually created transactions involving this
+wallet will be recognized as migration transactions and included in
+<span class="docutils literal">migration_txids</span>.</p>
+<p>The value of <span class="docutils literal">time_started</span> is the earliest Unix timestamp of any known
+migration transaction involving this wallet; if there is no such transaction,
+then the field is absent.</p>
+<p>A transaction is <span class="docutils literal">finalized</span> iff it has at least 10 confirmations.
+TODO: subject to change, if the recommended number of confirmations changes.</p>
+</section>
+</section>
+<h1 id="support-in-zcashd"><a class="hanchor" href="#support-in-zcashd" aria-hidden="true" tabindex="-1">#</a>Support in zcashd</h1>
+<p>The following PRs implement this specification:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3848">https://github.com/zcash/zcash/pull/3848</a> (TransactionBuilder support)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3888">https://github.com/zcash/zcash/pull/3888</a> (main RPC)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3967">https://github.com/zcash/zcash/pull/3967</a> (config options)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3973">https://github.com/zcash/zcash/pull/3973</a> (getmigrationstatus RPC)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3977">https://github.com/zcash/zcash/pull/3977</a> (bugfix)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3987">https://github.com/zcash/zcash/pull/3987</a> (bugfix)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3990">https://github.com/zcash/zcash/pull/3990</a> (bugfix)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3995">https://github.com/zcash/zcash/pull/3995</a> (don't migrate in initial block download/after wakeup)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3997">https://github.com/zcash/zcash/pull/3997</a> (bugfix)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/4002">https://github.com/zcash/zcash/pull/4002</a> (minor RPC improvements)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/4005">https://github.com/zcash/zcash/pull/4005</a> (change expiry for migration transactions)</p></li>
+</ul>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="transparent-value-pool" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2020.1.15. Sections 3.4, 4.11 and 4.12</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0205" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0205.rst">ZIP 205: Deployment of the Sapling Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0208" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0208.rst">ZIP 208: Shorter Block Target Spacing</a></p>
+</aside>
+<aside class="footnote brackets" id="migration-simulator" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/daira/zcash-migration">Sprout -&gt; Sapling migration simulation</a></p>
+</aside>
+</aside>
+</section>

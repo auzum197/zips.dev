@@ -1,0 +1,132 @@
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This is a Standards ZIP describing a new consensus rule to set an expiration time after
+which a transaction cannot be mined. If it is not mined within that time, the transaction
+will be removed from nodes' mempools.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Transactions that have insufficient fees are often not mined. This indeterminism is a
+source of confusion for users and wallets. Allowing a transaction to set a block height
+after which it cannot be mined would provide certainty around how long a transaction has
+to confirm before it is rejected by the network and must be re-sent.</p>
+<p>Advantages include optimizing mempool performance by removing transactions that will not
+be mined, and potentially simplifying bidirectional payment channels by reducing the need
+to store and compress revocations for past states, since transactions not committed to the
+chain could expire and become invalid after a period of time.</p>
+<p>If the expiry is at block height <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+  <mspace width="-0.1667em"></mspace>
+</math>, then the transaction must be included in block
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+</math> or earlier. Block <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+  <mo>+</mo>
+  <mn>1</mn>
+</math> will be too late, and the transaction will be
+removed from the mempool.</p>
+<p>The new consensus rule will enforce that the transaction will not be considered valid if
+included in block of height greater than <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+  <mspace width="-0.1667em"></mspace>
+</math>, and blocks that include expired
+transactions will not be considered valid.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>Transactions will have a new field, <span class="docutils literal">nExpiryHeight</span>, which will set the block height
+after which transactions will be removed from the mempool if they have not been mined.</p>
+<p>The data type for <span class="docutils literal">nExpiryHeight</span> will be <span class="docutils literal">uint32_t</span>. <span class="docutils literal">nExpiryHeight</span> will never
+be a UNIX timestamp, unlike <span class="docutils literal">nLockTime</span> values, and thus the maximum expiry height
+will be 499999999 (but see the exception for coinbase transactions described in
+<a class="reference internal" href="#changes-for-nu5">Changes for NU5</a>).</p>
+<p>Note: a previous version of this ZIP incorrectly specified an interaction between
+<span class="docutils literal">nExpiryHeight</span> and <span class="docutils literal">nLockTime</span> that was never implemented.</p>
+<p>For the example below, the last block that the transaction below could possibly be
+included in is 3539. After that, it will be removed from the mempool.</p>
+<pre class="literal-block">&quot;txid&quot;: &quot;17561b98cc77cd5a984bb959203e073b5f33cf14cbce90eb32b95ae2c796723f&quot;,
+&quot;version&quot;: 3,
+&quot;locktime&quot;: 2089,
+&quot;expiryheight&quot;: 3539,</pre>
+<p>Default: (Before Blossom) 20 blocks from the current height, or about 50 minutes at
+2.5-minute target block spacing. A configuration option can be used to set the user's
+default.</p>
+<p>Minimum: No minimum</p>
+<p>Maximum: 499999999. The wall-clock time corresponding to this absolute height
+depends on the block target spacing in effect before it is reached.</p>
+<p>No limit: To set no limit on transactions (so that they do not expire), <span class="docutils literal">nExpiryHeight</span>
+should be set to 0.</p>
+<p>Coinbase: <span class="docutils literal">nExpiryHeight</span> on coinbase transactions is ignored, and is set to 0 by
+convention.</p>
+<p>Every time a transaction expires and should be removed from the mempool, so should all
+of its dependent transactions.</p>
+<h2 id="changes-for-blossom"><a class="hanchor" href="#changes-for-blossom" aria-hidden="true" tabindex="-1">#</a>Changes for Blossom</h2>
+<p>On Blossom activation <a class="brackets" href="#zip-0206" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>, the default changes to 40 blocks from the current
+height, which still represents about 50 minutes at the revised 75-second target block
+spacing.</p>
+</section>
+<h2 id="changes-for-nu5"><a class="hanchor" href="#changes-for-nu5" aria-hidden="true" tabindex="-1">#</a>Changes for NU5</h2>
+<p>As mentioned above, <span class="docutils literal">nExpiryHeight</span> is ignored for coinbase transactions. However, from
+NU5 activation <a class="brackets" href="#zip-0252" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, the <span class="docutils literal">nExpiryHeight</span> field of a coinbase transaction MUST
+be set equal to the block height. Also, for coinbase transactions only, the bound of
+499999999 on <span class="docutils literal">nExpiryHeight</span> is removed. The motivation is to ensure that transaction
+IDs remain unique, as explained in more detail in a note in Section 7.1 of the protocol
+specification <a class="brackets" href="#protocol-txnencoding" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h2 id="changes-for-nu7"><a class="hanchor" href="#changes-for-nu7" aria-hidden="true" tabindex="-1">#</a>Changes for NU7</h2>
+<p>At NU7 activation, ZIP 218 <a class="brackets" href="#zip-0218" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> recommends that implementations
+creating transactions change the default expiry delta from 40 to 120 blocks,
+which remains approximately 50 minutes at the 25-second target spacing.
+An explicitly configured <span class="docutils literal"><span class="pre">-txexpirydelta</span></span> value continues to apply before
+and after activation. This changes neither the expiry consensus rule nor
+the maximum expiry height above.</p>
+</section>
+<h2 id="wallet-behavior-and-ui"><a class="hanchor" href="#wallet-behavior-and-ui" aria-hidden="true" tabindex="-1">#</a>Wallet behavior and UI</h2>
+<p>With the addition of this feature, zero-confirmation transactions with an expiration block
+height set will have even less guarantee of inclusion. This means that UIs and services
+must never rely on zero-confirmation transactions in Zcash.</p>
+<p>Wallet should notify the user of expired transactions that must be re-sent.</p>
+</section>
+<h2 id="rpc"><a class="hanchor" href="#rpc" aria-hidden="true" tabindex="-1">#</a>RPC</h2>
+<p>For Overwinter, transaction expiry will be set to a default that can be overridden by a
+flag <cite>txexpirydelta</cite> set in the config file.</p>
+<p><span class="docutils literal"><span class="pre">-txexpirydelta=</span></span> set the number of blocks after which a transaction that has not been
+mined will become invalid</p>
+<p>To view: <cite>listtransactions</cite> has a new filter attribute, showing expired transactions only:</p>
+<pre class="literal-block">listtransactions &quot;*&quot; 10 0 &quot;expired&quot;</pre>
+<p>WalletTxToJSON shows a boolean expired true/false.</p>
+</section>
+<h2 id="config"><a class="hanchor" href="#config" aria-hidden="true" tabindex="-1">#</a>Config</h2>
+<p>The default will be user-configurable with the option <cite>txexpirydelta</cite>.</p>
+<p><cite>--txexpirydelta=100</cite></p>
+</section>
+<h2 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h2>
+<p>This feature will be deployed with Overwinter. The activation blockheight proposal is in
+<a class="brackets" href="#zip-0201" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h1>
+<p><a class="reference external" href="https://github.com/zcash/zcash/pull/2874">https://github.com/zcash/zcash/pull/2874</a></p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="zip-0201" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0201.rst">ZIP 201: Network Peer Management for Overwinter</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0206" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0206.rst">ZIP 206: Deployment of the Blossom Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0218" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0218.md">ZIP 218: 25-second Block Target Spacing</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0252" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0252.rst">ZIP 252: Deployment of the NU5 Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2021.2.16. Section 7.1: Transaction Encoding and Consensus</a></p>
+</aside>
+</aside>
+</section>

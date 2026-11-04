@@ -1,0 +1,270 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot;, &quot;MUST NOT&quot;, &quot;SHOULD&quot;, &quot;SHOULD NOT&quot;, and &quot;MAY&quot; in this
+document are to be interpreted as described in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only
+when, they appear in all capitals.</p>
+<p>The term &quot;network upgrade&quot; in this document is to be interpreted as described in
+ZIP 200. <a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p>
+<p>The terms &quot;Testnet&quot; and &quot;Mainnet&quot; are to be interpreted as described in
+section 3.12 of the Zcash Protocol Specification <a class="brackets" href="#protocol-networks" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>.</p>
+<p>&quot;P2P network&quot; means the Zcash peer-to-peer network.</p>
+<p><span class="docutils literal">uint8</span>, <span class="docutils literal">uint16</span>, and <span class="docutils literal">uint32</span> denote unsigned integer data types of the
+corresponding length (8, 16, or 32 bits respectively).</p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This document proposes a new P2P message to gossip longer node addresses over the
+P2P network. This is required to support new-generation onion addresses, I2P, and
+potentially other networks that have longer endpoint addresses than fit in the 128
+bits of the current <span class="docutils literal">addr</span> message.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Tor v3 onion services are part of the stable release of Tor since version 0.3.2.9.
+They have various advantages compared to the old v2 onion services, among which better
+encryption and privacy <a class="brackets" href="#tor-rendezvous-v3" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>. These services have 256-bit addresses
+and thus do not fit in the existing <span class="docutils literal">addr</span> message (unchanged from Bitcoin
+<a class="brackets" href="#bitcoin-addr-message" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>), which encapsulates onion addresses in OnionCat IPv6 addresses.</p>
+<p>Other transport-layer protocols such as I2P have always used longer addresses. This
+change would make it possible to gossip such addresses over the P2P network, so that
+other peers can connect to them.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>The <span class="docutils literal">addrv2</span> message is defined as a message where the <span class="docutils literal">command</span> field is
+(NUL-padded) <span class="docutils literal">&quot;addrv2&quot;</span>. It is serialized in the standard encoding for P2P messages.
+Its format is similar to the current <span class="docutils literal">addr</span> message format described in
+<a class="brackets" href="#bitcoin-addr-message" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>, with the difference that the fixed 16-byte IP address is
+replaced by a network ID and a variable-length address, and the services format
+has been changed to <a class="brackets" href="#bitcoin-compactsize" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+<p>This means that the message contains a serialized vector of the following structure:</p>
+<blockquote>
+<table>
+<tbody>
+<tr><td><p>Bytes</p></td>
+<td><p>Name</p></td>
+<td><p>Data Type</p></td>
+<td><p>Description</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">time</span></p></td>
+<td><p><span class="docutils literal">uint32</span></p></td>
+<td><p>Time that this node was last seen as connected to the network.
+A time in Unix epoch time format.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">services</span></p></td>
+<td><p><span class="docutils literal">CompactSize</span></p></td>
+<td><p>Service bits. A CompactSize-encoded bit field that is 64 bits
+wide.</p></td>
+</tr>
+<tr><td><p>1</p></td>
+<td><p><span class="docutils literal">networkID</span></p></td>
+<td><p><span class="docutils literal">uint8</span></p></td>
+<td><p>Network identifier. An 8-bit value that specifies which
+network is addressed.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">varies</span></p></td>
+<td><p><span class="docutils literal">sizeAddr</span></p></td>
+<td><p><span class="docutils literal">CompactSize</span></p></td>
+<td><p>The length in bytes of <span class="docutils literal">addr</span>.</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">sizeAddr</span></p></td>
+<td><p><span class="docutils literal">addr</span></p></td>
+<td><p><span class="docutils literal">uint8[sizeAddr]</span></p></td>
+<td><p>Network address. The interpretation depends on networkID.</p></td>
+</tr>
+<tr><td><p>2</p></td>
+<td><p><span class="docutils literal">port</span></p></td>
+<td><p><span class="docutils literal">uint16</span></p></td>
+<td><p>Network port. If not relevant for the network this MUST be 0.</p></td>
+</tr>
+</tbody>
+</table>
+</blockquote>
+<p>One message can contain up to 1,000 addresses. Clients MUST reject messages with
+more addresses.</p>
+<p>Field <span class="docutils literal">addr</span> has a variable length, with a maximum of 512 bytes (4096 bits). Clients
+MUST reject messages with a longer <span class="docutils literal">addr</span> field, irrespective of the network ID.</p>
+<p>The list of reserved network IDs is as follows:</p>
+<blockquote>
+<table>
+<tbody>
+<tr><td><p>Network ID</p></td>
+<td><p>Enumeration</p></td>
+<td><p>Address length (bytes)</p></td>
+<td><p>Description</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x01</span></p></td>
+<td><p><span class="docutils literal">IPV4</span></p></td>
+<td><p>4</p></td>
+<td><p>IPv4 address (globally routed internet)</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x02</span></p></td>
+<td><p><span class="docutils literal">IPV6</span></p></td>
+<td><p>16</p></td>
+<td><p>IPv6 address (globally routed internet)</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x04</span></p></td>
+<td><p><span class="docutils literal">TORV3</span></p></td>
+<td><p>32</p></td>
+<td><p>Tor v3 onion service address</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x05</span></p></td>
+<td><p><span class="docutils literal">I2P</span></p></td>
+<td><p>32</p></td>
+<td><p>I2P overlay network address</p></td>
+</tr>
+<tr><td><p><span class="docutils literal">0x06</span></p></td>
+<td><p><span class="docutils literal">CJDNS</span></p></td>
+<td><p>16</p></td>
+<td><p>Cjdns overlay network address</p></td>
+</tr>
+</tbody>
+</table>
+</blockquote>
+<p>Network ID <span class="docutils literal">0x03</span> is intentionally not assigned. In BIP 155 <a class="brackets" href="#bip-0155" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> it was
+assigned to Tor v2 onion addresses, but those addresses are no longer supported
+by the latest Tor client code, and MUST NOT be used once this ZIP is deployed.</p>
+<p>Clients SHOULD gossip valid, potentially routable addresses from all known
+networks, even if they are currently not connected to some of them. That could
+help multi-homed nodes and make it more difficult for an observer to tell which
+networks a node is connected to.</p>
+<p>Clients MUST NOT gossip addresses from unknown networks, because they have no means
+to validate those addresses and so can be tricked to gossip invalid addresses.</p>
+<p>Clients MUST reject messages that contain addresses that have a different length
+than specified in this table for a specific network ID, as these are meaningless.</p>
+<h2 id="network-address-encodings"><a class="hanchor" href="#network-address-encodings" aria-hidden="true" tabindex="-1">#</a>Network address encodings</h2>
+<p>The <span class="docutils literal">IPV4</span> and <span class="docutils literal">IPV6</span> network IDs use addresses encoded in the usual way for
+binary IPv4 and IPv6 addresses in network byte order (big endian).</p>
+<h3 id="tor-v3-address-encoding"><a class="hanchor" href="#tor-v3-address-encoding" aria-hidden="true" tabindex="-1">#</a>Tor v3 address encoding</h3>
+<p>According to the spec <a class="brackets" href="#tor-rendezvous-v3" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>, version 3 <span class="docutils literal">.onion</span> addresses are
+encoded as follows:</p>
+<pre class="literal-block">onion_address = base32(PUBKEY || CHECKSUM || VERSION) + &quot;.onion&quot;
+CHECKSUM = H(&quot;.onion checksum&quot; || PUBKEY || VERSION)[:2]  // first 2 bytes</pre>
+<p>where:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">PUBKEY</span> is the 32-byte Ed25519 master pubkey of the onion service;</p></li>
+<li><p><span class="docutils literal">VERSION</span> is a one-byte version field (default value <span class="docutils literal">0x03</span>);</p></li>
+<li><p><span class="docutils literal">&quot;.onion&quot;</span> and <span class="docutils literal">&quot;.onion checksum&quot;</span> are constant strings;</p></li>
+<li><p><span class="docutils literal">CHECKSUM</span> is truncated to two bytes before inserting it in <span class="docutils literal">onion_address</span>;</p></li>
+<li><p><span class="docutils literal">H()</span> is the SHA3-256 cryptographic hash function. <a class="brackets" href="#nist-sha3" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a></p></li>
+</ul>
+<p>Tor v3 addresses MUST be sent with the <span class="docutils literal">TORV3</span> network ID, with the 32-byte
+<span class="docutils literal">PUBKEY</span> part in the <span class="docutils literal">addr</span> field. As <span class="docutils literal">VERSION</span> will always be 0x03 in the
+case of v3 addresses, this is enough to reconstruct the onion address.</p>
+</section>
+<h3 id="i2p-address-encoding"><a class="hanchor" href="#i2p-address-encoding" aria-hidden="true" tabindex="-1">#</a>I2P address encoding</h3>
+<p>Like Tor, I2P naming uses a base32-encoded address format <a class="brackets" href="#i2p-naming" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p>
+<p>I2P uses 52 characters (256 bits) to represent the full SHA-256 hash, followed by
+<span class="docutils literal">.b32.i2p</span>. The base32 encoding does not include <span class="docutils literal">&quot;=&quot;</span> padding characters.</p>
+<p>I2P addresses MUST be sent with the <span class="docutils literal">I2P</span> network ID, with the decoded SHA-256 hash
+as address field.</p>
+</section>
+<h3 id="cjdns-address-encoding"><a class="hanchor" href="#cjdns-address-encoding" aria-hidden="true" tabindex="-1">#</a>Cjdns address encoding</h3>
+<p>Cjdns addresses are simply IPv6 addresses in the <span class="docutils literal"><span class="pre">fc00::/8</span></span> range
+<a class="brackets" href="#cjdns-whitepaper" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>. They MUST be sent with the <span class="docutils literal">CJDNS</span> network ID.
+They are encoded in network byte order (big endian) as for the <span class="docutils literal">IPV6</span> network ID.</p>
+</section>
+</section>
+<h2 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h2>
+<p>TODO: change ${PLACEHOLDER} to a specific peer protocol version.</p>
+<p>Support for this specification is signalled by peer protocol version ${PLACEHOLDER}
+(on both Testnet and Mainnet). Note that this is the same peer protocol version that
+signals support for NU5 on Mainnet <a class="brackets" href="#zip-0252" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+<p>Nodes that have not negotiated peer protocol version ${PLACEHOLDER} or higher on a
+given connection, MUST NOT send <span class="docutils literal">addrv2</span> messages on that connection.</p>
+<p>A node that has negotiated peer protocol version ${PLACEHOLDER} or higher on a given
+connection, MAY still send <span class="docutils literal">addr</span> messages on the connection, and MUST handle
+received <span class="docutils literal">addr</span> messages as it would have done prior to this ZIP.</p>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>This ZIP is closely based on BIP 155 <a class="brackets" href="#bip-0155" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>, with the following changes:</p>
+<ul class="simple">
+<li><p>Deployment: support for the <span class="docutils literal">addrv2</span> message is signalled by advertising a
+peer protocol version of ${PLACEHOLDER} or higher, not by sending a <span class="docutils literal">sendaddrv2</span>
+message. This is motivated by a desire to avoid an exponential explosion in the
+space of possible feature configurations in a given peer-to-peer connection. In
+Zcash, unlike Bitcoin, the space of such configurations is effectively constant no
+matter how many peer-to-peer protocol changes are made, because nodes that do not
+support a given peer protocol version will drop off the network over time if they do
+not support the latest Network Upgrade. The feature configuration for a given
+connection is also established at version negotiation, and cannot change after that
+point without reconnecting. Other peer-to-peer protocol changes ported from the
+Bitcoin peer-to-peer protocol, for example the <span class="docutils literal">MSG_WTX</span> inv type defined in
+ZIP 239 <a class="brackets" href="#zip-0239" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>, have taken the same approach to signalling.</p></li>
+<li><p>No Network ID for Tor v2 onion addresses: the Tor network is expected to have
+removed support for these addresses in the timeframe for deployment of this ZIP.</p></li>
+<li><p>Clients MUST, rather than SHOULD, reject <span class="docutils literal">addrv2</span> messages with more than 1,000
+addresses. Making this a consistent requirement promotes interoperability.</p></li>
+<li><p>Clients MUST NOT, rather than SHOULD NOT, gossip addresses from unknown networks.</p></li>
+<li><p>Clients MUST, rather than SHOULD, reject messages that contain addresses that have
+a different length than specified for a known network ID, or a length greater
+than the 512-byte maximum for an unknown network ID.</p></li>
+</ul>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p>TBD.</p>
+</section>
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Acknowledgements</h1>
+<p>This ZIP is closely based on BIP 155 <a class="brackets" href="#bip-0155" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>, written by Wladimir J.
+van der Laan. Zancas Wilcox ported the implementation for Zcashd.</p>
+<p>Acknowledgements for BIP 155:</p>
+<ul class="simple">
+<li><p>Jonas Schnelli: change <span class="docutils literal">services</span> field to <span class="docutils literal">CompactSize</span>, to make the message
+more compact in the likely case instead of always using 8 bytes.</p></li>
+<li><p>Gregory Maxwell: various suggestions regarding extensibility.</p></li>
+</ul>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2021.2.16 [NU5 proposal]. Section 3.12 Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0155" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-8">1</a>,<a role="doc-backlink" href="#footnote-reference-14">2</a>,<a role="doc-backlink" href="#footnote-reference-16">3</a>)</span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0155.mediawiki">BIP 155: addrv2 message</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0239" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-15">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0239.rst">ZIP 239: Relay of Version 5 Transactions</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0252" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0252.rst">ZIP 252: Deployment of the NU5 Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcoin-addr-message" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-6">2</a>)</span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/Protocol_documentation#addr">Protocol documentation: addr. Bitcoin Wiki</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcoin-compactsize" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer">Variable length integer. Bitcoin Wiki</a></p>
+</aside>
+<aside class="footnote brackets" id="tor-rendezvous-v3" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-9">2</a>)</span>
+<p><a class="reference external" href="https://gitweb.torproject.org/torspec.git/tree/rend-spec-v3.txt">Tor Rendezvous Specification - Version 3</a></p>
+</aside>
+<aside class="footnote brackets" id="nist-sha3" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://csrc.nist.gov/publications/detail/fips/202/final">NIST FIPS 202 - SHA-3 Standard: Permutation-Based Hash and Extendable-Output Functions</a></p>
+</aside>
+<aside class="footnote brackets" id="i2p-naming" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-11">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://geti2p.net/en/docs/naming#base32">I2P: Naming and address book</a></p>
+</aside>
+<aside class="footnote brackets" id="cjdns-whitepaper" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/cjdelisle/cjdns/blob/f909b960709a4e06730ddd4d221e5df38164dbb6/doc/Whitepaper.md#user-content-pulling-it-all-together">Cjdns whitepaper: Pulling It All Together</a></p>
+</aside>
+</aside>
+</section>

@@ -1,0 +1,2346 @@
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP describes a mechanism and format for disclosing information about shielded spends
+and outputs within a transaction. In the typical case, this means enabling a sender to
+present a proof that they transferred funds to a recipient's shielded address.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>There are various situations where a proof-of-payment may be desired. For example:</p>
+<ul class="simple">
+<li><p>A sender may need to prove that their payment was sent to a recipient, and available to
+be received (following the Zcash protocol in-band).</p></li>
+<li><p>A third party may need to verify that a payment between a given sender and recipient was
+executed successfully.</p></li>
+</ul>
+<p>When a transaction involves only transparent addresses, proof-of-payment is simple: The
+sender provides the transaction ID, and the recipient examines the blockchain to confirm
+that the transaction was mined. A third party can also perform this verification if they
+know the transparent addresses of the involved parties.</p>
+<p>However, if the transaction involves shielded addresses, the blockchain by itself does not
+contain enough information to allow a record of the payment to be reconstructed and
+verified:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Source</p></th>
+<th class="head"><p>Destination</p></th>
+<th class="head"><p>Sender</p></th>
+<th class="head"><p>Recipient</p></th>
+<th class="head"><p>Amount</p></th>
+<th class="head"><p>Payment dislosure?</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>Transparent</p></td>
+<td><p>Transparent</p></td>
+<td><p>🔍</p></td>
+<td><p>🔍</p></td>
+<td><p>🔍</p></td>
+<td><p>Not required</p></td>
+</tr>
+<tr><td><p>Transparent</p></td>
+<td><p>Shielded</p></td>
+<td><p>🔍</p></td>
+<td><p>🔐</p></td>
+<td><p>🔐*</p></td>
+<td><p>Required</p></td>
+</tr>
+<tr><td><p>Shielded</p></td>
+<td><p>Transparent</p></td>
+<td><p>🔒</p></td>
+<td><p>🔍</p></td>
+<td><p>🔍</p></td>
+<td><p>Required</p></td>
+</tr>
+<tr><td><p>Shielded</p></td>
+<td><p>Shielded</p></td>
+<td><p>🔒</p></td>
+<td><p>🔐</p></td>
+<td><p>🔐</p></td>
+<td><p>Required</p></td>
+</tr>
+</tbody>
+</table>
+<ul class="simple">
+<li><p>🔍 = Visible on the block chain.</p></li>
+<li><p>🔐 = Cannot be confirmed without information that is not visible on the block chain.</p></li>
+<li><p>🔐* = Information is revealed, but not enough to confirm the amount paid (due to change).</p></li>
+<li><p>🔒 = Requires either an interactive payment disclosure, or a non-interactive payment
+disclosure that reveals the sender's address.</p></li>
+</ul>
+<p>Enabling proof-of-payment for all of these transaction variants (where it is possible to
+do so) is the subject of this ZIP.</p>
+</section>
+<h1 id="use-cases"><a class="hanchor" href="#use-cases" aria-hidden="true" tabindex="-1">#</a>Use cases</h1>
+<h2 id="managing-contributions-for-an-event"><a class="hanchor" href="#managing-contributions-for-an-event" aria-hidden="true" tabindex="-1">#</a>Managing contributions for an event</h2>
+<p>Alice runs an event on behalf of Bob and Carol, who both agree to split the cost equally.
+Alice receives a single payment for half the amount, and wants proof of who it came from
+(so she knows which person to follow up with for the remaining amount). Carol can provide
+a payment disclosure that reveals to Alice:</p>
+<ul class="simple">
+<li><p>The correct amount was sent to the Alice's recipient address in the given transaction.</p></li>
+<li><p>Carol was the sender of that transaction (more precisely, Carol controls the spend
+authority used in that transaction).</p></li>
+</ul>
+<p>and does not reveal:</p>
+<ul class="simple">
+<li><p>Carol's payment address.</p></li>
+<li><p>Any of Carol's other diversified payment addresses.</p></li>
+<li><p>Any of Carol's other transactions.</p></li>
+</ul>
+<p>For this use case, it is not necessary (and not necessarily intended) that the payment
+disclosure be publically verifiable.</p>
+</section>
+<h2 id="donation-drive"><a class="hanchor" href="#donation-drive" aria-hidden="true" tabindex="-1">#</a>Donation drive</h2>
+<p>Diana is a well-known individual with a public shielded payment address (for receiving
+donations). She runs a matching donation drive to the non-profit Totally Legit Bunnies,
+and wants to prove to her followers that she correctly matched their donations. Diana
+can create a payment disclosure, and post it to her social media account, that reveals:</p>
+<ul class="simple">
+<li><p>The correct amount was sent to the Totally Legit Bunnies' recipient address in the
+given transaction.</p></li>
+<li><p>The sender of the transaction is the payment address that is associated with Diana.</p></li>
+</ul>
+<p>and does not reveal:</p>
+<ul class="simple">
+<li><p>Any of Diana's other diversified payment addresses.</p></li>
+<li><p>Any of Diana's other transactions.</p></li>
+</ul>
+</section>
+<h2 id="merchant-dispute"><a class="hanchor" href="#merchant-dispute" aria-hidden="true" tabindex="-1">#</a>Merchant dispute</h2>
+<p>Edward goes to CarsRFast to buy a Lamborghini, and sends funds from his shielded address to
+CarsRFast's transparent address. They can see a payment has been made, but claim that they
+have not received a payment from Edward. He can create a payment disclosure that reveals:</p>
+<ul class="simple">
+<li><p>Edward was the sender of the given transaction.</p></li>
+</ul>
+<p>and does not reveal:</p>
+<ul class="simple">
+<li><p>Edward's payment address.</p></li>
+<li><p>Any of Edward's other diversified payment addresses.</p></li>
+<li><p>Any of Edward's other transactions.</p></li>
+</ul>
+</section>
+<h2 id="shielded-withdrawals-from-an-exchange"><a class="hanchor" href="#shielded-withdrawals-from-an-exchange" aria-hidden="true" tabindex="-1">#</a>Shielded withdrawals from an exchange</h2>
+<p>CorpBux is an exchange with a transparent hot wallet, and enables customers to withdraw
+their funds to shielded addresses. They can create a payment disclosure, that they can give
+to their customers, that reveals:</p>
+<ul class="simple">
+<li><p>The correct amount was sent to the customer's shielded recipient address in the given
+transaction.</p></li>
+<li><p>CorpBux was the sender of the given transaction.</p></li>
+</ul>
+</section>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul class="simple">
+<li><p>The payment disclosure may disclose the contents of zero or more shielded outputs within
+a single transaction. (Zero outputs is useful for z2t transactions.)</p></li>
+<li><p>Payment disclosures can only be created by a sender of the transaction,
+and are non-malleable (that is, no-one else can take one or more payment
+disclosures and construct a new one that they would not have been able
+to make independently).</p></li>
+<li><p>A payment disclosure may be tied to a challenge, creating an interactive proof.</p></li>
+<li><p>Senders with a shielded address may choose to provably reveal that address as part of the
+payment disclosure.</p></li>
+<li><p>Senders are not required to remember any ephemeral data from the creation of a transaction
+in order to produce a payment disclosure for that transaction. (Performance may be
+improved if they do cache witness data for spent notes.)</p></li>
+<li><p>The payment disclosure can be created without requiring another trusted setup.</p></li>
+</ul>
+</section>
+<h1 id="conventions"><a class="hanchor" href="#conventions" aria-hidden="true" tabindex="-1">#</a>Conventions</h1>
+<p>The following functions used in this ZIP are defined in the Zcash protocol specification:
+<a class="brackets" href="#protocol" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo stretchy="false">)</mo>
+</math> <a class="brackets" href="#protocol-concretediversifyhash" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>α</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>m</mi>
+  <mo stretchy="false">)</mo>
+</math>, and
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>m</mi>
+  <mo>,</mo>
+  <mi>σ</mi>
+  <mo stretchy="false">)</mo>
+</math> <a class="brackets" href="#protocol-concretespendauthsig" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a></p></li>
+</ul>
+<p>We reproduce some notation and functions from <a class="brackets" href="#protocol" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> here for convenience:</p>
+<ul class="simple">
+<li><p>$[k] P$ means scalar multiplication of the elliptic curve point <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>P</mi>
+</math> by the
+scalar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖡</mi>
+    <mi>𝖫</mi>
+    <mi>𝖠</mi>
+    <mi>𝖪</mi>
+    <mi>𝖤</mi>
+    <mn>𝟤</mn>
+    <mi>𝖻</mi>
+  </mrow>
+  <mtext>-</mtext>
+  <mn>𝟤𝟧𝟨</mn>
+  <mo stretchy="false">(</mo>
+  <mi>p</mi>
+  <mo>,</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+</math> refers to unkeyed BLAKE2b-256 in
+sequential mode, with an output digest length of 32 bytes, 16-byte personalization
+string <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+</math>, and input <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>x</mi>
+</math>.</p></li>
+</ul>
+<p>We also define the following notation here:</p>
+<ul class="simple">
+<li><p>$[a..b]$ means the sequence of values inclusive of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+</math> and exclusive of
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>b</mi>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>a</mi>
+  <mo stretchy="false">)</mo>
+</math> means the length of the sequence <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+</math>.</p></li>
+</ul>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="payment-disclosure-data-structure"><a class="hanchor" href="#payment-disclosure-data-structure" aria-hidden="true" tabindex="-1">#</a>Payment disclosure data structure</h2>
+<p>A payment disclosure has the following fields:</p>
+<ul class="simple">
+<li><p><cite>txid</cite>: Transaction id for the transaction <cite>tx</cite> being disclosed.</p></li>
+<li><p><cite>msg</cite>: A message field, which could contain a challenge value from the party to whom
+the payment disclosure is directed.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗋</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>: A sequence of the transparent inputs for which we are
+proving spend authority <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mn>0</mn>
+  <mo>.</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗏</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">]</mo>
+</math></p>
+<ul>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math>: An index into <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗏</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math>: A BIP 322 signature. <a class="brackets" href="#bip-0322" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a></p>
+<ul>
+<li><p>TODO: <cite>zcashd</cite> currently only supports the legacy format defined in BIP 322. We may
+want to backport full BIP 322 support before having transparent input support in
+this ZIP, to ensure it does what we need.</p></li>
+<li><p>TODO: BIP 322 specifies consensus rule checks as part of the signature verification
+process. We will likely need to migrate it over to an equivalent ZIP that specifies
+these for Zcash (which has a different set of script validation consensus rules).</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>: A sequence of the Sapling Spends for which we are proving
+spend authority <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mn>0</mn>
+  <mo>.</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">]</mo>
+</math></p>
+<ul>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math>: An index into <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗏</mi>
+  </mrow>
+</math>: A value commitment to the spent note.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>: A randomized public key linked to the spent note.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗓</mi>
+    <mi>𝗄</mi>
+    <mi>𝗉</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <msub>
+      <mi>𝖿</mi>
+      <mrow>
+        <mi>𝗌</mi>
+        <mi>𝗉</mi>
+        <mi>𝖾</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math>: A Sapling spend proof.</p></li>
+<li><p>[Optional] A payment address proof <cite>addr_proof</cite>:</p>
+<ul>
+<li><p>Any <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖽</mi>
+    <mo>,</mo>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> such that
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <msub>
+      <mi>𝗋</mi>
+      <mrow>
+        <mi>𝖺</mi>
+        <mi>𝖽</mi>
+        <mi>𝖽</mi>
+        <mi>𝗋</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math>: A nullifier for a ZIP 304 fake note. <a class="brackets" href="#zip-0304" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗓</mi>
+    <mi>𝗄</mi>
+    <mi>𝗉</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <msub>
+      <mi>𝖿</mi>
+      <mrow>
+        <mi>𝖺</mi>
+        <mi>𝖽</mi>
+        <mi>𝖽</mi>
+        <mi>𝗋</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math>: A Sapling spend proof.</p></li>
+</ul>
+</li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math></p></li>
+</ul>
+</li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>: A sequence of the Sapling Outputs that we are disclosing
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mn>0</mn>
+  <mo>.</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">]</mo>
+</math></p>
+<ul>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math>: An index into <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝖼</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>: The outgoing cipher key that allows this output to be recovered.
+<a class="brackets" href="#protocol-saplingencrypt" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a></p></li>
+</ul>
+</li>
+</ul>
+<p>TODO: Add support for Orchard.</p>
+<p>TODO: Decide on payment disclosure versioning.</p>
+<p>TODO: Define encodings for unsigned and signed payment disclosures.</p>
+</section>
+<h2 id="creating-a-payment-disclosure"><a class="hanchor" href="#creating-a-payment-disclosure" aria-hidden="true" tabindex="-1">#</a>Creating a payment disclosure</h2>
+<p>The inputs to a payment disclosure are:</p>
+<ul class="simple">
+<li><p>The transaction.</p></li>
+<li><p>The SLIP-44 <a class="brackets" href="#slip-0044" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a> coin type.</p></li>
+<li><p>The message $msg$ to be included (which may be empty).</p></li>
+<li><p>A sequence of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝖼</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> tuples (which may be empty).</p></li>
+<li><p>A sequence of Sapling spend tuples (which may be empty) containing:</p>
+<ul>
+<li><p>A Sapling spend index.</p></li>
+<li><p>Its corresponding expanded spending key <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>[Optional] An associated payment address <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+</li>
+<li><p>A sequence of transparent input tuples (which may be empty) containing:</p>
+<ul>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math>: An index into <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗏</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math>.</p></li>
+<li><p>The inputs to a BIP 322 signature (excluding <cite>message_data</cite>).</p></li>
+</ul>
+</li>
+</ul>
+<p>The caller MUST provide at least one input tuple of any type (either a Sapling spend tuple
+or a transparent input tuple).</p>
+<p>The payment disclosure is created as follows:</p>
+<ul class="simple">
+<li><p>For each Sapling spend index:</p>
+<ul>
+<li><p>Create a Sapling spend proof for the note that was spent in
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+    <mo stretchy="false">[</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+    <mo stretchy="false">]</mo>
+  </mrow>
+</math>, using the same anchor, to obtain
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗏</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗓</mi>
+    <mi>𝗄</mi>
+    <mi>𝗉</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <msub>
+      <mi>𝖿</mi>
+      <mrow>
+        <mi>𝗌</mi>
+        <mi>𝗉</mi>
+        <mi>𝖾</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> as well as the random
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>α</mi>
+</math> that was generated internally.</p></li>
+<li><p>[Optional] If an associated payment address was provided for this spend index, create
+a ZIP 304 signature proof for that payment address, <a class="brackets" href="#zip-0304" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> using <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>α</mi>
+</math>
+and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> from the previous step. We obtain
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <msub>
+      <mi>𝗋</mi>
+      <mrow>
+        <mi>𝖺</mi>
+        <mi>𝖽</mi>
+        <mi>𝖽</mi>
+        <mi>𝗋</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗓</mi>
+    <mi>𝗄</mi>
+    <mi>𝗉</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <msub>
+      <mi>𝖿</mi>
+      <mrow>
+        <mi>𝖺</mi>
+        <mi>𝖽</mi>
+        <mi>𝖽</mi>
+        <mi>𝗋</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> from this step.</p></li>
+</ul>
+</li>
+<li><p>For each transparent input index:</p>
+<ul>
+<li><p>TODO: Prepare BIP 322 signature inputs using <cite>msg</cite> as the <cite>message_data</cite>.</p></li>
+</ul>
+</li>
+<li><p>Construct an unsigned payment disclosure from the disclosed Sapling outputs, and the
+above data for the Sapling spends and transparent inputs. Define the encoding of this as
+$unsignedPaymentDisclosure$.</p></li>
+<li><p>For each Sapling spend index:</p>
+<ul>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>α</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Let $coinType$ be the 4-byte little-endian encoding of the SLIP 44 coin type in its
+index form, not its hardened form (i.e. 133 for mainnet Zcash).</p></li>
+<li><p>Let <tt class="math">digest = \mathsf{BLAKE2b}\text{-}\mathsf{256}(\texttt{“ZIP311Signed”}\,||\,coinType, unsignedPaymentDisclosure)</tt>.</p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>s</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>A</mi>
+  <mi>u</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mi>S</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>d</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>t</mi>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+</li>
+<li><p>For each transparent input index:</p>
+<ul>
+<li><p>TODO: Create a BIP 322 signature using <cite>msg</cite> as the <cite>message_data</cite>.</p></li>
+</ul>
+</li>
+<li><p>Return the payment disclosure as the combination of the unsigned payment disclosure and
+the set of <cite>spendAuthSig</cite> and transparent signature values.</p></li>
+</ul>
+</section>
+<h2 id="verifying-a-payment-disclosure"><a class="hanchor" href="#verifying-a-payment-disclosure" aria-hidden="true" tabindex="-1">#</a>Verifying a payment disclosure</h2>
+<p>Given a payment disclosure <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math>, a transaction <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math>, and the
+<cite>height</cite> of the block in which <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math> was mined (which we assume was verified
+by the caller), the verifier proceeds as follows:</p>
+<ul>
+<li><p>Perform the following structural correctness checks, returning false if any check fails:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>Sequence length correctness:</p>
+<ul>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>≤</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>≤</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗍</mi>
+    <mi>𝗋</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>≤</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗏</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+</ul>
+</li>
+<li><p>Index uniqueness:</p>
+<ul>
+<li><p>For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mo>.</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math> only occurs once.</p></li>
+<li><p>For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math> only occurs once.</p></li>
+<li><p>For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗍</mi>
+    <mi>𝗋</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mo>.</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math> only occurs once.</p></li>
+</ul>
+</li>
+<li><p>Index correctness:</p>
+<ul>
+<li><p>For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mo>.</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+  <mo>&lt;</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+  <mo>&lt;</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗍</mi>
+    <mi>𝗋</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>,
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mo>.</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+  <mo>&lt;</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗏</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+</ul>
+</li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>+</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗍</mi>
+    <mi>𝗋</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>&gt;</mo>
+  <mn>0</mn>
+</math></p></li>
+</ul>
+</li>
+<li><p>Let $unsignedPaymentDisclosure$ be the encoding of the payment disclosure without
+signatures.</p></li>
+<li><p>Let $coinType$ be the 4-byte little-endian encoding of the coin type in its index
+form, not its hardened form (i.e. 133 for mainnet Zcash).</p></li>
+<li><p>Let <tt class="math">digest = \mathsf{BLAKE2b}\text{-}\mathsf{256}(\texttt{“ZIP311Signed”}\,||\,coinType, unsignedPaymentDisclosure)</tt>.</p></li>
+<li><p>For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>:</p>
+<ul>
+<li><p>If <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>d</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>t</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>, return false.</p></li>
+<li><p>[Optional] If a payment address proof <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖽</mi>
+    <mi>𝗋</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝖿</mi>
+  </mrow>
+</math> is present in
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math>, verify <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖽</mi>
+    <mi>𝗋</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝖿</mi>
+    <mo>.</mo>
+    <mi>𝗇</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <msub>
+      <mi>𝗋</mi>
+      <mrow>
+        <mi>𝖺</mi>
+        <mi>𝖽</mi>
+        <mi>𝖽</mi>
+        <mi>𝗋</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖽</mi>
+    <mi>𝗋</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝖿</mi>
+    <mo>.</mo>
+    <mi>𝗓</mi>
+    <mi>𝗄</mi>
+    <mi>𝗉</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <msub>
+      <mi>𝖿</mi>
+      <mrow>
+        <mi>𝖺</mi>
+        <mi>𝖽</mi>
+        <mi>𝖽</mi>
+        <mi>𝗋</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> as a ZIP 304 proof
+for <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖽</mi>
+    <mi>𝗋</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝖿</mi>
+    <mo>.</mo>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖽</mi>
+    <mi>𝗋</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝖿</mi>
+    <mo>.</mo>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> <a class="brackets" href="#zip-0304" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>. If verification fails, return
+false.</p></li>
+<li><p>Decode and verify <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗓</mi>
+    <mi>𝗄</mi>
+    <mi>𝗉</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <msub>
+      <mi>𝖿</mi>
+      <mrow>
+        <mi>𝗌</mi>
+        <mi>𝗉</mi>
+        <mi>𝖾</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> as a Sapling spend proof
+<a class="brackets" href="#protocol-spendstatement" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> with primary input:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+    <mo stretchy="false">[</mo>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+    <mo stretchy="false">]</mo>
+    <mo>.</mo>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝖼</mi>
+    <mi>𝗏</mi>
+  </mrow>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+    <mo stretchy="false">[</mo>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+    <mo stretchy="false">]</mo>
+    <mo>.</mo>
+    <mi>𝗇</mi>
+    <mi>𝖿</mi>
+  </mrow>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math></p></li>
+</ul>
+<p>If verification fails, return false.</p>
+</li>
+</ul>
+</li>
+<li><p>For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗍</mi>
+    <mi>𝗋</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗉</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>:</p>
+<ul class="simple">
+<li><p>TODO: BIP 322 verification.</p></li>
+</ul>
+</li>
+<li><p>For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝖽</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>:</p>
+<ul class="simple">
+<li><p>Recover the Sapling note in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mo>.</mo>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝗂</mi>
+    <mi>𝖾</mi>
+    <mi>𝗅</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖮</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mo>.</mo>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+  </mrow>
+  <mo stretchy="false">]</mo>
+</math>
+via the process specified in <a class="brackets" href="#protocol-saplingdecryptovk" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> with inputs
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>h</mi>
+  <mi>e</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mi>h</mi>
+  <mi>t</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗉</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mo>.</mo>
+    <mi>𝗈</mi>
+    <mi>𝖼</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>. If recovery returns <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math>, return false.</p></li>
+</ul>
+</li>
+<li><p>Return true.</p></li>
+</ul>
+</section>
+<h2 id="payment-disclosure-validity-in-uis"><a class="hanchor" href="#payment-disclosure-validity-in-uis" aria-hidden="true" tabindex="-1">#</a>Payment disclosure validity in UIs</h2>
+<p>TODO: Set some standards for how UIs should display payment disclosures, and how they
+should convey the various kinds of validity information:</p>
+<ul class="simple">
+<li><p>One, but not all, of the spenders proved spend authority.</p></li>
+<li><p>All spenders of a specific type proved spend authority.</p></li>
+<li><p>All spenders proved spend authority.</p></li>
+<li><p>These, but also including optional payment address proofs.</p></li>
+</ul>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>If a sender elects, at transaction creation time, to use an <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> of
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math> for a specific Sapling output, then they are unable to subsequently create a
+payment disclosure that discloses that output. This maintains the semantics of
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, in that the sender explicitly chose to lose the capability to
+recover that output.</p>
+<p>Payment disclosures that prove Sapling spend authority are not required to reveal a
+sender address. This is because it is impossible: we can &quot;prove&quot; the transaction came from
+any of the diversified addresses linked to the spending key. Fundamentally, the &quot;sender&quot;
+of a transaction is anyone who has access to the corresponding spend authority; in the
+case of Sapling, a spend authority corresponds to multiple diversified addresses. In
+situations where a sender address is already known to the verifier of the payment
+disclosure (or publically), it may still be useful to have the option of linking the payment disclosure to
+that address.</p>
+</section>
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Security and Privacy Considerations</h1>
+<p>When spending Sapling notes normally in transactions, wallets select a recent anchor to
+make the anonymity set of the spent note as large as possible. By contrast, Sapling spend
+authority in a payment disclosure is proven using the same anchor that was used in the
+transaction itself, instead of a recent anchor. We do this for efficency reasons:</p>
+<ul class="simple">
+<li><p>The anchor is already encoded in the transaction, so can be omitted from the payment
+disclosure encoding.</p></li>
+<li><p>It is necessary to have a witness for each spent note that is being included in the
+payment disclosure. Using the same anchor means that the same witness can be used for
+the transaction spend and the payment disclosure, which in turn means that wallets that
+support payment disclosures only need to remember that witness, and do not need to
+continually update witnesses for spent notes in the off-chance that they might be used
+in a payment disclosure.</p></li>
+</ul>
+<p>There is no privacy benefit to selecting a more recent anchor; the anonymity set of the
+note was &quot;fixed&quot; by the original spend (which revealed that the note existed as of that
+anchor's height).</p>
+<p>We require all payment disclosures to prove spend authority for at least one input, in
+order to simplify the verification UX. In particular, if payment disclosures without
+spends were considered valid, an invalid payment disclosure with invalid signatures (that
+would be shown as invalid by UIs) could be mutated into a payment disclosure that would be
+shown as valid by UIs, by stripping off the signatures. We do not believe that this
+prevents any useful use cases; meanwhile if someone is intent on obtaining Sapling output
+disclosures regardless of the validity of their source, they will do so without a common
+standard.</p>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p>TBD</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="rfc2119" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc2119.html">RFC 2119: Key words for use in RFCs to Indicate Requirement Levels</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc4648" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc4648">RFC 4648: The Base16, Base32, and Base64 Data Encodings</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-1">1</a>,<a role="doc-backlink" href="#footnote-reference-4">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.1 [NU6.1] or later</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-spendstatement" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-11">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#spendstatement">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.15.2: Spend Statement (Sapling)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingencrypt" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingencrypt">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. 4.19.1: Encryption (Sapling)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingdecryptovk" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingdecryptovk">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.20.3: Decryption using an Outgoing Viewing Key (Sapling)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretediversifyhash" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretediversifyhash">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 5.4.1.6: DiversifyHash Hash Function</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretespendauthsig" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretespendauthsig">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 5.4.6.1: Spend Authorization Signature</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0322" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0322.mediawiki">BIP 322: Generic Signed Message Format</a></p>
+</aside>
+<aside class="footnote brackets" id="slip-0044" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/satoshilabs/slips/blob/master/slip-0044.md">SLIP-0044 : Registered coin types for BIP-0044</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0304" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-6">1</a>,<a role="doc-backlink" href="#footnote-reference-9">2</a>,<a role="doc-backlink" href="#footnote-reference-10">3</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0304.rst">ZIP 304: Sapling Address Signatures</a></p>
+</aside>
+</aside>
+</section>

@@ -1,0 +1,356 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" in this
+document are to be interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only
+when, they appear in all capitals.</p>
+<p>The terms "Mainnet" and "Testnet" in this document are to be interpreted as
+defined in the Zcash protocol specification <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</p>
+<p>The term "<em>Ironwood pool</em>" is to be interpreted as described in ZIP 229
+<sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+<p>The terms "Coinholder-Controlled Fund" and "Key-Holder Organizations" are to be
+interpreted as described in ZIP 1016 <sup><a href="#user-content-fn-zip-1016" id="user-content-fnref-zip-1016" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. The term "Deferred Dev Fund
+Lockbox" is to be interpreted as described in ZIP 1015 <sup><a href="#user-content-fn-zip-1015" id="user-content-fnref-zip-1015" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.</p>
+<dl><dt>Poll</dt><dd>A vote in which each ballot carries a ZEC amount.</dd><dt>Poll operator</dt><dd>Whoever announces a poll, verifies ballots, and publishes results.</dd><dt>Snapshot height</dt><dd>The block height <math><mi>S</mi></math> at which holdings are measured.</dd><dt>Close height</dt><dd>The height <math><mi>C</mi></math> of the last block in which a ballot can be accepted.</dd><dt>Lock record</dt><dd>A triple <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>v</mi><mo separator="true">,</mo><mi>u</mi><mo separator="true">,</mo><mi>c</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math>: a value <math><mi>v</mi></math> in zatoshi, an unlock height <math><mi>u</mi></math> at or
+before which consensus forbids spending it (<math><mrow><mi>u</mi><mo>=</mo><mn>0</mn></mrow></math> if unlocked), and an
+evidence class <math><mi>c</mi></math>. Its lock length is <math><mrow><mi>ℓ</mi><mo>=</mo><mrow><mi>max</mi><mo>⁡</mo></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mn>0</mn><mo separator="true">,</mo><mi>u</mi><mo>−</mo><mi>S</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> blocks.</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>Coinholder polls count one ZEC as one vote at a snapshot height, and coins may
+be moved right after the snapshot. This ZIP changes only the weighting: a
+ballot's weight rises linearly with how long its coins stay locked past the
+snapshot, up to a cap of one halving interval; unlocked coins keep a small
+floor weight. One evidence class works today: transparent outputs locked
+with <code>OP_CHECKLOCKTIMEVERIFY</code>. A second class for shielded locks is reserved
+for a consensus ZIP. Quorum and the ZIP 1016 participation threshold stay in
+unweighted ZEC. The transparent class reveals the voter's output, amount, and
+unlock height on chain, which the current shielded polling path does not; the
+shielded class is the intended end state.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Coinholder polling gives holders a voice alongside developers, users, and
+miners. ZIP 1016 <sup><a href="#user-content-fn-zip-1016" id="user-content-fnref-zip-1016-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> makes it the deciding input for the
+Coinholder-Controlled Fund, and about 2.4 million of 3.6 million eligible ZEC
+voted in the NU7 scope poll of September 2026 <sup><a href="#user-content-fn-coindesk-nu7" id="user-content-fnref-coindesk-nu7" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</p>
+<p>The status quo is one ZEC, one vote, at a snapshot, with coins movable the
+moment the snapshot passes <sup><a href="#user-content-fn-forum-nu7-vote" id="user-content-fnref-forum-nu7-vote" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>. Someone who buys the week of
+the vote and sells the week after is not a holder; they are renting a vote.
+This ZIP favours people credibly in it for the long haul. Someone willing to
+lock ZEC for years should have a big say, not the only say. A whale who locks
+for years still gets a big vote; they have put their coins where their vote
+is. The change removes the cheap vote, not the big one.</p>
+<h2 id="scope-decision"><a class="hanchor" href="#scope-decision" aria-hidden="true" tabindex="-1">#</a>Scope decision</h2>
+<p>There is no timelock for shielded notes. Transparent outputs can be locked
+with <code>OP_CHECKLOCKTIMEVERIFY</code> <sup><a href="#user-content-fn-bip-0065" id="user-content-fnref-bip-0065" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>, which Zebra enforces on every
+transparent input <sup><a href="#user-content-fn-zebra-script" id="user-content-fnref-zebra-script" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> <code>[VERIFY: enforced by zcashd since genesis]</code>. Sapling, Orchard, and Ironwood notes have no script and no lock
+field, and a transaction's <code>lock_time</code> is ignored when no transparent input
+has a non-final sequence number <sup><a href="#user-content-fn-zebra-locktime" id="user-content-fnref-zebra-locktime" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>, so it cannot lock a
+shielded-only spend. Three options were considered:</p>
+<ol>
+<li>A process-only ZIP using transparent locks. It works at the protocol
+level, not the tooling level: the live mechanism accepts only notes in the
+<em>Ironwood pool</em> <sup><a href="#user-content-fn-zcashlabs-voting" id="user-content-fnref-zcashlabs-voting" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>. It asks holders to unshield for full
+weight, which is at odds with the point of Zcash. Not acceptable as the
+only option.</li>
+<li>A consensus ZIP adding a lock to shielded notes. The smallest version is a
+lock-height field in the Ironwood note commitment, one circuit constraint,
+and one consensus rule (see [Class S]). That is a new circuit version for a
+pool created, with formal verification, after the Orchard soundness
+vulnerability <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>. It is not small and needs a network upgrade.</li>
+<li>Two ZIPs: this process ZIP, defining weighting over any lock the protocol
+can prove, with the transparent class as an interim, plus a later consensus
+ZIP for shielded locks.</li>
+</ol>
+<p>Option 3 is chosen. Everything below is defined over lock records, so the
+shielded class can be added without rewriting this ZIP.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>Under the live mechanism, validators learn neither who voted nor how much ZEC
+a ballot carried; amounts are encrypted and only totals are decrypted
+<sup><a href="#user-content-fn-zcashlabs-voting" id="user-content-fnref-zcashlabs-voting-2" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>. A ballot under [Class T] reveals an output, its value,
+and its unlock height on chain to everyone, and links the ballot to that
+output unless the operator encrypts ballot contents. A voter who unshields to
+lock also reveals the unshielding transaction. That cost is why Class S is the
+intended end state.</p>
+<p>The shielded class is required to reveal no more than the current shielded
+path: the lock length stays a private witness, the multiplier is applied
+inside the proof, and locked notes are indistinguishable from unlocked notes
+on chain, including when spent.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul>
+<li>A ballot's weight depends on both the amount of ZEC and how long it is
+locked past the snapshot.</li>
+<li>Borrowing, hedging, or splitting to gain weight costs more than under
+amount-only weighting.</li>
+<li>Weighting is defined over an abstract lock record, so shielded locks can be
+added without changing the rules.</li>
+<li>The shielded class reveals no more than the current shielded polling path.</li>
+<li>Coins with no holder, such as protocol-level lockboxes, cannot be voted.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<ul>
+<li>This ZIP does not change who is eligible to vote, what polls are held, or
+what polls decide. It changes weighting only.</li>
+<li>It does not propose on-chain binding governance. Polls remain what ZIP 1016
+says they are.</li>
+<li>It does not change mining, block subsidy, or funding streams.</li>
+<li>It does not verify custody.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="parameters"><a class="hanchor" href="#parameters" aria-hidden="true" tabindex="-1">#</a>Parameters</h2>
+<p><math><mi>S</mi></math> and <math><mi>C</mi></math> are chosen by the poll operator per poll. The floor is
+<math><mrow><mi>f</mi><mo>=</mo><mn>1</mn><mi>/</mi><mn>10</mn></mrow></math>. The cap <math><mi>L</mi></math> is the halving interval in effect at height <math><mi>S</mi></math>:
+<math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖨</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi></mrow><mo>=</mo><mn>1,680,000</mn></mrow></math> blocks before NU7
+activation and <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖨</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi></mrow><mo>=</mo><mn>5,040,000</mn></mrow></math> blocks from
+NU7 activation <sup><a href="#user-content-fn-zip-0218" id="user-content-fnref-zip-0218" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>. Both are about four years.</p>
+<h2 id="weight-function"><a class="hanchor" href="#weight-function" aria-hidden="true" tabindex="-1">#</a>Weight function</h2>
+<p>For a lock record <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>v</mi><mo separator="true">,</mo><mi>u</mi><mo separator="true">,</mo><mi>c</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> with lock length <math><mrow><mi>ℓ</mi><mo>=</mo><mrow><mi>max</mi><mo>⁡</mo></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mn>0</mn><mo separator="true">,</mo><mi>u</mi><mo>−</mo><mi>S</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>:</p>
+<p><math><mrow><mi>m</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>ℓ</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mi>f</mi><mo>+</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mn>1</mn><mo>−</mo><mi>f</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>⋅</mo><mfrac><mrow><mrow><mi>min</mi><mo>⁡</mo></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>ℓ</mi><mo separator="true">,</mo><mi>L</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow><mi>L</mi></mfrac><mo separator="true">,</mo><mspace width="2em"></mspace><mi>w</mi><mo>=</mo><mi>v</mi><mo>⋅</mo><mi>m</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>ℓ</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p>If <math><mrow><mi>u</mi><mo>≤</mo><mi>C</mi></mrow></math>, the record MUST be counted as unlocked (<math><mrow><mi>ℓ</mi><mo>=</mo><mn>0</mn></mrow></math>). A ballot's
+weight is the sum of <math><mi>w</mi></math> over its lock records.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th align="right"><math><mrow><mi>ℓ</mi><mi>/</mi><mi>L</mi></mrow></math></th><th align="right"><math><mrow><mi>m</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>ℓ</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></th><th>at the four-year cap</th></tr></thead><tbody><tr><td align="right">0</td><td align="right">0.100</td><td>unlocked</td></tr><tr><td align="right">1/16</td><td align="right">0.156</td><td>3 months</td></tr><tr><td align="right">1/8</td><td align="right">0.213</td><td>6 months</td></tr><tr><td align="right">1/4</td><td align="right">0.325</td><td>1 year</td></tr><tr><td align="right">1/2</td><td align="right">0.550</td><td>2 years</td></tr><tr><td align="right">1 or more</td><td align="right">1.000</td><td>4 years or more</td></tr></tbody></table>
+<h2 id="lock-records"><a class="hanchor" href="#lock-records" aria-hidden="true" tabindex="-1">#</a>Lock records</h2>
+<p>An operator MUST accept Class H and at least one lock class, and MUST reject
+any ballot whose evidence fails verification; a failed record MUST NOT be
+counted under Class H.</p>
+<h3 id="class-h"><a class="hanchor" href="#class-h" aria-hidden="true" tabindex="-1">#</a>Class H</h3>
+<p>Class H evidence is whatever proof of holding at <math><mi>S</mi></math> the operator already
+accepts, such as a proof of unspent Ironwood notes. It yields <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>v</mi><mo separator="true">,</mo><mn>0</mn><mo separator="true">,</mo><mrow><mi mathvariant="normal">H</mi><mspace></mspace></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> and counts at the floor.</p>
+<h3 id="class-t"><a class="hanchor" href="#class-t" aria-hidden="true" tabindex="-1">#</a>Class T</h3>
+<p>Class T evidence is a transparent output whose <code>scriptPubKey</code> is a
+pay-to-script-hash of the redeem script</p>
+<pre><code>&#x3C;u> OP_CHECKLOCKTIMEVERIFY OP_DROP &#x3C;pubkey> OP_CHECKSIG
+</code></pre>
+<p>where <code>&#x3C;u></code> is a minimally encoded script number with
+<math><mrow><mn>1</mn><mo>≤</mo><mi>u</mi><mo>&#x3C;</mo><mn>500,000,000</mn></mrow></math> (a block height, not a Unix time) <sup><a href="#user-content-fn-bip-0065" id="user-content-fnref-bip-0065-2" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>.
+The ballot carries the outpoint, the redeem script, and an ECDSA signature
+over secp256k1 by <code>pubkey</code>, as for <code>OP_CHECKSIG</code>, over a message <math><mi>M</mi></math> defined
+by the operator. <math><mi>M</mi></math> MUST include a poll identifier and MUST bind the ballot
+contents or a commitment to them.</p>
+<p>The operator MUST check that:</p>
+<ol>
+<li>the output exists and is unspent in the chain state at height <math><mi>S</mi></math>;</li>
+<li>the <code>scriptPubKey</code> equals the P2SH encoding of the supplied redeem script;</li>
+<li>the redeem script matches the template and <math><mi>u</mi></math> is in height form;</li>
+<li>the signature is valid for <code>pubkey</code> over <math><mi>M</mi></math>;</li>
+<li>the outpoint has not been used in another ballot of this poll.</li>
+</ol>
+<p>The lock record is <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>v</mi><mo separator="true">,</mo><mi>u</mi><mo separator="true">,</mo><mrow><mi mathvariant="normal">T</mi><mspace></mspace></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> with <math><mi>v</mi></math> the output's value.
+Operators MAY also accept an <code>OP_CHECKMULTISIG</code> variant of the template with
+<math><mi>m</mi></math> valid signatures.</p>
+<h3 id="class-s"><a class="hanchor" href="#class-s" aria-hidden="true" tabindex="-1">#</a>Class S</h3>
+<p>Class S, shielded locks, is reserved for a consensus ZIP. That ZIP MUST
+provide: a way to fix an unlock height at note creation that consensus
+enforces on spends; a proof usable within the operator's shielded path that
+yields a lock record for notes unspent at <math><mi>S</mi></math>, with the multiplier applied
+inside the proof; and locked notes indistinguishable from unlocked notes on
+chain, including when spent.</p>
+<p>The smallest design known: a lock-height field inside the
+Ironwood note commitment (zero for none); a circuit constraint that the field
+is at most a per-bundle minimum height; a consensus rule that a transaction
+with a non-zero minimum height is invalid in any block below it; and wallets
+that set that value on every transaction so locked spends do not stand out.
+<code>[VERIFY: fit with ZIP 229 and the Ironwood circuit]</code></p>
+<h2 id="counting"><a class="hanchor" href="#counting" aria-hidden="true" tabindex="-1">#</a>Counting</h2>
+<p>For each option the operator MUST compute the weighted total <math><mi>W</mi></math>, the sum of
+ballot weights, and the unweighted total <math><mi>V</mi></math>, the sum of <math><mi>v</mi></math> over the same
+ballots. The outcome among options MUST be decided on <math><mi>W</mi></math>. Any quorum, and the
+420,000 ZEC participation threshold of ZIP 1016 <sup><a href="#user-content-fn-zip-1016" id="user-content-fnref-zip-1016-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, MUST be measured
+on <math><mi>V</mi></math>.</p>
+<h2 id="excluded-coins"><a class="hanchor" href="#excluded-coins" aria-hidden="true" tabindex="-1">#</a>Excluded coins</h2>
+<p>Value in the Deferred Dev Fund Lockbox <sup><a href="#user-content-fn-zip-2001" id="user-content-fnref-zip-2001" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> and the NSM value balance
+<sup><a href="#user-content-fn-zip-0237" id="user-content-fnref-zip-0237" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup> are chain value pool balances, not outputs or notes. They cannot
+produce lock records and MUST NOT be counted.</p>
+<h2 id="poll-operator-obligations"><a class="hanchor" href="#poll-operator-obligations" aria-hidden="true" tabindex="-1">#</a>Poll operator obligations</h2>
+<p>Before height <math><mi>S</mi></math> the operator MUST publish <math><mi>S</mi></math>, <math><mi>C</mi></math>, <math><mi>L</mi></math>, <math><mi>f</mi></math>, the accepted
+evidence classes, and the format of <math><mi>M</mi></math>. The operator SHOULD NOT verify
+Class T evidence until the block at height <math><mi>S</mi></math> has at least 100
+confirmations. After the poll the operator MUST publish <math><mi>W</mi></math> and <math><mi>V</mi></math> for every
+option and SHOULD publish only totals. Operators MAY rehearse on Testnet,
+where Mainnet thresholds do not apply.</p>
+<h1 id="security-considerations"><a class="hanchor" href="#security-considerations" aria-hidden="true" tabindex="-1">#</a>Security Considerations</h1>
+<p><strong>Borrow-to-vote.</strong> Borrow ZEC, lock it, vote, repay after unlock. At an
+annual borrowing cost <math><mi>r</mi></math>, a one-week unlocked borrow costs about <math><mrow><mi>r</mi><mi>/</mi><mn>52</mn></mrow></math> of
+<math><mi>v</mi></math> for weight <math><mrow><mn>0.1</mn><mspace width="0.1667em"></mspace><mi>v</mi></mrow></math>; a lock of <math><mi>L</mi></math> costs about <math><mrow><mn>4</mn><mi>r</mi></mrow></math> of <math><mi>v</mi></math> for weight <math><mi>v</mi></math>,
+roughly twenty times more per unit of weight, and the loan must run until
+<math><mi>u</mi></math>.</p>
+<p><strong>Lock-and-hedge.</strong> Lock <math><mi>v</mi></math> and short <math><mi>v</mi></math> elsewhere, voting with no net
+exposure. This costs funding and margin over <math><mi>ℓ</mi></math> and remains possible; the
+design raises cost, it does not make this impossible.</p>
+<p><strong>Splitting.</strong> Because <math><mi>m</mi></math> is linear below the cap, weight per ZEC-block is
+constant, so no partition of a holding across lock lengths changes its total
+weight.</p>
+<p><strong>Last-minute locks.</strong> A lock placed the day before <math><mi>S</mi></math> that reaches past <math><mi>L</mi></math>
+counts in full. The forward commitment is the same whenever the lock was
+placed; what such a voter lacks is past holding, which this ZIP does not
+weigh. See [Open questions].</p>
+<p><strong>Vote buying</strong> is unchanged in kind. A seller must lock to sell full weight,
+so the price rises, but the trade exists.</p>
+<p><strong>Custodians.</strong> A custodian that owes coins on demand cannot lock them without
+a liquidity mismatch, so voting customer coins at full weight gets harder.
+That is intended. The limits: a custodian can lock its own float or accept
+the mismatch, and this ZIP does not verify custody.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<h2 id="alternatives-considered"><a class="hanchor" href="#alternatives-considered" aria-hidden="true" tabindex="-1">#</a>Alternatives considered</h2>
+<p><em>Amount only (status quo).</em> One ZEC, one vote, movable right after the
+snapshot <sup><a href="#user-content-fn-forum-nu7-vote" id="user-content-fnref-forum-nu7-vote-2" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>. The vote can be rented for a week's exposure.</p>
+<p><em>One person, one vote.</em> Zcash has no sybil-resistant identity. The Zcash
+Community Advisory Panel already gives a per-person signal alongside
+coinholder polls <sup><a href="#user-content-fn-zfnd-nu7-results" id="user-content-fnref-zfnd-nu7-results" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup>.</p>
+<p><em>Square root or logarithm of amount.</em> Without identity, any concave function
+of amount is defeated by splitting a holding across ballots.</p>
+<p><em>Conviction tiers</em> <sup><a href="#user-content-fn-polkadot-opengov" id="user-content-fnref-polkadot-opengov" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>. Multipliers that step with lock
+length let a holder pick the best point on the curve by splitting. Linear with
+a cap, as in Curve's vote-escrow <sup><a href="#user-content-fn-curve-vecrv" id="user-content-fnref-curve-vecrv" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup>, does not.</p>
+<p><em>Age weighting.</em> Weight by how long coins have already been held. For
+shielded notes this is provable today without a consensus change: the note
+commitment tree is append-only, so a note's position bounds its creation
+height, and the proof-of-balance draft <sup><a href="#user-content-fn-draft-str4d-balance-proof" id="user-content-fnref-draft-str4d-balance-proof" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup> already
+proves holding at a snapshot. In the <em>Ironwood pool</em>, age is bounded by the
+pool's activation in July 2026 <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup> and reset by migration
+<sup><a href="#user-content-fn-zip-0318" id="user-content-fnref-zip-0318" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup>. It is backward-looking, so it does not express willingness to
+stay, but it defeats buy-vote-sell and last-minute locks directly. Not
+adopted here; see [Open questions].</p>
+<p><em>Time-averaged balance.</em> Several snapshots, several proofs per ballot, still
+passive. A forward lock supplies its own window.</p>
+<h2 id="rationale-for-the-cap-and-floor"><a class="hanchor" href="#rationale-for-the-cap-and-floor" aria-hidden="true" tabindex="-1">#</a>Rationale for the cap and floor</h2>
+<p>The cap is one halving interval: the longest horizon over which the protocol
+itself plans issuance, and the four-year maximum of vote-escrow systems
+<sup><a href="#user-content-fn-curve-vecrv" id="user-content-fnref-curve-vecrv-2" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup>. The floor is non-zero so that this ZIP does not change who
+can vote; zero would exclude every shielded holder until Class S exists. One
+tenth is the weight of an unlocked vote in Polkadot's conviction voting
+<sup><a href="#user-content-fn-polkadot-opengov" id="user-content-fnref-polkadot-opengov-2" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>.</p>
+<h2 id="rationale-for-measuring-in-blocks"><a class="hanchor" href="#rationale-for-measuring-in-blocks" aria-hidden="true" tabindex="-1">#</a>Rationale for measuring in blocks</h2>
+<p><code>OP_CHECKLOCKTIMEVERIFY</code> heights are blocks, and NU7 cuts the target spacing
+from 75 to 25 seconds <sup><a href="#user-content-fn-zip-0218" id="user-content-fnref-zip-0218-2" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>, so a lock expressed in time would change
+meaning at activation. Measuring <math><mi>ℓ</mi></math> and <math><mi>L</mi></math> in blocks at height <math><mi>S</mi></math> keeps
+the weight well defined.</p>
+<h1 id="open-questions"><a class="hanchor" href="#open-questions" aria-hidden="true" tabindex="-1">#</a>Open questions</h1>
+<ul>
+<li>Will any poll operator add a Class T path to a shielded-only mechanism, and
+what is <math><mi>M</mi></math> there?</li>
+<li>Should past holding (age) count toward <math><mi>ℓ</mi></math>, generally or as the shielded
+interim before Class S?</li>
+<li>Are <math><mrow><mi>f</mi><mo>=</mo><mn>1</mn><mi>/</mi><mn>10</mn></mrow></math> and <math><mi>L</mi></math> = one halving interval right? Should <math><mi>f</mi></math> drop to
+zero once Class S exists?</li>
+<li>Should a lock have to reach past a fixed horizon rather than only past <math><mi>C</mi></math>?</li>
+<li>Should Coinholder-Controlled Fund coins held by the Key-Holder
+Organizations <sup><a href="#user-content-fn-zip-0271" id="user-content-fnref-zip-0271" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup> be excluded? ZIP 1016 restricts no one.</li>
+<li>Should Class T accept time-form or <code>OP_CHECKSEQUENCEVERIFY</code> locks
+(ZIP 112 <sup><a href="#user-content-fn-zip-0112" id="user-content-fnref-zip-0112" data-footnote-ref="" aria-describedby="footnote-label">22</a></sup>)?</li>
+<li>ZIP 1016 decides on ZEC cast in favour and, between competing grants, on
+ZEC committed in support. Deciding on <math><mi>W</mi></math> changes that; applying this ZIP
+to ZIP 1016 votes needs its Owners and an Updates header.</li>
+<li>Which network upgrade could carry Class S? <code>[VERIFY: NU8 planning]</code></li>
+</ul>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This ZIP applies to a poll when the operator announces, before <math><mi>S</mi></math>, that the
+poll follows it. Class T is usable once an operator implements its
+verification. Class S is usable only after its consensus ZIP activates on
+Mainnet; until then, shielded coins vote under Class H at the floor weight.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0229">
+<p><a href="/upstream/zip-0229.md">ZIP 229: Version 6 Transaction Format</a> <a href="#user-content-fnref-zip-0229" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0229-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-1016">
+<p><a href="/upstream/zip-1016.md">ZIP 1016: Community and Coinholder Funding Model</a> <a href="#user-content-fnref-zip-1016" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-1016-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-1016-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-1015">
+<p><a href="/upstream/zip-1015.rst">ZIP 1015: Block Subsidy Allocation for Non-Direct Development Funding</a> <a href="#user-content-fnref-zip-1015" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-coindesk-nu7">
+<p><a href="https://www.coindesk.com/tech/2026/09/16/zcash-holders-overwhelmingly-back-faster-transactions-and-bitcoin-style-halvings">CoinDesk: Zcash holders overwhelmingly back faster transactions and bitcoin-style halvings, 2026-09-16</a> <a href="#user-content-fnref-coindesk-nu7" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-forum-nu7-vote">
+<p><a href="https://forum.zcashcommunity.com/t/nu7-coinholder-vote/56912">Zcash Community Forum: NU7 Coinholder Vote</a> <a href="#user-content-fnref-forum-nu7-vote" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-forum-nu7-vote-2" data-footnote-backref="" aria-label="Back to reference 7-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-bip-0065">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki">BIP 65: OP_CHECKLOCKTIMEVERIFY</a> <a href="#user-content-fnref-bip-0065" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-bip-0065-2" data-footnote-backref="" aria-label="Back to reference 8-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zebra-script">
+<p><a href="https://github.com/ZcashFoundation/zebra/blob/main/zebra-script/src/lib.rs">Zebra: zebra-script/src/lib.rs, script verification flags P2SH and CHECKLOCKTIMEVERIFY</a> <a href="#user-content-fnref-zebra-script" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zebra-locktime">
+<p><a href="https://github.com/ZcashFoundation/zebra/blob/main/zebra-chain/src/transaction.rs">Zebra: zebra-chain/src/transaction.rs, <code>Transaction::lock_time</code></a> <a href="#user-content-fnref-zebra-locktime" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcashlabs-voting">
+<p><a href="https://zcashlabs.org/voting">Zcash Labs: NU7 coinholder vote</a> <a href="#user-content-fnref-zcashlabs-voting" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zcashlabs-voting-2" data-footnote-backref="" aria-label="Back to reference 11-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0218">
+<p><a href="/upstream/zip-0218.md">ZIP 218: 25-second Block Target Spacing</a> <a href="#user-content-fnref-zip-0218" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0218-2" data-footnote-backref="" aria-label="Back to reference 12-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-2001">
+<p><a href="/upstream/zip-2001.rst">ZIP 2001: Lockbox Funding Streams</a> <a href="#user-content-fnref-zip-2001" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0237">
+<p><a href="/upstream/zip-0237.md">ZIP 237: Network Sustainability Mechanism</a> <a href="#user-content-fnref-zip-0237" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zfnd-nu7-results">
+<p><a href="https://zfnd.org/nu7-polling-results-what-we-heard-and-where-we-go-from-here/">Zcash Foundation: NU7 Polling Results: What We Heard and Where We Go From Here</a> <a href="#user-content-fnref-zfnd-nu7-results" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-polkadot-opengov">
+<p><a href="https://wiki.polkadot.com/learn/learn-polkadot-opengov/">Polkadot Wiki: Polkadot OpenGov — Voluntary Locking (Conviction Voting)</a> <a href="#user-content-fnref-polkadot-opengov" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-polkadot-opengov-2" data-footnote-backref="" aria-label="Back to reference 16-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-curve-vecrv">
+<p><a href="https://resources.curve.finance/vecrv/overview">Curve DAO: Vote-Escrowed CRV (veCRV)</a> <a href="#user-content-fnref-curve-vecrv" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-curve-vecrv-2" data-footnote-backref="" aria-label="Back to reference 17-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-draft-str4d-balance-proof">
+<p><a href="/upstream/draft-str4d-orchard-balance-proof.md">draft-str4d-orchard-balance-proof: Air drops, Proof-of-Balance, and Stake-weighted Polling</a> <a href="#user-content-fnref-draft-str4d-balance-proof" data-footnote-backref="" aria-label="Back to reference 18" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0258">
+<p><a href="/upstream/zip-0258.md">ZIP 258: Deployment of the NU6.3 Network Upgrade</a> <a href="#user-content-fnref-zip-0258" data-footnote-backref="" aria-label="Back to reference 19" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0318">
+<p><a href="/upstream/zip-0318.md">ZIP 318: Orchard to Ironwood Migration</a> <a href="#user-content-fnref-zip-0318" data-footnote-backref="" aria-label="Back to reference 20" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0271">
+<p><a href="/upstream/zip-0271.md">ZIP 271: Deferred Dev Fund Lockbox Disbursement</a> <a href="#user-content-fnref-zip-0271" data-footnote-backref="" aria-label="Back to reference 21" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0112">
+<p><a href="/upstream/zip-0112.rst">ZIP 112: CHECKSEQUENCEVERIFY</a> <a href="#user-content-fnref-zip-0112" data-footnote-backref="" aria-label="Back to reference 22" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

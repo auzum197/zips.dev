@@ -1,0 +1,944 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", "SHOULD", and "MAY" in this document
+are to be interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only
+when, they appear in all capitals.</p>
+<p>The character § is used when referring to sections of the Zcash Protocol
+Specification. <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>The terms below are to be interpreted as follows:</p>
+<dl><dt>Pool snapshot</dt><dd>A pair <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> consisting of the
+Orchard note commitment tree root and the nullifier non-membership tree
+root, both computed as of the end of a specified block height. The pool
+snapshot defines the set of notes eligible for claims.</dd><dt>Nullifier non-membership tree</dt><dd>An Indexed Merkle Tree (IMT) whose leaves represent contiguous intervals
+between consecutive revealed nullifiers. A Merkle path to a leaf, together
+with a range check, proves that a given nullifier does not appear in the
+set of revealed nullifiers at the snapshot height. See [Nullifier
+Non-Membership Tree].</dd><dt>Alternate nullifier</dt><dd>A value derived from an Orchard note and a nullifier domain, with similar
+cryptographic properties to the note's standard nullifier but unlinkable
+to it. A note has exactly one alternate nullifier for each nullifier
+domain. See [Alternate Nullifier Derivation].</dd><dt>Nullifier domain</dt><dd>A unique identifier, encoded as an element of <math><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></math>,
+that scopes alternate nullifiers to a particular application instance. Two
+claims in the same domain for the same note produce the same alternate
+nullifier; claims in different domains are unlinkable.</dd><dt>Claim</dt><dd>A zero-knowledge proof, together with a spend authorization signature,
+demonstrating that the prover holds an unspent Orchard note with a
+committed value at a given pool snapshot, and revealing the note's
+alternate nullifier in a specified domain.</dd><dt>Dummy signed note</dt><dd>A synthetic Orchard note with value 1 zatoshi that does not exist in
+any on-chain note commitment tree. It is constructed solely for
+obtaining a spend authorization signature from the holder's key. Its
+value does not contribute to the claimed balance. See [Wallet Signing]
+and [Dummy Signed Note].</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP specifies a mechanism for proving ownership of unspent Orchard
+notes at a snapshot of the shielded pool, without revealing the notes'
+standard nullifiers or linking claims to past or future on-chain spending.</p>
+<p>The mechanism introduces two primitives: a <em>nullifier non-membership tree</em>
+(an Indexed Merkle Tree of intervals between consecutive revealed
+nullifiers) that enables efficient in-circuit proofs that a note was
+unspent at the snapshot height, and <em>alternate nullifiers</em> (domain-separated
+values derived from a note's standard nullifier using Poseidon) that
+prevent double-claiming within an application domain while remaining
+unlinkable across domains and to on-chain activity.</p>
+<p>A Claim circuit combines these primitives with standard Orchard note
+commitment integrity, Merkle membership, spend authority, and diversified
+address integrity checks to produce a single proof per
+note. An optional multi-note batching extension allows proving aggregate
+balance across several notes in one proof.</p>
+<p>Possible applications include private air drops, private proof-of-balance,
+and private stake-weighted polling. Application-specific protocols (such
+as coinholder voting) are specified in separate ZIPs that reference this
+one.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Several applications in the Zcash ecosystem require a holder to
+demonstrate that they controlled a certain balance at a point in time,
+without revealing which specific notes they held or linking the
+demonstration to their on-chain transaction history. Examples include:</p>
+<ul>
+<li><strong>Air drops</strong>: distributing tokens proportional to shielded holdings.</li>
+<li><strong>Stake-weighted polling</strong>: weighting votes by ZEC balance.</li>
+<li><strong>Proof-of-balance</strong>: demonstrating solvency or collateral without
+revealing addresses.</li>
+</ul>
+<p>The naive approach of revealing standard nullifiers would link the
+claim to future spending, destroying the privacy that Zcash's shielded
+transactions are designed to provide. An alternative approach of actually
+spending the claimed notes (e.g., to oneself) with an anchor at the
+snapshot height has the disadvantage that the same notes cannot be used
+in concurrent applications, and it permanently commits the holder to the
+claim by recording it on the main chain.</p>
+<p>Domain-separated alternate nullifiers resolve both problems: they are
+unlinkable to the standard nullifiers (even after the note is later spent
+on-chain), and they are scoped to a specific application instance so that
+the same notes can participate in independent, concurrent applications
+without interference.</p>
+<p>The concept of alternate nullifiers and nullifier non-membership trees for
+proof-of-balance was first described by Daira-Emma Hopwood and Jack Grigg
+in a 2023 draft. <sup><a href="#user-content-fn-draft-str4d-orchard-balance-proof" id="user-content-fnref-draft-str4d-orchard-balance-proof" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> This ZIP builds on
+that work with a concrete instantiation informed by the implementation
+experience of the Zcash coinholder voting system.</p>
+<p>A key practical consideration is that many holders custody their spending
+keys on hardware wallets such as Keystone. Without a delegation mechanism,
+hardware wallet users must either export their spending keys to software
+(negating the security benefit of hardware custody) or perform many more
+hardware wallet signing interactions (one per protocol action rather than
+a single delegation) each with limited ability to verify the signing
+context on screen. This ZIP therefore specifies a PCZT-based signing flow (see
+[Wallet Signing]) that works with any hardware wallet supporting
+Orchard PCZT signing today, requiring no firmware changes.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p><strong>Unlinkability to standard nullifiers.</strong> The alternate nullifier
+<math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow></math> for a note is computed as a Poseidon hash keyed by the
+nullifier deriving key <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math>, which is secret. An observer who
+sees both <math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow></math> (published during a claim) and the standard
+nullifier <math><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow></math> (published when the note is later spent on
+the Zcash chain) cannot link them without knowledge of <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math>.
+This property holds under the assumption that Poseidon is a pseudorandom
+function when keyed with a uniformly random field element (see
+[Security Argument]).</p>
+<p><strong>Cross-domain unlinkability.</strong> If the same note participates in two
+independent applications with different nullifier domains <math><mrow><mi>𝖽</mi><mi>𝗈</mi><msub><mi>𝗆</mi><mn>𝟣</mn></msub></mrow></math>
+and <math><mrow><mi>𝖽</mi><mi>𝗈</mi><msub><mi>𝗆</mi><mn>𝟤</mn></msub></mrow></math>, the resulting alternate nullifiers
+<math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><msub><mi>𝗆</mi><mn>𝟣</mn></msub></mrow></msub></mrow></math> and <math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><msub><mi>𝗆</mi><mn>𝟤</mn></msub></mrow></msub></mrow></math> are unlinkable. This
+follows from the PRF property: distinct inputs produce outputs that are
+computationally indistinguishable from independent random values.</p>
+<p><strong>Spend authority prevents viewing-key delegation.</strong> The circuit
+constrains correct derivation of <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>, and the protocol
+requires a valid spend authorization signature under <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>
+(see [Spend Authorization Signature]), ensuring that a party with only
+a viewing key cannot make claims on behalf of the holder.</p>
+<p><strong>Non-membership tree queries.</strong> Obtaining a Merkle path in the nullifier
+non-membership tree requires querying a data source that holds the full
+tree. A naive query reveals which path is being requested, potentially
+linking the querier to a nullifier range. Private information retrieval
+(PIR) techniques can mitigate this leakage <sup><a href="#user-content-fn-pir-nullifier-exclusion" id="user-content-fnref-pir-nullifier-exclusion" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>; their
+specification is out of scope for this document.</p>
+<p><strong>Hardware wallet device exposure.</strong> When the PCZT-based hardware wallet
+signing flow (see [Wallet Signing]) is used, the device observes
+the PCZT but learns no information about the holder's real
+Orchard balance or delegation context. The PCZT contains a 1-zatoshi
+dummy note with no on-chain counterpart; the holder's actual note
+commitments, values, and nullifiers are never transmitted to the device.
+The application commitment, alternate nullifiers, and usage identifier are
+committed via the dummy note's nullifier inside the ZKP circuit and
+do not appear as plaintext fields in the PCZT. The output address
+(application hotkey) is visible on the device but is freshly generated
+per usage instance and is not linked to the holder's on-chain Orchard
+addresses. An attacker with physical access to the device during signing
+learns only that the holder is participating in a proof-of-balance
+instance and the declared balance.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul>
+<li>A holder can prove ownership of an unspent Orchard note at a pool
+snapshot without revealing the note's standard nullifier.</li>
+<li>Double-claiming the same note within the same nullifier domain is
+detectable.</li>
+<li>Claims are unlinkable to the holder's past or future on-chain spends,
+and to their claims in other nullifier domains.</li>
+<li>The holder proves spend authority (not merely viewing access).</li>
+<li>The construction allows a holder to participate in multiple independent
+applications using the same notes, provided each application uses a
+distinct nullifier domain.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<ul>
+<li>Privacy-preserving retrieval of non-membership Merkle paths (e.g., via
+PIR) is out of scope.</li>
+<li>Value denomination conversions (e.g., converting zatoshi to
+application-specific units) are out of scope.</li>
+<li>Transaction-level encoding of claims is out of scope; this ZIP specifies
+only the proof statement and its verification.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="pool-snapshot"><a class="hanchor" href="#pool-snapshot" aria-hidden="true" tabindex="-1">#</a>Pool Snapshot</h2>
+<p>A pool snapshot at block height <math><mi>h</mi></math> is a pair
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> where:</p>
+<ul>
+<li><math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow></math> is the root of the Orchard note commitment tree
+as of the end of block <math><mi>h</mi></math>. <sup><a href="#user-content-fn-protocol-orchardcommitmenttree" id="user-content-fnref-protocol-orchardcommitmenttree" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup></li>
+<li><math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow></math> is the root of the nullifier non-membership tree
+constructed from the set of all Orchard nullifiers revealed on the
+consensus chain as of the end of block <math><mi>h</mi></math>.</li>
+</ul>
+<p>The pool snapshot MUST be deterministically computable from the consensus
+chain state at height <math><mi>h</mi></math>. Any party with access to the chain state MUST
+be able to independently verify both roots.</p>
+<h2 id="nullifier-non-membership-tree"><a class="hanchor" href="#nullifier-non-membership-tree" aria-hidden="true" tabindex="-1">#</a>Nullifier Non-Membership Tree</h2>
+<p>The nullifier non-membership tree is a Merkle tree whose leaves are
+commitments to the gaps between consecutive revealed nullifiers, enabling
+efficient in-circuit proofs that a given nullifier is absent from the
+revealed set.</p>
+<p>The relationship between the sorted nullifier set and the tree is
+illustrated below:</p>
+<pre><code>            /  \                          ..
+           /    \                        /
+       gcm_0    gcm_1               gcm_2      &#x3C;-- Gap commitments (tree leaves)
+      /\            /\              /\
+  |(l_0, w_0)| |(l_1, w_1)|   |(l_2, w_2) ..  &#x3C;-- Gap encodings (low, width)
+s_0|          |s_1|         |s_2|          ..   &#x3C;-- Sorted nullifier set + sentinels
+</code></pre>
+<p>Each gap between consecutive nullifiers is encoded as a
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> pair, then committed via
+<math><mrow><mi>𝖦</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math> (see [Hash Function]) to produce a tree leaf.</p>
+<h3 id="construction"><a class="hanchor" href="#construction" aria-hidden="true" tabindex="-1">#</a>Construction</h3>
+<p>Let <math><mrow><mi>S</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><msub><mi>s</mi><mn>0</mn></msub><mo separator="true">,</mo><msub><mi>s</mi><mn>1</mn></msub><mo separator="true">,</mo><mi>…</mi><mo separator="true">,</mo><msub><mi>s</mi><mrow><mi>m</mi><mo>−</mo><mn>1</mn></mrow></msub><mo fence="true" form="postfix" stretchy="false">}</mo></mrow><mo>⊂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math> be the union of the set of all Orchard
+nullifiers revealed on the consensus chain as of block height <math><mi>h</mi></math> and
+the sentinel values defined in [Sentinel Initialization]. Sort <math><mi>S</mi></math> in
+ascending order.
+Because sentinel initialization is mandatory, <math><mi>S</mi></math> is non-empty.</p>
+<p>For each pair of consecutive elements <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mi>s</mi><mi>i</mi></msub><mo separator="true">,</mo><msub><mi>s</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> where <math><mrow><msub><mi>s</mi><mi>i</mi></msub><mo>&#x3C;</mo><msub><mi>s</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub></mrow></math>
+and <math><mrow><msub><mi>s</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub><mo>−</mo><msub><mi>s</mi><mi>i</mi></msub><mo>></mo><mn>1</mn></mrow></math>, compute a gap encoding:</p>
+<ul>
+<li><math><mrow><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><msub><mi>s</mi><mi>i</mi></msub><mo>+</mo><mn>1</mn></mrow></math>: the first value in the gap</li>
+<li><math><mrow><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>=</mo><msub><mi>s</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub><mo>−</mo><msub><mi>s</mi><mi>i</mi></msub><mo>−</mo><mn>2</mn></mrow></math>: the number of additional values
+in the gap beyond <math><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></math></li>
+</ul>
+<p>The gap encoding represents the closed interval
+<math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo separator="true">,</mo><mspace width="0.2778em"></mspace><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>+</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math>, which contains exactly
+the field elements between <math><msub><mi>s</mi><mi>i</mi></msub></math> and <math><msub><mi>s</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub></math> exclusive. The
+corresponding tree leaf is <math><mrow><mrow><mi>𝖦</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<p>After processing all consecutive pairs, if <math><mrow><msub><mi>s</mi><mrow><mi>m</mi><mo>−</mo><mn>1</mn></mrow></msub><mo>&#x3C;</mo><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn></mrow></math>,
+a terminal gap MUST be added with:</p>
+<ul>
+<li><math><mrow><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><msub><mi>s</mi><mrow><mi>m</mi><mo>−</mo><mn>1</mn></mrow></msub><mo>+</mo><mn>1</mn></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>−</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></mrow></math></li>
+</ul>
+<p>This ensures that all unrevealed values above the largest element of <math><mi>S</mi></math> are
+represented in the tree.</p>
+<details>
+<summary>
+<h3 id="rationale-for-low-width-encoding"><a class="hanchor" href="#rationale-for-low-width-encoding" aria-hidden="true" tabindex="-1">#</a>Rationale for (low, width) encoding</h3>
+</summary>
+<p>An alternative encoding stores <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗌</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗍</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> pairs
+directly, as proposed in <sup><a href="#user-content-fn-draft-str4d-orchard-balance-proof" id="user-content-fnref-draft-str4d-orchard-balance-proof-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>. The
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> encoding precomputes
+<math><mrow><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>=</mo><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi></mrow><mo>−</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></mrow></math> during tree construction,
+saving one field subtraction in the in-circuit interval check. Since tree
+construction is performed once per snapshot while the circuit is evaluated
+per claim, this trade-off favors prover efficiency.</p>
+</details>
+<h3 id="hash-function"><a class="hanchor" href="#hash-function" aria-hidden="true" tabindex="-1">#</a>Hash Function</h3>
+<p>The non-membership tree uses Poseidon <sup><a href="#user-content-fn-protocol-poseidon" id="user-content-fnref-protocol-poseidon" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> with the
+<math><mrow><mi>𝖯</mi><mn>𝟣𝟤𝟪</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝗐</mi><mn>𝟧</mn><mi>𝖳</mi><mn>𝟥</mn></mrow></math> instantiation (width <math><mrow><mi>t</mi><mo>=</mo><mn>3</mn></mrow></math>, rate 2) over the
+Pallas base field <math><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></math> for all hashing:</p>
+<ul>
+<li><strong>Gap commitment:</strong> <math><mrow><mrow><mi>𝖦</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>,
+a 2-input Poseidon hash (one permutation).</li>
+<li><strong>Internal node hash:</strong> <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖭</mi><mi>𝗈</mi><mi>𝖽</mi><mi>𝖾</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗁</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗅</mi><mi>𝖾</mi><mi>𝖿</mi><mi>𝗍</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>,
+a 2-input Poseidon hash (one permutation), where <math><mrow><mi>𝗅</mi><mi>𝖾</mi><mi>𝖿</mi><mi>𝗍</mi></mrow></math> and
+<math><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></math> are determined by the node's position bit at each level.</li>
+</ul>
+<p>Both functions use <math><mrow><mi>𝖯</mi><mn>𝟣𝟤𝟪</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝗐</mi><mn>𝟧</mn><mi>𝖳</mi><mn>𝟥</mn></mrow></math> with <math><mrow><mrow><mi>𝖢</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖫</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">⟨</mo><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⟩</mo></mrow></mrow></math>.
+This is the same Poseidon instantiation used by Orchard for nullifier
+derivation <sup><a href="#user-content-fn-protocol-poseidon" id="user-content-fnref-protocol-poseidon-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</p>
+<details>
+<summary>
+<h3 id="rationale-for-poseidon-over-sinsemilla"><a class="hanchor" href="#rationale-for-poseidon-over-sinsemilla" aria-hidden="true" tabindex="-1">#</a>Rationale for Poseidon over Sinsemilla</h3>
+</summary>
+<p>The Orchard note commitment tree uses Sinsemilla <sup><a href="#user-content-fn-protocol-sinsemilla" id="user-content-fnref-protocol-sinsemilla" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>
+for Merkle hashing. The non-membership tree uses Poseidon instead because
+Poseidon operates natively on field elements, making it significantly more
+efficient inside Halo 2 arithmetic circuits. Sinsemilla is optimized for
+bitstring inputs and incurs overhead when hashing field elements. Since
+the non-membership tree is a new data structure not constrained by backwards
+compatibility, the more circuit-efficient choice is appropriate.</p>
+<p>Poseidon2 was considered but not adopted because no audited implementation was
+available at the time of design. Poseidon already has an audited implementation
+used by Orchard for nullifier derivation.</p>
+</details>
+<h3 id="tree-depth"><a class="hanchor" href="#tree-depth" aria-hidden="true" tabindex="-1">#</a>Tree Depth</h3>
+<p><math><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗄</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow></math> MUST be large enough to accommodate the
+number of gap leaves. Each nullifier in the pool adds at most one leaf
+(by splitting an existing gap), so the tree requires capacity for at
+least <math><mrow><mi>|</mi><mi>N</mi><mi>|</mi><mo>+</mo><mn>17</mn></mrow></math> leaves, where <math><mrow><mi>|</mi><mi>N</mi><mi>|</mi></mrow></math> is the size of the Orchard
+nullifier set and 17 is the number of sentinels for the Pallas base
+field. Concretely:</p>
+<p><math><mrow><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗄</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo>≥</mo><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><msub><mi>log</mi><mn>2</mn></msub><mo>⁡</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>|</mi><mi>N</mi><mi>|</mi><mo>+</mo><mn>17</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow></mrow></math></p>
+<p>A depth of <math><mrow><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗄</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo>=</mo><mn>29</mn></mrow></math> is RECOMMENDED. This
+supports up to <math><mrow><msup><mn>2</mn><mn>29</mn></msup><mo>≈</mo><mn>537</mn></mrow></math> million leaves. As of early 2026,
+the Zcash Orchard pool contains roughly 51 million nullifiers, so
+depth 29 provides about one order of magnitude of headroom.</p>
+<p>Unused leaf positions MUST be filled with the canonical empty leaf value
+<math><mrow><mrow><mi>𝖦</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mn>0</mn><mo separator="true">,</mo><mn>0</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>. This is non-overlapping with every valid
+gap encoding because the sentinel set always includes <math><mn>0</mn></math> (see
+[Sentinel Initialization]), so <math><mrow><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><mn>0</mn></mrow></math> can never appear in
+a valid gap.</p>
+<h3 id="sentinel-initialization"><a class="hanchor" href="#sentinel-initialization" aria-hidden="true" tabindex="-1">#</a>Sentinel Initialization</h3>
+<p>Before inserting any real nullifiers, the non-membership tree MUST be
+initialized with sentinel values that partition <math><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></math>
+into intervals each of width strictly less than <math><msup><mn>2</mn><mn>250</mn></msup></math>. The sentinel
+set MUST include the value <math><mn>0</mn></math>.</p>
+<p>For the Pallas base field (<math><mrow><msub><mi>q</mi><mi>ℙ</mi></msub><mo>≈</mo><msup><mn>2</mn><mn>254</mn></msup></mrow></math>),
+implementations MUST insert 17 sentinels <math><mrow><msub><mi>s</mi><mi>k</mi></msub><mo>∈</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math> at:</p>
+<p><math><mrow><msub><mi>s</mi><mi>k</mi></msub><mo>=</mo><mi>k</mi><mo>⋅</mo><msup><mn>2</mn><mn>250</mn></msup><mo separator="true">,</mo><mspace width="1em"></mspace><mi>k</mi><mo>∈</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0,1</mn><mo separator="true">,</mo><mi>…</mi><mo separator="true">,</mo><mn>16</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow><mi>.</mi></mrow></math></p>
+<p>This guarantees the width bound required by the in-circuit range checks:</p>
+<ul>
+<li>For <math><mrow><mi>k</mi><mo>=</mo><mn>0</mn><mo separator="true">,</mo><mi>…</mi><mo separator="true">,</mo><mn>15</mn></mrow></math>, the interval between consecutive sentinels has
+width exactly <math><mrow><msup><mn>2</mn><mn>250</mn></msup><mo>−</mo><mn>2</mn></mrow></math>.</li>
+<li>The final tail interval has width
+<math><mrow><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>16</mn><mo>⋅</mo><msup><mn>2</mn><mn>250</mn></msup><mo>−</mo><mn>2</mn><mo>&#x3C;</mo><msup><mn>2</mn><mn>250</mn></msup></mrow></math>.</li>
+</ul>
+<p>The width bound is critical for the soundness of the in-circuit range
+checks. If any interval had width <math><mrow><mo>≥</mo><msup><mn>2</mn><mn>250</mn></msup></mrow></math>, the range check could
+overflow, allowing a prover to falsely claim non-membership.</p>
+<p>These sentinel values are constants defined by this specification.</p>
+<h2 id="nullifier-domains"><a class="hanchor" href="#nullifier-domains" aria-hidden="true" tabindex="-1">#</a>Nullifier Domains</h2>
+<p>A nullifier domain <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math> is an element of
+<math><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></math> that defines a double-claim detection scope.
+Each independent claim context (such as a specific air-drop event, a single
+poll, or an individual voting round) MUST use its own domain.</p>
+<p>Applications MUST ensure that the domain value is unique across
+independent claim contexts. Two claims that share the same domain and the
+same underlying note will produce the same alternate nullifier, which is
+the mechanism for double-claim prevention.</p>
+<p>Applications SHOULD derive the domain deterministically by hashing a
+protocol identifier with an application-specific instance value. The
+protocol identifier SHOULD be the application's ZIP number, encoded as
+a little-endian Pallas base field element, which guarantees
+cross-application uniqueness. The instance value (such as a round or
+event identifier) ensures uniqueness across instances of the same
+application.</p>
+<p>Applications MAY define their own domain derivation scheme provided it
+satisfies the uniqueness requirement above.</p>
+<h2 id="alternate-nullifier-derivation"><a class="hanchor" href="#alternate-nullifier-derivation" aria-hidden="true" tabindex="-1">#</a>Alternate Nullifier Derivation</h2>
+<p>Given a nullifier domain <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math> and an Orchard note with standard
+nullifier <math><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow></math>, the alternate nullifier <math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow></math>
+is computed as:</p>
+<p><math><mrow><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow><mo>=</mo><mrow><mi>𝖣</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝖠</mi><mi>𝗅</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖭</mi><mi>𝗎</mi><mi>𝗅</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗂</mi><mi>𝖾</mi><msub><mi>𝗋</mi><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></msub></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p>where:</p>
+<ul>
+<li><math><mrow><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo>∈</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math> is the nullifier deriving
+key from the holder's full viewing key.</li>
+<li><math><mrow><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo>∈</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math> is the nullifier domain
+(see [Nullifier Domains]).</li>
+<li><math><mrow><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>∈</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math> is the note's
+standard Orchard nullifier, computed as
+<math><mrow><mrow><mi>𝖣</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝖭</mi><mi>𝗎</mi><mi>𝗅</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗂</mi><mi>𝖾</mi><msub><mi>𝗋</mi><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></msub></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mtext>ρ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><msup><mtext>ψ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</li>
+</ul>
+<p>This is a 3-input Poseidon hash. Using the standard <math><mrow><mi>𝖯</mi><mn>𝟣𝟤𝟪</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝗐</mi><mn>𝟧</mn><mi>𝖳</mi><mn>𝟥</mn></mrow></math>
+instantiation (width <math><mrow><mi>t</mi><mo>=</mo><mn>3</mn></mrow></math>, rate 2), this requires two permutations.</p>
+<h3 id="properties"><a class="hanchor" href="#properties" aria-hidden="true" tabindex="-1">#</a>Properties</h3>
+<p><strong>Deterministic.</strong> The same note in the same domain always produces the
+same alternate nullifier, enabling double-claim detection.</p>
+<p><strong>Unlinkable to standard nullifier.</strong> An adversary who observes
+<math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow></math> and later observes <math><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow></math> (when the note
+is spent on-chain) cannot link them without knowledge of <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math>.</p>
+<p><strong>Cross-domain unlinkable.</strong> Alternate nullifiers for the same note in
+different domains are computationally indistinguishable from independent
+random values.</p>
+<p><strong>Collision resistant.</strong> Distinct notes in the same domain produce
+distinct alternate nullifiers, under the collision resistance of Poseidon.</p>
+<h3 id="security-argument"><a class="hanchor" href="#security-argument" aria-hidden="true" tabindex="-1">#</a>Security Argument</h3>
+<p>The security of the alternate nullifier derivation relies on Poseidon
+being a pseudorandom function (PRF) when keyed with a uniformly random
+element of <math><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></math>.</p>
+<p><strong>Unlinkability.</strong> Model <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mo form="prefix" stretchy="false">⋅</mo><mo separator="true">,</mo><mo form="prefix" stretchy="false">⋅</mo><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+as a PRF keyed by <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math>. An adversary who does not know
+<math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> sees outputs that are indistinguishable from random. Given
+<math><mrow><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow><mo>=</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+and <math><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow></math>, the adversary cannot verify the relationship
+without <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math>. The nullifier deriving key <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> is a
+255-bit value derived from the spending key and is never revealed on-chain.</p>
+<p><strong>Cross-domain unlinkability.</strong> For two domains <math><mrow><mrow><mi>𝖽</mi><mi>𝗈</mi><msub><mi>𝗆</mi><mn>𝟣</mn></msub></mrow><mo>≠</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><msub><mi>𝗆</mi><mn>𝟤</mn></msub></mrow></mrow></math>,
+the tuples <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><msub><mi>𝗆</mi><mn>𝟣</mn></msub></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> and
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><msub><mi>𝗆</mi><mn>𝟤</mn></msub></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> are distinct inputs to the PRF.
+Under the PRF assumption, their outputs are jointly indistinguishable from
+independent random values.</p>
+<p><strong>Collision resistance.</strong> If <math><mrow><mrow><mi>𝗇</mi><msubsup><mi>𝖿</mi><mn>𝟣</mn><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo>≠</mo><mrow><mi>𝗇</mi><msubsup><mi>𝖿</mi><mn>𝟤</mn><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow></mrow></math>,
+then <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><msubsup><mi>𝖿</mi><mn>𝟣</mn><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> and
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><msubsup><mi>𝖿</mi><mn>𝟤</mn><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> are distinct Poseidon
+inputs, so their outputs collide with negligible probability under
+Poseidon's collision resistance.</p>
+<details>
+<summary>
+<h3 id="rationale-for-divergence-from-the-orchard-native-construction"><a class="hanchor" href="#rationale-for-divergence-from-the-orchard-native-construction" aria-hidden="true" tabindex="-1">#</a>Rationale for divergence from the Orchard-native construction</h3>
+</summary>
+<p>The earlier draft <sup><a href="#user-content-fn-draft-str4d-orchard-balance-proof" id="user-content-fnref-draft-str4d-orchard-balance-proof-3" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> proposed an
+alternate nullifier derivation structurally parallel to the standard
+Orchard nullifier:</p>
+<p><math><mrow><msub><mrow><mi>𝖤</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi></mrow><mi>ℙ</mi></msub><mrow style="margin-left:-0.1667em;"></mrow><mrow><mo fence="true" form="prefix" stretchy="true">(</mo><mrow style="margin-left:-0.1667em;"></mrow><mrow><mo fence="true" form="prefix" stretchy="true">[</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖯</mi><mi>𝖱</mi><msubsup><mi>𝖥</mi><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mrow class="tml-med-pad"><mi>𝗇</mi><mi>𝖿</mi><mi>𝖠</mi><mi>𝗅</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi></mrow></msubsup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mtext>ρ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>+</mo><msup><mtext>ψ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0.2222em">mod</mo><msub><mi>q</mi><mi>ℙ</mi></msub><mo fence="true" form="postfix" stretchy="true">]</mo></mrow><msup><mi class="mathcal">𝒦</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mo>+</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="true">)</mo></mrow></mrow></math></p>
+<p>That construction has the advantage of sharing more circuit infrastructure
+with the standard nullifier check.</p>
+<p>The Poseidon-based construction adopted here was chosen for simplicity:
+it requires only a single Poseidon hash rather than an additional
+fixed-base scalar multiplication, and it reuses the standard nullifier
+<math><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow></math> that the circuit already computes for the
+non-membership check. The security assumption is comparable, as both
+constructions rely on the hardness of distinguishing <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math>-keyed
+evaluations from random.</p>
+<p>The current Zcash coinholder voting system was designed and implemented
+around this construction. A future revision of this ZIP may revisit the
+choice as part of a broader protocol revision. For example, if hardware
+wallet firmware support (e.g., a Keystone testnet byte for governance
+signing) restructures the spend authority flow in a way that favors
+tighter integration with the standard Orchard nullifier derivation.</p>
+</details>
+<h2 id="claim-circuit"><a class="hanchor" href="#claim-circuit" aria-hidden="true" tabindex="-1">#</a>Claim Circuit</h2>
+<p>A valid instance of a Claim proof <math><mi>π</mi></math> assures the following statement.</p>
+<h3 id="public-inputs"><a class="hanchor" href="#public-inputs" aria-hidden="true" tabindex="-1">#</a>Public Inputs</h3>
+<p>Given a primary input:</p>
+<ul>
+<li><math><mrow><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0..</mn><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0..</mn><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mo>⦂</mo><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝖠</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗁</mi><mi>𝖲</mi><mi>𝗂</mi><msup><mi>𝗀</mi><mrow class="tml-sml-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mi>.</mi><mi>𝖯</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖼</mi></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mo>⦂</mo><mrow><mi>𝖵</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗎</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mi>.</mi><mi>𝖮</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗉</mi><mi>𝗎</mi><mi>𝗍</mi></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0..</mn><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0..</mn><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+</ul>
+<h3 id="auxiliary-inputs"><a class="hanchor" href="#auxiliary-inputs" aria-hidden="true" tabindex="-1">#</a>Auxiliary Inputs</h3>
+<p>the prover knows an auxiliary input:</p>
+<ul>
+<li><math><mrow><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup><mo>⦂</mo><msup><mi>ℙ</mi><mo form="prefix" stretchy="false">∗</mo></msup></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo>⦂</mo><msup><mi>ℙ</mi><mo form="prefix" stretchy="false">∗</mo></msup></mrow></math></li>
+<li><math><mrow><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><msup><mn>0..2</mn><msub><mi>ℓ</mi><mrow><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗎</mi><mi>𝖾</mi></mrow></msub></msup><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><msup><mtext>ρ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo>⦂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math></li>
+<li><math><mrow><msup><mtext>ψ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo>⦂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗋</mi><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><msup><mn>0..2</mn><msubsup><mi>ℓ</mi><mrow><mi>𝗌</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msubsup></msup><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>⦂</mo><mi>ℙ</mi></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0..</mn><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗉</mi><mi>𝖺</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo>⦂</mo><msup><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0..</mn><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗄</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></msup></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗉</mi><mi>𝗈</mi><msup><mi>𝗌</mi><mrow class="tml-sml-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><msup><mn>0..2</mn><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗄</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></msup><mrow style="margin-left:-0.1667em;"></mrow><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><msup><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mi>ℙ</mi></msup><mo>⦂</mo><msup><mi>ℙ</mi><mo form="prefix" stretchy="false">∗</mo></msup></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo>⦂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo>⦂</mo><mrow><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></msup><mi>.</mi><mi>𝖳</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗋</mi></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi><mi>_</mi><mrow><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗅</mi></mrow></mrow><mo>⦂</mo><mrow><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></msup><mi>.</mi><mi>𝖳</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗋</mi></mrow></mrow></math></li>
+<li><math><mrow><mi>α</mi><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><msup><mn>0..2</mn><msubsup><mi>ℓ</mi><mrow><mi>𝗌</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msubsup></msup><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗏</mi></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><msup><mn>0..2</mn><msubsup><mi>ℓ</mi><mrow><mi>𝗌</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msubsup></msup><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>⦂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>⦂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗉</mi><mi>𝖺</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo>⦂</mo><msup><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0..</mn><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗄</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></msup></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗉</mi><mi>𝗈</mi><msup><mi>𝗌</mi><mrow class="tml-sml-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><msup><mn>0..2</mn><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗄</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow></msup><mrow style="margin-left:-0.1667em;"></mrow><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+</ul>
+<p>such that the following conditions hold:</p>
+<h3 id="conditions"><a class="hanchor" href="#conditions" aria-hidden="true" tabindex="-1">#</a>Conditions</h3>
+<p><strong>Note commitment integrity.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mrow><mi>𝖭</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><msubsup><mi>𝗍</mi><mrow><mi>𝗋</mi><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mrow class="tml-med-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msubsup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><msup><mtext>ρ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><msup><mtext>ψ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>∈</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo separator="true">,</mo><mi>⊥</mi><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math>.</p>
+<p>This is identical to the corresponding check in an Orchard Action
+statement. <sup><a href="#user-content-fn-protocol-actionstatement" id="user-content-fnref-protocol-actionstatement" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup></p>
+<p><strong>Merkle path validity for</strong> <math><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow></math>. <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗉</mi><mi>𝖺</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo separator="true">,</mo><mrow><mi>𝗉</mi><mi>𝗈</mi><msup><mi>𝗌</mi><mrow class="tml-sml-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> is a valid Merkle path of depth
+<math><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗄</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math>, as defined in
+§ 4.9 'Merkle Path Validity' <sup><a href="#user-content-fn-protocol-merklepath" id="user-content-fnref-protocol-merklepath" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>, from
+<math><mrow><msub><mrow><mi>𝖤</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> to the anchor <math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow></math>.</p>
+<p><strong>Value commitment integrity.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mo>=</mo><mrow><mi>𝖵</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗎</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><msubsup><mi>𝗍</mi><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗏</mi></mrow><mrow class="tml-med-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msubsup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<p><strong>Nullifier derivation.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>=</mo><mrow><mi>𝖣</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝖭</mi><mi>𝗎</mi><mi>𝗅</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗂</mi><mi>𝖾</mi><msub><mi>𝗋</mi><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></msub></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mtext>ρ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><msup><mtext>ψ</mtext><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<p><strong>Spend authority.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝖠</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗁</mi><mi>𝖲</mi><mi>𝗂</mi><msup><mi>𝗀</mi><mrow class="tml-sml-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mi>.</mi><mi>𝖱</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖯</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖼</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>α</mi><mo separator="true">,</mo><msup><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mi>ℙ</mi></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<p><strong>Diversified address integrity.</strong> <math><mspace width="0.5em"></mspace></math>
+Let
+<math><mrow><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><msubsup><mi>𝗍</mi><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mrow class="tml-med-pad"><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></msubsup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝖤</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mi>ℙ</mi></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+and
+<math><mrow><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi><mi>_</mi><mrow><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗅</mi></mrow></mrow><mo>=</mo><mrow><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><msubsup><mi>𝗍</mi><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi><mi>_</mi><mrow><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗅</mi></mrow></mrow><mrow class="tml-med-pad"><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></msubsup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝖤</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mi>ℙ</mi></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.
+Then <math><mrow><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow></math> or
+<math><mrow><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi><mi>_</mi><mrow><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗅</mi></mrow></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow></math>.</p>
+<p><strong>Nullifier non-membership.</strong> <math><mspace width="0.5em"></mspace></math>
+Let <math><mrow><mrow><mi>𝗅</mi><mi>𝖾</mi><mi>𝖺</mi><mi>𝖿</mi></mrow><mo>=</mo><mrow><mi>𝖦</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+(see [Hash Function]).
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗉</mi><mi>𝖺</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo separator="true">,</mo><mrow><mi>𝗉</mi><mi>𝗈</mi><msup><mi>𝗌</mi><mrow class="tml-sml-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> is a valid Merkle path of
+depth <math><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗄</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗍</mi><msup><mi>𝗁</mi><mrow><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow></math> from <math><mrow><mi>𝗅</mi><mi>𝖾</mi><mi>𝖺</mi><mi>𝖿</mi></mrow></math> to the anchor
+<math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow></math>, using <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖭</mi><mi>𝗈</mi><mi>𝖽</mi><mi>𝖾</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗁</mi></mrow></math> (see [Hash Function])
+at each level.</p>
+<p>Additionally, let <math><mrow><mi>x</mi><mo>=</mo><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>−</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">mod</mo><msub><mi>q</mi><mi>ℙ</mi></msub></mrow></math>.
+Both of the following range checks MUST hold:</p>
+<ol>
+<li><math><mrow><mi>x</mi><mo>&#x3C;</mo><msup><mn>2</mn><mn>250</mn></msup></mrow></math></li>
+<li><math><mrow><msup><mn>2</mn><mn>250</mn></msup><mo>−</mo><mn>1</mn><mo>−</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>+</mo><mi>x</mi><mo>&#x3C;</mo><msup><mn>2</mn><mn>250</mn></msup></mrow></math></li>
+</ol>
+<p>These together enforce <math><mrow><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>≤</mo><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>≤</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>+</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow></mrow></math>
+over <math><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></math>, proving that the standard nullifier
+falls within an interval of unrevealed values.</p>
+<details>
+<summary>
+<h3 id="derivation-of-the-interval-check"><a class="hanchor" href="#derivation-of-the-interval-check" aria-hidden="true" tabindex="-1">#</a>Derivation of the interval check</h3>
+</summary>
+<p>To prove <math><mrow><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>≤</mo><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>≤</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>+</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow></mrow></math>:</p>
+<ul>
+<li>
+<p>Check 1 proves <math><mrow><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>≥</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></mrow></math>: if
+<math><mrow><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>&#x3C;</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></mrow></math>, the field subtraction wraps to a
+value <math><mrow><mo>≥</mo><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><msup><mn>2</mn><mn>250</mn></msup><mo>≫</mo><msup><mn>2</mn><mn>250</mn></msup></mrow></math>, failing the range
+check. This relies on the sentinel initialization ensuring
+<math><mrow><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>&#x3C;</mo><msup><mn>2</mn><mn>250</mn></msup></mrow></math> and therefore all legitimate offsets are
+small.</p>
+</li>
+<li>
+<p>Check 2 proves <math><mrow><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo>≤</mo><mrow><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>+</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow></mrow></math>:
+substituting, <math><mrow><msup><mn>2</mn><mn>250</mn></msup><mo>−</mo><mn>1</mn><mo>−</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>+</mo><mi>x</mi><mo>=</mo><msup><mn>2</mn><mn>250</mn></msup><mo>−</mo><mn>1</mn><mo>−</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>−</mo><mi>x</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.
+This is in <math><mrow><mo form="prefix" stretchy="false">[</mo><mn>0</mn><mo separator="true">,</mo><msup><mn>2</mn><mn>250</mn></msup><mo form="postfix" stretchy="false">)</mo></mrow></math> if and only if <math><mrow><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>−</mo><mi>x</mi><mo>≥</mo><mn>0</mn></mrow></math>,
+i.e., <math><mrow><mi>x</mi><mo>≤</mo><mrow><mi>𝗐</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗍</mi><mi>𝗁</mi></mrow></mrow></math>.</p>
+</li>
+</ul>
+</details>
+<p><strong>Alternate nullifier integrity.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow><mo>=</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+(see [Alternate Nullifier Derivation]).</p>
+<h3 id="circuit-implementation-notes"><a class="hanchor" href="#circuit-implementation-notes" aria-hidden="true" tabindex="-1">#</a>Circuit Implementation Notes</h3>
+<p>The first six conditions (note commitment integrity through diversified
+address integrity) are adapted from the corresponding Orchard Action
+statement checks. In particular, note-commitment Merkle membership uses
+<math><mrow><msub><mrow><mi>𝖤</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> as in the Orchard
+Action statement. <sup><a href="#user-content-fn-protocol-actionstatement" id="user-content-fnref-protocol-actionstatement-2" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup> Implementations SHOULD share
+circuit gadgets with an Orchard implementation to minimize new code
+requiring review.</p>
+<p>The nullifier non-membership check requires a Poseidon-based Merkle path
+verification (29 levels, 30 total Poseidon calls per note) and two 250-bit
+range checks.</p>
+<p>The alternate nullifier integrity check is a single Poseidon hash
+(two permutations at width 3).</p>
+<h2 id="spend-authorization-signature"><a class="hanchor" href="#spend-authorization-signature" aria-hidden="true" tabindex="-1">#</a>Spend Authorization Signature</h2>
+<p>Each Claim proof MUST be accompanied by a spend authorization signature
+<math><mi>σ</mi></math>, which is a <math><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝖠</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗁</mi><mi>𝖲</mi><mi>𝗂</mi><msup><mi>𝗀</mi><mrow class="tml-sml-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math> signature under
+the randomized key <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math> that is a public input to the circuit.</p>
+<p>The signature MUST be computed over a sighash that binds the signature
+to the specific claim, ensuring that it cannot be replayed for a
+different set of public inputs. Applications MAY achieve this binding
+directly (by including the public inputs in the sighash) or indirectly
+(through values that the Claim circuit constrains to be consistent with
+the public inputs).</p>
+<p>The concrete sighash derivation is application-defined. The [Wallet Signing]
+section specifies a PCZT-based signing flow that reuses the standard
+ZIP 244 <sup><a href="#user-content-fn-zip-244" id="user-content-fnref-zip-244" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> sighash, enabling compatibility with existing hardware
+wallets.</p>
+<h2 id="out-of-circuit-verification"><a class="hanchor" href="#out-of-circuit-verification" aria-hidden="true" tabindex="-1">#</a>Out-of-Circuit Verification</h2>
+<p>A verifier that receives a Claim proof <math><mi>π</mi></math> together with a spend
+authorization signature <math><mi>σ</mi></math> MUST perform the following checks:</p>
+<ol>
+<li>
+<p>Verify <math><mi>π</mi></math> against the public inputs
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow><mo separator="true">,</mo><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math>.</p>
+</li>
+<li>
+<p>Verify <math><mi>σ</mi></math> as a valid <math><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝖠</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗁</mi><mi>𝖲</mi><mi>𝗂</mi><msup><mi>𝗀</mi><mrow class="tml-sml-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math> signature
+on the sighash (see [Spend Authorization Signature]), under the
+randomized key <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>.</p>
+</li>
+<li>
+<p>Verify that <math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow></math> corresponds to the Orchard note
+commitment tree root at the declared snapshot height.</p>
+</li>
+<li>
+<p>Verify that <math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow></math> corresponds to the nullifier
+non-membership tree root at the declared snapshot height.</p>
+</li>
+<li>
+<p>Verify that <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math> is valid for the current application
+instance.</p>
+</li>
+<li>
+<p>Verify that <math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></msub></mrow></math> has not been previously accepted in the
+same nullifier domain. If it has, reject the claim as a double-claim.</p>
+</li>
+</ol>
+<h2 id="multi-note-batching"><a class="hanchor" href="#multi-note-batching" aria-hidden="true" tabindex="-1">#</a>Multi-Note Batching</h2>
+<p>The Claim circuit defined in [Claim Circuit] proves a statement about a
+single note. Applications that require proving aggregate balance across
+multiple notes MAY use the following batching extension. Applications
+that use the PCZT-based signing flow (see [Wallet Signing]) MUST use
+the batched circuit, as the dummy signed note (see [Dummy Signed Note])
+requires binding to the claimed note slots.</p>
+<h3 id="batched-claim-circuit"><a class="hanchor" href="#batched-claim-circuit" aria-hidden="true" tabindex="-1">#</a>Batched Claim Circuit</h3>
+<p>A batched Claim circuit for <math><mi>N</mi></math> notes modifies the single-note circuit
+as follows:</p>
+<ul>
+<li>The public inputs <math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖼</mi><mi>𝗆</mi></mrow></msup></mrow></math>, <math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow></math>,
+<math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>, and <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math> are shared across all <math><mi>N</mi></math> notes.</li>
+<li>Each note <math><mi>i</mi></math> contributes its own value commitment
+<math><mrow><mi>𝖼</mi><msub><mi>𝗏</mi><mi>𝗂</mi></msub></mrow></math> and alternate nullifier
+<math><mrow><mi>𝗇</mi><msub><mi>𝖿</mi><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi><mo separator="true">,</mo><mi>𝗂</mi></mrow></msub></mrow></math> as public inputs.</li>
+<li>A single <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> (derived from the shared <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> and
+<math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math>) is constrained to own all <math><mi>N</mi></math> notes, ensuring they
+belong to the same holder.</li>
+<li>All <math><mi>N</mi></math> note commitment integrity, value commitment integrity,
+Merkle path, nullifier derivation, non-membership, and alternate
+nullifier checks are performed independently per note.</li>
+</ul>
+<h3 id="dummy-signed-note"><a class="hanchor" href="#dummy-signed-note" aria-hidden="true" tabindex="-1">#</a>Dummy Signed Note</h3>
+<p>When the PCZT-based signing flow (see [Wallet Signing]) is used, the
+batched circuit MUST include an additional slot for the dummy signed
+note alongside the <math><msub><mi>N</mi><mrow><mi>max</mi><mo>⁡</mo></mrow></msub></math> claimed note slots. This slot has the
+following additional public input:</p>
+<ul>
+<li><math><mrow><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0..</mn><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+</ul>
+<p>and the following additional auxiliary inputs:</p>
+<ul>
+<li><math><mrow><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msubsup><mo>⦂</mo><msup><mi>ℙ</mi><mo form="prefix" stretchy="false">∗</mo></msup></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo>⦂</mo><msup><mi>ℙ</mi><mo form="prefix" stretchy="false">∗</mo></msup></mrow></math></li>
+<li><math><mrow><msup><mtext>ρ</mtext><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup><mo>⦂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math></li>
+<li><math><mrow><msup><mtext>ψ</mtext><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup><mo>⦂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗋</mi><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup></mrow><mo>⦂</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><msup><mn>0..2</mn><msubsup><mi>ℓ</mi><mrow><mi>𝗌</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msubsup></msup><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math></li>
+<li><math><mrow><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup></mrow><mo>⦂</mo><mi>ℙ</mi></mrow></math></li>
+<li><math><mrow><mrow><mi>𝖺</mi><mi>𝗉</mi><mi>𝗉</mi><mi>_</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi></mrow><mo>⦂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math></li>
+<li><math><mrow><mrow><mi>𝗂</mi><mi>𝗇</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝖾</mi><mi>_</mi><mi>𝗂</mi><mi>𝖽</mi></mrow><mo>⦂</mo><msub><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub></msub></mrow></math></li>
+</ul>
+<p>The following conditions MUST hold for the dummy signed note:</p>
+<p><strong>Signed note commitment integrity.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mrow><mi>𝖭</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><msubsup><mi>𝗍</mi><mrow><mi>𝗋</mi><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup></mrow><mrow class="tml-med-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msubsup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msubsup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mn>1</mn><mo separator="true">,</mo><msup><mtext>ρ</mtext><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><msup><mtext>ψ</mtext><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>∈</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup></mrow><mo separator="true">,</mo><mi>⊥</mi><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math>.</p>
+<p>The value is fixed to 1 (zatoshi) to match the PCZT value used for
+hardware wallet display (see [Wallet Signing]). The dummy signed note's
+value does not contribute to the claimed balance.</p>
+<p><strong>Signed note nullifier derivation.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mrow><mi>𝗇</mi><msup><mi>𝖿</mi><mrow class="tml-lrg-pad"><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup></mrow><mo>=</mo><mrow><mi>𝖣</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝖭</mi><mi>𝗎</mi><mi>𝗅</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗂</mi><mi>𝖾</mi><msub><mi>𝗋</mi><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></msub></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mtext>ρ</mtext><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><msup><mtext>ψ</mtext><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup><mo separator="true">,</mo><mrow><mi>𝖼</mi><msup><mi>𝗆</mi><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<p><strong>Rho binding.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><msup><mtext>ρ</mtext><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup><mo>=</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mo fence="true" symmetric="true" minsize="1.2em" maxsize="1.2em">(</mo><mrow><mi>𝖼</mi><mi>𝗆</mi><msub><mi>𝗑</mi><mn>𝟣</mn></msub></mrow><mo separator="true">,</mo><mi>…</mi><mo separator="true">,</mo><mrow><mi>𝖼</mi><mi>𝗆</mi><msub><mi>𝗑</mi><msub><mi>𝖭</mi><mrow><mi>max</mi><mo>⁡</mo></mrow></msub></msub></mrow><mo separator="true">,</mo><mrow><mi>𝖺</mi><mi>𝗉</mi><mi>𝗉</mi><mi>_</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗂</mi><mi>𝗇</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝖾</mi><mi>_</mi><mi>𝗂</mi><mi>𝖽</mi></mrow><mo fence="true" symmetric="true" minsize="1.2em" maxsize="1.2em">)</mo></mrow></math></p>
+<p>where <math><mrow><mrow><mi>𝖼</mi><mi>𝗆</mi><msub><mi>𝗑</mi><mi>𝗂</mi></msub></mrow><mo>=</mo><msub><mrow><mi>𝖤</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖼</mi><msubsup><mi>𝗆</mi><mi>𝗂</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+is the extracted note commitment of the <math><mi>i</mi></math>-th claimed note slot
+(real or dummy). This binds the hardware wallet's signature to the
+exact set of notes being claimed and the application context.</p>
+<p><strong>Spend authority.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝖠</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗁</mi><mi>𝖲</mi><mi>𝗂</mi><msup><mi>𝗀</mi><mrow class="tml-sml-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mi>.</mi><mi>𝖱</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖯</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖼</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>α</mi><mo separator="true">,</mo><msup><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mi>ℙ</mi></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<p>This is the same <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math> shared across the <math><msub><mi>N</mi><mrow><mi>max</mi><mo>⁡</mo></mrow></msub></math> claimed
+note slots.</p>
+<p><strong>Diversified address integrity.</strong> <math><mspace width="0.5em"></mspace></math>
+<math><mrow><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msubsup></mrow></math>
+where <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> is derived from the shared
+<math><msup><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mi>ℙ</mi></msup></math> and <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> as in the claimed note
+conditions.</p>
+<h3 id="note-padding"><a class="hanchor" href="#note-padding" aria-hidden="true" tabindex="-1">#</a>Note Padding</h3>
+<p>To avoid leaking the number of notes a holder is claiming, the circuit
+SHOULD accept a fixed number of note slots <math><msub><mi>N</mi><mrow><mi>max</mi><mo>⁡</mo></mrow></msub></math> (for example,
+<math><mrow><msub><mi>N</mi><mrow><mi>max</mi><mo>⁡</mo></mrow></msub><mo>=</mo><mn>5</mn></mrow></math>). Unused slots are filled with dummy notes (Orchard
+notes with <math><mrow><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo>=</mo><mn>0</mn></mrow></math>).</p>
+<p>Dummy notes use the same Merkle path validity check as the standard
+Orchard Action circuit <sup><a href="#user-content-fn-protocol-actionstatement" id="user-content-fnref-protocol-actionstatement-3" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>: if
+<math><mrow><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo>=</mo><mn>0</mn></mrow></math>, the Merkle path check is skipped.</p>
+<p>All other conditions are enforced unconditionally:</p>
+<ul>
+<li>Dummy notes commit to value 0 with a fresh <math><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗏</mi></mrow></math>.</li>
+<li>Dummy notes are derived from the same full viewing key as real notes
+(using a distinct diversifier index per slot).</li>
+<li>Dummy notes MUST provide a valid non-membership proof against
+<math><mrow><mi>𝗋</mi><msup><mi>𝗍</mi><mrow class="tml-med-pad"><mi>𝖾</mi><mi>𝗑</mi><mi>𝖼</mi><mi>𝗅</mi></mrow></msup></mrow></math>. Because dummy nullifiers are random field
+elements, they fall within an unrevealed interval with overwhelming
+probability.</li>
+<li>The alternate nullifier is derived and published for every slot. The
+application verifier MAY ignore alternate nullifiers corresponding
+to zero-value slots.</li>
+</ul>
+<h2 id="sub-circuit-instantiation"><a class="hanchor" href="#sub-circuit-instantiation" aria-hidden="true" tabindex="-1">#</a>Sub-Circuit Instantiation</h2>
+<p>When the Claim circuit is used as a sub-circuit of an application-specific
+circuit, the application circuit has direct access to the private witnesses
+including the note value <math><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></math>. In this case, the value
+commitment <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math> MAY be omitted from the public inputs if the
+application circuit binds to the note values through its own mechanism.
+For example, an application circuit that converts note values to
+application-specific units (such as vote weight) may bind to
+<math><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup></math> directly within the circuit and expose the converted
+result through its own public outputs. All other conditions of the Claim
+circuit MUST still be enforced.</p>
+<h2 id="application-requirements"><a class="hanchor" href="#application-requirements" aria-hidden="true" tabindex="-1">#</a>Application Requirements</h2>
+<p>An application instantiating this ZIP MUST define the following:</p>
+<ul>
+<li>An <strong>application hotkey</strong>: a key pair generated locally by the wallet,
+freshly generated per proof-of-balance instance, and not linked to the
+holder's on-chain Orchard addresses. When the PCZT-based signing flow
+is used, the output is addressed to this key (see [Wallet Signing]).
+All subsequent application-level operations use the hotkey in place of
+the holder's spending key.</li>
+<li>An <strong>application verifier</strong>: the component that accepts or rejects
+claims by performing the checks in [Out-of-Circuit Verification]. It
+MUST maintain a persistent set of accepted alternate nullifiers per
+domain for double-claim detection.</li>
+<li>A <strong>nullifier domain</strong> derivation, as specified in [Nullifier Domains].</li>
+<li>An <strong>application commitment</strong> (<math><mrow><mi>𝖺</mi><mi>𝗉</mi><mi>𝗉</mi><mi>_</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi></mrow></math>): a value
+that commits to application-specific context, included in the rho
+binding (see [Dummy Signed Note]). For example, a voting protocol
+might commit to the delegated vote weight and recipient address.</li>
+<li>An <strong>instance identifier</strong> (<math><mrow><mi>𝗂</mi><mi>𝗇</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝖾</mi><mi>_</mi><mi>𝗂</mi><mi>𝖽</mi></mrow></math>): a unique
+identifier for the proof-of-balance instance, included in the rho
+binding (see [Dummy Signed Note]).</li>
+<li>A <strong>sighash derivation</strong>: the method for computing the sighash for the
+spend authorization signature (see [Spend Authorization Signature]).
+Applications using the PCZT-based signing flow use the ZIP 244
+<sup><a href="#user-content-fn-zip-244" id="user-content-fnref-zip-244-2" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> sighash.</li>
+</ul>
+<h2 id="wallet-signing"><a class="hanchor" href="#wallet-signing" aria-hidden="true" tabindex="-1">#</a>Wallet Signing</h2>
+<p>The signing flow proceeds in five steps:</p>
+<ol>
+<li>The wallet generates an application hotkey on the local device.</li>
+<li>The wallet constructs a dummy signed note whose nullifier commits
+to the delegation context.</li>
+<li>The wallet builds a PCZT containing the dummy signed note.</li>
+<li>The hardware wallet device signs the PCZT and returns the signature.</li>
+<li>The wallet extracts the signature and assembles the delegation
+submission.</li>
+</ol>
+<p>Each interaction with the hardware wallet device delegates up to
+<math><msub><mi>N</mi><mrow><mi>max</mi><mo>⁡</mo></mrow></msub></math> Orchard notes (we utilize the default batch size of 5).
+A holder with more than <math><msub><mi>N</mi><mrow><mi>max</mi><mo>⁡</mo></mrow></msub></math> notes repeats the flow for each batch,
+producing a separate application commitment per batch. The holder MAY choose
+to delegate fewer batches than their full note set, claiming only the balance
+covered by the delegated batches.</p>
+<h3 id="dummy-signed-note-construction"><a class="hanchor" href="#dummy-signed-note-construction" aria-hidden="true" tabindex="-1">#</a>Dummy Signed Note Construction</h3>
+<p>The wallet constructs a dummy Orchard note as follows:</p>
+<ol>
+<li>
+<p><strong>Address.</strong> The signed note's address is derived from the holder's
+full viewing key at diversifier index 0 with external scope:
+<math><mrow><msup><mrow><mi>𝖺</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi></mrow><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup><mo>=</mo><mrow><mi>𝖿</mi><mi>𝗏</mi><mi>𝗄</mi><mi>.</mi><mi>𝖺</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mn>0</mn><mo separator="true">,</mo><mrow><mi>𝖤</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗅</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.
+A fixed index is used because the address is a private witness inside
+the ZKP circuit and is never publicly transmitted.</p>
+</li>
+<li>
+<p><strong>Nullifier commitment.</strong> The signed note's <math><mtext>ρ</mtext></math> is set to
+the value specified by the rho binding condition in [Dummy Signed Note].
+Because the dummy note has no on-chain existence, <math><mtext>ρ</mtext></math> can be
+freely chosen; this design binds the hardware wallet's signature to
+the exact set of notes being claimed and the application context via
+the ZKP circuit, avoiding the need for a custom signing protocol.</p>
+</li>
+<li>
+<p><strong>Value.</strong> The note value MUST be set to 1 zatoshi (0.00000001 ZEC)
+in the PCZT, matching the value used in the signed note commitment
+integrity condition (see [Dummy Signed Note]).</p>
+</li>
+<li>
+<p><strong>Rseed.</strong> A fresh random <math><mrow><mi>𝗋</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></math> is sampled for the note.</p>
+</li>
+<li>
+<p><strong>Note construction.</strong> The note is constructed via standard Orchard
+note construction using the address, value (1 zatoshi), rho, and
+rseed above.</p>
+</li>
+</ol>
+<p>For fewer than <math><msub><mi>N</mi><mrow><mi>max</mi><mo>⁡</mo></mrow></msub></math> real notes, the wallet pads the remaining
+slots with zero-value dummy notes at diversifier indices <math><mrow><mn>1000</mn><mo>+</mo><mi>i</mi></mrow></math>
+(external scope) from the holder's full viewing key. These padding notes
+enter the <math><mtext>ρ</mtext></math> commitment via their <math><mrow><mi>𝖼</mi><mi>𝗆</mi><mi>𝗑</mi></mrow></math> values but do
+not correspond to real on-chain notes.</p>
+<h3 id="pczt-construction"><a class="hanchor" href="#pczt-construction" aria-hidden="true" tabindex="-1">#</a>PCZT Construction</h3>
+<p>The wallet constructs a PCZT as a single-action Orchard transaction:</p>
+<h4 id="spend-side"><a class="hanchor" href="#spend-side" aria-hidden="true" tabindex="-1">#</a>Spend Side</h4>
+<ul>
+<li>The single spend consumes the dummy signed note constructed above.</li>
+<li>A dummy Merkle authentication path (all-zero siblings, position 0)
+is used. The path is not verified on-chain; spend authorization is
+established by the ZKP circuit.</li>
+<li>The Orchard bundle builder generates the spend authorization
+randomizer <math><mi>α</mi></math> and the randomized verification key
+<math><mrow><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mo>+</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>α</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mi>G</mi></mrow></math> internally.</li>
+</ul>
+<h4 id="output-side"><a class="hanchor" href="#output-side" aria-hidden="true" tabindex="-1">#</a>Output Side</h4>
+<ul>
+<li>
+<p>A single output of 1 zatoshi is addressed to the application hotkey.</p>
+</li>
+<li>
+<p>The output memo SHOULD contain a human-readable delegation description.
+For example, a voting application might use:</p>
+<p><code>"I am authorizing this hotkey managed by my wallet to participate</code>
+<code>in {instance_name} with {amount}.{frac} ZEC."</code></p>
+<p>where <code>{instance_name}</code> identifies the proof-of-balance instance and
+<code>{amount}.{frac}</code> is the holder's eligible ZEC balance.</p>
+</li>
+</ul>
+<h4 id="zip-32-derivation"><a class="hanchor" href="#zip-32-derivation" aria-hidden="true" tabindex="-1">#</a>ZIP-32 Derivation</h4>
+<p>The spend MUST include a ZIP 32 <sup><a href="#user-content-fn-zip-32" id="user-content-fnref-zip-32" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup> derivation path so that the
+hardware wallet device can derive the correct spending key:</p>
+<p><math><mrow><mrow><mi>𝗉</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗁</mi></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><msup><mn>32</mn><mo lspace="0em" rspace="0em" class="tml-prime">′</mo></msup><mo separator="true">,</mo><msup><mrow><mi>𝖼</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>_</mi><mi>𝗍</mi><mi>𝗒</mi><mi>𝗉</mi><mi>𝖾</mi></mrow><mo lspace="0em" rspace="0em" class="tml-prime">′</mo></msup><mo separator="true">,</mo><msup><mrow><mi>𝖺</mi><mi>𝖼</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗇</mi><mi>𝗍</mi></mrow><mo lspace="0em" rspace="0em" class="tml-prime">′</mo></msup><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></mrow></math></p>
+<p>where <math><mrow><mi>𝖼</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>_</mi><mi>𝗍</mi><mi>𝗒</mi><mi>𝗉</mi><mi>𝖾</mi></mrow></math> is 133 for Zcash mainnet.</p>
+<h4 id="finalization"><a class="hanchor" href="#finalization" aria-hidden="true" tabindex="-1">#</a>Finalization</h4>
+<p>The wallet applies the PCZT Creator and IoFinalizer roles. The
+IoFinalizer computes the ZIP 244 <sup><a href="#user-content-fn-zip-244" id="user-content-fnref-zip-244-3" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> transaction identifier
+(sighash) that the hardware wallet device will sign.</p>
+<h3 id="device-display"><a class="hanchor" href="#device-display" aria-hidden="true" tabindex="-1">#</a>Device Display</h3>
+<p>During signing, the hardware wallet device displays the PCZT as a
+standard Orchard transaction. The user sees fields such as:</p>
+<pre><code>Amount: 0.00000001 ZEC
+Fee: 0 ZEC
+
+Orchard
+From
+#1 0.00000001 ZEC Mine
+&#x3C;shielded>
+
+To
+#1 0.00000001 ZEC
+{application hotkey address}
+Memo: I am authorizing this hotkey managed by my
+      wallet to participate in {instance_name} with
+      {amount}.{frac} ZEC
+</code></pre>
+<p>The 0.00000001 ZEC amount (1 zatoshi) and 0 ZEC fee confirm that no
+real funds are being transferred. The "To" address matches the
+application hotkey address displayed in the wallet application. The memo
+provides human-readable context for what the user is authorizing.</p>
+<p>The hardware wallet device has no awareness of application semantics. It
+interprets the PCZT identically to any other Orchard transaction.</p>
+<h3 id="signature-extraction-and-submission"><a class="hanchor" href="#signature-extraction-and-submission" aria-hidden="true" tabindex="-1">#</a>Signature Extraction and Submission</h3>
+<p>After receiving the signed PCZT from the hardware wallet device, the
+wallet:</p>
+<ol>
+<li>
+<p>Parses the signed PCZT and reads the <code>spend_auth_sig</code> field from
+the relevant action.</p>
+</li>
+<li>
+<p>Recomputes the sighash that the device signed. This is the ZIP 244
+transaction identifier computed over the PCZT.</p>
+</li>
+<li>
+<p>Assembles the delegation submission by combining the hardware wallet
+signature and sighash with the Claim proof and other public inputs.
+The submission format is application-defined.</p>
+</li>
+</ol>
+<p>The delegation submission is sent to the application verifier. The
+wallet does not need the hardware wallet device again for the remainder
+of the usage instance; all subsequent operations use the application
+hotkey.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<h2 id="why-alternate-nullifiers-instead-of-actual-spends"><a class="hanchor" href="#why-alternate-nullifiers-instead-of-actual-spends" aria-hidden="true" tabindex="-1">#</a>Why Alternate Nullifiers Instead of Actual Spends</h2>
+<p>The most obvious approach to proof-of-balance (actually spending the
+notes to oneself at the snapshot anchor) fails because it consumes the
+notes on-chain. A holder who participates in one application cannot reuse
+the same notes in a concurrent application. Alternate nullifiers avoid
+this by operating entirely off the main chain: the standard nullifiers are
+never revealed, and the notes remain spendable.</p>
+<h2 id="why-sentinel-initialization"><a class="hanchor" href="#why-sentinel-initialization" aria-hidden="true" tabindex="-1">#</a>Why Sentinel Initialization</h2>
+<p>Without sentinels, the initial non-membership tree would contain a single
+leaf spanning the entire field <math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mn>0</mn><mo separator="true">,</mo><msub><mi>q</mi><mi>ℙ</mi></msub><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math>, with width
+<math><mrow><mo>≈</mo><msup><mn>2</mn><mn>254</mn></msup></mrow></math>. The in-circuit range checks use 250-bit windows
+(25 limbs of the 10-bit lookup table). An interval wider than <math><msup><mn>2</mn><mn>250</mn></msup></math>
+would allow the upper-bound range check to wrap, enabling a prover to
+falsely claim non-membership for a value outside the interval.</p>
+<p>Sentinels partition the field into intervals each narrower than <math><msup><mn>2</mn><mn>250</mn></msup></math>
+at initialization. Real nullifier insertions only split intervals into
+smaller ones, so the width bound is maintained permanently.</p>
+<h2 id="why-1-zatoshi-instead-of-0"><a class="hanchor" href="#why-1-zatoshi-instead-of-0" aria-hidden="true" tabindex="-1">#</a>Why 1 Zatoshi Instead of 0</h2>
+<p>The dummy signed note uses a value of 1 zatoshi (0.00000001 ZEC) in the
+PCZT rather than 0. When an Orchard Action has a 0-value
+note, Keystone's suppress the display of transaction fields
+(amount, fee, addresses, memo), presenting the user with insufficient
+information to make an informed signing decision. Setting the value to
+1 zatoshi causes the device to render all fields normally.</p>
+<p>The Batched Claim circuit uses the 1-zatoshi value in the signed note
+commitment integrity check (see [Dummy Signed Note]), matching the
+PCZT value. The dummy signed note's value does not contribute to the
+claimed balance.</p>
+<h2 id="why-a-dummy-note-instead-of-a-real-note"><a class="hanchor" href="#why-a-dummy-note-instead-of-a-real-note" aria-hidden="true" tabindex="-1">#</a>Why a Dummy Note Instead of a Real Note</h2>
+<p>A holder's real Orchard notes are not spent or consumed during
+delegation. The dummy signed note is constructed specifically for the
+proof-of-balance flow and never appears in any on-chain note commitment
+tree. This design has three advantages:</p>
+<ul>
+<li><strong>No fund risk.</strong> Because the proof-of-balance transaction is never
+broadcast to the Zcash mainchain and the signed note has no on-chain
+existence, there is no scenario in which the delegation signing could
+result in loss of funds.</li>
+<li><strong>Note reusability.</strong> Because real notes are never consumed on
+mainchain, they remain fully spendable and available for other
+applications that use the proof-of-balance mechanism. Alternate
+nullifiers are domain-separated by <math><mrow><mi>𝗂</mi><mi>𝗇</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝖾</mi><mi>_</mi><mi>𝗂</mi><mi>𝖽</mi></mrow></math>, so the
+same notes can participate in concurrent proof-of-balance instances
+without conflict.</li>
+<li><strong>PCZT compatibility.</strong> The dummy note reuses the standard Orchard
+Action structure, allowing the PCZT to pass through the
+hardware wallet's existing PCZT parser and signer without
+modification.</li>
+</ul>
+<h2 id="why-the-dummy-notes-ρ-provides-non-replayability"><a class="hanchor" href="#why-the-dummy-notes-ρ-provides-non-replayability" aria-hidden="true" tabindex="-1">#</a>Why the Dummy Note's ρ Provides Non-Replayability</h2>
+<p>Because the dummy signed note does not correspond to any on-chain note,
+its inputs can be freely chosen. The design sets
+<math><msup><mtext>ρ</mtext><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi></mrow></msup></math> to a Poseidon hash of the delegated note
+commitments, the application commitment, and the usage identifier.
+Because <math><mtext>ρ</mtext></math> enters the note commitment (and therefore the
+sighash), the hardware wallet's signature is cryptographically bound to
+the exact delegation context. An attacker cannot replay the signature
+for a different set of notes, a different application commitment, or a
+different usage instance.</p>
+<p>This binding is enforced by the Batched Claim circuit's rho binding
+condition (see [Dummy Signed Note]), which the application verifier
+checks. The hardware wallet device does not need to understand
+the binding; it is sufficient that the device signs the sighash derived
+from the PCZT containing the committed <math><mtext>ρ</mtext></math>. No custom signing
+protocol is required — the standard Orchard PCZT flow is reused, and
+all existing hardware wallets that support Orchard signing are
+compatible without firmware changes.</p>
+<h2 id="why-zip-244-sighash"><a class="hanchor" href="#why-zip-244-sighash" aria-hidden="true" tabindex="-1">#</a>Why ZIP 244 Sighash</h2>
+<p>The PCZT uses the standard ZIP 244 <sup><a href="#user-content-fn-zip-244" id="user-content-fnref-zip-244-4" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> transaction
+identifier as the sighash. This is the only sighash format that
+existing hardware wallet Orchard signing implementations can produce.
+Using an application-specific sighash would require firmware changes,
+which this specification explicitly avoids.</p>
+<p>The ZIP 244 sighash commits to the full Orchard bundle structure
+(including the dummy note's commitment, which embeds the bound
+<math><mtext>ρ</mtext></math>), providing the necessary cryptographic binding without
+a custom signature scheme.</p>
+<h2 id="why-not-a-custom-signing-protocol"><a class="hanchor" href="#why-not-a-custom-signing-protocol" aria-hidden="true" tabindex="-1">#</a>Why Not a Custom Signing Protocol</h2>
+<p>A future version of this specification could define a custom signing
+protocol purpose-built for proof-of-balance, rather than reusing the
+standard Orchard PCZT format. This would require ecosystem-wide
+coordination (firmware updates to all participating hardware wallets)
+but could yield several improvements:</p>
+<ul>
+<li><strong>Binding application actions to the signature.</strong> Many use cases want
+to prove balance <em>and</em> take an action in a single step (e.g., casting
+a vote). A custom signing protocol could commit to the application
+action directly in the signature, reducing the number of ZKPs required
+by downstream protocols.</li>
+<li><strong>Removing the hotkey indirection.</strong> With a richer signing format, the
+holder could authorize actions directly from the hardware wallet
+without delegating to an application hotkey, simplifying the trust
+model.</li>
+<li><strong>Improved on-device display.</strong> A custom format could present
+application-aware context (e.g., "Vote on proposal X with Y ZEC")
+rather than the generic Orchard transaction fields shown today.</li>
+</ul>
+<p>This specification intentionally avoids a custom signing protocol to
+maximize compatibility with existing wallets. The trade-off is accepted:
+downstream protocols may require additional ZKPs or hotkey indirection
+that a purpose-built signing format could eliminate.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This ZIP does not specify a consensus change. Deployment considerations
+are application-specific.</p>
+<p>The hardware wallet signing flow specified in [Wallet Signing]
+requires no firmware changes and no changes to Zcash mainchain consensus
+rules. Any hardware wallet that supports Orchard PCZT signing can
+participate immediately.</p>
+<p>Software wallets that hold the spending key directly do not need the
+PCZT construction; they follow the same Claim proof specification but
+sign the application-defined sighash directly.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p>A reference implementation of the Claim circuit (including the
+non-membership tree, alternate nullifier derivation, and multi-note
+batching for <math><mrow><msub><mi>N</mi><mrow><mi>max</mi><mo>⁡</mo></mrow></msub><mo>=</mo><mn>5</mn></mrow></math>) is available at
+<a href="https://github.com/valargroup/voting-circuits">valargroup/voting-circuits</a>.</p>
+<h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Open issues</h1>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.3 [NU6.1] or later</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-draft-str4d-orchard-balance-proof">
+<p><a href="/upstream/draft-str4d-orchard-balance-proof.md">Draft ZIP: Air drops, Proof-of-Balance, and Stake-weighted Polling</a> <a href="#user-content-fnref-draft-str4d-orchard-balance-proof" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-str4d-orchard-balance-proof-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-draft-str4d-orchard-balance-proof-3" data-footnote-backref="" aria-label="Back to reference 3-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-pir-nullifier-exclusion">
+<p><a href="https://github.com/zcash/zips/pull/1198">Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</a> <a href="#user-content-fnref-pir-nullifier-exclusion" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-orchardcommitmenttree">
+<p><a href="/upstream/protocol/protocol.pdf#merkletree">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 3.1: Note Commitment Trees</a> <a href="#user-content-fnref-protocol-orchardcommitmenttree" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-poseidon">
+<p><a href="/upstream/protocol/protocol.pdf#concreteprfs">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 5.4.2: Pseudo Random Functions</a> <a href="#user-content-fnref-protocol-poseidon" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-poseidon-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-sinsemilla">
+<p><a href="/upstream/protocol/protocol.pdf#concretesinsemillahash">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 5.4.1.9: Sinsemilla Hash Function</a> <a href="#user-content-fnref-protocol-sinsemilla" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-actionstatement">
+<p><a href="/upstream/protocol/protocol.pdf#actionstatement">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 4.17.4: Action Statement (Orchard)</a> <a href="#user-content-fnref-protocol-actionstatement" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-actionstatement-2" data-footnote-backref="" aria-label="Back to reference 8-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-protocol-actionstatement-3" data-footnote-backref="" aria-label="Back to reference 8-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-merklepath">
+<p><a href="/upstream/protocol/protocol.pdf#merklepath">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 4.9: Merkle Path Validity</a> <a href="#user-content-fnref-protocol-merklepath" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-244">
+<p><a href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a> <a href="#user-content-fnref-zip-244" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-244-2" data-footnote-backref="" aria-label="Back to reference 10-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-244-3" data-footnote-backref="" aria-label="Back to reference 10-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-244-4" data-footnote-backref="" aria-label="Back to reference 10-4" class="data-footnote-backref">↩<sup>4</sup></a></p>
+</li>
+<li id="user-content-fn-zip-32">
+<p><a href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a> <a href="#user-content-fnref-zip-32" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

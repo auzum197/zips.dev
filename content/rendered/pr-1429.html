@@ -1,0 +1,449 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", "SHOULD", and "MAY" in this document are to
+be interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when, they appear
+in all capitals.</p>
+<p>The terms "Mainnet" and "Testnet" are to be interpreted as described in
+section 3.12 of the Zcash Protocol Specification. <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>The terms "txid", "authorizing data commitment" (denoted <code>auth_digest</code>), and
+"witnessed transaction identifier" ("wtxid") are to be interpreted as
+described in ZIP 239. <sup><a href="#user-content-fn-zip-0239" id="user-content-fnref-zip-0239" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<dl><dt>best tip</dt><dd>The tip of a node's best fully validated block chain.</dd><dt>early relay</dt><dd>Announcing or sending a block before the sending node has fully validated
+it.</dd><dt>authenticated block</dt><dd>A block that passes the checks in [Early Relay].</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP specifies compact block relay for the Zcash peer-to-peer network,
+adapted from BIP 152. <sup><a href="#user-content-fn-bip-0152" id="user-content-fnref-bip-0152" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> A compact block contains the block header,
+short identifiers for the block's transactions, and its coinbase transaction;
+the receiver reconstructs the block from transactions it already has. Peers
+that both opt in may also relay a block before fully validating it, once its
+header and transaction commitments have been checked.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>As in Bitcoin before BIP 152, a Zcash node announces a block only after fully
+validating it, and a peer that requests the block receives every transaction
+in it, although it has usually already received most of them through
+transaction relay. Both delay the propagation of new blocks between miners.</p>
+<p>BIP 152 replaces transactions the receiver already has with short
+identifiers, and allows a block to be relayed before it is fully validated.
+It cannot be used in Zcash unchanged: Zcash block headers include an Equihash
+solution, and since NU5 a transaction's txid does not commit to its
+authorizing data <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>, so short identifiers and the checks made before
+early relay need to cover the wtxid.</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>All messages defined in this ZIP are serialized in the standard encoding for
+P2P messages. <sup><a href="#user-content-fn-zip-0204" id="user-content-fnref-zip-0204" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup></p>
+<h2 id="service-flag"><a class="hanchor" href="#service-flag" aria-hidden="true" tabindex="-1">#</a>Service Flag</h2>
+<p>The service flag <code>NODE_COMPACT_BLOCKS</code> is defined as bit 16
+(<code>0x0000000000010000</code>). This value is subject to confirmation by the ZIP
+Editors.</p>
+<p>A node that sets <code>NODE_COMPACT_BLOCKS</code> in its <code>version</code> message supports the
+messages defined in this ZIP and follows the rules in [Early Relay] and
+[Peer Misbehaviour].</p>
+<p>The messages defined in this ZIP MUST NOT be sent on a connection unless both
+peers set <code>NODE_COMPACT_BLOCKS</code> in their <code>version</code> messages, and MUST NOT be
+sent before the <code>version</code>/<code>verack</code> handshake completes. Support MUST NOT be
+inferred from any other source, such as <code>addr</code> records, user agents, or
+protocol versions. A node MUST ignore these messages on other connections.</p>
+<h2 id="sendcmpct"><a class="hanchor" href="#sendcmpct" aria-hidden="true" tabindex="-1">#</a><code>sendcmpct</code></h2>
+<p>The <code>sendcmpct</code> message is defined as a message where the <code>command</code> field is
+(NUL-padded) <code>"sendcmpct"</code>, with the following payload:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>1</td><td><code>announce</code></td><td><code>uint8</code></td><td>1 to request <code>cmpctblock</code> announcements, 0 to stop them.</td></tr><tr><td>8</td><td><code>version</code></td><td><code>uint64</code></td><td>Compact block encoding version.</td></tr></tbody></table>
+<p>This ZIP specifies version 1. A message with <code>announce</code> other than 0 or 1 is
+malformed.</p>
+<p>A node MAY send <code>cmpctblock</code> messages to a peer only while the most recent
+<code>sendcmpct</code> received from that peer has <code>announce</code> = 1 and <code>version</code> = 1. A
+<code>sendcmpct</code> with any other version disables announcements to its sender, and
+is not a protocol violation.</p>
+<p>A node MUST NOT request announcements from more than three peers at a time. It
+SHOULD request them from the peers that most recently first announced blocks
+it then added to its best chain; announcements of blocks it has not validated
+MUST NOT be counted. A node MUST ignore <code>cmpctblock</code> messages it has not
+requested. Disabling announcements MUST NOT cancel an outstanding
+<code>getblocktxn</code> request.</p>
+<p>There is no low-bandwidth mode and no compact block inventory type. Blocks
+are requested with <code>getdata</code> and <code>MSG_BLOCK</code>, as before.</p>
+<h2 id="cmpctblock"><a class="hanchor" href="#cmpctblock" aria-hidden="true" tabindex="-1">#</a><code>cmpctblock</code></h2>
+<p>The <code>cmpctblock</code> message is defined as a message where the <code>command</code> field is
+(NUL-padded) <code>"cmpctblock"</code>, with the following payload:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>varies</td><td><code>header</code></td><td>Block header</td><td>Encoded as in section 7.6 of the Zcash Protocol Specification. <sup><a href="#user-content-fn-protocol-blockheader" id="user-content-fnref-protocol-blockheader" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></td></tr><tr><td>8</td><td><code>nonce</code></td><td><code>uint64</code></td><td>Nonce used to compute short IDs.</td></tr><tr><td>varies</td><td><code>shortidsCount</code></td><td><code>CompactSize</code></td><td>Number of short IDs.</td></tr><tr><td><code>6 * shortidsCount</code></td><td><code>shortids</code></td><td><code>uint8[6][]</code></td><td>Short IDs of the transactions that are not prefilled, in block order.</td></tr><tr><td>varies</td><td><code>prefilledCount</code></td><td><code>CompactSize</code></td><td>Number of prefilled transactions.</td></tr><tr><td>varies</td><td><code>prefilled</code></td><td><code>PrefilledTransaction[]</code></td><td>Prefilled transactions, in block order.</td></tr></tbody></table>
+<p>The header includes the Equihash solution, and does not include the
+transaction count that follows it in a <code>headers</code> message. On Mainnet and
+Testnet it is 1,487 bytes.</p>
+<p>A <code>PrefilledTransaction</code> has the following format:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>varies</td><td><code>index</code></td><td><code>CompactSize</code></td><td>Differentially encoded index of the transaction in the block.</td></tr><tr><td>varies</td><td><code>tx</code></td><td>Transaction</td><td>The transaction, encoded as in section 7.1 of the Zcash Protocol Specification. <sup><a href="#user-content-fn-protocol-txnencoding" id="user-content-fnref-protocol-txnencoding" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup></td></tr></tbody></table>
+<p>In a list of differentially encoded indexes, the first entry is the absolute
+index, and each later entry is the absolute index minus the previous absolute
+index minus 1. For example, <code>[0, 0, 2]</code> encodes the absolute indexes
+<code>[0, 1, 4]</code>. Counts and indexes MUST be checked before allocation or
+indexing, and count addition and index decoding MUST NOT overflow.</p>
+<p>Let <code>n = shortidsCount + prefilledCount</code> be the number of transactions in the
+block. A node MUST reject a <code>cmpctblock</code> message if:</p>
+<ul>
+<li>any of <code>shortidsCount</code>, <code>prefilledCount</code>, and <code>n</code> exceeds 37,037;</li>
+<li>the absolute prefilled indexes are not strictly increasing, or any is not
+less than <code>n</code>;</li>
+<li>the first prefilled transaction is not a coinbase transaction at index 0,
+or any other prefilled transaction is a coinbase transaction; or</li>
+<li>the sizes of the header, the <code>CompactSize</code> encoding of <code>n</code>, and the
+prefilled transactions, plus 54 bytes for each short ID, sum to more than
+2,000,000 bytes.</li>
+</ul>
+<p>Senders SHOULD prefill only the coinbase transaction.</p>
+<h3 id="short-transaction-ids"><a class="hanchor" href="#short-transaction-ids" aria-hidden="true" tabindex="-1">#</a>Short Transaction IDs</h3>
+<p>The sender SHOULD choose <code>nonce</code> uniformly at random for each <code>cmpctblock</code>
+message. The short ID of a transaction is computed as follows:</p>
+<ol>
+<li>Let <code>h</code> be the SHA-256 hash of the encoded block header followed by
+<code>nonce</code>.</li>
+<li>Let <code>k0</code> and <code>k1</code> be bytes 0 to 7 and 8 to 15 of <code>h</code>, each interpreted as
+a little-endian <code>uint64</code>.</li>
+<li>Compute SipHash-2-4 with keys <code>(k0, k1)</code> of the transaction's 32-byte txid
+for v4 and earlier transactions, or of its 64-byte wtxid for v5 and later
+transactions.</li>
+<li>The short ID is the first 6 bytes of the little-endian encoding of the
+result.</li>
+</ol>
+<h2 id="getblocktxn-and-blocktxn"><a class="hanchor" href="#getblocktxn-and-blocktxn" aria-hidden="true" tabindex="-1">#</a><code>getblocktxn</code> and <code>blocktxn</code></h2>
+<p>The <code>getblocktxn</code> message is defined as a message where the <code>command</code> field
+is (NUL-padded) <code>"getblocktxn"</code>, with the following payload:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>32</td><td><code>blockHash</code></td><td><code>uint8[32]</code></td><td>Hash of the block announced by <code>cmpctblock</code>.</td></tr><tr><td>varies</td><td><code>indexesCount</code></td><td><code>CompactSize</code></td><td>Number of requested transactions.</td></tr><tr><td>varies</td><td><code>indexes</code></td><td><code>CompactSize[]</code></td><td>Differentially encoded indexes of the requested transactions.</td></tr></tbody></table>
+<p>The <code>indexesCount</code> field MUST NOT exceed 37,037, and the absolute indexes
+MUST be strictly increasing and less than <code>n</code>.</p>
+<p>The <code>blocktxn</code> message is defined as a message where the <code>command</code> field is
+(NUL-padded) <code>"blocktxn"</code>, with the following payload:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>32</td><td><code>blockHash</code></td><td><code>uint8[32]</code></td><td><code>blockHash</code> from the request.</td></tr><tr><td>varies</td><td><code>txCount</code></td><td><code>CompactSize</code></td><td>Number of transactions.</td></tr><tr><td>varies</td><td><code>tx</code></td><td>Transaction[]</td><td>The requested transactions, in the order requested.</td></tr></tbody></table>
+<p>A <code>blocktxn</code> message MUST contain exactly the requested transactions, which
+MUST NOT exceed 2,000,000 bytes in total.</p>
+<p>A node that sends a <code>cmpctblock</code> message MUST be able to answer a
+<code>getblocktxn</code> request for any subset of the block's transactions, and SHOULD
+retain the block for this purpose for 15 seconds. It SHOULD limit the
+<code>blocktxn</code> messages it sends for one <code>cmpctblock</code> message, including repeated
+and empty responses, to 2,000,000 bytes in total, and MAY ignore requests
+beyond that limit or after that time. It MUST ignore requests for blocks it
+has not announced on that connection or no longer retains, and requests for
+indexes outside the block.</p>
+<p>A node MUST ignore a <code>blocktxn</code> message that does not answer its outstanding
+<code>getblocktxn</code> request on that connection, and SHOULD wait at most two seconds
+for the answer.</p>
+<h2 id="sending-compact-blocks"><a class="hanchor" href="#sending-compact-blocks" aria-hidden="true" tabindex="-1">#</a>Sending Compact Blocks</h2>
+<p>A node MUST send each block announcement as <code>cmpctblock</code> to at most three
+peers, and SHOULD do so only when the <code>cmpctblock</code> message is smaller than the
+block. Other peers receive the announcement as before. A node MAY announce a
+fully validated block with <code>cmpctblock</code> to any peer that requested
+announcements.</p>
+<h3 id="early-relay"><a class="hanchor" href="#early-relay" aria-hidden="true" tabindex="-1">#</a>Early Relay</h3>
+<p>A node MAY relay a block before fully validating it only to peers that set
+<code>NODE_COMPACT_BLOCKS</code>, and only after checking that:</p>
+<ul>
+<li>NU5 is active at the block's height;</li>
+<li>the block's parent is the node's best tip, and the block's coinbase height
+is one more than the best tip's height;</li>
+<li>the header has the expected difficulty, a valid Equihash solution, a hash
+that meets its target, and a valid time with respect to both the local
+clock and the median time past;</li>
+<li>the block is at most 2,000,000 bytes, its first transaction is a coinbase
+transaction, and no later transaction has a transparent input with a null
+previous output;</li>
+<li>the block passes the shielded action limits, and the subsidy and funding
+stream checks that do not depend on value pool state;</li>
+<li>the txids are distinct and reproduce <code>hashMerkleRoot</code>, and each
+transaction's consensus branch ID is valid at the block's height;</li>
+<li>the <code>auth_digest</code> values of all transactions reproduce the authorizing data
+root, which together with the parent's chain history reproduces
+<code>hashBlockCommitments</code>, as specified in ZIP 244; <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> and</li>
+<li>the block has not been rejected or invalidated by the node.</li>
+</ul>
+<p>While it completes validation, the node MAY announce the block, and MAY answer
+<code>getdata</code> requests for it from those peers. It MUST stop early relay of the
+block when its validation fails or is cancelled, or when its parent is no
+longer the best tip, and MUST check these conditions before sending each
+message. It SHOULD continue to answer <code>getblocktxn</code> requests for a
+<code>cmpctblock</code> message it has already sent.</p>
+<h2 id="receiving-compact-blocks"><a class="hanchor" href="#receiving-compact-blocks" aria-hidden="true" tabindex="-1">#</a>Receiving Compact Blocks</h2>
+<p>Before retaining a <code>cmpctblock</code> message or querying its mempool, a node MUST
+check the coinbase height, NU5 activation, the header's time, target, and
+proof of work, and that the block's parent is its best tip. If these checks
+fail, the node SHOULD treat the message as an announcement of the block hash.
+A node SHOULD limit the compact blocks it retains and the <code>getblocktxn</code>
+requests it sends, both per peer and in total.</p>
+<p>The node then reconstructs the block:</p>
+<ol>
+<li>Place the prefilled transactions at their indexes.</li>
+<li>For each index that is not prefilled, if its short ID occurs only once in
+the message and exactly one mempool transaction has that short ID, place
+that transaction at the index.</li>
+<li>If any index remains empty, send one <code>getblocktxn</code> request for all of
+them.</li>
+<li>Check that the <code>blocktxn</code> response contains one transaction for each
+requested index, with the corresponding short ID.</li>
+<li>Check the block size, the coinbase transaction, that the txids are
+distinct and reproduce <code>hashMerkleRoot</code>, and that the <code>auth_digest</code> values
+reproduce the commitments as in [Early Relay], then fully validate the
+block.</li>
+</ol>
+<p>Step 5 is required because a short ID can match the wrong transaction, and
+<code>hashMerkleRoot</code> does not commit to authorizing data.</p>
+<p>If any step fails, or the response does not arrive in time, the node MUST
+request the block from the same peer with <code>getdata</code> and <code>MSG_BLOCK</code>, using its
+usual timeout. A reconstruction failure MUST NOT cause the node to treat the
+block as invalid.</p>
+<h2 id="peer-misbehaviour"><a class="hanchor" href="#peer-misbehaviour" aria-hidden="true" tabindex="-1">#</a>Peer Misbehaviour</h2>
+<p>A node MAY treat a malformed message defined in this ZIP as it treats other
+malformed P2P messages. This includes non-canonical <code>CompactSize</code> encodings,
+indexes out of range, and counts or sizes that exceed the limits above.</p>
+<p>A node MUST NOT penalize a peer for short ID collisions, failed
+reconstructions, commitment mismatches in reconstructed blocks, <code>blocktxn</code>
+timeouts, or an unknown parent.</p>
+<p>A node MUST NOT penalize a peer that set <code>NODE_COMPACT_BLOCKS</code> when an
+authenticated block it sent fails later validation; the node still rejects
+the block. A node MAY penalize a peer that sends a full block failing the
+proof of work, size, structure, or commitment checks in [Early Relay]. If the
+node cannot authenticate a block because the parent's chain history is
+unavailable, but the block passes the checks that do not depend on it, the
+node MUST NOT penalize the peer for a later transaction or contextual
+validation failure. Failures of local time policy and local invalidation are
+not peer misbehaviour.</p>
+<h2 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h2>
+<p>This ZIP applies on Mainnet and Testnet from NU5 activation. It does not
+require a network upgrade. Peers that do not set <code>NODE_COMPACT_BLOCKS</code> use
+block relay as before.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>This ZIP differs from BIP 152 as follows:</p>
+<ul>
+<li>The header is the Zcash block header, including the Equihash solution.</li>
+<li>Short IDs are computed from the wtxid for v5 and later transactions, so
+version 1 of the encoding is not Bitcoin's version 1.</li>
+<li>Only high-bandwidth announcements are defined.</li>
+<li>Support is signalled by a service flag rather than a protocol version, and
+an unsupported version disables announcements rather than being negotiated.</li>
+<li>The coinbase transaction is always prefilled, and all counts and sizes are
+bounded.</li>
+<li>Early relay requires checking authorizing data, and is limited to children
+of the best tip.</li>
+</ul>
+<p>Zebra and zcashd ignore unknown P2P messages after the handshake
+<sup><a href="#user-content-fn-zebra-codec" id="user-content-fnref-zebra-codec" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> <sup><a href="#user-content-fn-zcashd-messages" id="user-content-fnref-zcashd-messages" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>, so a service flag is not needed to avoid
+disconnection. It is needed because both peers have to agree on the encoding,
+and on not penalizing authenticated blocks that fail later validation; an
+ignored message establishes neither. A protocol version signals support for a
+network upgrade, not for an optional relay policy. <sup><a href="#user-content-fn-zip-0201" id="user-content-fnref-zip-0201" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup></p>
+<p>The limit of 37,037 transactions is the 2,000,000-byte block size limit
+divided by 54 bytes, a lower bound on the size of a transaction.</p>
+<p>Bit 16 avoids the service flags allocated in Zcash and Bitcoin
+<sup><a href="#user-content-fn-bitcoin-services" id="user-content-fnref-bitcoin-services" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>, the range 24 to 31 reserved for temporary experiments,
+and bits 12 to 14, which are used by pending Bitcoin proposals.
+<sup><a href="#user-content-fn-bitcoin-utreexo" id="user-content-fnref-bitcoin-utreexo" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> <sup><a href="#user-content-fn-bitcoin-utxo-sharing" id="user-content-fnref-bitcoin-utxo-sharing" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup></p>
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Security and Privacy Considerations</h1>
+<p>A short ID identifies a transaction only probabilistically. A node that
+skipped the checks in step 5 of [Receiving Compact Blocks] could accept a
+block whose authorizing data differs from the data committed to by its
+header.</p>
+<p>An early relayed block can be invalid. Receiving one does not indicate that
+the block is valid, and nodes MUST fully validate it before accepting it.</p>
+<p>A <code>getblocktxn</code> request reveals which transactions the sender did not have,
+and the timing of announcements can reveal a node's peers. Setting
+<code>NODE_COMPACT_BLOCKS</code> reveals that a node supports this ZIP.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h1>
+<p>Zebra implements this ZIP behind the default-off option
+<code>experimental_early_block_relay</code>, using temporary service bit 25. <sup><a href="#user-content-fn-zebra" id="user-content-fnref-zebra" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup> It
+will use the bit confirmed for this ZIP; until then, it does not negotiate
+compact block relay with peers that use the confirmed bit.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0239">
+<p><a href="/upstream/zip-0239.rst">ZIP 239: Relay of Version 5 Transactions</a> <a href="#user-content-fnref-zip-0239" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0152">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0152.mediawiki">BIP 152: Compact Block Relay</a> <a href="#user-content-fnref-bip-0152" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0244">
+<p><a href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a> <a href="#user-content-fnref-zip-0244" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0244-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0204">
+<p><a href="/upstream/zip-0204.rst">ZIP 204: Zcash P2P Network Protocol</a> <a href="#user-content-fnref-zip-0204" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-blockheader">
+<p><a href="/upstream/protocol/protocol.pdf#blockheader">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 7.6: Block Header Encoding and Consensus</a> <a href="#user-content-fnref-protocol-blockheader" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-txnencoding">
+<p><a href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 7.1: Transaction Encoding and Consensus</a> <a href="#user-content-fnref-protocol-txnencoding" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zebra-codec">
+<p><a href="https://github.com/ZcashFoundation/zebra/blob/4b8a202e41d41b8ab84a703c72ef77fd03d4d000/zebra-network/src/protocol/external/codec.rs">Zebra P2P message codec</a> <a href="#user-content-fnref-zebra-codec" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcashd-messages">
+<p><a href="https://github.com/zcash/zcash/blob/master/src/main.cpp">zcashd P2P message processing</a> <a href="#user-content-fnref-zcashd-messages" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0201">
+<p><a href="/upstream/zip-0201.rst">ZIP 201: Network Peer Management for Overwinter</a> <a href="#user-content-fnref-zip-0201" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bitcoin-services">
+<p><a href="https://github.com/bitcoin/bitcoin/blob/master/src/protocol.h">Bitcoin Core service flags</a> <a href="#user-content-fnref-bitcoin-services" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bitcoin-utreexo">
+<p><a href="https://github.com/bitcoin/bips/pull/1923">Proposed BIP 183: Utreexo — Peer Services, Bitcoin BIPs pull request #1923</a> <a href="#user-content-fnref-bitcoin-utreexo" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bitcoin-utxo-sharing">
+<p><a href="https://github.com/bitcoin/bips/pull/2137">Proposed BIP: P2P UTXO Set Sharing, Bitcoin BIPs pull request #2137</a> <a href="#user-content-fnref-bitcoin-utxo-sharing" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zebra">
+<p><a href="https://github.com/ZcashFoundation/zebra/tree/4b8a202e41d41b8ab84a703c72ef77fd03d4d000">Zebra, revision 4b8a202e41d41b8ab84a703c72ef77fd03d4d000</a> <a href="#user-content-fnref-zebra" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>
