@@ -1,5 +1,7 @@
 name: sync
 
+# Refresh the vendored zcash/zips clone, render, fetch PRs, publish snapshots,
+# build the static site and deploy to GitHub Pages.
 on:
   schedule:
     - cron: "23 5 * * *" # daily, off the hour
@@ -9,10 +11,20 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+# one deploy at a time
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +43,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # shallow-clone upstream instead of committing the vendor dir
       - name: Vendor zcash/zips
         run: |
           mkdir -p vendor
@@ -52,3 +65,18 @@ jobs:
             git commit -q -m "sync: refresh snapshots @ $(cd vendor/zips && git rev-parse --short HEAD)"
             git push
           fi
+
+      - uses: actions/configure-pages@v5
+
+      - name: Build static site
+        run: |
+          pnpm exec next build
+          pnpm exec pagefind --site out
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
