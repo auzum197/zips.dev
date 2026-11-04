@@ -25,32 +25,33 @@ const INDEX_URL = "/pagefind/pagefind.js";
 const DEBOUNCE_MS = 150;
 const MAX_RESULTS = 25;
 let indexMissing = false;
+let pagefindPromise: Promise<Pagefind> | null = null;
+
+// pagefind.js is an ES module — load it with a native dynamic import
+// (webpackIgnore keeps Next from trying to bundle a runtime URL).
 function loadPagefind(): Promise<Pagefind> {
     if (indexMissing)
         return Promise.reject(new Error("pagefind index missing"));
     if (window.pagefind)
         return Promise.resolve(window.pagefind);
-    return new Promise((resolve, reject) => {
-        let script = document.querySelector<HTMLScriptElement>(`script[src="${INDEX_URL}"]`);
-        if (!script) {
-            script = document.createElement("script");
-            script.src = INDEX_URL;
-            script.async = true;
-            document.head.appendChild(script);
+    pagefindPromise ??= (async () => {
+        try {
+            const url = INDEX_URL;
+            const mod = (await import(/* webpackIgnore: true */ url)) as Partial<Pagefind> & {
+                default?: Pagefind;
+            };
+            const pf = (mod.search ? mod : mod?.default) as Pagefind | undefined;
+            if (!pf?.search)
+                throw new Error("pagefind loaded but no search function found");
+            return pf;
         }
-        script.addEventListener("load", () => {
-            if (window.pagefind)
-                resolve(window.pagefind);
-            else {
-                indexMissing = true;
-                reject(new Error("pagefind loaded but window.pagefind is missing"));
-            }
-        });
-        script.addEventListener("error", () => {
+        catch (e) {
+            pagefindPromise = null;
             indexMissing = true;
-            reject(new Error(`failed to load ${INDEX_URL}`));
-        });
-    });
+            throw e instanceof Error ? e : new Error(`failed to load ${INDEX_URL}`);
+        }
+    })();
+    return pagefindPromise;
 }
 export default function SearchBox() {
     const [query, setQuery] = useState("");
