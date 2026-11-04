@@ -1,0 +1,366 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", and "SHOULD" in this document are to be
+interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when, they appear in
+all capitals.</p>
+<p>The term "network upgrade" in this document is to be interpreted as described in
+ZIP 200. <sup><a href="#user-content-fn-zip-0200" id="user-content-fnref-zip-0200" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>The character § is used when referring to sections of the Zcash Protocol
+Specification. <sup><a href="#user-content-fn-protocol-updated" id="user-content-fnref-protocol-updated" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>The terms "Orchard protocol", "<em>Orchard pool</em>", "<em>Ironwood pool</em>",
+"<em>Orchard-pool</em> Action", and "<em>Ironwood-pool</em> Action" are to be interpreted as
+described in ZIP 229. <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>The <em>expanded receiver</em> of an Orchard-protocol shielded payment address or note
+is the pair <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo separator="true">,</mo><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> of its diversified base and its
+diversified transmission key, as defined in § 4.2.3 ‘Orchard Key Components’.
+<sup><a href="#user-content-fn-protocol-orchardkeycomponents" id="user-content-fnref-protocol-orchardkeycomponents" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup></p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>NU6.3 <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> specifies two restrictions intended to limit economic activity
+within the <em>Orchard pool</em>:</p>
+<ul>
+<li>Value can leave the <em>Orchard pool</em> but cannot enter it.</li>
+<li>Each <em>Orchard-pool</em> Action must send its output to the same expanded receiver
+as the note that it spends.</li>
+</ul>
+<p>So the <em>Orchard pool</em> can still be spent from, including across the turnstile
+into the <em>Ironwood pool</em>, but cannot be used to transfer value to an address
+whose spending key the sender does not hold.</p>
+<p>This ZIP specifies the <code>enableCrossAddress</code> flag that expresses the second
+restriction; the corresponding condition in the Action statement; and the
+consensus rules that enforce both restrictions for the <em>Orchard pool</em>.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The Orchard Action circuit deployed before NU6.2 had a soundness vulnerability
+that could have allowed value to be created in the <em>Orchard pool</em>. <sup><a href="#user-content-fn-zip-0257" id="user-content-fnref-zip-0257" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>
+NU6.3 introduces the <em>Ironwood pool</em>, which uses the Orchard protocol with a
+corrected circuit. Value moves from the <em>Orchard pool</em> into it subject to the
+"turnstile" checks on chain value pool balances specified in ZIP 209 <sup><a href="#user-content-fn-zip-0209" id="user-content-fnref-zip-0209" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>.</p>
+<p>For those checks to give the desired balance integrity assurances, newly created
+shielded value has to be directed into the <em>Ironwood pool</em>, and value in the
+<em>Orchard pool</em> should only be able to leave it. If users could still pay each
+other within the <em>Orchard pool</em>, it would remain a working payment pool, and any
+value created through the vulnerability could circulate in it without ever being
+checked at the turnstile. Disallowing new value from entering the <em>Orchard pool</em>,
+and payments between users within it, prevents that, while still letting each
+holder move their own funds out. It does not prevent users from rebalancing
+note values within the <em>Orchard pool</em> in order to reduce the information revealed
+when migrating those funds to the <em>Ironwood pool</em>, as specified in ZIP 318 <sup><a href="#user-content-fn-zip-0318" id="user-content-fnref-zip-0318" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>Without the cross-address restriction, unrelated real spends and outputs can
+share Actions, so the minimum Action count is the maximum of the numbers of
+real spends and real outputs. Under the restriction, a real spend and a real
+output can share an Action only if they use the same expanded receiver. When
+no such pairing is possible, the minimum Action count is instead the sum of
+those numbers. This increases transaction size and reduces the hiding of
+transaction arity provided by spend/output pairing. Same-receiver pairing and
+additional dummy Actions remain possible, so the public Action count does not
+uniquely determine the numbers of real spends and real outputs. Since the
+restriction applies to all <em>Orchard-pool</em> Actions, the resulting increase in
+Action counts is not by itself a wallet-specific fingerprint.</p>
+<p>By preventing payments between users within the <em>Orchard pool</em>, this ZIP
+encourages users to transfer their funds out of that pool. Such transfers
+reveal the net amount leaving the pool on-chain, regardless of its destination.
+Transferring a wallet's entire balance at once can therefore reveal that
+balance, and the amounts and timing of transfers can help link them. The
+restrictions preserve the ability to rebalance notes within the <em>Orchard pool</em>
+without crossing the turnstile. ZIP 318 <sup><a href="#user-content-fn-zip-0318" id="user-content-fnref-zip-0318-2" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> specifies amount-selection
+and timing measures for migration to the <em>Ironwood pool</em>, and
+ZIP 326 <sup><a href="#user-content-fn-zip-0326-orchard" id="user-content-fnref-zip-0326-orchard" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> describes how to construct the spend and output
+Actions needed for rebalancing under the cross-address restriction.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul>
+<li>After NU6.3 activation, no transaction can increase the <em>Orchard pool</em>'s chain
+value pool balance.</li>
+<li>After NU6.3 activation, an <em>Orchard-pool</em> Action cannot transfer value to an
+address other than that of the note it spends.</li>
+<li>Holders of <em>Orchard-pool</em> notes can still spend them, including into the
+<em>Ironwood pool</em>, through the turnstile.</li>
+<li>Holders of <em>Orchard-pool</em> notes can rebalance their values within that pool.</li>
+<li>The restriction is enforced for every <em>Orchard-pool</em> Action mined after NU6.3
+activation, whatever the version of the transaction that contains it.</li>
+<li>Signers that treat bit 2 of <code>flagsOrchard</code> as a reserved zero bit can still
+produce valid <em>Orchard-pool</em> spends.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="the-enablecrossaddress-flag"><a class="hanchor" href="#the-enablecrossaddress-flag" aria-hidden="true" tabindex="-1">#</a>The <code>enableCrossAddress</code> flag</h2>
+<p>Each Action has a flag
+<math><mrow><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mspace width="0.2778em"></mspace><mstyle mathsize="0.9000em"><mo form="prefix" stretchy="false" lspace="0em" rspace="0em">⦂</mo></mstyle><mspace width="0.2778em"></mspace><mi>𝔹</mi></mrow></math>, which is set in
+order to allow the expanded receiver of the Action's output note to differ from
+the expanded receiver of its input note. The value of
+<math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math> is the same for all Actions of a bundle, and is
+encoded once per bundle in bit 2 of its flags byte:</p>
+<ul>
+<li>In the <code>flagsIronwood</code> field of a version 6 transaction, bit 2 encodes
+<code>enableCrossAddress</code> for the <em>Ironwood-pool</em> Actions. <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></li>
+<li>In the <code>flagsOrchard</code> field, bit 2 MUST be 0, independent of the transaction
+version. In a version 5 transaction it is still reserved and MUST be 0. In a
+version 6 transaction it encodes <code>enableCrossAddress</code>, and MUST be 0.</li>
+</ul>
+<p>For blocks before NU6.3 activation, cross-address transfers are always
+permitted: <math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math> is taken to be <math><mn>1</mn></math> for every Action.
+From NU6.3 activation, <math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math> is bit 2 of the flags byte
+for each pool, so it is <math><mn>0</mn></math> for every <em>Orchard-pool</em> Action.</p>
+<h2 id="action-statement"><a class="hanchor" href="#action-statement" aria-hidden="true" tabindex="-1">#</a>Action statement</h2>
+<p>For a given Orchard-protocol Action description, let
+<math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>1</mn><mo>−</mo><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></mrow></math>.</p>
+<p>From NU6.3 activation, the Action statement gains a primary input
+<math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mspace width="0.2778em"></mspace><mstyle mathsize="0.9000em"><mo form="prefix" stretchy="false" lspace="0em" rspace="0em">⦂</mo></mstyle><mspace width="0.2778em"></mspace><mi>𝔹</mi></mrow></math>, after
+<math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖮</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗉</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗌</mi></mrow></math>, and the following condition:</p>
+<blockquote>
+<p><strong>Cross-address restriction</strong>: <math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>0</mn></mrow></math>, or
+<math><mrow><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup><mo>=</mo><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗇</mi><mi>𝖾</mi><mi>𝗐</mi></mrow></msubsup></mrow></math> and
+<math><mrow><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo>=</mo><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗇</mi><mi>𝖾</mi><mi>𝗐</mi></mrow></msubsup></mrow></mrow></math>.</p>
+</blockquote>
+<p>The auxiliary input of the Action statement already includes the spent note's
+expanded receiver <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup><mo separator="true">,</mo><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> and the output
+note's expanded receiver <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗇</mi><mi>𝖾</mi><mi>𝗐</mi></mrow></msubsup><mo separator="true">,</mo><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗇</mi><mi>𝖾</mi><mi>𝗐</mi></mrow></msubsup></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math>.</p>
+<p>A single circuit, and a single verifying key identified as
+<code>OrchardCircuitVersion::PostNu6_3</code>, are used for the Actions of both the
+<em>Orchard pool</em> and the <em>Ironwood pool</em> from NU6.3 activation. The pools differ
+in the consensus restrictions on the value of <math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math>,
+not in the circuit.</p>
+<h2 id="consensus-rules"><a class="hanchor" href="#consensus-rules" aria-hidden="true" tabindex="-1">#</a>Consensus rules</h2>
+<p>The following consensus rules apply from NU6.3 activation to every transaction,
+whatever its version:</p>
+<ul>
+<li>The verifying key for the proof of an Action description MUST be the one
+identified as <code>OrchardCircuitVersion::PostNu6_3</code>, and the proof MUST be valid
+for the primary input that includes <math><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math>.</li>
+<li>A coinbase transaction MUST NOT contain any <em>Orchard-pool</em> Actions.</li>
+<li><math><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝖻</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝖾</mi><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></math>, encoded as the <code>valueBalanceOrchard</code> field
+when it is present, MUST be nonnegative. That is, a transaction can take value
+from the <em>Orchard pool</em>, but MUST NOT add value to it.</li>
+</ul>
+<p>Together with the rule that bit 2 of <code>flagsOrchard</code> is 0, these ensure that
+after NU6.3 activation no value enters the <em>Orchard pool</em>, and every
+<em>Orchard-pool</em> Action sends its output to the expanded receiver of the note that
+it spends.</p>
+<h2 id="requirements-on-wallets"><a class="hanchor" href="#requirements-on-wallets" aria-hidden="true" tabindex="-1">#</a>Requirements on wallets</h2>
+<p>When an Action with <math><mrow><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>0</mn></mrow></math> needs a dummy output note,
+that note MUST be sent to the expanded receiver of the Action's spent note
+(which may itself be a dummy note), rather than to a random address. Likewise,
+a dummy spent note paired with an output note that is not a dummy MUST be at the
+expanded receiver of the output note.</p>
+<p>ZIP 326 specifies how wallets spend from, and rebalance notes within, the
+<em>Orchard pool</em> after NU6.3 activation. <sup><a href="#user-content-fn-zip-0326-orchard" id="user-content-fnref-zip-0326-orchard-2" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> In particular, an
+Action that creates an output note carrying value pairs it with a dummy spent
+note at the same expanded receiver, and the dummy output note of an Action that
+spends a real note has a random note ciphertext.</p>
+<h2 id="changes-to-the-protocol-specification"><a class="hanchor" href="#changes-to-the-protocol-specification" aria-hidden="true" tabindex="-1">#</a>Changes to the Protocol Specification</h2>
+<p>This section is written as a set of changes relative to version 2026.7.0 of the
+protocol specification <sup><a href="#user-content-fn-protocol-base" id="user-content-fnref-protocol-base" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>. They are applied in version 2026.8.0.
+<sup><a href="#user-content-fn-protocol-updated" id="user-content-fnref-protocol-updated-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> Each change applies from NU6.3 activation, and is marked as
+such in the specification.</p>
+<h3 id="-46-action-descriptions"><a class="hanchor" href="#-46-action-descriptions" aria-hidden="true" tabindex="-1">#</a>§ 4.6 ‘Action Descriptions’</h3>
+<p>Add:</p>
+<blockquote>
+<p>Let <math><mrow><mrow><mi>𝗉</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗅</mi></mrow><mspace width="0.2778em"></mspace><mstyle mathsize="0.9000em"><mo form="prefix" stretchy="false" lspace="0em" rspace="0em">⦂</mo></mstyle><mspace width="0.2778em"></mspace><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗅</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖨</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝗐</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗅</mi></mrow><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math>
+be the pool of this Action description.</p>
+<p>Define an expanded receiver as in ZIP 2006, i.e.
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo separator="true">,</mo><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> for a shielded payment address.</p>
+</blockquote>
+<p>Add <math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math> to the components of an Action description,
+after <math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖮</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗉</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝗌</mi></mrow></math>, with the description:</p>
+<blockquote>
+<p><math><mrow><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mspace width="0.2778em"></mspace><mstyle mathsize="0.9000em"><mo form="prefix" stretchy="false" lspace="0em" rspace="0em">⦂</mo></mstyle><mspace width="0.2778em"></mspace><mi>𝔹</mi></mrow></math> is a flag that is set
+in order to enable the expanded receiver of the output note to be different
+from the expanded receiver of the input note in this Action.</p>
+</blockquote>
+<p>In the description of the proof, and in the consensus rule requiring it to be
+valid, append <math><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math> to the primary input, where
+<math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>1</mn><mo>−</mo><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></mrow></math>.</p>
+<p>In the note on components that are encoded once for each pool, add
+<math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math> to the components listed.</p>
+<p>Add the consensus rule:</p>
+<blockquote>
+<p>[NU6.3 onward] <math><mrow><mi>𝗏</mi><mi>𝗄</mi></mrow></math> MUST be the verifying key identified by
+<code>OrchardCircuitVersion::PostNu6_3</code>.</p>
+</blockquote>
+<h3 id="-483-dummy-notes-orchard"><a class="hanchor" href="#-483-dummy-notes-orchard" aria-hidden="true" tabindex="-1">#</a>§ 4.8.3 ‘Dummy Notes (Orchard)’</h3>
+<p>After the steps that construct the spend-related fields for a dummy
+<em>Orchard-pool</em> input note, add:</p>
+<blockquote>
+<p>[NU6.3 onward] If <math><mrow><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>0</mn></mrow></math> for the Action, and its
+output note is not a dummy note, then the first two steps are replaced:
+<math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> and <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝖽</mi><mo separator="true">,</mo><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math>
+are instead the full viewing key and diversified payment address of the output
+note's recipient, and the spend authorization signature for the Action is made
+with the corresponding spend authorizing key.</p>
+</blockquote>
+<p>After the paragraph saying that a dummy <em>Orchard-pool</em> output note is sent to a
+random shielded payment address, add:</p>
+<blockquote>
+<p>[NU6.3 onward] If <math><mrow><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>0</mn></mrow></math> for the Action, the dummy
+output note is instead sent to the expanded receiver of the Action's spent
+note. If the spent note is not a dummy note, the transmitted note ciphertext
+of the dummy output note is filled with random bytes rather than being an
+encryption of its note plaintext. <sup><a href="#user-content-fn-zip-0326-orchard" id="user-content-fnref-zip-0326-orchard-3" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup></p>
+</blockquote>
+<h3 id="-4184-action-statement-orchard"><a class="hanchor" href="#-4184-action-statement-orchard" aria-hidden="true" tabindex="-1">#</a>§ 4.18.4 ‘Action Statement (Orchard)’</h3>
+<p>Append to the primary input:</p>
+<blockquote>
+<p>[NU6.3 onward] <math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mspace width="0.2778em"></mspace><mstyle mathsize="0.9000em"><mo form="prefix" stretchy="false" lspace="0em" rspace="0em">⦂</mo></mstyle><mspace width="0.2778em"></mspace><mi>𝔹</mi></mrow></math></p>
+</blockquote>
+<p>In its encoding, append <math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo></mo><mspace width="0.4444em"></mspace><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mpadded lspace="0"><mi>mod</mi></mpadded><mspace width="0.3333em"></mspace><msub><mi>q</mi><mi>ℙ</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+to the existing nine-element sequence, giving a sequence of type
+<math><msubsup><mi>𝔽</mi><msub><mi>q</mi><mi>ℙ</mi></msub><mn>10</mn></msubsup></math> from NU6.3 onward. Qualify the existing
+nine-element encoding with "[Pre-NU6.3]".</p>
+<p>After the "Enable output flag" condition, add:</p>
+<blockquote>
+<p><strong>Cross-address restriction</strong> [NU6.3 onward]:
+<math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>0</mn></mrow></math>, or
+<math><mrow><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup><mo>=</mo><msubsup><mi>𝗀</mi><mi>𝖽</mi><mrow class="tml-sml-pad"><mi>𝗇</mi><mi>𝖾</mi><mi>𝗐</mi></mrow></msubsup></mrow></math> and
+<math><mrow><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msubsup></mrow><mo>=</mo><mrow><mi>𝗉</mi><msubsup><mi>𝗄</mi><mi>𝖽</mi><mrow><mi>𝗇</mi><mi>𝖾</mi><mi>𝗐</mi></mrow></msubsup></mrow></mrow></math>.</p>
+</blockquote>
+<h3 id="-71-transaction-encoding-and-consensus"><a class="hanchor" href="#-71-transaction-encoding-and-consensus" aria-hidden="true" tabindex="-1">#</a>§ 7.1 ‘Transaction Encoding and Consensus’</h3>
+<p>In the combined version 5/6 transaction-format table, replace the list in the
+Description column for <code>flagsOrchard</code>:</p>
+<blockquote>
+<ul>
+<li><code>enableSpendsOrchard</code> flag (bit <math><mn>0</mn></math>)</li>
+<li><code>enableOutputsOrchard</code> flag (bit <math><mn>1</mn></math>)</li>
+<li>Reserved, zeros (bits <math><mn>2..7</mn></math>).</li>
+</ul>
+</blockquote>
+<p>with:</p>
+<blockquote>
+<ul>
+<li><code>enableSpends</code> flag (bit <math><mn>0</mn></math>)</li>
+<li><code>enableOutputs</code> flag (bit <math><mn>1</mn></math>)</li>
+<li>Bit <math><mn>2</mn></math>: reserved (v5) or <code>enableCrossAddress</code> (v6), always <math><mn>0</mn></math></li>
+<li>Reserved, zeros (bits <math><mn>3..7</mn></math>).</li>
+</ul>
+</blockquote>
+<p>In the Description column for <code>flagsIronwood</code>, the version-6-only field added
+by ZIP 229 <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, replace:</p>
+<blockquote>
+<ul>
+<li><code>enableSpendsIronwood</code> flag (bit <math><mn>0</mn></math>)</li>
+<li><code>enableOutputsIronwood</code> flag (bit <math><mn>1</mn></math>)</li>
+<li>Reserved, zeros (bits <math><mn>2..7</mn></math>).</li>
+</ul>
+</blockquote>
+<p>with:</p>
+<blockquote>
+<ul>
+<li><code>enableSpends</code> flag (bit <math><mn>0</mn></math>)</li>
+<li><code>enableOutputs</code> flag (bit <math><mn>1</mn></math>)</li>
+<li><code>enableCrossAddress</code> flag (bit <math><mn>2</mn></math>)</li>
+<li>Reserved, zeros (bits <math><mn>3..7</mn></math>).</li>
+</ul>
+</blockquote>
+<h3 id="-712-transaction-consensus-rules"><a class="hanchor" href="#-712-transaction-consensus-rules" aria-hidden="true" tabindex="-1">#</a>§ 7.1.2 ‘Transaction Consensus Rules’</h3>
+<p>Add:</p>
+<blockquote>
+<p>[NU6.3 onward] A coinbase transaction MUST NOT have any <em>Orchard-pool</em> Action
+descriptions.</p>
+<p>[NU6.3 onward] <math><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝖻</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝖾</mi><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></math> MUST be nonnegative.</p>
+</blockquote>
+<p>After the rule that the reserved bits <math><mn>2..7</mn></math> of the <code>flagsOrchard</code> field MUST be
+zero, add:</p>
+<blockquote>
+<p>[NU6.3 onward] In a version 6 transaction, bit 2 of <code>flagsOrchard</code> encodes
+<math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math> for the <em>Orchard-pool</em> Actions; it is covered by
+the preceding rule, and so is <math><mn>0</mn></math>.</p>
+</blockquote>
+<h2 id="changes-to-zips"><a class="hanchor" href="#changes-to-zips" aria-hidden="true" tabindex="-1">#</a>Changes to ZIPs</h2>
+<h3 id="zip-229"><a class="hanchor" href="#zip-229" aria-hidden="true" tabindex="-1">#</a>ZIP 229</h3>
+<p>In the Consensus Rules section, replace</p>
+<blockquote>
+<p>Note that the reserved-bit rules above leave bit 2 of <code>flagsOrchard</code> reserved
+as 0 (bits 2..7), while bit 2 of <code>flagsIronwood</code> is the <code>enableCrossAddress</code>
+bit (reserved bits 3..7); the <em>Orchard pool</em>'s cross-address restriction is
+enforced for its Actions from NU6.3 onward as specified in [ZIP 2006].</p>
+</blockquote>
+<p>with</p>
+<blockquote>
+<p>Note that bit 2 of <code>flagsOrchard</code> is required to be 0 by the reserved-bit rule
+above (bits 2..7), independent of the transaction version: in a version 5
+transaction it is still reserved, and in a version 6 transaction it encodes
+<code>enableCrossAddress</code>. Bit 2 of <code>flagsIronwood</code> is the <code>enableCrossAddress</code>
+bit (reserved bits 3..7). The <em>Orchard pool</em>'s cross-address restriction is
+enforced for its Actions from NU6.3 onward as specified in [ZIP 2006].</p>
+</blockquote>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<h2 id="polarity-of-the-flag"><a class="hanchor" href="#polarity-of-the-flag" aria-hidden="true" tabindex="-1">#</a>Polarity of the flag</h2>
+<p>The flag is encoded in the enabled sense: bit 2 is 1 when cross-address
+transfers are enabled, the normal case for the <em>Ironwood pool</em>. With the
+opposite sense, a post-NU6.3 <em>Orchard-pool</em> spend would have to set bit 2 to 1.
+Signers that treat bit 2 as a reserved zero bit, such as hardware wallet
+firmware that has not been upgraded, would then be unable to produce valid
+<em>Orchard-pool</em> spends. In the enabled sense, the restricted state is bit 2 = 0,
+which is exactly what such signers already produce.</p>
+<p>Within the circuit, the primary input is the negated value
+<math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>1</mn><mo>−</mo><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></mrow></math>. Then a
+condition of the form
+<span style="white-space: nowrap">"<math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>0</mn></mrow></math> or <math><mrow><mi>a</mi><mo>=</mo><mi>b</mi></mrow></math>"</span>
+is enforced directly by the constraint
+<math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>⋅</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>a</mi><mo>−</mo><mi>b</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mn>0</mn></mrow></math>.</p>
+<h2 id="one-circuit-for-both-pools"><a class="hanchor" href="#one-circuit-for-both-pools" aria-hidden="true" tabindex="-1">#</a>One circuit for both pools</h2>
+<p>The <em>Orchard pool</em> and the <em>Ironwood pool</em> use the same circuit and verifying
+key from NU6.3 activation. They are distinguished by their bundles, note
+commitment trees, nullifier sets, and chain value pools, and by the value of
+<math><mrow><mi>𝖾</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow></math>. This avoids a separate circuit for the restricted
+pool. It also leaves open the option of enforcing similar restrictions on the
+<em>Ironwood pool</em> in future, should there be a reason to. This intentionally
+mirrors the design of the <code>enableSpends</code> and <code>enableOutputs</code> flags.</p>
+<h2 id="comparing-both-coordinates"><a class="hanchor" href="#comparing-both-coordinates" aria-hidden="true" tabindex="-1">#</a>Comparing both coordinates</h2>
+<p>In the circuit, the points of the expanded receivers are witnessed in affine
+coordinates, and the condition is enforced coordinate-wise: for each
+<math><mrow><mi>𝖯</mi><mo>∈</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo separator="true">,</mo><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math> and each coordinate
+<math><mrow><mi>𝖼</mi><mo>∈</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mi>x</mi><mo separator="true">,</mo><mi>y</mi><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math>,
+<math><mrow><mrow><mi>𝖽</mi><mi>𝗂</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖢</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗌</mi></mrow><mo>⋅</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝖼</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mi>𝖯</mi><mrow class="tml-med-pad"><mi>𝗈</mi><mi>𝗅</mi><mi>𝖽</mi></mrow></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>−</mo><mi>𝖼</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mi>𝖯</mi><mrow class="tml-med-pad"><mi>𝗇</mi><mi>𝖾</mi><mi>𝗐</mi></mrow></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mn>0</mn></mrow></math>.
+Both coordinates are needed.</p>
+<h2 id="restricting-value-as-well-as-addresses"><a class="hanchor" href="#restricting-value-as-well-as-addresses" aria-hidden="true" tabindex="-1">#</a>Restricting value as well as addresses</h2>
+<p>The cross-address restriction alone does not stop new value from entering the
+<em>Orchard pool</em>, since an Action can send value to its own spent note's address.
+The rule that <math><msup><mi>𝗏</mi><mrow class="tml-sml-pad"><mi>𝖻</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝖾</mi><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></math> is nonnegative, and the rule that
+coinbase transactions have no <em>Orchard-pool</em> Actions, close that path.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This ZIP was deployed with NU6.3 <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>, which activated on Mainnet at
+block height 3428143.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<ul>
+<li>The <code>orchard</code> crate, version 0.16.0, implements the <code>enableCrossAddress</code> flag,
+its encoding, and the cross-address restriction in the Action circuit.
+<sup><a href="#user-content-fn-orchard-0.16.0" id="user-content-fnref-orchard-0.16.0" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup></li>
+</ul>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0200">
+<p><a href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a> <a href="#user-content-fnref-zip-0200" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-updated">
+<p><a href="/upstream/protocol/protocol.pdf#2026.8.0">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]</a> <a href="#user-content-fnref-protocol-updated" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-updated-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0229">
+<p><a href="/upstream/zip-0229.md">ZIP 229: Version 6 Transaction Format</a> <a href="#user-content-fnref-zip-0229" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0229-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0229-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-orchardkeycomponents">
+<p><a href="/upstream/protocol/protocol.pdf#orchardkeycomponents">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 4.2.3: Orchard Key Components</a> <a href="#user-content-fnref-protocol-orchardkeycomponents" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0258">
+<p><a href="/upstream/zip-0258.md">ZIP 258: Deployment of the NU6.3 Network Upgrade</a> <a href="#user-content-fnref-zip-0258" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0258-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0257">
+<p><a href="/upstream/zip-0257.md">ZIP 257: Deployment of the Orchard Temporary Vulnerability Mitigation and NU6.2 Network Upgrade</a> <a href="#user-content-fnref-zip-0257" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0209">
+<p><a href="/upstream/zip-0209.rst">ZIP 209: Prohibit Out-of-Range Chain Value Pool Balances</a> <a href="#user-content-fnref-zip-0209" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0318">
+<p><a href="/upstream/zip-0318.md">ZIP 318: Orchard to Ironwood Migration</a> <a href="#user-content-fnref-zip-0318" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0318-2" data-footnote-backref="" aria-label="Back to reference 9-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0326-orchard">
+<p><a href="/upstream/zip-0326.md#spendingfromandrebalancingwithintheorchardpool">ZIP 326: NU6.3 Consequences for Wallets, section "Spending from and rebalancing within the Orchard pool"</a> <a href="#user-content-fnref-zip-0326-orchard" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0326-orchard-2" data-footnote-backref="" aria-label="Back to reference 10-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0326-orchard-3" data-footnote-backref="" aria-label="Back to reference 10-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-base">
+<p><a href="/upstream/protocol/protocol.pdf#2026.7.0">Zcash Protocol Specification, Version 2026.7.0 [NU6.2]</a> <a href="#user-content-fnref-protocol-base" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-orchard-0.16.0">
+<p><a href="https://github.com/zcash/orchard/releases/tag/0.16.0">orchard crate, version 0.16.0</a> <a href="#user-content-fnref-orchard-0.16.0" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

@@ -1,0 +1,692 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST" and "MAY" in this document are to be
+interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when,
+they appear in all capitals.</p>
+<p>The terms below are to be interpreted as follows:</p>
+<dl><dt>Vote chain</dt><dd>The blockchain that serves as the single source of truth for voting
+operations. See [System Overview] for the state it maintains.</dd><dt>Voting round</dt><dd>A complete instance of a coinholder vote, scoped to a single Zcash
+mainnet snapshot and a fresh Election Authority key.</dd><dt>Vote round ID</dt><dd>A unique identifier for a voting round. See [Poll Creation] for the
+computation.</dd><dt>Poll runner</dt><dd>The entity responsible for conducting a voting round.</dd><dt>Vote manager</dt><dd>The on-chain role authorized to create voting rounds.</dd><dt>Bootstrap operator</dt><dd>The entity that provisions the vote chain genesis and initial
+validator set.</dd><dt>Validator</dt><dd>A vote chain consensus participant. See [Validator] under Roles for
+responsibilities and keypair details.</dd><dt>Nullifier service operator</dt><dd>The entity that runs the nullifier exclusion PIR server. See
+[Nullifier Service Operator] under Roles for responsibilities.</dd><dt>Bonded validator</dt><dd>A validator whose stake is active under the standard Cosmos SDK
+<code>x/staking</code> module <sup><a href="#user-content-fn-cosmos-staking" id="user-content-fnref-cosmos-staking" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>: its delegation is committed,
+it participates in consensus, and it is eligible to produce blocks.</dd><dt>Submission server</dt><dd>An untrusted service that accepts encrypted vote share payloads
+from voters and submits the corresponding share reveal
+transactions to the vote chain. Specified in
+<code>draft-valargroup-submission-server</code> <sup><a href="#user-content-fn-draft-submission-server" id="user-content-fnref-draft-submission-server" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</dd><dt>Election Authority (EA)</dt><dd>A virtual signing key, jointly constructed by validators during a key
+ceremony so that no single party holds the private key. Used to encrypt
+vote shares and decrypt the final tally. See
+<code>draft-valargroup-ea-key-ceremony</code> <sup><a href="#user-content-fn-draft-ceremony" id="user-content-fnref-draft-ceremony" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> for the
+ceremony protocol.</dd><dt>Snapshot height</dt><dd>The Zcash mainnet block height at which eligible Orchard note balances
+are captured. See [Snapshot Configuration] for constraints.</dd></dl>
+<p>For definitions of cryptographic terms including <em>alternate nullifier</em>,
+<em>nullifier non-membership tree</em>, <em>nullifier domain</em>, <em>pool snapshot</em>, and
+<em>claim</em>, see the Orchard Proof-of-Balance ZIP <sup><a href="#user-content-fn-draft-balance-proof" id="user-content-fnref-draft-balance-proof" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>. For
+EA key ceremony terms, see <code>draft-valargroup-ea-key-ceremony</code>
+<sup><a href="#user-content-fn-draft-ceremony" id="user-content-fnref-draft-ceremony-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. For PIR-related terms, see
+<code>draft-valargroup-nullifier-pir</code> <sup><a href="#user-content-fn-draft-pir" id="user-content-fnref-draft-pir" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP specifies how to operate the infrastructure for Zcash shielded
+coinholder voting. It defines a purpose-built vote chain built on Cosmos
+SDK, three operator roles (bootstrap operator, vote manager, validator),
+and the lifecycle of a voting round from snapshot selection through tally
+verification.</p>
+<p>The vote chain stores vote commitments in a Poseidon Merkle tree, tracks
+three nullifier sets to prevent double-voting, and accumulates encrypted
+vote shares as homomorphic El Gamal ciphertexts. Each transaction
+(delegation, vote, share reveal) is verified by a zero-knowledge proof
+on-chain. Validators join through an automated onboarding script that
+handles binary distribution, key generation, and on-chain registration.
+A separate nullifier service provides private information retrieval of
+exclusion proofs so voters can prove note non-spending without revealing
+which notes they hold.</p>
+<p>Tally correctness is independently verifiable: validators submit partial
+decryptions which are Lagrange-combined on-chain. Any party with access
+to the chain state can re-derive the combination from the stored
+partials and confirm the decrypted result.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The Zcash Shielded Voting Protocol <sup><a href="#user-content-fn-draft-voting-protocol" id="user-content-fnref-draft-voting-protocol" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup> defines a
+cryptographic protocol for private coinholder voting. This ZIP specifies
+the deployment infrastructure required to run that protocol: the vote
+chain, operator roles, and voting round lifecycle.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<ul>
+<li>Zero-knowledge proofs and encryption hide the contents of
+delegations, votes, and share reveals, but not the network-layer
+metadata associated with their submission. A vote chain validator
+sees the source IP, submission timestamp, connection correlation,
+and P2P propagation pattern of every transaction it receives.</li>
+<li>PIR queries against the nullifier service are private in content
+but not in timing: a nullifier service operator sees the source IP
+and time of each query, which reveals that a given client is
+participating in the current voting round.</li>
+<li>The vote chain is a public ledger. Transaction contents are
+encrypted or zero-knowledge-proven, but their existence, ordering,
+and block-inclusion timing are a permanent public record.</li>
+<li>Bootstrap operators learn the network identities of validators
+during onboarding (see [Onboarding Validators]).</li>
+<li>Validator power distribution affects the trust model for the EA
+key ceremony. See <code>draft-valargroup-ea-key-ceremony</code>
+<sup><a href="#user-content-fn-draft-ceremony" id="user-content-fnref-draft-ceremony-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> for EA-specific privacy implications.</li>
+</ul>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul>
+<li>A new poll runner can set up infrastructure and conduct a voting round
+by following this specification and the referenced companion ZIPs.</li>
+<li>A Zcash coinholder with eligible Orchard funds at the round's
+snapshot height can participate in the voting round using a
+conforming wallet client.</li>
+<li>The vote chain operates as a public, verifiable ledger — anyone can run
+a monitoring node to audit.</li>
+<li>The system operates with partial validator availability.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<ul>
+<li>Governance policy decisions such as proposal eligibility, quorum
+requirements, and fund disbursement rules (see ZIP 1016 <sup><a href="#user-content-fn-zip-1016" id="user-content-fnref-zip-1016" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>).</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="proposals-and-decisions"><a class="hanchor" href="#proposals-and-decisions" aria-hidden="true" tabindex="-1">#</a>Proposals and Decisions</h2>
+<p>The voting process specified by this ZIP allows a poll runner to put
+one or more questions — <em>proposals</em> — to eligible voters. For each
+proposal, voters choose exactly one of a predefined set of labeled
+<em>options</em>; the chosen option is the voter's <em>decision</em> for that
+proposal.</p>
+<h3 id="structure-of-a-proposal"><a class="hanchor" href="#structure-of-a-proposal" aria-hidden="true" tabindex="-1">#</a>Structure of a proposal</h3>
+<p>Each proposal has:</p>
+<ul>
+<li>A <strong>title</strong>, short and human-readable.</li>
+<li>An optional <strong>description</strong> providing additional context.</li>
+<li>Between 2 and 8 <strong>options</strong>, each carrying a human-readable label.
+Option labels MUST be non-empty ASCII strings.</li>
+</ul>
+<p>Proposals in a voting round are assigned 1-indexed sequential
+identifiers; options within a proposal are assigned 0-indexed
+sequential indices.</p>
+<h3 id="decisions"><a class="hanchor" href="#decisions" aria-hidden="true" tabindex="-1">#</a>Decisions</h3>
+<p>A <strong>decision</strong> is a voter's chosen option for a specific proposal,
+represented as the option's 0-indexed position within that proposal's
+option list. Decisions are recorded in the encrypted share
+accumulator, keyed by <code>(proposal_id, vote_decision)</code>; see
+<code>draft-valargroup-voting-protocol</code> <sup><a href="#user-content-fn-draft-voting-protocol" id="user-content-fnref-draft-voting-protocol-2" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup> for the
+cryptographic construction.</p>
+<h3 id="kinds-of-polls-that-can-be-expressed"><a class="hanchor" href="#kinds-of-polls-that-can-be-expressed" aria-hidden="true" tabindex="-1">#</a>Kinds of polls that can be expressed</h3>
+<p>A voting round can carry <strong>1 to 15 independent proposals</strong>, and each
+proposal can offer <strong>2 to 8 labeled options</strong>. This is sufficient for:</p>
+<ul>
+<li>Yes/no questions ("Approve proposal X?" with options Yes / No).</li>
+<li>Multiple-choice preference questions (for example, choosing among
+named candidates or funding tiers).</li>
+<li>Rating-style questions using a fixed option ladder.</li>
+</ul>
+<p>The following ballot shapes are out of scope for this specification:</p>
+<ul>
+<li>Free-form write-in answers.</li>
+<li>Ranked-choice or weighted-ranking ballots.</li>
+<li>More than 15 proposals in a single voting round, or more than 8
+options in a single proposal.</li>
+</ul>
+<p>The 15-proposal upper bound is imposed by the zero-knowledge vote
+authority bitmask (1 bit is reserved as a sentinel). Polls requiring
+more proposals or richer ballot structures are split across multiple
+rounds or expressed through an external layer.</p>
+<h2 id="system-overview"><a class="hanchor" href="#system-overview" aria-hidden="true" tabindex="-1">#</a>System Overview</h2>
+<p>The coinholder voting system operates on a purpose-built Cosmos SDK vote
+chain. Zcash mainnet snapshots provide the set of eligible Orchard note
+balances.</p>
+<p>The vote chain stores:</p>
+<ul>
+<li>A <strong>Vote Commitment Tree</strong> (VCT): a Poseidon Merkle tree of vote
+commitments.</li>
+<li>Three <strong>nullifier sets</strong>: governance nullifiers (alternate nullifiers
+from note claims), VAN nullifiers (from delegation consumption), and
+share nullifiers (from share reveals).</li>
+<li>An <strong>encrypted share accumulator</strong> per (proposal, decision): the
+homomorphic sum of El Gamal ciphertexts for each vote option.</li>
+</ul>
+<p>The vote chain verifies a zero-knowledge proof for each transaction type:
+delegation, vote, and share reveal. The proof circuits are specified in
+<code>draft-valargroup-voting-protocol</code> <sup><a href="#user-content-fn-draft-voting-protocol" id="user-content-fnref-draft-voting-protocol-3" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>.</p>
+<h2 id="deployment-architecture"><a class="hanchor" href="#deployment-architecture" aria-hidden="true" tabindex="-1">#</a>Deployment Architecture</h2>
+<p>A complete deployment consists of:</p>
+<ul>
+<li><strong>Vote chain nodes</strong> — one or more <code>svoted</code> instances running CometBFT
+consensus. Each <code>svoted</code> binary additionally includes the
+<strong>submission server</strong> (an untrusted service that accepts vote
+share payloads from clients and submits the corresponding share
+reveal transactions at client-specified times). The submission
+server shares the node's process but is functionally decoupled
+from chain consensus; see <code>draft-valargroup-submission-server</code>
+<sup><a href="#user-content-fn-draft-submission-server" id="user-content-fnref-draft-submission-server-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</li>
+<li><strong>Nullifier service</strong> — a PIR server that provides private nullifier
+exclusion proofs to voters (see [Nullifier Service]).</li>
+<li><strong>Vote configuration document</strong> — a per-round document published
+by the vote manager that lists the network endpoints of the vote
+chain nodes and nullifier service operators participating in the
+round. The document format and distribution rules are specified
+in <code>draft-valargroup-shielded-voting-wallet-api</code>
+<sup><a href="#user-content-fn-draft-wallet-api" id="user-content-fnref-draft-wallet-api" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>; see also [Vote Configuration Publication].</li>
+</ul>
+<h2 id="roles"><a class="hanchor" href="#roles" aria-hidden="true" tabindex="-1">#</a>Roles</h2>
+<h3 id="bootstrap-operator"><a class="hanchor" href="#bootstrap-operator" aria-hidden="true" tabindex="-1">#</a>Bootstrap Operator</h3>
+<p>The bootstrap operator generates the vote chain genesis block and
+provisions the initial validator set. At genesis, a single vote
+manager account is created with a balance of the chain's native token
+(denom <code>usvote</code>) sized to fund all planned validators. From that
+account the bootstrap operator funds each validator via
+<code>MsgAuthorizedSend</code>, a transfer message gated by the vote chain's
+ante handler: the vote manager MAY send to any address, and bonded
+validators MAY send to the vote manager or to other bonded
+validators; all other transfers — including the standard Cosmos bank
+<code>MsgSend</code> and <code>MsgMultiSend</code> messages — are rejected.</p>
+<p>The amount transferred to each validator at bonding time determines
+their consensus voting power. An even distribution across validators
+reduces the risk of consensus capture. The bootstrap operator's
+activities are confined to genesis. The keypair that controls the
+genesis <code>vote_manager</code> address continues afterwards as the initial
+vote manager (see [Vote Manager]), and MAY transfer that role via
+<code>MsgSetVoteManager</code>.</p>
+<h3 id="vote-manager"><a class="hanchor" href="#vote-manager" aria-hidden="true" tabindex="-1">#</a>Vote Manager</h3>
+<p>The vote manager is the only account authorized to initialize the
+chain's voting round (see [Poll Creation]).</p>
+<p>The vote manager address is set in the genesis block (see
+[Genesis Validator Setup]). The current vote manager MAY transfer
+the role to another address via <code>MsgSetVoteManager</code>; the transfer
+is atomic and moves the full account balance to the new address.
+No other account can claim or reassign the role.</p>
+<h3 id="validator"><a class="hanchor" href="#validator" aria-hidden="true" tabindex="-1">#</a>Validator</h3>
+<p>Validators participate in consensus, the EA key ceremony (see
+<code>draft-valargroup-ea-key-ceremony</code> <sup><a href="#user-content-fn-draft-ceremony" id="user-content-fnref-draft-ceremony-4" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>), and automatic
+tally computation. Each validator maintains three keypairs:</p>
+<ul>
+<li><strong>Consensus keypair</strong>: used for CometBFT consensus.</li>
+<li><strong>Account keypair</strong>: used for submitting chain transactions.</li>
+<li><strong>Pallas keypair</strong>: used for ECIES key exchange during the EA ceremony.</li>
+</ul>
+<p>Validators join the network by following the flow described in
+[Onboarding Validators].</p>
+<p>Each validator additionally runs the submission server bundled
+into the <code>svoted</code> binary, which receives encrypted vote share
+payloads from voters and submits the corresponding share reveal
+transactions on their behalf. See <code>draft-valargroup-submission-server</code>
+<sup><a href="#user-content-fn-draft-submission-server" id="user-content-fnref-draft-submission-server-3" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+<h3 id="nullifier-service-operator"><a class="hanchor" href="#nullifier-service-operator" aria-hidden="true" tabindex="-1">#</a>Nullifier Service Operator</h3>
+<p>A nullifier service operator runs the nullifier exclusion PIR
+server that wallet clients query to obtain Merkle non-membership
+proofs for the Zcash mainnet nullifier set at the snapshot
+height. The PIR server is a separate binary, distributed
+independently of the vote chain node, with its own ingest pipeline
+and HTTP query endpoint. Specified in
+<code>draft-valargroup-nullifier-pir</code> <sup><a href="#user-content-fn-draft-pir" id="user-content-fnref-draft-pir-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</p>
+<h2 id="vote-chain-infrastructure"><a class="hanchor" href="#vote-chain-infrastructure" aria-hidden="true" tabindex="-1">#</a>Vote Chain Infrastructure</h2>
+<h3 id="genesis-validator-setup"><a class="hanchor" href="#genesis-validator-setup" aria-hidden="true" tabindex="-1">#</a>Genesis Validator Setup</h3>
+<p>The bootstrap operator obtains the vote chain binary <code>svoted</code>
+either from a published release of the reference implementation
+(see [Reference implementation]) or by building from source, and
+initializes a new single-validator chain for the voting round.</p>
+<p>Initialization proceeds as follows:</p>
+<ol>
+<li>
+<p><strong>Choose a chain identifier.</strong> Each voting round uses its own
+chain identifier so that transactions signed for one round
+cannot be misinterpreted by software configured for another
+round.</p>
+</li>
+<li>
+<p><strong>Generate the bootstrap operator's keypairs.</strong> Generate a
+CometBFT consensus keypair, a Cosmos account keypair, and a
+Pallas keypair (see [Validator] for the role of each).</p>
+</li>
+<li>
+<p><strong>Construct the genesis block.</strong> Populate the genesis state
+with:</p>
+<ul>
+<li>The chain identifier from step 1.</li>
+<li>The vote manager singleton, set to an address controlled by
+the bootstrap operator (see [Bootstrap Operator]).</li>
+<li>An initial balance for the vote manager account, in the
+chain's native token (<code>usvote</code>), sized to fund the planned
+validator set via subsequent authorized transfers.</li>
+<li>A minimum ceremony validator count required before the EA
+key ceremony can proceed.</li>
+<li>The bootstrap operator's own validator entry, bonded with
+consensus voting power and with its Pallas public key
+registered.</li>
+<li>The standard Cosmos SDK module states (auth, bank, staking)
+as required by the Cosmos SDK runtime.</li>
+</ul>
+</li>
+<li>
+<p><strong>Start the node.</strong> Starting <code>svoted</code> begins block production
+and the chain transitions out of the genesis state.</p>
+</li>
+</ol>
+<p>The genesis state does not pre-populate voting rounds, nullifier
+sets, tally results, or PIR data; these are all populated through
+subsequent on-chain transactions during the voting round.</p>
+<p>After the chain is producing blocks, the bootstrap operator
+publishes the initial vote configuration document listing the
+genesis node's public URL, so that joining validators and wallet
+clients can find the network. See [Vote Configuration Publication].</p>
+<h3 id="onboarding-validators"><a class="hanchor" href="#onboarding-validators" aria-hidden="true" tabindex="-1">#</a>Onboarding Validators</h3>
+<p>A new validator joins the vote chain by following these steps:</p>
+<ol>
+<li>
+<p><strong>Acquire the vote chain binary.</strong> Obtain <code>svoted</code> either from
+a published release of the reference implementation (see
+[Reference implementation]) or by building from source. Binary
+releases MUST be verified against a published checksum before
+use.</p>
+</li>
+<li>
+<p><strong>Discover the network and initialize.</strong> Read the vote
+configuration document for the target poll (see
+[Vote Configuration Publication]) to find at least one active
+validator. Fetch the chain's genesis block from that validator
+and initialize a local node directory.</p>
+</li>
+<li>
+<p><strong>Generate keypairs.</strong> Generate the validator's consensus
+keypair, account keypair, and Pallas keypair (see [Validator]).</p>
+</li>
+<li>
+<p><strong>Sync the chain.</strong> Start the node, connect to the active
+validators listed in the vote configuration document via
+CometBFT peer-exchange, and sync to the current height.</p>
+</li>
+<li>
+<p><strong>Register in the vote configuration document.</strong> Propose an
+update to the document adding the new validator's public URL.</p>
+</li>
+<li>
+<p><strong>Wait for funding.</strong> The vote manager reviews the proposed
+update, applies it, and funds the new validator's account via
+an authorized transfer (see [Bootstrap Operator] for the
+funding mechanism).</p>
+</li>
+<li>
+<p><strong>Register on-chain.</strong> Once funds are received, submit the
+validator registration transaction that wraps a standard
+Cosmos staking validator creation message together with the
+validator's Pallas public key, atomically binding the key to
+the new validator.</p>
+</li>
+</ol>
+<p>The amount transferred at step 6 determines the new validator's
+consensus voting power. The vote chain rejects raw Cosmos staking
+validator creation messages: every validator MUST be registered
+through the wrapped form so that a Pallas public key is bound at
+creation time. A validator without a registered Pallas key is
+bonded for consensus but cannot participate in the EA ceremony
+(see [Validator]).</p>
+<p>The reference implementation (see [Reference implementation])
+includes an automated <code>join.sh</code> script that performs the above
+steps. The script is parameterized by the vote configuration
+document URL; the same script is used for any poll and is not
+specialized per poll.</p>
+<h3 id="nullifier-service"><a class="hanchor" href="#nullifier-service" aria-hidden="true" tabindex="-1">#</a>Nullifier Service</h3>
+<p>The nullifier service is an external service that lets voters
+privately verify that their Orchard nullifiers are absent from
+the Zcash mainnet nullifier set at the snapshot height, using
+private information retrieval. A voter's PIR query reveals
+neither which nullifier is being checked nor the answer to any
+observer of the network.</p>
+<p>The service is run by a nullifier service operator (see
+[Nullifier Service Operator]) using the implementation referenced
+in [Reference implementation]. The PIR construction and database
+layout are specified in <code>draft-valargroup-nullifier-pir</code>
+<sup><a href="#user-content-fn-draft-pir" id="user-content-fnref-draft-pir-3" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</p>
+<p>The service operates as a three-stage pipeline:</p>
+<ol>
+<li><strong>Ingest</strong>: fetch the Zcash mainnet nullifier set up to the
+chosen snapshot height from a Zcash node and persist it to
+local storage.</li>
+<li><strong>Export</strong>: build the nullifier non-membership tree (an Indexed
+Merkle Tree as specified in
+<code>draft-valargroup-orchard-balance-proof</code> <sup><a href="#user-content-fn-draft-balance-proof" id="user-content-fnref-draft-balance-proof-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>)
+and export the PIR database tiers as specified in
+<code>draft-valargroup-nullifier-pir</code> <sup><a href="#user-content-fn-draft-pir" id="user-content-fnref-draft-pir-4" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>. The exported
+files allow the server to restart without rebuilding the tree
+from raw nullifiers.</li>
+<li><strong>Serve</strong>: accept PIR queries from voters and return encrypted
+responses over HTTP. The operator publishes the service URL by
+adding it to the vote configuration document (see
+[Vote Configuration Publication]).</li>
+</ol>
+<p>The PIR client-server query and response wire format is not yet
+specified in any normative document. See [Open Issues].</p>
+<h3 id="vote-configuration-publication"><a class="hanchor" href="#vote-configuration-publication" aria-hidden="true" tabindex="-1">#</a>Vote Configuration Publication</h3>
+<p>The vote manager publishes a vote configuration document for the
+chain's voting round, in the format and via the publication
+channel described in <code>draft-valargroup-shielded-voting-wallet-api</code>
+<sup><a href="#user-content-fn-draft-wallet-api" id="user-content-fnref-draft-wallet-api-2" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>. Wallets and joining validators fetch the
+document from that channel; the vote chain itself does not
+provide a service-discovery endpoint.</p>
+<p>The vote manager publishes the initial document once the genesis
+validator is producing blocks. New validators and nullifier service
+operators are added by proposing updates to the document, which the
+vote manager reviews and applies; for validators this proposal is
+automated by the join.sh flow described in [Onboarding Validators],
+while nullifier service operators propose their entries directly.
+The document is incremental — new entries are added without
+removing earlier ones — and any active entry can serve as an entry
+point for new joiners; there is no distinguished seed node.</p>
+<p>Each voting round runs on its own vote chain with its own
+publication channel. The vote manager announces the channel URL
+out-of-band before the round opens, so that wallet implementers
+can configure their wallets to fetch from it — either as a
+bundled default or as a user-supplied setting. There is no
+automated cross-poll discovery; a new poll requires the vote
+manager to communicate the new channel to wallets and end users
+through whatever distribution path they choose.</p>
+<h2 id="conducting-a-voting-round"><a class="hanchor" href="#conducting-a-voting-round" aria-hidden="true" tabindex="-1">#</a>Conducting a Voting Round</h2>
+<h3 id="snapshot-configuration"><a class="hanchor" href="#snapshot-configuration" aria-hidden="true" tabindex="-1">#</a>Snapshot Configuration</h3>
+<p>A voting round is anchored to a Zcash mainnet snapshot: a specific
+mainnet block height at which the eligible Orchard pool is
+captured. The poll runner chooses this snapshot height subject
+to the following constraint:</p>
+<ul>
+<li>The height MUST be at or after NU5 activation, since the
+protocol requires Orchard.</li>
+</ul>
+<p>Choosing the snapshot height is the start of round setup, not a
+single automatic action. The poll runner is responsible for the
+following coordinated activities:</p>
+<ol>
+<li>
+<p><strong>Determine the snapshot's commitment values.</strong> Compute the
+Orchard note commitment tree root (<math><mrow><mrow><mi>𝗇</mi><mi>𝖼</mi></mrow><mi>_</mi><mrow><mi>𝗋</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗍</mi></mrow></mrow></math>)
+and the nullifier non-membership Indexed Merkle Tree root
+(<math><mrow><mrow><mi>𝗇</mi><mi>𝗎</mi><mi>𝗅</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗂</mi><mi>𝖾</mi><mi>𝗋</mi></mrow><mi>_</mi><mrow><mi>𝗂</mi><mi>𝗆</mi><mi>𝗍</mi></mrow><mi>_</mi><mrow><mi>𝗋</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗍</mi></mrow></mrow></math>) at the
+chosen height. These values are deterministic given the
+height; they are derived from Zcash mainnet state.</p>
+</li>
+<li>
+<p><strong>Ensure the nullifier service has the snapshot's PIR
+database.</strong> The poll runner coordinates with each nullifier
+service operator (see [Nullifier Service Operator]) so that
+their ingest and export pipelines (see [Nullifier Service])
+have run to the chosen height before the round opens, so
+wallets can query exclusion proofs against that snapshot.</p>
+</li>
+<li>
+<p><strong>Use the values during chain bootstrap.</strong>
+<math><mrow><mrow><mi>𝗇</mi><mi>𝖼</mi></mrow><mi>_</mi><mrow><mi>𝗋</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗍</mi></mrow></mrow></math> and
+<math><mrow><mrow><mi>𝗇</mi><mi>𝗎</mi><mi>𝗅</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗂</mi><mi>𝖾</mi><mi>𝗋</mi></mrow><mi>_</mi><mrow><mi>𝗂</mi><mi>𝗆</mi><mi>𝗍</mi></mrow><mi>_</mi><mrow><mi>𝗋</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗍</mi></mrow></mrow></math> are passed
+into the genesis state (see [Genesis Validator Setup]) and
+into the voting round initialization transaction (see
+[Poll Creation]) so that on-chain verifiers and wallet
+clients use them as ZKP public inputs.</p>
+</li>
+</ol>
+<h3 id="poll-creation"><a class="hanchor" href="#poll-creation" aria-hidden="true" tabindex="-1">#</a>Poll Creation</h3>
+<p>The vote manager initializes the chain's voting round by submitting
+a transaction carrying the client-supplied subset of the <code>VoteRound</code>
+structure specified in <code>draft-valargroup-shielded-voting-wallet-api</code>
+<sup><a href="#user-content-fn-draft-wallet-api" id="user-content-fnref-draft-wallet-api-3" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>. The vote manager supplies <code>snapshot_height</code>,
+<code>snapshot_blockhash</code>, <code>proposals_hash</code>, <code>vote_end_time</code>,
+<code>nullifier_imt_root</code>, <code>nc_root</code>, <code>proposals</code>, <code>title</code>, and
+<code>description</code>; the transaction's signer becomes the <code>creator</code> field
+of the resulting <code>VoteRound</code>. The chain derives the remaining
+fields (<code>vote_round_id</code>, <code>status</code>, <code>ea_pk</code>, <code>created_at_height</code>)
+at inclusion or during the round lifecycle.</p>
+<p>The chain rejects the transaction if the signer is not the current
+vote manager, or if the <code>proposals</code> field violates the constraints
+in [Proposals and Decisions].</p>
+<p>The vote chain derives the 32-byte <code>vote_round_id</code> from the
+transaction fields after inclusion, using the Poseidon construction
+specified in the "Voting Round Identifier" section of
+<code>draft-valargroup-shielded-voting</code>
+<sup><a href="#user-content-fn-draft-voting-protocol-vri" id="user-content-fnref-draft-voting-protocol-vri" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>. The result is a Pallas field element
+so that the round ID can enter ZKP circuits as a public input.</p>
+<p>The round enters the <strong>PENDING</strong> state. The EA key ceremony (see
+<code>draft-valargroup-ea-key-ceremony</code> <sup><a href="#user-content-fn-draft-ceremony" id="user-content-fnref-draft-ceremony-5" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>) runs
+automatically. On successful completion, the
+round transitions to <strong>ACTIVE</strong>, the voting window opens, and the
+transition timestamp is recorded as <code>ceremony_phase_start</code>. Clients use
+<code>ceremony_phase_start</code> together with <code>vote_end_time</code> to compute the
+last-moment buffer for submission timing, as specified in the
+"Last-Moment Buffer" section of <code>draft-valargroup-submission-server</code>
+<sup><a href="#user-content-fn-draft-submission-server-lmb" id="user-content-fnref-draft-submission-server-lmb" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>.</p>
+<h3 id="round-lifecycle"><a class="hanchor" href="#round-lifecycle" aria-hidden="true" tabindex="-1">#</a>Round Lifecycle</h3>
+<ol>
+<li><strong>PENDING</strong>: round created, awaiting EA key ceremony.</li>
+<li><strong>ACTIVE</strong>: ceremony complete, voting window open. Voters may delegate,
+vote, and submit shares (see <code>draft-valargroup-voting-protocol</code>
+<sup><a href="#user-content-fn-draft-voting-protocol" id="user-content-fnref-draft-voting-protocol-4" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>).</li>
+<li><strong>TALLYING</strong>: <code>vote_end_time</code> has passed. Validators submit
+partial decryptions, the chain combines them, and tally
+decryption runs automatically (see
+<code>draft-valargroup-ea-key-ceremony</code> <sup><a href="#user-content-fn-draft-ceremony" id="user-content-fnref-draft-ceremony-6" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>). The
+chain enforces a bounded timeout on the TALLYING state: if a
+tally is not submitted within this timeout, the round
+auto-finalizes with no tally, preserving liveness.</li>
+<li><strong>FINALIZED</strong>: tally published and verifiable. A round that
+auto-finalized due to a TALLYING timeout publishes no tally.</li>
+</ol>
+<h2 id="coinholder-participation"><a class="hanchor" href="#coinholder-participation" aria-hidden="true" tabindex="-1">#</a>Coinholder Participation</h2>
+<p>For a Zcash coinholder to participate in a voting round, they
+must satisfy an eligibility precondition and follow a wallet-
+driven participation flow. The protocol details for each step
+are specified in companion ZIPs; this section ties them together
+from the coinholder's perspective.</p>
+<h3 id="eligibility"><a class="hanchor" href="#eligibility" aria-hidden="true" tabindex="-1">#</a>Eligibility</h3>
+<p>Voting weight derives from the value held in a coinholder's
+Orchard notes at the round's snapshot height (see
+[Snapshot Configuration]). Funds held in Sapling or transparent
+pools at the snapshot height carry no voting weight; coinholders
+who wish to participate with such funds MUST migrate them to
+Orchard before the snapshot height.</p>
+<h3 id="wallet-setup"><a class="hanchor" href="#wallet-setup" aria-hidden="true" tabindex="-1">#</a>Wallet Setup</h3>
+<p>A wallet client obtains the vote configuration document for the
+round (see [Vote Configuration Publication]), which lists the
+vote chain endpoints, the nullifier service endpoints, and the
+protocol versions in use. The configuration document schema and
+the wallet-side validation rules are specified in
+<code>draft-valargroup-shielded-voting-wallet-api</code>
+<sup><a href="#user-content-fn-draft-wallet-api" id="user-content-fnref-draft-wallet-api-4" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>.</p>
+<h3 id="participation-flow"><a class="hanchor" href="#participation-flow" aria-hidden="true" tabindex="-1">#</a>Participation Flow</h3>
+<p>For each Orchard note the coinholder uses as voting weight, the
+wallet performs:</p>
+<ol>
+<li>
+<p><strong>Retrieve a non-membership proof.</strong> Query a nullifier service
+endpoint to retrieve a Merkle non-membership proof for the
+note's alternate nullifier against the snapshot's
+<code>nullifier_imt_root</code>, as specified in
+<code>draft-valargroup-nullifier-pir</code> <sup><a href="#user-content-fn-draft-pir" id="user-content-fnref-draft-pir-5" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</p>
+</li>
+<li>
+<p><strong>Submit a delegation transaction.</strong> Construct a Delegation
+Proof asserting ownership of the eligible note without
+revealing which note it is, and submit the transaction to a
+vote chain endpoint listed in the vote configuration document.
+This produces a Vote Authority Note (VAN) on the vote
+commitment tree. The proof construction and the on-chain
+handling are specified in the Delegation Phase of
+<code>draft-valargroup-shielded-voting</code> <sup><a href="#user-content-fn-draft-voting-protocol" id="user-content-fnref-draft-voting-protocol-5" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>.</p>
+</li>
+</ol>
+<p>For each proposal the coinholder votes on, the wallet performs:</p>
+<ol start="3">
+<li>
+<p><strong>Submit a vote transaction.</strong> Construct a Vote Proof
+consuming the current VAN and producing a new VAN with the
+relevant proposal authority bit cleared, plus a Vote
+Commitment binding the chosen option, as specified in the
+Vote Phase of <code>draft-valargroup-shielded-voting</code>
+<sup><a href="#user-content-fn-draft-voting-protocol" id="user-content-fnref-draft-voting-protocol-6" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>.</p>
+</li>
+<li>
+<p><strong>Submit encrypted vote shares.</strong> Send the share payloads to
+submission server endpoints, which queue them and submit
+share reveal transactions on the coinholder's behalf at
+client-specified times. Share decomposition, server selection,
+and the last-moment buffer rules are specified in
+<code>draft-valargroup-submission-server</code>
+<sup><a href="#user-content-fn-draft-submission-server" id="user-content-fnref-draft-submission-server-4" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+</li>
+</ol>
+<p>After <code>vote_end_time</code>, the coinholder may verify the final tally
+following [Verification and Auditing].</p>
+<h2 id="verification-and-auditing"><a class="hanchor" href="#verification-and-auditing" aria-hidden="true" tabindex="-1">#</a>Verification and Auditing</h2>
+<p>The vote chain is publicly readable. Any party running a full
+node of the chain — a validator, the vote manager, or an
+independent observer — can verify all aspects of a voting round
+by replaying chain state and applying the verification
+procedures defined in companion ZIPs.</p>
+<p>This section uses the following procedures imported by
+reference:</p>
+<ul>
+<li><strong>Out-of-Circuit Verification of the Claim proof</strong> in
+<code>draft-valargroup-orchard-balance-proof</code>
+<sup><a href="#user-content-fn-draft-balance-proof" id="user-content-fnref-draft-balance-proof-3" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> — the abstract balance-proof primitive
+on which the Delegation Proof is built.</li>
+<li><strong>Out-of-Circuit Verification of the Delegation Proof, the
+Vote Proof, and the Vote Reveal Proof</strong> in
+<code>draft-valargroup-shielded-voting</code> <sup><a href="#user-content-fn-draft-voting-protocol" id="user-content-fnref-draft-voting-protocol-7" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>.</li>
+<li><strong>Authentication Path</strong> verification and the exclusion-range
+check for the nullifier non-membership tree, in
+<code>draft-valargroup-nullifier-pir</code> <sup><a href="#user-content-fn-draft-pir" id="user-content-fnref-draft-pir-6" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</li>
+<li><strong>Proof Verification</strong> (DLEQ verification of partial
+decryptions) and the <strong>Tally</strong> procedure (Lagrange combination
+and plaintext recovery), in <code>draft-valargroup-ea-key-ceremony</code>
+<sup><a href="#user-content-fn-draft-ceremony" id="user-content-fnref-draft-ceremony-7" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</li>
+</ul>
+<p>A full-node operator combines these procedures to verify a
+voting round across three layers:</p>
+<ul>
+<li>
+<p><strong>Per-transaction zero-knowledge proof verification.</strong> Each
+delegation, vote, and share reveal transaction carries a Halo
+2 proof that is checked at inclusion against the
+Out-of-Circuit Verification rules in
+<code>draft-valargroup-shielded-voting</code>. Those rules apply the
+Claim proof verification from the balance proof ZIP and the
+Authentication Path / exclusion-range checks from the PIR
+ZIP transitively, so a single proof verification enforces the
+structural correctness of all three layers at once.</p>
+</li>
+<li>
+<p><strong>Nullifier set integrity.</strong> The chain maintains three
+nullifier sets — governance nullifiers (from delegation), VAN
+nullifiers (from voting), and share nullifiers (from share
+reveals) — and rejects any transaction that would re-use a
+previously published nullifier. A full-node operator confirms
+set integrity by replaying every accepted transaction and
+checking that no nullifier appears twice.</p>
+</li>
+<li>
+<p><strong>Tally correctness.</strong> A full-node operator re-aggregates the
+encrypted share ciphertexts per (<code>proposal_id</code>, <code>vote_decision</code>)
+from the on-chain share reveal transactions, applies the DLEQ
+Proof Verification to each stored partial decryption,
+re-derives the Lagrange combination, and confirms the
+decrypted aggregate following the Tally procedure in
+<code>draft-valargroup-ea-key-ceremony</code>.</p>
+</li>
+</ul>
+<p>Because every input to verification — proofs, nullifiers,
+ciphertexts, and partial decryptions — is stored on the public
+vote chain, no full-node operator needs to trust any other
+participant. A round that auto-finalized due to a TALLYING
+timeout (see [Round Lifecycle]) verifies as having no tally;
+this is itself a verifiable property of the chain state.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p><strong>Separate vote chain (not Zcash mainnet)</strong>: the vote chain is purpose-built
+for governance with ZKP-optimized state transitions (Poseidon hashing, custom
+transaction types). Zcash mainnet's transaction throughput and scripting model
+are not designed for interactive multi-phase voting protocols.</p>
+<p><strong>Orchard-only snapshots</strong>: the voting protocol is built on Orchard's
+circuit-friendly primitives (Poseidon hashing, Pallas curve). Sapling
+and transparent pools use incompatible cryptographic constructions.
+The corresponding requirement on coinholders is stated in
+[Eligibility].</p>
+<p><strong>Cosmos SDK</strong>: provides a mature BFT consensus engine (CometBFT),
+validator lifecycle management (bonding, jailing for missed blocks or
+missed ceremony acknowledgements, consensus power distribution), and a
+transaction pipeline that can be extended with custom message types and
+ante handlers for ZKP verification. The alternative — building a chain
+from scratch — would duplicate well-tested consensus infrastructure.</p>
+<p><strong>Funding equals voting power</strong>: bonding serves three purposes: it
+determines which validators participate in consensus and the EA key
+ceremony (and thus can decrypt the tally), it enables jailing of
+inactive validators who miss blocks or ceremony acknowledgements, and
+an even funding split gives each validator a roughly equal probability
+of becoming the block proposer — not important for correctness, but
+important for liveness.</p>
+<p><strong>Automated validator onboarding</strong>: <code>join.sh</code> eliminates manual
+coordination between the bootstrap operator and joining validators. The
+self-registration, admin-approval, and auto-bonding flow allows the
+network to grow without requiring validators to build from source or
+understand Cosmos SDK tooling.</p>
+<p><strong>Vote manager reassignment</strong>: only the current vote manager can
+transfer the role (via <code>MsgSetVoteManager</code>). This is a deliberate
+single-party control: the vote manager can create rounds but cannot
+forge votes, and the worst-case mitigation for a compromised vote
+manager is to spin up a new chain.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<ul>
+<li><sup><a href="#user-content-fn-ref-vote-sdk" id="user-content-fnref-ref-vote-sdk" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup> — Cosmos SDK vote chain (<code>svoted</code>) implementing
+the chain-side state, ceremony, tally, and submission server.</li>
+<li><sup><a href="#user-content-fn-ref-nullifier-pir" id="user-content-fnref-ref-nullifier-pir" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> — PIR server and client for privately
+retrieving nullifier non-membership proofs.</li>
+</ul>
+<h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Open Issues</h1>
+<ul>
+<li><strong>Role consolidation</strong>: evaluate whether the bootstrap operator and
+vote manager concepts (already the same keypair at genesis; see
+[Bootstrap Operator]) merit separate treatment in the specification.</li>
+<li><strong>PIR client-server wire format</strong>: the query and response wire
+format used between wallet clients and the nullifier service
+(see [Nullifier Service]) is not currently specified in any
+ZIP. The PIR draft scopes its outer transport out of remit, and
+the wallet API ZIP describes only the endpoint URLs. A normative
+spec home is needed before wallet clients and nullifier service
+servers from independent implementations can interoperate.</li>
+</ul>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-cosmos-staking">
+<p><a href="https://docs.cosmos.network/main/build/modules/staking">Cosmos SDK <code>x/staking</code> module documentation</a> <a href="#user-content-fnref-cosmos-staking" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-draft-submission-server">
+<p><a href="/upstream/draft-valargroup-submission-server.md">Draft ZIP: Vote Share Submission Server</a> <a href="#user-content-fnref-draft-submission-server" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-submission-server-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-draft-submission-server-3" data-footnote-backref="" aria-label="Back to reference 3-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-draft-submission-server-4" data-footnote-backref="" aria-label="Back to reference 3-4" class="data-footnote-backref">↩<sup>4</sup></a></p>
+</li>
+<li id="user-content-fn-draft-ceremony">
+<p><a href="/upstream/draft-valargroup-ea-key-ceremony.md">Draft ZIP: Election Authority Key Ceremony</a> <a href="#user-content-fnref-draft-ceremony" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-ceremony-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-draft-ceremony-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-draft-ceremony-4" data-footnote-backref="" aria-label="Back to reference 4-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-draft-ceremony-5" data-footnote-backref="" aria-label="Back to reference 4-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-draft-ceremony-6" data-footnote-backref="" aria-label="Back to reference 4-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-draft-ceremony-7" data-footnote-backref="" aria-label="Back to reference 4-7" class="data-footnote-backref">↩<sup>7</sup></a></p>
+</li>
+<li id="user-content-fn-draft-balance-proof">
+<p><a href="/upstream/draft-valargroup-orchard-balance-proof.md">Draft ZIP: Orchard Proof-of-Balance</a> <a href="#user-content-fnref-draft-balance-proof" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-balance-proof-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-draft-balance-proof-3" data-footnote-backref="" aria-label="Back to reference 5-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-draft-pir">
+<p><a href="/upstream/draft-valargroup-nullifier-pir.md">Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</a> <a href="#user-content-fnref-draft-pir" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-pir-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-draft-pir-3" data-footnote-backref="" aria-label="Back to reference 6-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-draft-pir-4" data-footnote-backref="" aria-label="Back to reference 6-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-draft-pir-5" data-footnote-backref="" aria-label="Back to reference 6-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-draft-pir-6" data-footnote-backref="" aria-label="Back to reference 6-6" class="data-footnote-backref">↩<sup>6</sup></a></p>
+</li>
+<li id="user-content-fn-draft-voting-protocol">
+<p><a href="/upstream/draft-valargroup-shielded-voting.md">Draft ZIP: Zcash Shielded Voting Protocol</a> <a href="#user-content-fnref-draft-voting-protocol" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-voting-protocol-2" data-footnote-backref="" aria-label="Back to reference 7-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-draft-voting-protocol-3" data-footnote-backref="" aria-label="Back to reference 7-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-draft-voting-protocol-4" data-footnote-backref="" aria-label="Back to reference 7-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-draft-voting-protocol-5" data-footnote-backref="" aria-label="Back to reference 7-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-draft-voting-protocol-6" data-footnote-backref="" aria-label="Back to reference 7-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-draft-voting-protocol-7" data-footnote-backref="" aria-label="Back to reference 7-7" class="data-footnote-backref">↩<sup>7</sup></a></p>
+</li>
+<li id="user-content-fn-zip-1016">
+<p><a href="/upstream/zip-1016.md">ZIP 1016: Community and Coinholder Funding Model</a> <a href="#user-content-fnref-zip-1016" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-draft-wallet-api">
+<p><a href="/upstream/draft-valargroup-shielded-voting-wallet-api.md">Draft ZIP: Shielded Voting Wallet API</a> <a href="#user-content-fnref-draft-wallet-api" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-wallet-api-2" data-footnote-backref="" aria-label="Back to reference 9-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-draft-wallet-api-3" data-footnote-backref="" aria-label="Back to reference 9-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-draft-wallet-api-4" data-footnote-backref="" aria-label="Back to reference 9-4" class="data-footnote-backref">↩<sup>4</sup></a></p>
+</li>
+<li id="user-content-fn-draft-voting-protocol-vri">
+<p><a href="/upstream/draft-valargroup-shielded-voting.md#voting-round-identifier">Draft ZIP: Zcash Shielded Voting Protocol, Section: Voting Round Identifier</a> <a href="#user-content-fnref-draft-voting-protocol-vri" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-draft-submission-server-lmb">
+<p><a href="/upstream/draft-valargroup-submission-server.md#last-moment-buffer">Draft ZIP: Vote Share Submission Server, Section: Last-Moment Buffer</a> <a href="#user-content-fnref-draft-submission-server-lmb" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-ref-vote-sdk">
+<p><a href="https://github.com/valargroup/vote-sdk">valargroup/vote-sdk: Cosmos SDK vote chain for shielded voting</a> <a href="#user-content-fnref-ref-vote-sdk" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-ref-nullifier-pir">
+<p><a href="https://github.com/valargroup/vote-nullifier-pir">valargroup/vote-nullifier-pir: PIR system for nullifier non-membership proofs</a> <a href="#user-content-fnref-ref-nullifier-pir" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

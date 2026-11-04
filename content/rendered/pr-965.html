@@ -1,0 +1,627 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot; and &quot;MUST NOT&quot; in this document are to be interpreted as described in
+BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they appear in all capitals.</p>
+<p>The character § is used when referring to sections of the Zcash Protocol Specification.
+<a class="brackets" href="#protocol" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a></p>
+<p>The terms &quot;Mainnet&quot; and &quot;Testnet&quot; are to be interpreted as described in
+§ 3.12 ‘Mainnet and Testnet’. <a class="brackets" href="#protocol-networks" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<p>&quot;Jubjub&quot; refers to the elliptic curve defined in § 5.4.9.3 ‘Jubjub’ <a class="brackets" href="#protocol-jubjub" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+<p>A &quot;Newly Allowed Sapling payment address&quot; is a Sapling payment address that would have
+been invalid prior to the activation of this proposal; that is, it has a diversifier
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖽</mi>
+</math> for which <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <msup>
+      <mi>𝗁</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>d</mi>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mi>⊥</mi>
+</math>.</p>
+<p>A &quot;Newly Allowed Unified Address&quot; is a Unified Address <a class="brackets" href="#zip-0316" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a> that contains a
+Sapling Receiver corresponding to a Newly Allowed Sapling payment address.</p>
+<p>A &quot;Newly Allowed Address&quot; is either a Newly Allowed Sapling payment address or a
+Newly Allowed Unified Address.</p>
+<p>Conversely, a &quot;Previously Allowed Address&quot; is an address that would have been valid
+prior to the activation of this proposal.</p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>In the original design of the Sapling shielded protocol, the &quot;diversifier hash&quot; that maps
+diversifiers to curve points was an incomplete function, resulting in about half of all
+diversifiers being invalid. When used with ZIP 32 <a class="brackets" href="#zip-0032" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a>, this also meant that about
+half of all Sapling diversifier <em>indices</em> are invalid for a given ZIP 32 account.</p>
+<p>This proposal modifies the Sapling protocol to make its diversifier hash complete.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>TBD</p>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul class="simple">
+<li><p>Every Sapling diversifier must be valid, except possibly with negligible probability.</p></li>
+<li><p>The proposal must be compatible with the existing Sapling design in the sense that any
+previously valid diversifier (or diversifier index) will map to the same curve point.
+This property is essential in order for previously created addresses and notes to
+remain valid.</p></li>
+<li><p>The algorithm to decrypt a note ciphertext must be well specified for transactions
+at any block height.</p></li>
+<li><p>The compatibility consequences of the proposal must be comprehensively assessed and
+clearly documented.</p></li>
+</ul>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>In general terms, the method used to make the diversifier hash complete while maintaining
+compatibility is to:</p>
+<ul class="simple">
+<li><p>Define a new complete random-oracle encoding into the large prime-order subgroup of the
+Jubjub curve, following RFC 9380 <a class="brackets" href="#rfc-9380" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Define the new diversifier hash to use the incomplete group hash for diversifiers on which
+it is defined (i.e. does not return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math>), and the complete random-oracle encoding
+otherwise.</p></li>
+</ul>
+<p>The complete random-oracle encoding is considered to be an internal primitive only. It
+MUST NOT be used for diversifiers on which the incomplete group hash is defined.</p>
+<h2 id="complete-random-oracle-encoding"><a class="hanchor" href="#complete-random-oracle-encoding" aria-hidden="true" tabindex="-1">#</a>Complete random-oracle encoding</h2>
+<p>In this section we define a complete random-oracle encoding <a class="brackets" href="#rfc-9380-random-oracle-encodings" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>
+to the large prime-order subgroup of the Jubjub curve, named <tt class="math">\texttt{jubjub\_XMD:BLAKE2b\_ELL2\_RO\_}</tt>.
+The name of this primitive follows the convention established by section 8.10 of RFC 9380
+<a class="brackets" href="#rfc-9380-suite-id-naming-conventions" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a>. This name is not by itself sufficient to infer all
+parameters of the algorithm, which are specified below.</p>
+<p>Jubjub is a complete Twisted Edwards curve (<a class="brackets" href="#protocol-jubjub" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> and section 4.3.4 of <a class="brackets" href="#bl2017" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a>).
+In that respect it is similar mathematically to the widely deployed Edwards25519 curve; in
+particular it is birationally equivalent to a particular Montgomery curve <a class="brackets" href="#protocol-ecbackground" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.
+RFC 9380 already defines a parameter suite for Edwards25519 <a class="brackets" href="#rfc-9380-suites-for-curve25519-and-e" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a>,
+and we specify <tt class="math">\texttt{jubjub\_XMD:BLAKE2b\_ELL2\_RO\_}</tt> following the same pattern for Jubjub.</p>
+<p>The result of the encoding is obtained by adding (as curve points) the results of two maps to
+the Montgomery curve using the method of section 6.8.2 of RFC 9380 <a class="brackets" href="#rfc-9380-elligator-2-method-2" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>
+(based on the Elligator 2 mapping originally defined in <a class="brackets" href="#bhkl13" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a>), and then applying a rational
+map to obtain a Jubjub curve point.</p>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>q</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>a</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>d</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>, and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>h</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math> be as defined in
+<a class="brackets" href="#protocol-jubjub" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+<p><tt class="math">\texttt{jubjub\_XMD:BLAKE2b\_ELL2\_RO\_}</tt> is defined as an RFC-9380 hash-to-curve suite
+<a class="brackets" href="#rfc-9380-suites-for-hashing" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a> with the following parameters:</p>
+<ul class="simple">
+<li><p>encoding type: hash_to_curve</p></li>
+<li><dl class="simple">
+<dt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>E</mi>
+</math> (Jubjub curve):</dt>
+<dd><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>a</mi>
+    <mi>𝕁</mi>
+  </msub>
+  <mo>⋅</mo>
+  <msup>
+    <mi>v</mi>
+    <mn>2</mn>
+  </msup>
+  <mo>+</mo>
+  <msup>
+    <mi>w</mi>
+    <mn>2</mn>
+  </msup>
+  <mo>=</mo>
+  <mn>1</mn>
+  <mo>+</mo>
+  <msub>
+    <mi>d</mi>
+    <mi>𝕁</mi>
+  </msub>
+  <mo>⋅</mo>
+  <msup>
+    <mi>v</mi>
+    <mn>2</mn>
+  </msup>
+  <mo>⋅</mo>
+  <msup>
+    <mi>w</mi>
+    <mn>2</mn>
+  </msup>
+</math></p>
+</dd>
+</dl>
+</li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+</math> (field characteristic): <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>q</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>m</mi>
+</math> (field extension degree): <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> (target security bits): $256$</p></li>
+<li><p>expand_message: expand_message_xmd</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>H</mi>
+</math>: BLAKE2b-512</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>L</mi>
+</math>: $64$</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>f</mi>
+</math>: Twisted Edwards Elligator 2 method (Section 6.8.2) <a class="brackets" href="#rfc-9380-elligator-2-method-2" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a></p></li>
+<li><dl class="simple">
+<dt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>M</mi>
+</math> (Montgomery curve birationally equivalent to Jubjub):</dt>
+<dd><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>K</mi>
+  <mo>⋅</mo>
+  <msup>
+    <mi>t</mi>
+    <mn>2</mn>
+  </msup>
+  <mo>=</mo>
+  <msup>
+    <mi>s</mi>
+    <mn>3</mn>
+  </msup>
+  <mo>+</mo>
+  <mi>J</mi>
+  <mo>⋅</mo>
+  <msup>
+    <mi>s</mi>
+    <mn>2</mn>
+  </msup>
+  <mo>+</mo>
+  <mi>s</mi>
+</math>, where <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>K</mi>
+  <mo>=</mo>
+  <mn>1</mn>
+</math> and $J = 40962$</p>
+</dd>
+</dl>
+</li>
+<li><p>rational_map: the &quot;generic mapping&quot; defined in RFC 9380 Appendix D.1 <a class="brackets" href="#rfc-9380-generic-mapping-from-montgo" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>Z</mi>
+</math>: <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>5</mn>
+</math></p></li>
+<li><p>h_eff: <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>h</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math></p></li>
+</ul>
+<p>Non-normative notes:</p>
+<ul class="simple">
+<li><p>RFC 9380 denotes Twisted Edwards coordinates as $(v, w)$ rather than $(u, v)$.
+This is because it uses <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>u</mi>
+</math> for the field element to be mapped.</p></li>
+<li><p>The &quot;security level&quot; <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> in the RFC is taken to be $256$. Although this is greater than
+the conjectured $125.8$-bit security of the Jubjub curve against generic (e.g. Pollard rho)
+attacks <a class="brackets" href="#hopwood2022" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>, this design choice is consistent with other instances of extracting
+a uniformly distributed field element from a hash output in the Sapling protocol, such as
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖳</mi>
+    <mi>𝗈</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <msup>
+      <mi>𝗋</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math> defined in <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, and
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖧</mi>
+    <mo>⊛</mo>
+  </msup>
+</math> defined in <a class="brackets" href="#protocol-concretereddsa" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>Z</mi>
+  <mo>=</mo>
+  <mn>5</mn>
+</math> is the non-square of smallest magnitude in <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝔽</mi>
+    <msub>
+      <mi>q</mi>
+      <mi>𝕁</mi>
+    </msub>
+  </msub>
+</math>, as
+determined using the algorithm in RFC 9380 Appendix H.3 <a class="brackets" href="#rfc-9380-finding-z-for-elligator-2" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>The &quot;generic mapping&quot; from the Montgomery form to the Twisted Edwards form of Jubjub
+defined by <a class="brackets" href="#rfc-9380-generic-mapping-from-montgo" id="footnote-reference-24" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a> is <em>not</em> the same mapping as
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖬</mi>
+    <mi>𝗈</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖳</mi>
+    <mi>𝗈</mi>
+    <mi>𝖢</mi>
+    <mi>𝗍</mi>
+    <mi>𝖤</mi>
+    <mi>𝖽</mi>
+    <mi>𝗐</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math> <a class="brackets" href="#protocol-cctconversion" id="footnote-reference-25" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a> used in the Sapling circuits.
+The latter has an extra factor of <tt class="math">{}^{+}\kern-0.65em\sqrt{-40964}</tt> in the resulting first
+Twisted Edwards coordinate.</p></li>
+</ul>
+</section>
+<h2 id="diversifyhash"><a class="hanchor" href="#diversifyhash" aria-hidden="true" tabindex="-1">#</a>DiversifyHash</h2>
+<p>Modify the definition of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+</math> in ... [#protocol-concretediversifyhash].</p>
+<pre class="math">
+\begin{array}{l}
+  \mathsf{CompleteHash}(M \;{\small ⦂}\; \mathbb{B}^{{\tiny\mathbb{Y}}[\mathbb{N}]}) \;{\small ⦂}\; \mathbb{J}^{(r)} = \\
+  \hspace{2em}\texttt{jubjub\_XMD:BLAKE2b\_ELL2\_RO\_}\mathsf{.hash\_to\_curve}(\texttt{&quot;z.cash:Sapling-gd-jubjub\_XMD:BLAKE2b\_ELL2\_RO\_&quot;}, M) \\
+  \\
+  \mathsf{IncompleteHash}(M \;{\small ⦂}\; \mathbb{B}^{{\tiny\mathbb{Y}}[\mathbb{N}]}) \;{\small ⦂}\; \mathbb{J}^{(r)} = \\
+  \hspace{2em}\mathsf{GroupHash}_U^{\mathbb{J}^{(r)*}}(\texttt{&quot;Zcash\_gd&quot;}, \mathsf{LEBS2OSP_{\ell_d}}(\mathsf{d})) \\[2ex]
+\end{array}
+</pre>
+<pre class="math">
+\mathsf{DiversifyHash^{Sapling}}(\mathsf{d}) = \begin{cases}
+  \mathsf{IncompleteHash}(\mathsf{d}),&amp;\text{ if } \mathsf{IncompleteHash}(\mathsf{d}) \neq \bot \\
+  \mathsf{CompleteHash}(\mathsf{d}),  &amp;\text{ if } \mathsf{IncompleteHash}(\mathsf{d}) = \bot \text{ and } \mathsf{CompleteHash}(\mathsf{d}) \neq \bot \hspace{6em} \\
+  \mathsf{CompleteHash}(\texttt{&quot;&quot;}), &amp;\text{ otherwise}
+\end{cases}
+</pre>
+</section>
+<h2 id="note-encryption"><a class="hanchor" href="#note-encryption" aria-hidden="true" tabindex="-1">#</a>Note Encryption</h2>
+<p>In <a class="brackets" href="#protocol-saplingandorchardinband" id="footnote-reference-26" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>, TBD</p>
+<blockquote>
+<p>let DiversifyHash be DiversifyHashSapling in section 5.4.1.6 ‘DiversifyHashSapling and DiversifyHashOrchard Hash Functions’</p>
+</blockquote>
+<p>on page 76, or DiversifyHashOrchard in the same section.</p>
+<p>Modify the uses of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <msup>
+      <mi>𝗁</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math> as follows: TBD</p>
+</section>
+</section>
+<h1 id="specification-compatibility-and-deployment"><a class="hanchor" href="#specification-compatibility-and-deployment" aria-hidden="true" tabindex="-1">#</a>Specification: Compatibility and Deployment</h1>
+<p>The deployment of this proposal raises compatibility issues that will require coordination
+and interoperability testing between wallet implementors. These issues arise from the fact
+that Newly Allowed Addresses will only work for receiving funds in wallets that have upgraded
+their note decryption procedure to support them.</p>
+<p>We believe that these issues will be tractable for the following reason: under the assumption
+that a wallet implementation only exposes Newly Allowed Addresses <em>after</em> it has upgraded
+its note decryption procedure (as required by this specification), then it will always be
+able to receive funds on those addresses.</p>
+<p>There are a couple of caveats to the above observation:</p>
+<ul class="simple">
+<li><p>If a seed is shared between wallets, or if it is restored from one wallet implementation
+to another, the above argument may not hold. Sharing seeds concurrently between wallets
+is generally not a supported usage model, but the ability to restore a seed from one wallet
+implementation to another is critical to ensure preservation of funds in the case of data
+loss or device malfunction, and also helps to avoid user lock-in to a particular wallet
+implementation. A past version of a wallet counts as a different wallet implementation for
+this discussion.</p></li>
+<li><p>In the case of a host wallet that relies on a connected hardware wallet to guard spend authority,
+care must be taken to ensure that both wallet implementations support Newly Allowed Addresses
+if either exposes them. Otherwise, the implementation that lacks this support could either
+fail to correctly receive a payment sent to a Newly Allowed Address, or be unable to spend
+notes from such payments.</p></li>
+</ul>
+<p>Note that, according to the specification of the Sapling shielded protocol prior to activation
+of this proposal, the behaviour of a wallet receiving a decrypted note plaintext with a
+diversifier that it sees as invalid was well defined: it MUST ignore that note plaintext,
+as though it were not intended for the wallet. So the user-visible symptom of the situations
+described above will be that some funds are apparently missing.</p>
+<p>These observations apply to scanning using either an incoming viewing key or an outgoing
+viewing key, because both will perform the check for diversifier validity.</p>
+<p>In order to mitigate these issues we impose the following requirements:</p>
+<ul class="simple">
+<li><p>If a wallet implementation cannot reliably determine that the Sapling outputs of transactions
+mined since the activation height of this proposal have been scanned by an implementation
+that would correctly receive payments on Newly Allowed Addresses —possibly including past
+iterations of the same wallet from which state has been preserved— it MUST rescan them.</p></li>
+<li><p>If a host wallet and hardware wallet are connected, each SHOULD verify that the other fully
+supports Newly Allowed Addresses before exposing any such address.</p></li>
+</ul>
+<p>After activation of this proposal, a wallet implementation MAY continue to expose only
+Previously Allowed Addresses. We nevertheless suggest that wallet implementors consider the
+simplicity advantages of generating addresses at contiguous ZIP 32 indices.</p>
+<h2 id="activation-height"><a class="hanchor" href="#activation-height" aria-hidden="true" tabindex="-1">#</a>Activation height</h2>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝗂</mi>
+    <mi>𝗉</mi>
+    <mi>𝖷</mi>
+    <mi>𝖷</mi>
+    <mi>𝖷</mi>
+    <mi>𝖠</mi>
+    <mi>𝖼</mi>
+    <mi>𝗍</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝗂</mi>
+    <mi>𝗈</mi>
+    <mi>𝗇</mi>
+    <mi>𝖧</mi>
+    <mi>𝖾</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗁</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> be the activation height of this ZIP. This is the first block
+height at which it is valid for transactions in that block to contain Sapling Output descriptions
+with notes having a diversifier that would be invalid using the previously defined
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <msup>
+      <mi>𝗁</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math>.</p>
+<p>TODO:</p>
+<ul class="simple">
+<li><p>replace XXX with the number of this ZIP;</p></li>
+<li><p>specify the activation height.</p></li>
+</ul>
+<p>Before the activation height, all relevant wallets implementing Sapling should be confirmed
+to have implemented this specification (apart from setting the mainnet height) and to have
+conducted comprehensive interoperability testing.</p>
+</section>
+</section>
+<h1 id="test-vectors"><a class="hanchor" href="#test-vectors" aria-hidden="true" tabindex="-1">#</a>Test Vectors</h1>
+<h2 id="jubjub-xmd-blake2b-ell2-ro-test-vectors"><a class="hanchor" href="#jubjub-xmd-blake2b-ell2-ro-test-vectors" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">jubjub_XMD:BLAKE2b_ELL2_RO_</span> test vectors</h2>
+<p>The following test vectors for the <tt class="math">\texttt{jubjub\_XMD:BLAKE2b\_ELL2\_RO\_}</tt> random-oracle
+encoding are in the same format as used in Appendix J of RFC 9380 <a class="brackets" href="#rfc-9380-appendix-j" id="footnote-reference-27" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a>.
+Note that the RFC denotes Twisted Edwards coordinates as <span class="docutils literal">(x,</span> <span class="docutils literal">y)</span> rather than $(u, v)$.</p>
+<pre class="literal-block">suite   = jubjub_XMD:BLAKE2b_ELL2_RO_
+dst     = z.cash:Sapling-gd-jubjub_XMD:BLAKE2b_ELL2_RO_
+
+msg     = Everybody's right to beautiful, radiant things
+P.x     =
+P.y     =
+u[0]    =
+u[1]    =
+Q0.x    =
+Q0.y    =
+Q1.x    =
+Q1.y    =</pre>
+</section>
+<h2 id="diversifyhash-test-vectors"><a class="hanchor" href="#diversifyhash-test-vectors" aria-hidden="true" tabindex="-1">#</a>DiversifyHash test vectors</h2>
+<p>TBD</p>
+</section>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h1>
+<p>TBD</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2024.6.0 or later [NU6]</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2024.6.0. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingkeycomponents" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-21">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingkeycomponents">Zcash Protocol Specification, Version 2024.6.0. Section 4.2.2: Sapling Key Components</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretereddsa" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-22">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretereddsa">Zcash Protocol Specification, Version 2024.6.0. Section 5.4.7: RedDSA, RedJubjub, and RedPallas</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-jubjub" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-10">2</a>,<a role="doc-backlink" href="#footnote-reference-16">3</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#jubjub">Zcash Protocol Specification, Version 2024.6.0. Section 5.4.9.3: Jubjub</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingandorchardinband" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-26">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingandorchardinband">Zcash Protocol Specification, Version 2024.6.0. Section 4.20: In-band secret distribution (Sapling and Orchard)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-ecbackground" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#ecbackground">Zcash Protocol Specification, Version 2024.6.0. Appendix A.2: Elliptic curve background</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-cctconversion" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-25">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#cctconversion">Zcash Protocol Specification, Version 2024.6.0. Appendix A.3.3.3: ctEdwards ↔ Montgomery conversion</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc-9380" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9380.html#elligator2">RFC 9380: Hashing to Elliptic Curves</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc-9380-random-oracle-encodings" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9380.html#name-random-oracle-encodings">RFC 9380: Hashing to Elliptic Curves. Section 2.2.3: Random Oracle Encodings</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc-9380-elligator-2-method-2" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-14">1</a>,<a role="doc-backlink" href="#footnote-reference-18">2</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9380.html#elligator-2-method-2">RFC 9380: Hashing to Elliptic Curves. Section 6.8.2: Elligator 2 Method</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc-9380-suites-for-hashing" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-17">13</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9380.html#https://www.rfc-editor.org/rfc/rfc9380.html#name-suites-for-hashing">RFC 9380: Hashing to Elliptic Curves. Section 8: Suites for Hashing</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc-9380-suites-for-curve25519-and-e" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">14</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9380.html#name-suites-for-curve25519-and-e">RFC 9380: Hashing to Elliptic Curves. Section 8.5: Suites for curve25519 and edwards25519</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc-9380-suite-id-naming-conventions" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">15</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9380.html#name-suite-id-naming-conventions">RFC 9380: Hashing to Elliptic Curves. Section 8.10: Suite ID Naming Conventions</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc-9380-generic-mapping-from-montgo" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-19">1</a>,<a role="doc-backlink" href="#footnote-reference-24">2</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9380.html#name-generic-mapping-from-montgo">RFC 9380: Hashing to Elliptic Curves. Appendix D.1: Generic Mapping from Montgomery to Twisted Edwards</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc-9380-finding-z-for-elligator-2" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-23">17</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9380.html#name-finding-z-for-elligator-2">RFC 9380: Hashing to Elliptic Curves. Appendix H.3: Finding Z for Elligator 2</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc-9380-appendix-j" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-27">18</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9380.html#appendix-J">RFC 9380: Hashing to Elliptic Curves. Appendix J: Suite Test Vectors</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">19</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0316" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">20</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="bhkl13" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-15">21</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://doi.org/10.1145/2508859.2516734">Daniel Bernstein, Mike Hamburg, Anna Krasnova, and Tanje Lange. &quot;Elligator: elliptic-curve points indistinguishable from uniform random strings.&quot; DOI:10.1145/2508859.2516734</a></p>
+</aside>
+<aside class="footnote brackets" id="bl2017" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-11">22</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://eprint.iacr.org/2017/293">Daniel Bernstein and Tanja Lange. &quot;Montgomery curves and the Montgomery ladder.&quot; Cryptology ePrint Archive: Report 2017/293</a></p>
+</aside>
+<aside class="footnote brackets" id="hopwood2022" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-20">23</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://raw.githubusercontent.com/daira/zcash-security/main/zcash-security.pdf">Daira Hopwood. &quot;Understanding the Security of Zcash.&quot; Slide 41: Cryptographic strength</a></p>
+</aside>
+</aside>
+</section>

@@ -1,0 +1,92 @@
+<pre><code>ZIP: TBD
+Title: Legacy Wallet Key-Derivation Behaviors for Fund Recovery
+Owners: Darío Paz &#x3C;dorianvp@zingolabs.org>
+        TBD
+Credits: Kris Nuttycombe
+Status: Draft
+Category: Informational
+Created: 2026-02-08
+License: MIT
+Pull-Request: &#x3C;https://github.com/zcash/zips/pull/1176>
+</code></pre>
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>This document uses terminology from the Zcash Protocol Specification and ZIP 32 <sup><a href="#user-content-fn-zip32" id="user-content-fnref-zip32" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup>. In particular:</p>
+<p><code>account index</code>: The ZIP 32 account index used to derive account-level spending keys.</p>
+<p><code>diversifier</code> / <code>diversified address</code>: A change in receiver encoding that allows generating many addresses from the same Sapling spending key (rather than generating new keys).</p>
+<p><code>legacy derivation</code>: Any historical wallet key generation/derivation behavior that differs from current best practice (e.g., BIP 39 seed phrases <sup><a href="#user-content-fn-bip-0039" id="user-content-fnref-bip-0039" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> + ZIP 32 HD derivation, and diversified addresses).</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>Over Zcash’s history, wallets have used multiple strategies to generate and derive keys. This ZIP documents select legacy behaviors that are relevant to fund recovery and wallet interoperability, with an initial focus on behaviors used by zcashd and Zecwallet Lite.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>Users may possess seed material, wallet files, or partial backups produced by older wallets. If modern recovery tooling assumes today’s conventions (BIP 39 mnemonic → seed → ZIP 32 derivation, plus diversified addresses), it may fail to detect funds created under older schemes.</p>
+<p>Documenting legacy behaviors helps implementers:</p>
+<ul>
+<li>Identify which recovery strategies to attempt given a wallet’s provenance.</li>
+<li>Avoid repeating past mistakes (e.g., generating new accounts when diversified addresses should be used).</li>
+<li>Build interoperable tooling that can recover funds without requiring the original wallet software.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>This ZIP is informational: it does not change consensus rules. It records historical wallet behaviors and recovery-relevant implications.</p>
+<h1 id="wallet-behaviors"><a class="hanchor" href="#wallet-behaviors" aria-hidden="true" tabindex="-1">#</a>Wallet behaviors</h1>
+<h2 id="zcashd"><a class="hanchor" href="#zcashd" aria-hidden="true" tabindex="-1">#</a><code>zcashd</code></h2>
+<h3 id="summary"><a class="hanchor" href="#summary" aria-hidden="true" tabindex="-1">#</a>Summary</h3>
+<p>Historically, <code>zcashd</code> generated keys from system randomness.</p>
+<p>Starting in <code>zcashd</code> v4.7.0, the wallet introduced an “emergency recovery phrase” and began deriving all new addresses from the HD seed derived from that phrase using HD wallet functionality described in ZIP 32 and ZIP 316.</p>
+<h3 id="seed-material"><a class="hanchor" href="#seed-material" aria-hidden="true" tabindex="-1">#</a>Seed material</h3>
+<p>For Sapling, <code>zcashd</code> implemented HD derivation according to ZIP 32, but used a seed generated directly from system randomness, rather than seed material derived from a BIP 39 mnemonic phrase.</p>
+<p>In <code>zcashd</code> v4.7.0, the wallet added support for deriving the wallet’s HD seed from a mnemonic phrase (BIP 39) and referred to the HD seed derived from the emergency recovery phrase as the wallet’s “mnemonic seed”.</p>
+<h3 id="derivation--address-generation"><a class="hanchor" href="#derivation--address-generation" aria-hidden="true" tabindex="-1">#</a>Derivation / address generation</h3>
+<p>Sapling keys are derived using ZIP 32.</p>
+<p>After v4.7.0, new addresses are derived from the mnemonic seed using ZIP 32 and ZIP 316.</p>
+<p>For legacy RPC behavior such as <code>z_getnewaddress</code>, <code>zcashd</code> derives Sapling addresses under a high account index <code>account = 0x7FFFFFFF</code> to avoid collision with Sapling addresses for account 0.</p>
+<h3 id="recovery-implications"><a class="hanchor" href="#recovery-implications" aria-hidden="true" tabindex="-1">#</a>Recovery implications</h3>
+<p>Recovery tooling may need to support Sapling HD derivation from wallet-internal seed material that is not reproducible from a BIP 39 mnemonic.</p>
+<p>Additionally, recovery tooling that imports the zcashd emergency recovery phrase into other wallets may fail to discover funds received to Sapling addresses generated via <code>z_getnewaddress</code>, unless it also scans the legacy account 0x7FFFFFFF.</p>
+<h3 id="notes--todos"><a class="hanchor" href="#notes--todos" aria-hidden="true" tabindex="-1">#</a>Notes / TODOs</h3>
+<ul>
+<li>Add references.</li>
+<li>Document the v4.7.0+ migration flow in more detail (how/when the emergency recovery phrase is generated, confirmation requirement, export mechanism via <code>z_exportwallet</code>, <code>zcashd-wallet-tool</code> behavior).</li>
+<li>Specify the exact derivation path structure used for the legacy account and any gap-limit expectations for recovery.</li>
+</ul>
+<h2 id="zecwallet-lite"><a class="hanchor" href="#zecwallet-lite" aria-hidden="true" tabindex="-1">#</a>Zecwallet Lite</h2>
+<h3 id="summary-1"><a class="hanchor" href="#summary-1" aria-hidden="true" tabindex="-1">#</a>Summary</h3>
+<p>Zecwallet Lite incorrectly generated “new Sapling addresses” by deriving fresh accounts (incrementing ZIP 32 account index) when it should have generated diversified addresses from the same Sapling spending key.</p>
+<h3 id="seed-material-1"><a class="hanchor" href="#seed-material-1" aria-hidden="true" tabindex="-1">#</a>Seed material</h3>
+<p>(TODO: document whether mnemonic/seed originates from BIP 39 and how it was stored/encoded.)</p>
+<h3 id="derivation--address-generation-1"><a class="hanchor" href="#derivation--address-generation-1" aria-hidden="true" tabindex="-1">#</a>Derivation / address generation</h3>
+<p>Observed behavior:</p>
+<p><strong>Expected</strong>: same account spending key → many diversified addresses</p>
+<p><strong>Actual</strong>: new account index → new spending key → address</p>
+<h3 id="recovery-implications-1"><a class="hanchor" href="#recovery-implications-1" aria-hidden="true" tabindex="-1">#</a>Recovery implications</h3>
+<p>Funds may exist on addresses derived from multiple sequential account indices. Recovery tooling may need to scan across a range of account indices (a “gap limit” policy) even when a user believes they used “one account”.</p>
+<h3 id="notes--todos-1"><a class="hanchor" href="#notes--todos-1" aria-hidden="true" tabindex="-1">#</a>Notes / TODOs</h3>
+<ul>
+<li>Identify affected versions/commits.</li>
+<li>Specify exact rule: when does ZWL increment account index, and by how much?</li>
+<li>Clarify relationship between transparent vs shielded indexes (if applicable).</li>
+</ul>
+<h2 id="zcash_client_sqlite"><a class="hanchor" href="#zcash_client_sqlite" aria-hidden="true" tabindex="-1">#</a><code>zcash_client_sqlite</code></h2>
+<p>TBD</p>
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Security and Privacy Considerations</h1>
+<p>This ZIP documents behaviors that may expand the search space required for recovery (e.g., scanning multiple account indices). Implementations should:</p>
+<ul>
+<li>Avoid leaking derived addresses unnecessarily (e.g., through network queries).</li>
+<li>Provide user-visible controls for scan bounds (e.g., maximum account index / gap limit).</li>
+<li>Treat recovered seed material and derived keys as highly sensitive.</li>
+</ul>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h1>
+<p>None.</p>
+<h1 id="backwards-compatibility"><a class="hanchor" href="#backwards-compatibility" aria-hidden="true" tabindex="-1">#</a>Backwards Compatibility</h1>
+<p>Not applicable (informational).</p>
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Acknowledgements</h1>
+<p>This ZIP was motivated by issue #1175 opened by Kris Nuttycombe.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-zip32">
+<p><a href="/upstream/zip-0032.rst">ZIP-32: Shielded Hierarchical Deterministic Wallets</a> <a href="#user-content-fnref-zip32" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0039">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki">BIP 39: Mnemonic code for generating deterministic keys</a> <a href="#user-content-fnref-bip-0039" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

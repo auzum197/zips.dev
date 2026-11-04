@@ -1,0 +1,793 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", and "MAY" in this document are to be
+interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when, they appear in
+all capitals.</p>
+<p>The character § is used when referring to sections of the Zcash Protocol
+Specification. <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>The terms "Mainnet" and "Testnet" are to be interpreted as described in § 3.12
+'Mainnet and Testnet'. <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>The term "full validator" in this document is to be interpreted as defined in
+§ 3.3 'The Block Chain'. <sup><a href="#user-content-fn-protocol-blockchain" id="user-content-fnref-protocol-blockchain" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</p>
+<p>The terms below are to be interpreted as follows:</p>
+<dl><dt>output</dt><dd>A sink of funds within the transaction that is controlled by a payment
+address. This excludes e.g. miner fees, or the ZIP 233 field.</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP introduces a system of transparent consensus accounts for receiving
+newly-issued ZEC, with spending from each account being controlled by a ZIP 270
+<sup><a href="#user-content-fn-zip-0270" id="user-content-fnref-zip-0270" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> signing key. Consensus accounts supplement (but do not replace)
+shielded coinbase outputs. These accounts can be funded either by new ZEC
+issuance, or (in the future) by ZSA issuance transactions for other assets.
+This ZIP eliminates the coinbase maturity rule while retaining the property
+that all ZEC and ZSA value must enter the shielded pool(s) before it can be
+otherwise transferred (or, in the case of ZEC, deshielded.)</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The Zcash development fund lockbox currently has the characteristics of a
+transparent, account-based system. Spending from the lockbox requires the
+introduction of a new transaction bundle that treats the lockbox as a source of
+transaction inputs, controlled by a key that may be rotated using the mechanism
+specified in ZIP 270 <sup><a href="#user-content-fn-zip-0270" id="user-content-fnref-zip-0270-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>. Instead of creating a mechanism that is
+specific to the development fund lockbox, creating a general mechanism provides
+several benefits to consistency and usability.</p>
+<p>Part of the rationale for the creation of the dev fund lockbox was that the
+process of shielding tens of thousands of development fund outputs (over a
+thousand outputs per day) has created excessive operational friction for
+key-holder entities; in addition, transactions that spend these outputs have
+significant fee costs under ZIP 317 <sup><a href="#user-content-fn-zip-0317" id="user-content-fnref-zip-0317" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>. These disadvantages do not
+uniquely effect the key holders of the development fund, however; they are felt
+just as acutely by miners and Zcash Community Grants. By introducing an
+account-based system, all recipients of new issuance can gain the same benefits
+that are available to the keyholders of the coinholder-controlled fund
+introduced in ZIP 1016 <sup><a href="#user-content-fn-zip-1016" id="user-content-fnref-zip-1016" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>.</p>
+<p>In addition to eliminating hassles related to UTXO management, introducing a
+transparent account mechanism makes it possible for individuals to make direct
+donations to the development fund lockbox.</p>
+<p>While this ZIP focuses on ZEC issuance, the transaction format reserves space
+for asset identifiers to allow future network upgrades to extend consensus
+accounts to hold Zcash Shielded Assets (ZSAs) <sup><a href="#user-content-fn-zip-0227" id="user-content-fnref-zip-0227" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>. Such an extension
+could allow a ZSA issuer to finalize ZSA issuance into a consensus account
+without immediately sending the entirety of the issuance to shielded
+recipients; this would enable the creation of fixed-supply ZSA assets with
+publicly-visible undistributed balance, without requiring the issuer to expose
+their full viewing key that would reveal the recipients of subsequent transfers
+from that finalized issuance pool.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>At present, all ZEC issuance is transparent, in that mining outputs are either
+sent to the lockbox, sent to a transparent address, or sent to a shielded
+address but with the output verified to be decryptable with the all-zeroes OVK,
+to ensure that the value of each issuance output can be verified. This ZIP
+preserves this transparency: consensus account balances are publicly visible,
+and shielded coinbase outputs remain subject to the all-zeroes OVK requirement.</p>
+<p>All spends from a consensus account are required to be shielding transactions,
+preserving the existing property that all issued funds are initially shielded.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul>
+<li>All new ZEC issuance is credited to a transparent consensus account.</li>
+<li>Newly-issued ZEC is credited either to a hardcoded funding stream key (until
+block height 4476000 as specified in <sup><a href="#user-content-fn-zip-0214" id="user-content-fnref-zip-0214" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>, this will be either the
+coinholder-controlled-fund key or a to-be-defined Zcash Community Grants fund
+key) or to a miner-controlled key.</li>
+<li>When a miner produces a coinbase transaction, they MAY include an account
+registration bundle and consensus account output bundle to credit their
+rewards to a consensus account. Alternatively, they MAY continue to use
+shielded coinbase outputs.</li>
+<li>Preserve the existing requirement that newly-issued ZEC is always shielded at
+least once.</li>
+<li>All funding streams defined after the activation of this ZIP must use
+consensus accounts as recipients.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<ul>
+<li>This does not need to define a general-purpose transparent accounts
+mechanism.</li>
+</ul>
+<h1 id="high-level-summary"><a class="hanchor" href="#high-level-summary" aria-hidden="true" tabindex="-1">#</a>High-level summary</h1>
+<p>This section and the tables below are non-normative.</p>
+<p>Prior to this ZIP, coinbase and non-coinbase transactions supported several
+different kinds of inputs and outputs. Some of these were explicitly encoded in
+the transaction (namely, spending or receiving UTXOs), while some were
+implicitly defined by the consensus rules (e.g. fees). The full set of possible
+actions were as follows:</p>
+<table>
+    <tbody><tr>
+        <th>Transaction type</th>
+        <td colspan="2">Coinbase</td>
+        <td colspan="2">Non-coinbase</td>
+    </tr>
+    <tr>
+        <th>Encoding</th>
+        <td>Implicit rule</td>
+        <td>Explicit UTXO</td>
+        <td>Explicit rule</td>
+        <td>Explicit UTXO</td>
+    </tr>
+    <tr>
+        <th>Direction: Input</th>
+        <td>
+            <ul>
+                <li>Block subsidy</li>
+                <li>Fees</li>
+                <li>CCF disbursement</li>
+            </ul>
+        </td>
+        <td>N/A</td>
+        <td>N/A</td>
+        <td>
+            <ul>
+                <li>Spending funds</li>
+                <li>Miner shielding</li>
+            </ul>
+        </td>
+    </tr>
+    <tr>
+        <th>Direction: Output</th>
+        <td>
+            <ul>
+                <li>CCF funding</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>Transparent coinbase</li>
+                <li>Shielded coinbase</li>
+                <li>Funding streams</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>NSM (ZIP 233)</li>
+                <li>Fees (ZIP 2002)</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>Receiving funds</li>
+            </ul>
+        </td>
+    </tr>
+</tbody></table>
+<p>After the reworking of transactions in this ZIP, the following actions are
+supported:</p>
+<table>
+    <tbody><tr>
+        <th>Transaction type</th>
+        <td colspan="4">Coinbase</td>
+        <td colspan="3">Non-coinbase</td>
+    </tr>
+    <tr>
+        <th>Encoding</th>
+        <td>Implicit rule</td>
+        <td>Explicit rule</td>
+        <td>Explicit account</td>
+        <td>Explicit UTXO</td>
+        <td>Explicit rule</td>
+        <td>Explicit account</td>
+        <td>Explicit UTXO</td>
+    </tr>
+    <tr>
+        <th>Direction: Input</th>
+        <td>
+            <ul>
+                <li>Block subsidy</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>Fees (ZIP NNN)</li>
+            </ul>
+        </td>
+        <td>N/A</td>
+        <td>N/A</td>
+        <td>N/A</td>
+        <td>
+            <ul>
+                <li>CCF or ZCG disbursement</li>
+                <li>Miner shielding</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>Spending funds</li>
+            </ul>
+        </td>
+    </tr>
+    <tr>
+        <th>Direction: Output</th>
+        <td>
+            <ul>
+                <li>CCF funding (account increment)</li>
+                <li>Funding streams (account increment)</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>NSM (ZIP 235)</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>Transparent coinbase</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>Shielded coinbase</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>NSM (ZIP 233)</li>
+                <li>Fees (ZIP 2002)</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>CCF or ZCG donations</li>
+            </ul>
+        </td>
+        <td>
+            <ul>
+                <li>Receiving funds</li>
+            </ul>
+        </td>
+    </tr>
+</tbody></table>
+<p>Shielded coinbase outputs remain supported, as shown in the "Explicit UTXO"
+column above. While the address receiving a shielded coinbase output is
+publicly visible, the subsequent spend of that output is not distinguishable
+from other shielded spends on-chain. This provides better privacy properties
+than the transparent account model, and avoids requiring privacy-conscious
+miners to create a new account key for each block they mine (which would
+rapidly bloat the consensus account set).</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="consensus-accounts"><a class="hanchor" href="#consensus-accounts" aria-hidden="true" tabindex="-1">#</a>Consensus accounts</h2>
+<p>A consensus account is uniquely identified by a <code>consensus_account_id</code>, which
+is a 32-byte value derived from the account's initial public key:</p>
+<pre><code>consensus_account_id = BLAKE2b-256("Zcash_ConAcctId_", protocol_type || initial_public_key)
+</code></pre>
+<p>where:</p>
+<ul>
+<li><code>protocol_type</code> is the single-byte protocol type identifier as defined in
+ZIP 270 <sup><a href="#user-content-fn-zip-0270" id="user-content-fnref-zip-0270-3" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> (0 for RedPallas, 1 for BIP340, etc.)</li>
+<li><code>initial_public_key</code> is the public key provided when the account was first
+registered</li>
+</ul>
+<p>The <code>consensus_account_id</code> remains stable across key rotations performed via
+ZIP 270.</p>
+<p>Each consensus account has a ZIP 270 tracked signing key associated with it,
+that authorizes the spending of funds from the account. The tracked signing key
+MAY be any protocol type supported by ZIP 270.</p>
+<h2 id="global-account-state"><a class="hanchor" href="#global-account-state" aria-hidden="true" tabindex="-1">#</a>Global account state</h2>
+<p>Consensus accounts require the following additions to the global state:</p>
+<ul>
+<li>A map, <code>consensus_accounts</code>, from <code>consensus_account_id</code> to a tuple of:
+<ul>
+<li><code>balance</code>: the current ZEC balance</li>
+<li><code>current_key</code>: the current signing key (protocol_type, public_key)</li>
+<li><code>rotation_key</code>: the current rotation key (protocol_type, public_key)</li>
+</ul>
+</li>
+</ul>
+<p>For newly registered accounts, <code>current_key</code> and <code>rotation_key</code> are both set to
+the initial key provided at registration.</p>
+<p>As of the activation of this ZIP, consensus accounts hold only ZEC. The
+transaction format reserves space for asset identifiers to allow future network
+upgrades to extend consensus accounts to hold other assets.</p>
+<h2 id="initializing-an-account"><a class="hanchor" href="#initializing-an-account" aria-hidden="true" tabindex="-1">#</a>Initializing an account</h2>
+<p>There are two ways to initialize a consensus account:</p>
+<ul>
+<li>Define it in the consensus rules.
+<ul>
+<li>The <code>consensus_account_id</code>s of these accounts are "visible" to the
+consensus rules, and can be used in implicit rules.</li>
+</ul>
+</li>
+<li>Create a miner account by mining a block that includes an account
+registration bundle with a previously-unknown key.
+<ul>
+<li>The <code>consensus_account_id</code>s of these accounts are "opaque" to the
+consensus rules, and their balance can only be modified by being
+explicitly referenced in a transaction.</li>
+</ul>
+</li>
+</ul>
+<h2 id="account-registration-bundle"><a class="hanchor" href="#account-registration-bundle" aria-hidden="true" tabindex="-1">#</a>Account registration bundle</h2>
+<p>This ZIP defines a new bundle type for the extensible transaction format
+specified in ZIP NNN <sup><a href="#user-content-fn-zip-extfmt" id="user-content-fnref-zip-extfmt" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>. The account registration bundle registers
+new consensus accounts.</p>
+<h3 id="account-registration-effecting-data"><a class="hanchor" href="#account-registration-effecting-data" aria-hidden="true" tabindex="-1">#</a>Account Registration Effecting Data</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>varies</td><td><code>nRegistrations</code></td><td><code>compactSize</code></td><td>The number of account registrations.</td></tr><tr><td>varies</td><td><code>vRegistrations</code></td><td><code>AccountRegistration[nRegistrations]</code></td><td>New account registrations.</td></tr></tbody></table>
+<h3 id="accountregistration"><a class="hanchor" href="#accountregistration" aria-hidden="true" tabindex="-1">#</a>AccountRegistration</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>1</td><td><code>protocolType</code></td><td><code>uint8</code></td><td>Signing protocol type as defined in ZIP 270 (0=RedPallas, 1=BIP340, etc.).</td></tr><tr><td>varies</td><td><code>publicKey</code></td><td><code>byte[keylen]</code></td><td>Public key. Length is determined by <code>protocolType</code>.</td></tr></tbody></table>
+<p>Upon processing an <code>AccountRegistration</code>, full validators:</p>
+<ol>
+<li>Compute the <code>consensus_account_id</code> from <code>protocolType</code> and <code>publicKey</code> as
+specified above.</li>
+<li>MUST reject the transaction if an account with that <code>consensus_account_id</code>
+already exists.</li>
+<li>Create a new account entry in <code>consensus_accounts</code> with the computed ID, the
+provided key as both <code>current_key</code> and <code>rotation_key</code>, and <code>balance</code> set to
+zero.</li>
+</ol>
+<h3 id="account-registration-authorizing-data"><a class="hanchor" href="#account-registration-authorizing-data" aria-hidden="true" tabindex="-1">#</a>Account Registration Authorizing Data</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>varies</td><td><code>vRegistrationAuths</code></td><td><code>RegistrationAuth[nRegistrations]</code></td><td>Authorization signatures for account registrations.</td></tr></tbody></table>
+<h3 id="registrationauth"><a class="hanchor" href="#registrationauth" aria-hidden="true" tabindex="-1">#</a>RegistrationAuth</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>varies</td><td><code>signature</code></td><td><code>byte[siglen]</code></td><td>Signature over the transaction id, proving control of the corresponding private key. Length is determined by the <code>protocolType</code> of the corresponding <code>AccountRegistration</code>.</td></tr></tbody></table>
+<p>The <code>vRegistrationAuths</code> entries correspond positionally to <code>vRegistrations</code>
+entries. Each signature MUST verify against the <code>publicKey</code> in the
+corresponding <code>AccountRegistration</code>.</p>
+<h3 id="value-balance"><a class="hanchor" href="#value-balance" aria-hidden="true" tabindex="-1">#</a>Value Balance</h3>
+<p>The account registration bundle does not transfer value; it has no entry in the
+value balance map.</p>
+<h3 id="consensus-rules"><a class="hanchor" href="#consensus-rules" aria-hidden="true" tabindex="-1">#</a>Consensus Rules</h3>
+<p>In a coinbase transaction, if an account registration bundle is present, a
+consensus account output bundle MUST also be present, and for each registered
+account there MUST be at least one <code>AccountOutput</code> crediting value to that
+account's <code>consensus_account_id</code>.</p>
+<h2 id="consensus-account-output-bundle"><a class="hanchor" href="#consensus-account-output-bundle" aria-hidden="true" tabindex="-1">#</a>Consensus account output bundle</h2>
+<p>This ZIP defines a second bundle type for the extensible transaction format.
+The consensus account output bundle credits value to consensus accounts.</p>
+<h3 id="consensus-account-output-effecting-data"><a class="hanchor" href="#consensus-account-output-effecting-data" aria-hidden="true" tabindex="-1">#</a>Consensus Account Output Effecting Data</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>varies</td><td><code>nOutputs</code></td><td><code>compactSize</code></td><td>The number of account outputs.</td></tr><tr><td>varies</td><td><code>vOutputs</code></td><td><code>AccountOutput[nOutputs]</code></td><td>The account output records.</td></tr></tbody></table>
+<h3 id="accountoutput"><a class="hanchor" href="#accountoutput" aria-hidden="true" tabindex="-1">#</a>AccountOutput</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>32</td><td><code>accountId</code></td><td><code>byte[32]</code></td><td>The <code>consensus_account_id</code> of the account to credit.</td></tr><tr><td>1</td><td><code>assetClass</code></td><td><code>uint8</code></td><td>Asset class identifier. 0x00 for ZEC, 0x01 for other assets.</td></tr><tr><td>0 or 64</td><td><code>assetId</code></td><td><code>byte[0]</code> or <code>byte[64]</code></td><td>If <code>assetClass == 0</code>, the zero-length byte array; otherwise a 64-byte asset identifier.</td></tr><tr><td>8</td><td><code>value</code></td><td><code>uint64</code></td><td>The value to credit to the account.</td></tr></tbody></table>
+<p>Upon processing an <code>AccountOutput</code>, full validators:</p>
+<ol>
+<li>MUST reject the transaction if no account with the given <code>accountId</code> exists
+(note: registrations in the same transaction are processed first).</li>
+<li>Add <code>value</code> to the account's <code>balance</code>.</li>
+</ol>
+<h3 id="consensus-account-output-authorizing-data"><a class="hanchor" href="#consensus-account-output-authorizing-data" aria-hidden="true" tabindex="-1">#</a>Consensus Account Output Authorizing Data</h3>
+<p>The consensus account output bundle has no authorizing data. Any party may
+credit value to an existing account (analogous to sending funds to an address).</p>
+<h3 id="value-balance-1"><a class="hanchor" href="#value-balance-1" aria-hidden="true" tabindex="-1">#</a>Value Balance</h3>
+<p>The value balance map entry for the consensus account output bundle equals the
+sum of all output values:</p>
+<pre><code>valueBalance = Σ(output.value for each output in vOutputs)
+</code></pre>
+<h3 id="consensus-rules-1"><a class="hanchor" href="#consensus-rules-1" aria-hidden="true" tabindex="-1">#</a>Consensus Rules</h3>
+<p>As of the activation of this ZIP, full validators MUST reject transactions
+where any <code>AccountOutput</code> has <code>assetClass</code> other than 0x00. Support for
+crediting other assets to consensus accounts may be added in a future network
+upgrade.</p>
+<h2 id="consensus-account-spend-bundle"><a class="hanchor" href="#consensus-account-spend-bundle" aria-hidden="true" tabindex="-1">#</a>Consensus account spend bundle</h2>
+<p>This ZIP defines a third bundle type for the extensible transaction format: the
+consensus account spend bundle. This bundle allows spending value from
+consensus accounts into shielded pools.</p>
+<h3 id="consensus-account-spend-effecting-data"><a class="hanchor" href="#consensus-account-spend-effecting-data" aria-hidden="true" tabindex="-1">#</a>Consensus Account Spend Effecting Data</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>varies</td><td><code>nSpends</code></td><td><code>compactSize</code></td><td>The number of account spends.</td></tr><tr><td>varies</td><td><code>vSpends</code></td><td><code>AccountSpend[nSpends]</code></td><td>The account spend descriptions.</td></tr></tbody></table>
+<h3 id="accountspend"><a class="hanchor" href="#accountspend" aria-hidden="true" tabindex="-1">#</a>AccountSpend</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>32</td><td><code>accountId</code></td><td><code>byte[32]</code></td><td>The <code>consensus_account_id</code> of the account to spend from.</td></tr><tr><td>1</td><td><code>assetClass</code></td><td><code>uint8</code></td><td>Asset class identifier. 0x00 for ZEC, 0x01 for other assets.</td></tr><tr><td>0 or 64</td><td><code>assetId</code></td><td><code>byte[0]</code> or <code>byte[64]</code></td><td>If <code>assetClass == 0</code>, the zero-length byte array; otherwise a 64-byte asset identifier.</td></tr><tr><td>8</td><td><code>value</code></td><td><code>uint64</code></td><td>The value to spend from the account.</td></tr></tbody></table>
+<h3 id="consensus-account-spend-authorizing-data"><a class="hanchor" href="#consensus-account-spend-authorizing-data" aria-hidden="true" tabindex="-1">#</a>Consensus Account Spend Authorizing Data</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>varies</td><td><code>vSpendAuths</code></td><td><code>SpendAuth[nSpends]</code></td><td>Authorization signatures for each spend.</td></tr></tbody></table>
+<h3 id="spendauth"><a class="hanchor" href="#spendauth" aria-hidden="true" tabindex="-1">#</a>SpendAuth</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>varies</td><td><code>signature</code></td><td><code>byte[siglen]</code></td><td>Signature over the transaction id authorizing the spend. Length is determined by the protocol type of the account's current signing key.</td></tr></tbody></table>
+<p>The <code>vSpendAuths</code> entries correspond positionally to <code>vSpends</code> entries. Each
+signature MUST verify against the <code>current_key</code> of the account identified by
+the corresponding <code>accountId</code>.</p>
+<h3 id="value-balance-2"><a class="hanchor" href="#value-balance-2" aria-hidden="true" tabindex="-1">#</a>Value Balance</h3>
+<p>The value balance map entry for the consensus account spend bundle equals the
+negation of the sum of all spend values (since spends remove value from
+accounts and add it to the transparent transaction value pool):</p>
+<pre><code>valueBalance = -Σ(spend.value for each spend in vSpends)
+</code></pre>
+<h3 id="consensus-rules-2"><a class="hanchor" href="#consensus-rules-2" aria-hidden="true" tabindex="-1">#</a>Consensus Rules</h3>
+<ul>
+<li>Full validators MUST reject a transaction containing a consensus account
+spend bundle if any <code>AccountSpend</code> references an <code>accountId</code> that does not
+exist.</li>
+<li>Full validators MUST reject a transaction if the total value spent from any
+single account (summing all <code>AccountSpend</code> entries for that account) exceeds
+that account's current balance.</li>
+<li>Full validators MUST reject a transaction containing a consensus account
+spend bundle if any output within the transaction is not shielded. This
+preserves the requirement that all newly-issued ZEC must be shielded at least
+once before being transferred or deshielded.</li>
+<li>As of the activation of this ZIP, full validators MUST reject transactions
+where any <code>AccountSpend</code> has <code>assetClass</code> other than 0x00.</li>
+</ul>
+<h2 id="changes-to-zip-270"><a class="hanchor" href="#changes-to-zip-270" aria-hidden="true" tabindex="-1">#</a>Changes to ZIP 270</h2>
+<p>The following row is added to the table of key usages for tracked signing keys:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Usage typecode</th><th>Description</th></tr></thead><tbody><tr><td>1</td><td>ZIP NNN: Consensus account spending</td></tr></tbody></table>
+<p>The <code>key_id</code> for this usage is the <code>consensus_account_id</code> as defined in this
+ZIP.</p>
+<p>This usage typecode authorizes spending from consensus accounts. The tracked
+signing key associated with a consensus account may be rotated using the key
+rotation mechanism defined in ZIP 270. Upon rotation, the account's
+<code>current_key</code> is updated to the new key, while the <code>consensus_account_id</code>
+remains unchanged.</p>
+<h2 id="changes-to-zip-207"><a class="hanchor" href="#changes-to-zip-207" aria-hidden="true" tabindex="-1">#</a>Changes to ZIP 207</h2>
+<p>The following paragraphs are added to the section Funding Streams, after the
+definition of Revision 1 recipient identifiers:</p>
+<blockquote>
+<p>As of Revision 3, a recipient identifier MAY be a consensus account
+identifier as defined in ZIP NNN.</p>
+<p>Any funding stream defined after the activation of ZIP NNN MUST use a
+consensus account identifier as its recipient.</p>
+</blockquote>
+<h2 id="changes-to-zip-214"><a class="hanchor" href="#changes-to-zip-214" aria-hidden="true" tabindex="-1">#</a>Changes to ZIP 214</h2>
+<p>The following bullet point is added to the section Revisions:</p>
+<blockquote>
+<ul>
+<li>Revision 3: The Zcash Community Grants funding stream is redirected to a
+consensus account at the activation height of this ZIP. The
+coinholder-controlled fund (dev fund lockbox) continues unchanged.</li>
+</ul>
+</blockquote>
+<p>The Revision 2 ZCG funding stream (<code>FS_FPF_ZCG_H2</code>) ends at the activation
+height of this ZIP. A new Revision 3 ZCG funding stream begins at that height,
+directing outputs to a ZCG consensus account.</p>
+<p>The following new sections are added:</p>
+<blockquote>
+<h2 id="mainnet-recipients-for-revision-3"><a class="hanchor" href="#mainnet-recipients-for-revision-3" aria-hidden="true" tabindex="-1">#</a>Mainnet Recipients for Revision 3</h2>
+<pre><code>FS_FPF_ZCG_H3 = TODO (consensus account identifier)
+</code></pre>
+<h2 id="testnet-recipients-for-revision-3"><a class="hanchor" href="#testnet-recipients-for-revision-3" aria-hidden="true" tabindex="-1">#</a>Testnet Recipients for Revision 3</h2>
+<pre><code>FS_FPF_ZCG_H3 = TODO (consensus account identifier)
+</code></pre>
+</blockquote>
+<h2 id="changes-to-the-zcash-protocol-specification"><a class="hanchor" href="#changes-to-the-zcash-protocol-specification" aria-hidden="true" tabindex="-1">#</a>Changes to the Zcash Protocol Specification</h2>
+<h3 id="section-34-transactions-and-treestates"><a class="hanchor" href="#section-34-transactions-and-treestates" aria-hidden="true" tabindex="-1">#</a>Section 3.4 (Transactions and Treestates)</h3>
+<p>The global chain state is extended to include a map <code>consensus_accounts</code> from
+<code>consensus_account_id</code> to account state, as defined in this ZIP.</p>
+<h3 id="section-711-transaction-consensus-rules"><a class="hanchor" href="#section-711-transaction-consensus-rules" aria-hidden="true" tabindex="-1">#</a>Section 7.1.1 (Transaction Consensus Rules)</h3>
+<p>The following consensus rules are added:</p>
+<p><strong>Account registration bundle:</strong></p>
+<ul>
+<li>A transaction MAY contain an account registration bundle.</li>
+<li>Each <code>AccountRegistration</code> MUST have a valid signature in the corresponding
+<code>RegistrationAuth</code> entry, verifiable against the provided <code>publicKey</code>.</li>
+<li>Each <code>AccountRegistration</code> MUST NOT reference a <code>consensus_account_id</code> that
+already exists.</li>
+<li>In a coinbase transaction, if an account registration bundle is present, a
+consensus account output bundle MUST also be present, and for each registered
+account there MUST be at least one <code>AccountOutput</code> crediting value to that
+account.</li>
+</ul>
+<p><strong>Consensus account output bundle:</strong></p>
+<ul>
+<li>A transaction MAY contain a consensus account output bundle.</li>
+<li>Each <code>AccountOutput</code> MUST reference a <code>consensus_account_id</code> that exists
+(either pre-defined in consensus rules, or registered in an account
+registration bundle processed earlier in the same transaction, or previously
+registered).</li>
+<li>As of the activation of this ZIP, <code>assetClass</code> MUST be 0x00 for all
+<code>AccountOutput</code> entries.</li>
+</ul>
+<p><strong>Consensus account spend bundle:</strong></p>
+<ul>
+<li>A non-coinbase transaction MAY contain a consensus account spend bundle.</li>
+<li>If a consensus account spend bundle is present, all outputs within the
+transaction MUST be shielded (Sapling or Orchard outputs only; no transparent
+outputs).</li>
+<li>Each <code>AccountSpend</code> MUST reference a <code>consensus_account_id</code> that exists.</li>
+<li>Each <code>AccountSpend</code> MUST have a valid signature in the corresponding
+<code>SpendAuth</code> entry, verifiable against the account's current signing key.</li>
+<li>The total value spent from any single account within a transaction MUST NOT
+exceed that account's balance.</li>
+<li>As of the activation of this ZIP, <code>assetClass</code> MUST be 0x00 for all
+<code>AccountSpend</code> entries.</li>
+</ul>
+<h3 id="section-78-block-subsidy-and-founders-reward"><a class="hanchor" href="#section-78-block-subsidy-and-founders-reward" aria-hidden="true" tabindex="-1">#</a>Section 7.8 (Block Subsidy and Founders' Reward)</h3>
+<p>Funding stream outputs to consensus accounts are credited via implicit
+additions to the <code>consensus_accounts</code> map, rather than via explicit transaction
+outputs. The value balance of a coinbase transaction is computed to include
+these implicit credits.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>Implicit rules are kept in the post-rework to reduce churn for miners; they
+only need to know the fraction of block subsidy available for miner rewards,
+instead of needing to ensure they craft the correct outputs for the current
+consensus rules in their block templates.</p>
+<p>Shielded coinbase outputs are retained alongside consensus accounts because
+they offer superior privacy properties for miners who desire them. Although the
+receiving address of a shielded coinbase output is publicly visible, its
+subsequent spend is indistinguishable from other shielded spends. In contrast,
+spending from a consensus account is always a publicly visible operation.
+Retaining shielded coinbase also avoids forcing privacy-conscious miners to
+generate a new consensus account key for each block, which would cause
+unbounded growth of the consensus account set.</p>
+<p>Account registration and account outputs are specified as separate bundles
+because these operations have fundamentally different characteristics. Account
+registrations require a signature proving control of the registered public key;
+this prevents the creation of accounts with keys that no one controls, which
+would permanently burn any funds credited to them. Account outputs, in
+contrast, require no authorization—any party may credit value to an existing
+account, analogous to sending funds to a known address. Separating these into
+distinct bundles provides a cleaner abstraction: the registration bundle
+handles identity establishment (with authorization), while the output bundle
+handles value transfer (without authorization). The requirement that a coinbase
+transaction with registrations must include outputs to those accounts ensures
+that newly registered accounts receive their initial funding in a single atomic
+operation.</p>
+<h1 id="alternatives"><a class="hanchor" href="#alternatives" aria-hidden="true" tabindex="-1">#</a>Alternatives</h1>
+<p>An alternative design considered was a single combined bundle containing both
+registrations and credits, with registrations including a value field. This
+would result in a single entry in the value balance map. However, this approach
+conflates two distinct operations (identity establishment and value transfer)
+and requires either including asset class fields in registrations (adding
+complexity) or limiting registrations to ZEC only (reducing future
+flexibility). The two-bundle design provides cleaner separation of concerns and
+allows the registration bundle to remain simple and focused on key management.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>TBD</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p>TBD</p>
+<h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Open issues</h1>
+<p>TBD</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.3 [NU6.1] or later</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-blockchain">
+<p><a href="/upstream/protocol/protocol.pdf#blockchain">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 3.3: The Block Chain</a> <a href="#user-content-fnref-protocol-blockchain" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0270">
+<p><a href="https://github.com/zcash/zips/pull/1117">ZIP 270: Key Rotation for Tracked Signing Keys</a> <a href="#user-content-fnref-zip-0270" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0270-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0270-3" data-footnote-backref="" aria-label="Back to reference 5-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0317">
+<p><a href="/upstream/zip-0317.md">ZIP 317: Proportional Transfer Fee Mechanism</a> <a href="#user-content-fnref-zip-0317" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-1016">
+<p><a href="/upstream/zip-1016.md">ZIP 1016: Community and Coinholder Funding Model</a> <a href="#user-content-fnref-zip-1016" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0227">
+<p><a href="/upstream/zip-0227.md">ZIP 227: Zcash Shielded Assets (ZSA)</a> <a href="#user-content-fnref-zip-0227" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0214">
+<p><a href="/upstream/zip-0214.rst">ZIP 214: Consensus rules for a Zcash Development Fund</a> <a href="#user-content-fnref-zip-0214" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-extfmt">
+<p><a href="https://github.com/zcash/zips/pull/1156">ZIP NNN: Extensible Transaction Format</a> <a href="#user-content-fnref-zip-extfmt" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

@@ -1,0 +1,465 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "REQUIRED", "MUST NOT", "SHOULD", and "MAY" in this
+document are to be interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and
+only when, they appear in all capitals.</p>
+<p>The terms below are to be interpreted as follows:</p>
+<dl><dt>Submission server</dt><dd>An untrusted server that receives encrypted vote shares from voters and
+submits the corresponding share reveal transactions to the vote chain.</dd><dt>Temporal unlinkability</dt><dd>The property that an observer watching the vote chain cannot attribute
+multiple share reveal transactions to a single voter based on
+submission timing.</dd><dt>Share payload</dt><dd>The off-chain data a voter sends to a submission server for a single
+share, containing the information necessary to construct a Vote Reveal
+Proof. Defined in <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</dd><dt>Voter</dt><dd>A holder of voting authority (a VAN) who has produced a Vote
+Commitment containing encrypted shares and wishes to have those
+shares revealed on-chain.</dd><dt>Election authority (EA)</dt><dd>The set of validators that collectively hold Shamir shares of the
+El Gamal secret key for a voting round.</dd></dl>
+<p>For definitions of <em>Vote Commitment</em>, <em>Vote Commitment Tree</em>, <em>vote
+share</em>, <em>Vote Reveal Proof</em>, <em>share nullifier</em>, and <em>blinded share
+commitment</em>, see <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-2" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>. For <em>voting round</em>, <em>validator</em>,
+and <em>vote chain</em>, see <sup><a href="#user-content-fn-coinholder-voting" id="user-content-fnref-coinholder-voting" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP specifies the submission server, a protocol participant in
+the Zcash shielded voting system that receives encrypted vote shares
+from voters and submits them to the vote chain at client-specified
+times. The server constructs a Vote Reveal Proof for each share and
+submits the corresponding transaction at the time designated by the
+voter, interleaving submissions from many voters into a stream that
+destroys timing correlations.</p>
+<p>Without temporal mixing, a voter who submits <math><msub><mi>N</mi><mi>s</mi></msub></math> shares for <math><mi>P</mi></math>
+proposals produces <math><mrow><msub><mi>N</mi><mi>s</mi></msub><mo>×</mo><mi>P</mi></mrow></math> transactions in a short burst. An
+observer can group these by timing, and after the tally is published,
+cross-reference the group against low-participation proposal options to
+narrow the voter's balance to a small range. Client-controlled
+submission timing eliminates this attack surface: each share carries a
+<math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> timestamp sampled uniformly from the remaining
+voting window, spreading shares from a single voter across time and
+interleaving them with shares from other voters.</p>
+<p>Each share is sent to half of the available servers, balancing
+censorship resistance (redundancy ensures an honest server can relay)
+against amount privacy (limiting the servers that see each share's
+ciphertext).</p>
+<p>Voters who cast their vote near the end of the voting window use a
+reduced <em>last-moment mode</em>: a single share carrying the full ballot
+count is submitted immediately, sacrificing temporal mixing in exchange
+for guaranteed inclusion before the deadline.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The Shielded Voting Protocol <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-3" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> encrypts vote amounts
+under the election authority's public key and splits each vote into
+<math><msub><mi>N</mi><mi>s</mi></msub></math> shares. Encryption alone does not provide effective privacy when
+combined with observable metadata.</p>
+<p>Consider a voter with a large balance voting on <math><mi>P</mi></math> proposals. If the
+voter submits all <math><mrow><msub><mi>N</mi><mi>s</mi></msub><mo>×</mo><mi>P</mi></mrow></math> shares directly to the vote chain, an
+observer sees a burst of transactions arriving together. After the
+round, the published tally reveals the aggregate total and voter count
+per (proposal, decision) pair. For proposal options with few voters, the
+observer can narrow each voter's balance to a tight range. When the
+timing burst is correlated across proposals, the observer can link all
+of the voter's choices, and social context (forum posts, public
+advocacy) can close the remaining gap.</p>
+<p>The submission server solves this by introducing an intermediary that
+holds shares and submits them at client-specified times spread across
+the voting window. The <math><mrow><msub><mi>N</mi><mi>s</mi></msub><mo>×</mo><mi>P</mi></mrow></math> transactions from a single voter
+are interleaved into a stream of thousands of similar transactions from
+hundreds of voters. The timing fingerprint is destroyed.</p>
+<p>The client samples a <math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> timestamp for each share,
+drawn uniformly from the remaining voting window. The server holds the
+share until that time, then constructs the Vote Reveal Proof and
+submits the transaction. This design gives the client control over its
+own temporal mixing distribution while delegating proof construction
+and reliable delivery to the always-on server. A mobile client may be
+killed or lose connectivity at the scheduled submission time, but the
+server guarantees delivery.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p><strong>Temporal mixing.</strong> The client's primary privacy mechanism is
+spreading share submissions across the voting window by sampling
+independent <math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> timestamps. The submission server
+executes these schedules reliably, interleaving shares from many
+voters into a uniform stream. Without this mixing, an observer can
+group shares by submission time and, after tally publication, use
+low-participation proposal options to reconstruct individual balances.</p>
+<p><strong>Per-server information.</strong> Each submission server learns the encrypted
+share ciphertext and blind factor for the single share it reveals, the
+blinded share commitments for all <math><msub><mi>N</mi><mi>s</mi></msub></math> shares, the proposal
+identifier, and the vote decision. It cannot learn the plaintext share
+amount (encrypted under <math><mrow><mrow><mi>𝖾</mi><mi>𝖺</mi></mrow><mi>_</mi><mrow><mi>𝗉</mi><mi>𝗄</mi></mrow></mrow></math>), the ciphertexts
+or blind factors of shares assigned to other servers, the voter's
+identity, or which VCT leaf the vote commitment corresponds to.</p>
+<p><strong>Redundancy vs. restriction tension.</strong> Censorship resistance requires
+sending each share to multiple servers (so an honest server can relay
+even if others censor). Amount privacy requires restricting the number
+of servers that see each share (to limit the set that could collude
+with the EA to gain an information advantage). These requirements pull
+in opposite directions; the resolution is specified in [Server
+Selection].</p>
+<p><strong>Decision and share count visibility.</strong> Vote decisions are public
+inputs to the Vote Reveal Proof and appear in every share reveal
+transaction on-chain.</p>
+<p>Because share counts are visible, an observer who also sees the
+aggregate weight for each decision after tally publication can, in
+low-participation options, narrow individual voter balances to a
+range. The protocol limits this inference in two ways: encrypted amounts keep exact balances hidden, and non-uniform share
+decomposition strategies break the direct relationship between share
+count and voter balance (see [Open Design Questions]). Encrypting
+decisions entirely would close this channel but at substantial circuit
+cost (see [Why Not Encrypt Decisions]).</p>
+<p>Decision visibility also means a malicious submission server could
+selectively delay or drop shares for a particular decision; the
+redundancy mechanisms in [Decision Censorship Resistance] address this.</p>
+<p><strong>Voter identity isolation.</strong> Even a fully compromised election
+authority (one that reconstructs <math><mrow><mrow><mi>𝖾</mi><mi>𝖺</mi></mrow><mi>_</mi><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></mrow></math> and
+decrypts every share) cannot determine which voter cast a given vote.
+The delegation phase of the Shielded Voting Protocol <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-4" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>
+moves voting authority from the holder's Orchard spending key to a
+locally-generated, unlinkable governance hotkey. All vote commitments
+and share reveals reference only this hotkey. The link between on-chain
+identity and governance hotkey is broken by the zero-knowledge
+delegation proof and the alternate nullifier unlinkability property
+established in <sup><a href="#user-content-fn-balance-proof" id="user-content-fnref-balance-proof" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>; the EA never sees anything that
+connects the two.</p>
+<p><strong>Timing metadata.</strong> Submission servers see <math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math>
+timestamps but these are independently sampled per share and do not
+reveal the voter's identity or total ballot count. A server that logs
+receipt timestamps could correlate shares received in the same session,
+but because each share is sent to independently selected server
+subsets, no single server sees all of a voter's shares. Voters who
+distribute shares across multiple servers limit any single server's
+view of their submission pattern.</p>
+<p><strong>Last-moment privacy trade-off.</strong> Voters who cast within the
+last-moment buffer (see [Last-Moment Voting]) submit a single share
+carrying their full ballot count with immediate delivery. This
+sacrifices temporal mixing entirely: the share's on-chain arrival time
+directly reflects when the voter cast. The trade-off is accepted
+because each share requires the server to construct a Vote Reveal
+Proof (a computationally expensive ZKP), and with little time
+remaining the server may not complete all 16 proofs before the
+deadline — resulting in a partially counted or entirely lost vote.
+A single share requires only one proof, prioritizing inclusion over
+mixing.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul>
+<li>An observer watching the vote chain cannot attribute multiple share
+reveal transactions to a single voter based on submission timing.</li>
+<li>A single malicious submission server cannot prevent a voter's shares
+from reaching the chain, provided at least one server handling those
+shares is honest.</li>
+<li>No single submission server learns enough information to reconstruct
+a voter's total ballot count or link shares across proposals.</li>
+<li>The submission server can construct Vote Reveal Proofs without
+access to the voter's private key material.</li>
+<li>The protocol tolerates submission server unavailability: if a server
+goes offline, shares assigned to other servers are unaffected.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<ul>
+<li>The Vote Reveal Proof circuit and its public/auxiliary inputs are
+specified in <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-5" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>; this ZIP does not re-specify them.</li>
+<li>The share submission payload format is defined in <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-6" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</li>
+<li>The vote chain's verification of share reveal transactions (nullifier
+checks, ciphertext accumulation) is specified in <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-7" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</li>
+<li>Client-side share decomposition (splitting <math><mrow><mrow><mi>𝗇</mi><mi>𝗎</mi><mi>𝗆</mi></mrow><mi>_</mi><mrow><mi>𝖻</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗌</mi></mrow></mrow></math>
+into <math><msub><mi>N</mi><mi>s</mi></msub></math> shares) is specified in <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-8" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</li>
+<li>The consensus mechanism of the vote chain is out of scope.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="server-role"><a class="hanchor" href="#server-role" aria-hidden="true" tabindex="-1">#</a>Server Role</h2>
+<p>A submission server is an always-on service that accepts share payloads
+from voters over an authenticated channel and submits the corresponding
+share reveal transactions to the vote chain. Each validator on the vote
+chain embeds a submission server as a helper process.</p>
+<p>For each share payload received, the server MUST:</p>
+<ol>
+<li>Validate the payload: verify that the vote commitment exists in the
+VCT at the claimed position, that the blinded share commitment at
+the claimed index is consistent with the provided ciphertext and
+blind factor, that the share nullifier has not already been
+published, and that <math><mrow><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow><mo>≤</mo><mrow><mi>𝗏</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝖾</mi><mi>_</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>_</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi></mrow></mrow></math>.</li>
+<li>Enqueue the share for submission at the client-specified
+<math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> time (or immediately if
+<math><mrow><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow><mo>=</mo><mn>0</mn></mrow></math>).</li>
+<li>At the scheduled time, obtain the current VCT Merkle path for the
+vote commitment.</li>
+<li>Derive the share nullifier.</li>
+<li>Construct the Vote Reveal Proof.</li>
+<li>Submit the share reveal transaction to the vote chain.</li>
+</ol>
+<p>If the share reveal transaction is rejected (e.g., because another
+server already revealed the same share), the server SHOULD discard the
+payload without retry.</p>
+<h2 id="submission-timing"><a class="hanchor" href="#submission-timing" aria-hidden="true" tabindex="-1">#</a>Submission Timing</h2>
+<p>Each share payload includes a <math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> field: a Unix
+timestamp (seconds) specifying when the server SHOULD submit the
+corresponding share reveal transaction. The server MUST NOT submit the
+share before this time.</p>
+<ul>
+<li>When <math><mrow><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow><mo>></mo><mn>0</mn></mrow></math>, the server enqueues the share and
+submits it at or shortly after the specified time. Small inter-share
+jitter (on the order of seconds) SHOULD be applied to avoid
+simultaneous transaction bursts when multiple shares target nearby
+timestamps.</li>
+<li>When <math><mrow><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow><mo>=</mo><mn>0</mn></mrow></math>, the server MUST submit the share as
+soon as possible (last-moment mode; see [Last-Moment Voting]).</li>
+</ul>
+<p>The server MUST reject any payload where
+<math><mrow><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow><mo>></mo><mrow><mi>𝗏</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝖾</mi><mi>_</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>_</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi></mrow></mrow></math> with an error.</p>
+<h3 id="client-side-delay-sampling"><a class="hanchor" href="#client-side-delay-sampling" aria-hidden="true" tabindex="-1">#</a>Client-Side Delay Sampling</h3>
+<p>The client is responsible for choosing <math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> for each
+share. For normal votes (cast outside the last-moment buffer), the
+client MUST sample each share's submission time independently from a
+uniform distribution over the remaining voting window:</p>
+<p><math><mrow><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow><mo stretchy="false">←</mo><mrow><mi>𝖴</mi><mi>𝗇</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗈</mi><mi>𝗋</mi><mi>𝗆</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗇</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo separator="true">,</mo><mspace width="0.2778em"></mspace><mrow><mi>𝗏</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝖾</mi><mi>_</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>_</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi></mrow><mo>−</mo><mrow><mi>𝗅</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗍</mi><mi>_</mi><mi>𝗆</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi><mi>_</mi><mi>𝖻</mi><mi>𝗎</mi><mi>𝖿</mi><mi>𝖿</mi><mi>𝖾</mi><mi>𝗋</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p>The upper bound excludes the last-moment buffer to ensure all shares
+are submitted before the window in which last-moment voters begin
+casting. See [Last-Moment Voting] for the buffer definition.</p>
+<p>The client MUST NOT batch shares or assign identical timestamps.
+Independent sampling ensures that shares from a single voter are spread
+across time and interleaved with shares from other voters.</p>
+<h2 id="last-moment-voting"><a class="hanchor" href="#last-moment-voting" aria-hidden="true" tabindex="-1">#</a>Last-Moment Voting</h2>
+<p>A voter who casts within the <em>last-moment buffer</em> (the final portion
+of the voting window) uses a reduced submission mode:</p>
+<h3 id="last-moment-buffer"><a class="hanchor" href="#last-moment-buffer" aria-hidden="true" tabindex="-1">#</a>Last-Moment Buffer</h3>
+<p>The last-moment buffer is defined as:</p>
+<p><math><mrow><mrow><mi>𝗅</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗍</mi><mi>_</mi><mi>𝗆</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi><mi>_</mi><mi>𝖻</mi><mi>𝗎</mi><mi>𝖿</mi><mi>𝖿</mi><mi>𝖾</mi><mi>𝗋</mi></mrow><mo>=</mo><mrow><mi>min</mi><mo>⁡</mo><mspace width="0.1667em"></mspace></mrow><mrow style="margin-left:-0.1667em;"></mrow><mrow><mo fence="true" form="prefix" stretchy="true">(</mo><mrow><mo fence="true" form="prefix" stretchy="true">⌊</mo><mn>0.1</mn><mo>×</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗏</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝖾</mi><mi>_</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>_</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi></mrow><mo>−</mo><mrow><mi>𝖼</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗆</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝗒</mi><mi>_</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="true">⌋</mo></mrow><mo separator="true">,</mo><mspace width="0.2778em"></mspace><mn>3600</mn><mo fence="true" form="postfix" stretchy="true">)</mo></mrow></mrow></math></p>
+<p>That is, 10% of the total round duration (from ceremony completion to
+vote end), capped at 1 hour. A voter is in last-moment mode when:</p>
+<p><math><mrow><mrow><mi>𝗇</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>≥</mo><mrow><mi>𝗏</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝖾</mi><mi>_</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝖽</mi><mi>_</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi></mrow><mo>−</mo><mrow><mi>𝗅</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗍</mi><mi>_</mi><mi>𝗆</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi><mi>_</mi><mi>𝖻</mi><mi>𝗎</mi><mi>𝖿</mi><mi>𝖿</mi><mi>𝖾</mi><mi>𝗋</mi></mrow></mrow></math></p>
+<h3 id="single-share-mode"><a class="hanchor" href="#single-share-mode" aria-hidden="true" tabindex="-1">#</a>Single-Share Mode</h3>
+<p>In last-moment mode, the client MUST:</p>
+<ol>
+<li>Place the entire ballot count into a single share (share index 0).
+The remaining <math><mrow><msub><mi>N</mi><mi>s</mi></msub><mo>−</mo><mn>1</mn></mrow></math> share slots carry zero value.</li>
+<li>Build only one share payload (for share index 0).</li>
+<li>Set <math><mrow><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow><mo>=</mo><mn>0</mn></mrow></math> (immediate submission).</li>
+</ol>
+<p>The server processes immediate shares without inter-share jitter delay.</p>
+<h3 id="privacy-rationale"><a class="hanchor" href="#privacy-rationale" aria-hidden="true" tabindex="-1">#</a>Privacy Rationale</h3>
+<p>Last-moment mode sacrifices temporal mixing for guaranteed inclusion.
+Each share requires the server to construct a Vote Reveal Proof — a
+computationally expensive ZKP — before submitting the transaction.
+With 16 shares and little time remaining, the server may not complete
+all 16 proofs before the voting window closes, resulting in lost votes.
+A single share requires only one proof, maximizing the likelihood that
+the vote is included before the deadline. Getting the vote counted is
+more important than preserving temporal mixing when the window is
+nearly closed.</p>
+<p>The on-chain footprint of a last-moment vote is indistinguishable from
+a single normal share reveal (same transaction format, same proof
+type). An observer cannot determine whether a share reveal near the
+deadline is a last-moment vote or a normally-timed share that happened
+to be scheduled late.</p>
+<h2 id="server-selection"><a class="hanchor" href="#server-selection" aria-hidden="true" tabindex="-1">#</a>Server Selection</h2>
+<p>Each share MUST be sent to exactly <math><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>s</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow></math> of the <math><mi>s</mi></math>
+available submission servers, where <math><mi>s</mi></math> is the number of active
+validators (since each validator embeds a submission server). See
+[Why Half the Servers] for the design rationale.</p>
+<p>The client MUST select the <math><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>s</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow></math> servers uniformly at
+random for each share independently. Shares from the same vote
+commitment SHOULD be distributed across different server subsets to
+minimize any single server's view of the voter's activity.</p>
+<h2 id="per-server-share-isolation"><a class="hanchor" href="#per-server-share-isolation" aria-hidden="true" tabindex="-1">#</a>Per-Server Share Isolation</h2>
+<p>A submission server receives only the ciphertext and blind factor for
+the single share it is responsible for revealing. The remaining
+<math><mrow><msub><mi>N</mi><mi>s</mi></msub><mo>−</mo><mn>1</mn></mrow></math> shares are sent to other servers, each of which receives
+only its own share's raw data.</p>
+<p>To construct the Vote Reveal Proof, the server needs all <math><msub><mi>N</mi><mi>s</mi></msub></math> blinded
+share commitments (to recompute <math><mrow><mrow><mi>𝗌</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mi>_</mi><mrow><mi>𝗁</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗁</mi></mrow></mrow></math>), but
+these commitments are blinded with independent random factors and do
+not expose the ciphertexts or blind factors of other shares.</p>
+<p>This isolation ensures that a compromised server learns at most one
+share's encrypted amount per vote commitment. Even if the server could
+decrypt that share (by colluding with <math><mi>t</mi></math> validators to reconstruct
+<math><mrow><mrow><mi>𝖾</mi><mi>𝖺</mi></mrow><mi>_</mi><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></mrow></math>), it would learn only a fraction of the
+voter's total ballot count.</p>
+<h2 id="decision-censorship-resistance"><a class="hanchor" href="#decision-censorship-resistance" aria-hidden="true" tabindex="-1">#</a>Decision Censorship Resistance</h2>
+<p>Submission servers see the vote decision for each share they handle,
+because the decision is a public input to the Vote Reveal Proof and
+appears in the share reveal transaction. A malicious server could
+selectively drop shares for decisions it opposes.</p>
+<p>Because each share is sent to <math><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>s</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow></math> servers, a censoring
+server is effective only if all servers receiving that share collude.
+Under the assumption that fewer than half the servers are malicious, at
+least one honest server will relay each share. Alternative mitigation
+strategies are discussed in [Why Not Encrypt Decisions] and [Why Not
+TEE-Based Proof Construction].</p>
+<h2 id="duplicate-share-handling"><a class="hanchor" href="#duplicate-share-handling" aria-hidden="true" tabindex="-1">#</a>Duplicate Share Handling</h2>
+<p>Because each share is sent to <math><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>s</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow></math> servers, multiple
+servers will attempt to reveal the same share. The vote chain's share
+nullifier set prevents double-counting: the first valid share reveal
+transaction is accepted, and subsequent attempts for the same share
+nullifier are rejected.</p>
+<p>Servers MUST treat a share-nullifier-already-exists rejection as a
+success (the share was revealed by another server) and discard the
+payload. Servers MUST NOT retry or escalate rejected submissions.</p>
+<h2 id="availability-and-fault-tolerance"><a class="hanchor" href="#availability-and-fault-tolerance" aria-hidden="true" tabindex="-1">#</a>Availability and Fault Tolerance</h2>
+<p>If a submission server goes offline after receiving shares but before
+submitting them, those shares are lost on that server. Because each
+share is sent to <math><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>s</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow></math> servers, the share will still be
+revealed by another server unless all <math><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>s</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow></math> recipients
+fail simultaneously.</p>
+<p>Servers SHOULD persist enqueued shares (including their
+<math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> timestamps) to durable storage so that shares
+survive process restarts. A server that restarts during the voting
+window SHOULD resume submission of any persisted shares whose
+<math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> times have not yet passed. For shares whose
+<math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> has already elapsed, the server SHOULD submit
+them as soon as possible after restart.</p>
+<p>Servers SHOULD NOT persist share data beyond the end of the voting
+round. After the round transitions to TALLYING, all share payloads,
+ciphertexts, blind factors, and blinded share commitments SHOULD be
+securely erased.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<h2 id="why-a-dedicated-submission-server"><a class="hanchor" href="#why-a-dedicated-submission-server" aria-hidden="true" tabindex="-1">#</a>Why a Dedicated Submission Server</h2>
+<p>Naively submitting votes reveals balance through metadata. Even with
+encrypted amounts, an observer can group transactions by timing, and
+after tally publication, use low-participation proposal options to
+narrow individual balances. The submission server solves this by
+providing reliable, always-on execution of client-specified submission
+schedules and by constructing Vote Reveal Proofs on the voter's behalf.</p>
+<p>Fully client-side temporal mixing (where the wallet itself staggers
+submissions over the voting window) was considered but rejected for
+reliability: mobile clients may be killed, lose connectivity, or enter
+low-power states during the multi-hour voting window. The hybrid
+design — client chooses when, server guarantees delivery — preserves
+client autonomy over timing while ensuring reliable execution.</p>
+<h2 id="why-half-the-servers"><a class="hanchor" href="#why-half-the-servers" aria-hidden="true" tabindex="-1">#</a>Why Half the Servers</h2>
+<p>The <math><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>s</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow></math> parameter balances two competing concerns:</p>
+<ul>
+<li><strong>Censorship resistance</strong> requires redundancy: if a share is sent to
+only one server and that server censors it, the share is lost.
+Sending to multiple servers ensures that an honest server can relay.</li>
+<li><strong>Amount privacy</strong> requires restriction: validators who run
+submission servers also hold Shamir shares of
+<math><mrow><mrow><mi>𝖾</mi><mi>𝖺</mi></mrow><mi>_</mi><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></mrow></math>. A validator that sees a share's
+ciphertext and colludes with others could gain
+an information advantage. Limiting the number of servers that see
+each share limits the collusion surface.</li>
+</ul>
+<p>Sending to half the servers ensures that even if up to
+<math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">⌊</mo><mi>s</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌋</mo></mrow><mo>−</mo><mn>1</mn></mrow></math> servers are malicious, at least one honest
+server receives each share. At the same time, no more than half the
+validator set sees any individual share's ciphertext.</p>
+<p>For censorship resistance, the adversary model assumes fewer than half
+the servers are malicious (consistent with the CometBFT assumption of
+fewer than one-third Byzantine validators, which is strictly stronger).
+Under this assumption, any subset of <math><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>s</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow></math> randomly
+chosen servers contains at least one honest server.</p>
+<p>For information restriction, limiting each share to half the servers
+means that no more than half the validator set (who also hold Shamir
+shares of <math><mrow><mrow><mi>𝖾</mi><mi>𝖺</mi></mrow><mi>_</mi><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></mrow></math>) sees any individual share's
+ciphertext. Combined with the threshold secret sharing requirement
+(<math><mrow><mi>t</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>n</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow><mo>+</mo><mn>1</mn></mrow></math> validators needed to decrypt), a
+single server that sees a share cannot decrypt it alone.</p>
+<p>Alternative parameters were considered: sending to all servers
+maximizes censorship resistance but gives every validator access to
+every share's ciphertext, undermining information restriction. Sending
+to a single server minimizes information exposure but provides no
+censorship resistance.</p>
+<h2 id="why-servers-are-co-located-with-validators"><a class="hanchor" href="#why-servers-are-co-located-with-validators" aria-hidden="true" tabindex="-1">#</a>Why Servers Are Co-located with Validators</h2>
+<p>Submission servers are embedded in validator nodes rather than operated
+as independent infrastructure. This follows from the protocol's
+existing trust model: validators already participate in the EA key
+ceremony and hold Shamir shares. Adding a separate server operator
+class would introduce a new trust assumption without clear benefit.
+Co-location also simplifies deployment (a single binary) and ensures
+that the submission server has direct access to the vote chain for
+transaction submission.</p>
+<p>The dual role creates a tension: validators need decryption capability
+for the tally, but the protocol does not want any single validator to
+decrypt shares early. Threshold secret sharing
+(see <sup><a href="#user-content-fn-ea-ceremony" id="user-content-fnref-ea-ceremony" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>) addresses this: <math><mrow><mi>t</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">⌈</mo><mi>n</mi><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌉</mo></mrow><mo>+</mo><mn>1</mn></mrow></math>
+validators must collude to reconstruct <math><mrow><mrow><mi>𝖾</mi><mi>𝖺</mi></mrow><mi>_</mi><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></mrow></math>,
+and the server selection rule ensures each share is visible to at most
+half the validators.</p>
+<h2 id="why-client-controlled-timing"><a class="hanchor" href="#why-client-controlled-timing" aria-hidden="true" tabindex="-1">#</a>Why Client-Controlled Timing</h2>
+<p>The client samples from a uniform distribution over the remaining
+window (excluding the last-moment buffer) rather than, for example,
+exponential or Gaussian. Because each share's <math><mrow><mi>𝗌</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi><mi>_</mi><mi>𝖺</mi><mi>𝗍</mi></mrow></math> is
+sampled independently, a single voter's shares may cluster by chance.
+However, uniform sampling ensures that the <em>aggregate</em> stream of share
+reveals across all voters is roughly uniform over time. An individual
+voter's cluster is indistinguishable from coincidental proximity of
+shares belonging to different voters, provided the total volume of
+share reveals is sufficiently large.</p>
+<h2 id="why-not-encrypt-decisions"><a class="hanchor" href="#why-not-encrypt-decisions" aria-hidden="true" tabindex="-1">#</a>Why Not Encrypt Decisions</h2>
+<p>Because vote decisions are public, an observer who also sees the
+published aggregate weight can, for low-participation options, narrow
+the range of individual voter balances — even though exact amounts
+remain encrypted. Encrypting decisions would close this channel but at
+significant cost: a per-option ciphertext approach requires each share
+to carry <math><mi>k</mi></math> ciphertexts (<math><mrow><mpadded lspace="0"><mi>Enc</mi></mpadded><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>v</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> for the chosen option,
+<math><mrow><mpadded lspace="0"><mi>Enc</mi></mpadded><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mn>0</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> for the remaining <math><mrow><mi>k</mi><mo>−</mo><mn>1</mn></mrow></math>), multiplying per-share
+circuit cost by <math><mi>k</mi></math>. A validator-decrypted variant hides per-option
+counts from the public but not from validators, and making the
+bucketing publicly verifiable requires an additional proof system that
+scales with total share count.</p>
+<p>The protocol instead limits share-count informativeness through
+non-uniform share decomposition (see [Open Design Questions]), which
+breaks the direct relationship between share count and individual
+voter balances without adding circuit complexity.</p>
+<h2 id="why-not-tee-based-proof-construction"><a class="hanchor" href="#why-not-tee-based-proof-construction" aria-hidden="true" tabindex="-1">#</a>Why Not TEE-Based Proof Construction</h2>
+<p>Running Vote Reveal Proof construction inside a Trusted Execution
+Environment would allow the server to handle decrypted decisions
+without observing them, providing censorship resistance without the
+circuit cost of decision encryption. However, TEEs introduce
+infrastructure complexity (all validators would need compatible
+hardware), rely on vendor-specific trust assumptions, and are subject
+to side-channel attacks that have been demonstrated against SGX and
+similar platforms. The multi-server redundancy approach achieves
+adequate censorship resistance under the existing honest-majority
+assumption without these additional dependencies.</p>
+<h2 id="open-design-questions"><a class="hanchor" href="#open-design-questions" aria-hidden="true" tabindex="-1">#</a>Open Design Questions</h2>
+<p>Several design questions affect the submission server's effectiveness
+but are not yet resolved:</p>
+<ul>
+<li><strong>Share decomposition strategy.</strong> For normal votes, the ballot count
+is split roughly evenly across <math><mrow><msub><mi>N</mi><mi>s</mi></msub><mo>=</mo><mn>16</mn></mrow></math> shares (floor division,
+remainder added to the last share). For last-moment votes, the full
+count goes into a single share (see [Last-Moment Voting]). Alternative
+decomposition strategies (such as powers-of-two denominations that
+make shares from different voters indistinguishable by amount, or
+base-10 decomposition with PRF-randomized remainders) could
+strengthen the mixing guarantee but are not yet adopted.</li>
+<li><strong>Client confirmation via PIR.</strong> Voters currently have no
+privacy-preserving way to confirm that their shares were submitted.
+A PIR-based confirmation mechanism (querying the vote chain for
+share nullifiers without revealing which nullifiers are being
+checked) would close this gap. The Nullifier PIR
+ZIP <sup><a href="#user-content-fn-pir-governance" id="user-content-fnref-pir-governance" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> provides a foundation, but adapting it for
+share nullifier queries requires additional specification.</li>
+<li><strong>Balance amendment.</strong> A voter who is the sole participant on an
+unpopular proposal option may have their exact balance revealed by
+the tally (the aggregate equals their individual contribution).
+An opt-in mechanism to amend the voting ballot — lowering, rounding,
+or padding the declared balance and proving the amendment in ZK —
+would mitigate this. This is orthogonal to the submission server but
+affects the end-to-end privacy guarantee.</li>
+<li><strong>TEE-based proof construction.</strong> Running Vote Reveal Proof
+construction inside a Trusted Execution Environment would allow the
+server to handle decrypted decisions without observing them,
+providing censorship resistance without decision encryption's circuit
+cost. Side-channel risks and infrastructure barriers make this a
+longer-term option.</li>
+</ul>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h1>
+<p>Reference implementation will be provided before this ZIP advances beyond Draft status.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-voting-protocol">
+<p><a href="/upstream/draft-valargroup-shielded-voting">Draft ZIP: Shielded Voting Protocol</a> <a href="#user-content-fnref-voting-protocol" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-voting-protocol-2" data-footnote-backref="" aria-label="Back to reference 2-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-voting-protocol-3" data-footnote-backref="" aria-label="Back to reference 2-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-voting-protocol-4" data-footnote-backref="" aria-label="Back to reference 2-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-voting-protocol-5" data-footnote-backref="" aria-label="Back to reference 2-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-voting-protocol-6" data-footnote-backref="" aria-label="Back to reference 2-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-voting-protocol-7" data-footnote-backref="" aria-label="Back to reference 2-7" class="data-footnote-backref">↩<sup>7</sup></a> <a href="#user-content-fnref-voting-protocol-8" data-footnote-backref="" aria-label="Back to reference 2-8" class="data-footnote-backref">↩<sup>8</sup></a></p>
+</li>
+<li id="user-content-fn-coinholder-voting">
+<p><a href="/upstream/draft-valargroup-shielded-voting-setup">Draft ZIP: Zcash Shielded Coinholder Voting</a> <a href="#user-content-fnref-coinholder-voting" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-balance-proof">
+<p><a href="/upstream/draft-valargroup-orchard-balance-proof">Draft ZIP: Orchard Proof-of-Balance</a> <a href="#user-content-fnref-balance-proof" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-ea-ceremony">
+<p><a href="/upstream/draft-valargroup-ea-key-ceremony">Draft ZIP: Election Authority Key Ceremony</a> <a href="#user-content-fnref-ea-ceremony" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-pir-governance">
+<p><a href="/upstream/draft-valargroup-nullifier-pir">Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</a> <a href="#user-content-fnref-pir-governance" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

@@ -1,0 +1,564 @@
+<pre><code>  ZIP: Unassigned
+  Title: Regtest: Definition of a Local Consensus Test Mode for Zcash Full Nodes
+  Owners: Francisco Gindre &#x3C;pacu@zecdev.org>
+  Original-Authors: Francisco Gindre &#x3C;pacu@zecdev.org>
+  Credits: Daira-Emma Hopwood
+           Zancas (Zingo Labs)
+           idky137 (Zingo Labs)
+           Kris Nuttycombe
+  Status: Draft
+  Category: Informational
+  Created: 2025-02-26
+  License: MIT
+  Pull-Request: &#x3C;https://github.com/zcash/zips/pull/986>
+</code></pre>
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", "MAY",
+"REQUIRED", "SHALL", "SHALL NOT", "RECOMMENDED", "NOT RECOMMENDED",
+and "OPTIONAL" in this document are to be interpreted as described in
+BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when, they appear in all capitals.</p>
+<p>The terms "Mainnet" and "Testnet" in this document are to be interpreted
+as defined in the Zcash protocol specification <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>Regtest is a testing mode inherited from the Bitcoin node. It provides a
+way to have a consensus node on a local network with private state that a
+developer can control in order to reproduce certain situations
+deterministically for testing purposes. Regtest, as implemented in zcashd,
+is similar to Testnet but without miners and remote peers.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>It is necessary to define Regtest mode so that different implementations of
+Zcash full nodes provide the same capabilities and so that testing
+infrastructure can be interoperable. Regtest mode was inherited from Bitcoin
+and never defined in a ZIP. Differences between Zebra and zcashd Regtest
+implementations found by developers involved in zcashd deprecation motivated
+this ZIP as a way to document existing assumptions, expectations and
+functionalities of Regtest, and to document regtest-only features.</p>
+<p>This ZIP documents differences in behavior, values, expectations and
+assumptions in comparison to Testnet. It uses the Zcash protocol
+specification and existing ZIPs as guiding principles for the document
+structure. It also documents pre-existing and previously <em>undocumented</em>
+requirements, constants and values that are present in the zcashd 6.1.0
+implementation and <code>zcash_protocol</code> crate 0.4.3 <sup><a href="#user-content-fn-zcash_protocol" id="user-content-fnref-zcash_protocol" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+<p>This ZIP is intended for full node implementors but also as a reference
+for developers and QA testers who use Regtest functionality to ensure test
+coverage of their codebases.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<p>The following are the user-facing goals that Regtest mode is intended to
+satisfy:</p>
+<ol>
+<li>Developers need to be able to efficiently generate deterministic
+sequences of blocks and transactions on a local node.</li>
+<li>Consensus checks that would prevent efficient local block generation
+(such as proof-of-work difficulty) need to be relaxed or bypassed.</li>
+<li>Developers need to be able to specify the activation heights of Network
+Upgrades at launch, via command-line parameters or a configuration file.</li>
+<li>Regtest nodes need to operate in isolation from public networks and
+remote peers.</li>
+<li>It should be possible to activate all Network Upgrades at a single
+height, while maintaining the invariant that a Network Upgrade is only
+active if all of its predecessors are also active.</li>
+<li>Block generation should be available on demand, rather than on a
+mining schedule.</li>
+<li>Address encodings should use distinct Human-Readable Parts (HRPs) to
+prevent confusion with Mainnet or Testnet addresses.</li>
+<li>Regtest functionality should enable developers to achieve thorough
+test coverage of their codebases.</li>
+</ol>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<p>This ZIP does not attempt to address how Regtest mode should be
+implemented. Details on full-node architecture, implementation details, and
+software distribution are out of scope.</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="configuration-parameters"><a class="hanchor" href="#configuration-parameters" aria-hidden="true" tabindex="-1">#</a>Configuration Parameters</h2>
+<p>Regtest mode is activated by starting a node with a <code>regtest</code> network
+identifier. Implementations MUST provide configuration mechanisms for at
+least the following, which MUST only be accepted when the node is running
+in Regtest mode:</p>
+<ul>
+<li>
+<p><strong>Network Upgrade activation heights.</strong> The operator MUST be able to
+specify the activation height for each Network Upgrade. Upgrades that
+are not explicitly configured SHOULD default to inactive
+(<code>NO_ACTIVATION_HEIGHT</code>). Implementations SHOULD auto-activate
+predecessor upgrades when a later upgrade is configured (see
+<a href="#global-effects-on-network-upgrades">Global Effects on Network Upgrades</a>).</p>
+</li>
+<li>
+<p><strong>Funding stream parameters.</strong> The operator MUST be able to configure
+funding stream recipients, height ranges, and numerators. Funding
+streams SHOULD be disabled by default.</p>
+</li>
+<li>
+<p><strong>One-time lockbox disbursement parameters.</strong> The operator MUST be able
+to configure lockbox disbursement recipients and heights.</p>
+</li>
+<li>
+<p><strong>Coinbase shielding requirement.</strong> The operator SHOULD be able to
+toggle whether coinbase outputs are required to be shielded. This
+SHOULD default to not required.</p>
+</li>
+</ul>
+<p>Implementations MAY expose additional Regtest-only configuration, such as
+proof-of-work parameter overrides or halving interval adjustments.</p>
+<p>In zcashd, these are configured via command-line flags: <code>-nuparams</code>,
+<code>-fundingstream</code>, <code>-onetimelockboxdisbursement</code>, and
+<code>-regtestshieldcoinbase</code>. In zebrad, they are configured via TOML
+configuration fields under <code>[network.testnet_parameters]</code>, including
+<code>activation_heights</code>, <code>funding_streams</code>, <code>lockbox_disbursements</code>, and the
+<code>allow_unshielded_coinbase_spends</code> builder option.</p>
+<h2 id="regtest-nodes-and-network-connections"><a class="hanchor" href="#regtest-nodes-and-network-connections" aria-hidden="true" tabindex="-1">#</a>Regtest Nodes and Network Connections</h2>
+<p>Regtest nodes MUST be configured with no default seed nodes or fixed seeds.
+Mining MUST NOT require peers. Regtest nodes MUST NOT connect to external
+peers. Implementations MUST provide mechanisms that restrict connections to
+localhost.</p>
+<p>Note: In zcashd, isolation is achieved by clearing <code>vFixedSeeds</code> and
+<code>vSeeds</code> and setting <code>fMiningRequiresPeers = false</code>, rather than by
+actively rejecting external connections.</p>
+<h2 id="proof-of-work-and-block-generation"><a class="hanchor" href="#proof-of-work-and-block-generation" aria-hidden="true" tabindex="-1">#</a>Proof of Work and Block Generation</h2>
+<p>Regtest mode SHOULD use reduced Equihash parameters (N=48, K=5) compared to
+Mainnet and Testnet (N=200, K=9) to allow rapid block generation.</p>
+<p>The following proof-of-work settings apply in Regtest mode:</p>
+<ul>
+<li>Block generation MUST be available on demand (e.g. via RPC calls such
+as <code>generate</code> or <code>generatetoaddress</code>).</li>
+<li>Difficulty retargeting MUST be disabled by default.</li>
+<li>Minimum-difficulty blocks MUST be allowed from genesis.</li>
+</ul>
+<p>Implementations MAY provide a mechanism for overriding proof-of-work
+parameters at runtime for test scenarios that require specific difficulty
+behavior. In zcashd, the <code>UpdateRegtestPow</code> function serves this purpose.</p>
+<h2 id="subsidy-and-halving"><a class="hanchor" href="#subsidy-and-halving" aria-hidden="true" tabindex="-1">#</a>Subsidy and Halving</h2>
+<p>The pre-Blossom subsidy halving interval for Regtest is 144 blocks
+(compared to 840,000 on Mainnet), with no slow-start interval. Coinbase
+outputs are not required to be shielded by default, but implementations
+SHOULD provide a mechanism to enable this requirement (see
+<a href="#configuration-parameters">Configuration Parameters</a>).</p>
+<h2 id="funding-streams"><a class="hanchor" href="#funding-streams" aria-hidden="true" tabindex="-1">#</a>Funding Streams</h2>
+<p>Funding streams are not enabled by default on Regtest. They MAY be
+configured at runtime (see
+<a href="#configuration-parameters">Configuration Parameters</a>). Implementations
+MUST NOT accept funding stream configuration on networks other than
+Regtest.</p>
+<h2 id="global-effects-on-network-upgrades"><a class="hanchor" href="#global-effects-on-network-upgrades" aria-hidden="true" tabindex="-1">#</a>Global Effects on Network Upgrades</h2>
+<p>Regtest mode MUST allow Network Upgrades to occur at configurable block
+heights. One or more Network Upgrades MAY be activated at the same height.</p>
+<p>Network Upgrades MUST NOT be activated out of order. If a Network Upgrade
+is active at a given height, all of its predecessors MUST also be active at
+that height. The ordering of Network Upgrades is:</p>
+<blockquote>
+<p>Sprout → Overwinter → Sapling → Blossom → Heartwood → Canopy → NU5 →
+NU6 → NU6.1</p>
+</blockquote>
+<p>In zcashd, when a Network Upgrade is explicitly configured via <code>-nuparams</code>,
+all predecessor upgrades that have not been explicitly configured are
+automatically activated at the same height. For example, specifying only
+<code>-nuparams=CANOPY_BRANCH_ID:205 -nuparams=NU5_BRANCH_ID:210</code> will
+automatically activate Overwinter, Sapling, Blossom, and Heartwood at
+height 205. All Network Upgrades other than Sprout default to
+<code>NO_ACTIVATION_HEIGHT</code> (disabled) if not configured.</p>
+<p>It MUST be possible to configure activation heights for not-yet-released
+Network Upgrades in order to enable testing of new protocol features in
+advance of Mainnet or Testnet activation. Client libraries SHOULD also
+accommodate such flexibility.</p>
+<h1 id="effects-of-regtest-mode-by-zip"><a class="hanchor" href="#effects-of-regtest-mode-by-zip" aria-hidden="true" tabindex="-1">#</a>Effects of Regtest Mode by ZIP</h1>
+<p>The following table presents the ZIP catalog and a one-line summary of the
+Regtest changes that apply.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>ZIP</th><th>Title</th><th>Regtest Behavior</th></tr></thead><tbody><tr><td>32</td><td><a href="https://zips.z.cash/zip-0032">Shielded Hierarchical Deterministic Wallets</a></td><td>No change</td></tr><tr><td>143</td><td><a href="https://zips.z.cash/zip-0143">Transaction Signature Validation for Overwinter</a></td><td>No change</td></tr><tr><td><a href="#behavior-for-zip-155">155</a></td><td><a href="https://zips.z.cash/zip-0155">addrv2 message</a></td><td>Addresses MUST only point to localhost</td></tr><tr><td>173</td><td><a href="https://zips.z.cash/zip-0173">Bech32 Format</a></td><td>No change</td></tr><tr><td><a href="#behavior-for-zip-200-network-upgrade-mechanism">200</a></td><td><a href="https://zips.z.cash/zip-0200">Network Upgrade Mechanism</a></td><td>See section below</td></tr><tr><td>201</td><td><a href="https://zips.z.cash/zip-0201">Network Peer Management for Overwinter</a></td><td>No change</td></tr><tr><td>202</td><td><a href="https://zips.z.cash/zip-0202">Version 3 Transaction Format for Overwinter</a></td><td>No change</td></tr><tr><td>203</td><td><a href="https://zips.z.cash/zip-0203">Transaction Expiry</a></td><td>No change</td></tr><tr><td>205</td><td><a href="https://zips.z.cash/zip-0205">Deployment of the Sapling Network Upgrade</a></td><td>Configurable activation height</td></tr><tr><td>206</td><td><a href="https://zips.z.cash/zip-0206">Deployment of the Blossom Network Upgrade</a></td><td>Configurable activation height</td></tr><tr><td><a href="#behavior-for-zip-207-funding-streams">207</a></td><td><a href="https://zips.z.cash/zip-0207">Funding Streams</a></td><td>Disabled by default; configurable</td></tr><tr><td><a href="#behavior-for-zip-208-shorter-block-target-spacing">208</a></td><td><a href="https://zips.z.cash/zip-0208">Shorter Block Target Spacing</a></td><td>See section below</td></tr><tr><td>209</td><td><a href="https://zips.z.cash/zip-0209">Prohibit Negative Shielded Chain Value Pool Balances</a></td><td>Disabled by default; can be enabled via <code>SetRegTestZIP209Enabled</code></td></tr><tr><td>211</td><td><a href="https://zips.z.cash/zip-0211">Disabling Addition of New Value to the Sprout Chain Value Pool</a></td><td>No change</td></tr><tr><td>212</td><td><a href="https://zips.z.cash/zip-0212">Allow Recipient to Derive Ephemeral Secret from Note Plaintext</a></td><td>No change</td></tr><tr><td>213</td><td><a href="https://zips.z.cash/zip-0213">Shielded Coinbase</a></td><td>Coinbase shielding not required by default</td></tr><tr><td>214</td><td><a href="https://zips.z.cash/zip-0214">Consensus rules for a Zcash Development Fund</a></td><td>No change</td></tr><tr><td>215</td><td><a href="https://zips.z.cash/zip-0215">Explicitly Defining and Modifying Ed25519 Validation Rules</a></td><td>No change</td></tr><tr><td>216</td><td><a href="https://zips.z.cash/zip-0216">Require Canonical Jubjub Point Encodings</a></td><td>No change</td></tr><tr><td>221</td><td><a href="https://zips.z.cash/zip-0221">FlyClient - Consensus-Layer Changes</a></td><td>No change</td></tr><tr><td>224</td><td><a href="https://zips.z.cash/zip-0224">Orchard Shielded Protocol</a></td><td>No change</td></tr><tr><td>225</td><td><a href="https://zips.z.cash/zip-0225">Version 5 Transaction Format</a></td><td>No change</td></tr><tr><td>236</td><td><a href="https://zips.z.cash/zip-0236">Blocks should balance exactly</a></td><td>No change</td></tr><tr><td>239</td><td><a href="https://zips.z.cash/zip-0239">Relay of Version 5 Transactions</a></td><td>No change</td></tr><tr><td>243</td><td><a href="https://zips.z.cash/zip-0243">Transaction Signature Validation for Sapling</a></td><td>No change</td></tr><tr><td>244</td><td><a href="https://zips.z.cash/zip-0244">Transaction Identifier Non-Malleability</a></td><td>No change</td></tr><tr><td>250</td><td><a href="https://zips.z.cash/zip-0250">Deployment of the Heartwood Network Upgrade</a></td><td>Configurable activation height</td></tr><tr><td>251</td><td><a href="https://zips.z.cash/zip-0251">Deployment of the Canopy Network Upgrade</a></td><td>Configurable activation height</td></tr><tr><td>252</td><td><a href="https://zips.z.cash/zip-0252">Deployment of the NU5 Network Upgrade</a></td><td>Configurable activation height</td></tr><tr><td>253</td><td><a href="https://zips.z.cash/zip-0253">Deployment of the NU6 Network Upgrade</a></td><td>Configurable activation height</td></tr><tr><td>300</td><td><a href="https://zips.z.cash/zip-0300">Cross-chain Atomic Transactions</a></td><td>No change</td></tr><tr><td><a href="#behavior-for-zip-301-zcash-stratum-protocol">301</a></td><td><a href="https://zips.z.cash/zip-0301">Zcash Stratum Protocol</a></td><td>See section below</td></tr><tr><td>308</td><td><a href="https://zips.z.cash/zip-0308">Sprout to Sapling Migration</a></td><td>No change</td></tr><tr><td><a href="#effects-on-zip-316">316</a></td><td><a href="https://zips.z.cash/zip-0316">Unified Addresses and Unified Viewing Keys</a></td><td>[Revision 0] Changes to HRP of string encoding, [Revision 1] See section below</td></tr><tr><td>317</td><td><a href="https://zips.z.cash/zip-0317">Proportional Transfer Fee Mechanism</a></td><td>No change</td></tr><tr><td><a href="#effects-on-zip-320-tex-addresses">320</a></td><td><a href="https://zips.z.cash/zip-0320">Defining an Address Type to which funds can only be sent from Transparent Addresses</a></td><td>Changes to HRP of string encoding</td></tr><tr><td>321</td><td><a href="https://zips.z.cash/zip-0321">Payment Request URIs</a></td><td>No change</td></tr><tr><td>401</td><td><a href="https://zips.z.cash/zip-0401">Addressing Mempool Denial-of-Service</a></td><td>No change</td></tr><tr><td><a href="#behavior-for-zip-1014-development-fund">1014</a></td><td><a href="https://zips.z.cash/zip-1014">Establishing a Dev Fund for ECC, ZF, and Major Grants</a></td><td>Funding streams disabled by default; configurable</td></tr><tr><td>1015</td><td><a href="https://zips.z.cash/zip-1015">Block Subsidy Allocation for Non-Direct Development Funding</a></td><td>No change</td></tr><tr><td>2001</td><td><a href="https://zips.z.cash/zip-2001">Lockbox Funding Streams</a></td><td>No change</td></tr></tbody></table>
+<h2 id="behavior-for-zip-155"><a class="hanchor" href="#behavior-for-zip-155" aria-hidden="true" tabindex="-1">#</a>Behavior for ZIP-155</h2>
+<p>Peer-to-peer communications on Regtest MUST be restricted to localhost
+nodes. See <a href="#regtest-nodes-and-network-connections">Regtest Nodes and Network Connections</a>.</p>
+<h2 id="behavior-for-zip-200-network-upgrade-mechanism"><a class="hanchor" href="#behavior-for-zip-200-network-upgrade-mechanism" aria-hidden="true" tabindex="-1">#</a>Behavior for ZIP-200 Network Upgrade Mechanism</h2>
+<p>It MUST be possible to configure a Regtest node with a mapping between
+Network Upgrade activation heights and consensus branch IDs. It MUST be
+possible for such configuration to enable the development of functionality
+for not-yet-released Network Upgrades, in order to enable testing of new
+protocol features in advance of Mainnet or Testnet activation. Client
+libraries SHOULD also accommodate such flexibility.</p>
+<h2 id="behavior-for-zip-207-funding-streams"><a class="hanchor" href="#behavior-for-zip-207-funding-streams" aria-hidden="true" tabindex="-1">#</a>Behavior for ZIP-207 Funding Streams</h2>
+<p>Funding streams are not enabled by default on Regtest. They MAY be
+configured at runtime (see
+<a href="#configuration-parameters">Configuration Parameters</a>).</p>
+<h2 id="behavior-for-zip-208-shorter-block-target-spacing"><a class="hanchor" href="#behavior-for-zip-208-shorter-block-target-spacing" aria-hidden="true" tabindex="-1">#</a>Behavior for ZIP-208 Shorter Block Target Spacing</h2>
+<p>In Regtest mode, block generation is performed on demand. Difficulty
+retargeting is disabled by default. Values referenced by ZIP-208 [^zip-0208]
+such as <code>BlossomActivationHeight</code> MUST be populated with whatever value the
+Regtest node was configured with.</p>
+<p>Regtest allows developers to set their own Network Upgrade activation
+heights, so references to Blossom activation SHOULD use the value present
+in the node configuration rather than a hardcoded constant.</p>
+<h2 id="behavior-for-zip-301-zcash-stratum-protocol"><a class="hanchor" href="#behavior-for-zip-301-zcash-stratum-protocol" aria-hidden="true" tabindex="-1">#</a>Behavior for ZIP-301 Zcash Stratum Protocol</h2>
+<p>Regtest nodes MUST NOT expose connections or connect to public networks
+or other machines on a network. See
+<a href="#regtest-nodes-and-network-connections">Regtest Nodes and Network Connections</a>.</p>
+<h2 id="behavior-for-zip-1014-development-fund"><a class="hanchor" href="#behavior-for-zip-1014-development-fund" aria-hidden="true" tabindex="-1">#</a>Behavior for ZIP-1014 Development Fund</h2>
+<p>Funding streams and development fund recipients are not configured by
+default on Regtest. They MAY be configured at runtime (see
+<a href="#configuration-parameters">Configuration Parameters</a>).</p>
+<h2 id="effects-on-zip-316"><a class="hanchor" href="#effects-on-zip-316" aria-hidden="true" tabindex="-1">#</a>Effects on ZIP-316</h2>
+<h3 id="revision-0"><a class="hanchor" href="#revision-0" aria-hidden="true" tabindex="-1">#</a>Revision 0</h3>
+<p>The HRP for Regtest Unified Addresses is defined as <code>uregtest</code>. Receivers
+included inside Regtest UAs MUST also be Regtest variants of their
+respective type.</p>
+<p>Example:</p>
+<pre><code>uregtest1....
+|
+|-> Sapling  -> zregtestsapling1...
+|
+|-> Orchard  (encoded within the UA)
+</code></pre>
+<h3 id="revision-1"><a class="hanchor" href="#revision-1" aria-hidden="true" tabindex="-1">#</a>Revision 1</h3>
+<p>From the <a href="https://zips.z.cash/zip-0316#address-expiration-metadata">Address Expiration Metadata</a>
+section:</p>
+<blockquote>
+<p>When honoring an Address Expiry Time, the reason that a sender SHOULD
+choose a <code>nExpiryHeight</code> that is expected to occur within 24 hours of
+the time of transaction construction is to, when possible, ensure that
+the expiry time is respected to within a day.</p>
+</blockquote>
+<p>Time is compressed in Regtest mode because blocks can be generated at a
+rate of one or more per second. This creates a conflict between expected
+timespans for address expiration and the actual timestamps of transactions
+in a Regtest-generated blockchain.</p>
+<p>This remains an open question. Possible approaches include:</p>
+<p>A. Regtest manages a separate clock where timestamps appear consistent
+with Mainnet's average block spacing (~75 seconds) for scenarios where
+time-based behavior is under test.</p>
+<p>B. Adjust ZIP-316 implementations on Regtest so that the expiration window
+can be adjusted according to Regtest block cadence.</p>
+<h3 id="unified-incoming-viewing-keys-encoding"><a class="hanchor" href="#unified-incoming-viewing-keys-encoding" aria-hidden="true" tabindex="-1">#</a>Unified Incoming Viewing Keys Encoding</h3>
+<p>UIVKs MUST be encoded with the <code>uivkregtest</code> HRP on Regtest.</p>
+<h3 id="unified-full-viewing-keys-encoding"><a class="hanchor" href="#unified-full-viewing-keys-encoding" aria-hidden="true" tabindex="-1">#</a>Unified Full Viewing Keys Encoding</h3>
+<p>UFVKs MUST be encoded with the <code>uviewregtest</code> HRP on Regtest.</p>
+<h2 id="effects-on-zip-320-tex-addresses"><a class="hanchor" href="#effects-on-zip-320-tex-addresses" aria-hidden="true" tabindex="-1">#</a>Effects on ZIP-320 (TEX Addresses)</h2>
+<p>ZIP-320 <sup><a href="#user-content-fn-zip-0320" id="user-content-fnref-zip-0320" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> defines an encoding for transparent-source-only
+addresses with a <code>tex</code> HRP. On Regtest, this value MUST be <code>texregtest</code>.</p>
+<h1 id="effects-of-regtest-mode-on-protocol-definitions"><a class="hanchor" href="#effects-of-regtest-mode-on-protocol-definitions" aria-hidden="true" tabindex="-1">#</a>Effects of Regtest Mode on Protocol Definitions</h1>
+<p>The following section describes how Regtest mode affects definitions present
+in the Zcash protocol specification <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.</p>
+<h2 id="constants"><a class="hanchor" href="#constants" aria-hidden="true" tabindex="-1">#</a>Constants</h2>
+<h3 id="coin-type"><a class="hanchor" href="#coin-type" aria-hidden="true" tabindex="-1">#</a>Coin Type</h3>
+<p>Regtest reuses Testnet's coin type:</p>
+<pre><code>COIN_TYPE: 1
+</code></pre>
+<h3 id="sapling-payment-address-encoding"><a class="hanchor" href="#sapling-payment-address-encoding" aria-hidden="true" tabindex="-1">#</a>Sapling Payment Address Encoding</h3>
+<p>From the Zcash protocol specification <sup><a href="#user-content-fn-protocol-saplingpaymentaddrencoding" id="user-content-fnref-protocol-saplingpaymentaddrencoding" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>:</p>
+<blockquote>
+<p>For addresses on Mainnet, the Human-Readable Part (as defined in
+ZIP 173) is "zs". For addresses on Testnet, the Human-Readable Part is
+"ztestsapling".</p>
+</blockquote>
+<p>On Regtest, this MUST be <code>zregtestsapling</code>.</p>
+<h3 id="sapling-incoming-viewing-keys-encoding"><a class="hanchor" href="#sapling-incoming-viewing-keys-encoding" aria-hidden="true" tabindex="-1">#</a>Sapling Incoming Viewing Keys Encoding</h3>
+<p>From the Zcash protocol specification <sup><a href="#user-content-fn-protocol-saplinginviewingkeyencoding" id="user-content-fnref-protocol-saplinginviewingkeyencoding" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>:</p>
+<blockquote>
+<p>For incoming viewing keys on Mainnet, the Human-Readable Part is
+"zivks". For incoming viewing keys on Testnet, the Human-Readable Part
+is "zivktestsapling".</p>
+</blockquote>
+<p>On Regtest, this MUST be <code>zivkregtestsapling</code>.</p>
+<h3 id="sapling-full-viewing-keys-encoding"><a class="hanchor" href="#sapling-full-viewing-keys-encoding" aria-hidden="true" tabindex="-1">#</a>Sapling Full Viewing Keys Encoding</h3>
+<p>From the Zcash protocol specification <sup><a href="#user-content-fn-protocol-saplingfullviewingkeyencoding" id="user-content-fnref-protocol-saplingfullviewingkeyencoding" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>:</p>
+<blockquote>
+<p>For full viewing keys on Mainnet, the Human-Readable Part is "zviews".
+For full viewing keys on Testnet, the Human-Readable Part is
+"zviewtestsapling".</p>
+</blockquote>
+<p>On Regtest, this MUST be <code>zviewregtestsapling</code>.</p>
+<h3 id="sapling-extended-spending-keys-encoding"><a class="hanchor" href="#sapling-extended-spending-keys-encoding" aria-hidden="true" tabindex="-1">#</a>Sapling Extended Spending Keys Encoding</h3>
+<p>These keys are defined in ZIP 32 <sup><a href="#user-content-fn-zip-0032" id="user-content-fnref-zip-0032" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>. On Regtest, the HRP
+encoding MUST be <code>secret-extended-key-regtest</code>.</p>
+<h3 id="sapling-extended-full-viewing-keys-encoding"><a class="hanchor" href="#sapling-extended-full-viewing-keys-encoding" aria-hidden="true" tabindex="-1">#</a>Sapling Extended Full Viewing Keys Encoding</h3>
+<p>These keys are defined in ZIP 32 <sup><a href="#user-content-fn-zip-0032" id="user-content-fnref-zip-0032-2" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>. On Regtest, the HRP
+encoding MUST be <code>zxviewregtestsapling</code>.</p>
+<h3 id="transparent-address-public-key-hash-base58-prefix"><a class="hanchor" href="#transparent-address-public-key-hash-base58-prefix" aria-hidden="true" tabindex="-1">#</a>Transparent Address Public Key Hash Base58 Prefix</h3>
+<p>The prefix for a Base58Check-encoded Regtest transparent <code>PublicKeyHash</code>
+MUST be the same as the Testnet prefix:</p>
+<pre><code>B58_PUBKEY_ADDRESS_PREFIX: [0x1d, 0x25]
+</code></pre>
+<h3 id="transparent-address-script-hash-base58-prefix"><a class="hanchor" href="#transparent-address-script-hash-base58-prefix" aria-hidden="true" tabindex="-1">#</a>Transparent Address Script Hash Base58 Prefix</h3>
+<p>The prefix for a Base58Check-encoded Regtest transparent <code>ScriptHash</code>
+MUST be the same as the Testnet prefix:</p>
+<pre><code>B58_SCRIPT_ADDRESS_PREFIX: [0x1c, 0xba]
+</code></pre>
+<h3 id="sprout-payment-address-encoding"><a class="hanchor" href="#sprout-payment-address-encoding" aria-hidden="true" tabindex="-1">#</a>Sprout Payment Address Encoding</h3>
+<p>The Zcash protocol specification <sup><a href="#user-content-fn-protocol-sproutpaymentaddrencoding" id="user-content-fnref-protocol-sproutpaymentaddrencoding" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>
+defines:</p>
+<blockquote>
+<p>Two bytes [0x16, 0x9A], indicating this version of the raw encoding of
+a Sprout shielded payment address on Mainnet. (Addresses on Testnet use
+[0x16, 0xB6] instead.)</p>
+</blockquote>
+<p>Regtest uses the same prefix as Testnet: <code>[0x16, 0xB6]</code>.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>Regtest mode has existed since the early days of Zcash as inherited
+Bitcoin functionality. It was never formally specified because its primary
+consumers were internal developers and automated tests. As additional full
+node implementations (such as Zebra) have emerged, the lack of a formal
+specification has led to inconsistencies that affect developers who rely on
+Regtest for testing wallets, libraries, and other ecosystem tools.</p>
+<p>The auto-fill behavior for predecessor Network Upgrades (where specifying a
+later upgrade automatically activates all predecessors) is documented as a
+convenience feature. Implementations MAY choose a different mechanism for
+ensuring upgrade ordering, provided that the invariant that predecessor
+upgrades are active whenever a successor upgrade is active is maintained.</p>
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Security and Privacy Considerations</h1>
+<p>Regtest mode is intended exclusively for local testing. Because Regtest
+nodes are intended to operate on isolated local networks, the security
+properties of Mainnet and Testnet (such as resistance to Sybil attacks
+or privacy guarantees of the peer-to-peer network) do not apply.</p>
+<p>Developers SHOULD NOT use Regtest mode for any purpose involving real
+funds. Regtest uses reduced proof-of-work parameters (Equihash N=48, K=5)
+that provide no meaningful security against block forgery.</p>
+<p>The address encodings defined in this ZIP (using <code>regtest</code>-prefixed HRPs)
+are designed to prevent accidental cross-network address reuse between
+Regtest and Mainnet.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2024.5.1. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcash_protocol">
+<p><a href="https://docs.rs/zcash_protocol/0.4.3">zcash_protocol Rust crate 0.4.3</a> <a href="#user-content-fnref-zcash_protocol" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0320">
+<p><a href="https://zips.z.cash/zip-0320">ZIP 320: Defining an Address Type to which funds can only be sent from Transparent Addresses</a> <a href="#user-content-fnref-zip-0320" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2024.5.1 or later</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-saplingpaymentaddrencoding">
+<p><a href="/upstream/protocol/protocol.pdf#saplingpaymentaddrencoding">Zcash Protocol Specification, Version 2024.5.1. Section 5.6.4: Sapling Payment Address</a> <a href="#user-content-fnref-protocol-saplingpaymentaddrencoding" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-saplinginviewingkeyencoding">
+<p><a href="/upstream/protocol/protocol.pdf#saplinginviewingkeyencoding">Zcash Protocol Specification, Version 2024.5.1. Section 5.6.4.1: Sapling Incoming Viewing Key</a> <a href="#user-content-fnref-protocol-saplinginviewingkeyencoding" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-saplingfullviewingkeyencoding">
+<p><a href="/upstream/protocol/protocol.pdf#saplingfullviewingkeyencoding">Zcash Protocol Specification, Version 2024.5.1. Section 5.6.4.2: Sapling Full Viewing Key</a> <a href="#user-content-fnref-protocol-saplingfullviewingkeyencoding" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0032">
+<p><a href="https://zips.z.cash/zip-0032">ZIP 32: Shielded Hierarchical Deterministic Wallets</a> <a href="#user-content-fnref-zip-0032" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0032-2" data-footnote-backref="" aria-label="Back to reference 9-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-sproutpaymentaddrencoding">
+<p><a href="/upstream/protocol/protocol.pdf#sproutpaymentaddrencoding">Zcash Protocol Specification, Version 2024.5.1. Section 5.6.3: Sprout Payment Address</a> <a href="#user-content-fnref-protocol-sproutpaymentaddrencoding" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

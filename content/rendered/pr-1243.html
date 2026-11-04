@@ -1,0 +1,352 @@
+<p>ZIP: ???
+Title: Structured Attestation Protocol for Application-Layer Lifecycle Events (ZAP1)
+Owners: Frontier Compute <a href="mailto:ops@frontiercompute.io">ops@frontiercompute.io</a>
+Credits: Zk-nd3r
+Status: Draft
+Category: Standards Track
+Created: 2026-03-28
+License: MIT
+Discussions-To: <a href="https://github.com/zcash/zips/pull/1243">https://github.com/zcash/zips/pull/1243</a>
+Pull-Request: <a href="https://github.com/zcash/zips/pull/1243">https://github.com/zcash/zips/pull/1243</a></p>
+<h2 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h2>
+<p>The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+"SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+"OPTIONAL" in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals, as shown here.</p>
+<h2 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h2>
+<p>This ZIP specifies an application-layer attestation format for lifecycle events
+committed to Zcash shielded transactions. It defines event typing, BLAKE2b hash
+construction rules, Merkle tree aggregation, and a verification procedure for
+on-chain commitments that keep participant-identifying data off-chain.</p>
+<p>This draft is based on the deployed <code>ZAP1</code> attestation protocol (formerly <code>NSM1</code>). In the reference deployment, event payloads
+are hashed with BLAKE2b-256 using the personalization string
+<code>NordicShield_</code>, inserted into an append-only Merkle tree, and periodically
+anchored to Zcash using a transaction with type byte <code>0x09</code>.</p>
+<h2 id="relationship-to-zip-302"><a class="hanchor" href="#relationship-to-zip-302" aria-hidden="true" tabindex="-1">#</a>Relationship to ZIP 302</h2>
+<p>This ZIP defines application-layer attestation semantics. The carrier format
+is specified separately by ZIP 302 <sup><a href="#user-content-fn-zip-0302" id="user-content-fnref-zip-0302" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> (Structured Memos, PR #638). When
+ZIP 302 is deployed, ZAP1 attestation payloads SHOULD be encoded as a ZIP 302
+part type. Until then, the binary layout below serves as a transitional
+encoding within the raw 512-byte shielded memo field.</p>
+<p>The parts of this ZIP that are independent of the container are: the event type
+registry, hash construction rules, Merkle tree aggregation, and the
+verification procedure.</p>
+<h2 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h2>
+<p>Zcash shielded memos can carry structured application commitments, but the
+ecosystem lacks a convention for typed lifecycle events that can be
+independently recomputed by external verifiers.</p>
+<p>Exposing Zcash state and actions to agents is straightforward. A REST or
+GraphQL endpoint can be wrapped as an MCP server in a small amount of code, and
+wallet-layer MCP implementations can expose balances, signing workflows, sync
+state, and transaction construction. These surfaces share one property: the
+consumer must trust the server response. If the backend is wrong, compromised,
+or unavailable later, the agent has no independent receipt it can hand to a
+third party for verification.</p>
+<p>ZAP1 closes that gap. It exposes no balances and moves no value. It produces a
+receipt: a typed event committed to a BLAKE2b Merkle tree, with the root
+anchored in Zcash memo data, verifiable from the public schema, proof material,
+and chain anchor without trusting the issuer's server.</p>
+<p>The distinction is categorical. Tool servers answer "what does this backend say
+right now?" ZAP1 answers "what happened, provable later to another verifier?"
+The protocol exists for the proof artifact, not for tool exposure.</p>
+<p>Applications that track ownership, deployment, billing, transfer, and exit
+events need:</p>
+<ul>
+<li>deterministic hash construction</li>
+<li>stable event typing</li>
+<li>a payload format that can be parsed without application-specific heuristics</li>
+<li>a way to commit large event histories without writing full plaintext records
+to the chain</li>
+</ul>
+<p>This ZIP standardizes the event commitment rules used by one such deployment
+so that other builders can implement compatible tooling, verification, and
+future extensions.</p>
+<h2 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h2>
+<p>An implementation of this ZIP:</p>
+<ul>
+<li>MUST treat the attestation payload as a binary structure before any wallet-specific
+shielded memo encoding.</li>
+<li>MUST encode integers in big-endian byte order.</li>
+<li>MUST NOT place participant PII directly in the attestation payload.</li>
+<li>MUST derive event payload hashes deterministically from the underlying event
+fields.</li>
+<li>MUST preserve event insertion order when deriving Merkle roots.</li>
+<li>MUST allow verifiers to recompute both the event leaf hash and the anchored
+root from public artifacts plus application-provided witness data.</li>
+</ul>
+<h2 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h2>
+<h3 id="binary-payload-layout"><a class="hanchor" href="#binary-payload-layout" aria-hidden="true" tabindex="-1">#</a>Binary Payload Layout</h3>
+<p>Before shielded memo encoding (or ZIP 302 part encoding), the binary attestation payload is:</p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span>byte 0      : version            = 0x01</span></span>
+<span class="line"><span>byte 1      : type               = 0x01..0x0f</span></span>
+<span class="line"><span>bytes 2..5  : cohort_id          = u32 big-endian</span></span>
+<span class="line"><span>bytes 6..37 : payload_hash       = 32 bytes</span></span>
+<span class="line"><span>bytes 38..45: timestamp          = u64 big-endian unix seconds</span></span>
+<span class="line"><span>bytes 46..77: serial_hash        = 32 bytes, or 32 zero bytes when unused</span></span>
+<span class="line"><span>bytes 78..n : label              = UTF-8 human-readable label, optional</span></span></code></pre>
+<p>For human-readable transport, the payload SHOULD be rendered as:</p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span>ZAP1:{type}:{payload}</span></span></code></pre>
+<p>where:</p>
+<ul>
+<li><code>ZAP1</code> is the protocol marker</li>
+<li><code>{type}</code> is the two-digit lowercase hexadecimal event type</li>
+<li><code>{payload}</code> is the hexadecimal encoding of the full binary layout above</li>
+</ul>
+<h3 id="event-types"><a class="hanchor" href="#event-types" aria-hidden="true" tabindex="-1">#</a>Event Types</h3>
+<p>This draft defines the following event type assignments:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Type</th><th>Name</th><th>Payload definition</th><th>Status</th></tr></thead><tbody><tr><td><code>0x01</code></td><td><code>PROGRAM_ENTRY</code></td><td><code>BLAKE2b_32(wallet_hash)</code></td><td>Deployed</td></tr><tr><td><code>0x02</code></td><td><code>OWNERSHIP_ATTEST</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x03</code></td><td><code>CONTRACT_ANCHOR</code></td><td>`BLAKE2b_32(serial_number</td><td></td></tr><tr><td><code>0x04</code></td><td><code>DEPLOYMENT</code></td><td>`BLAKE2b_32(serial_number</td><td></td></tr><tr><td><code>0x05</code></td><td><code>HOSTING_PAYMENT</code></td><td>`BLAKE2b_32(serial_number</td><td></td></tr><tr><td><code>0x06</code></td><td><code>SHIELD_RENEWAL</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x07</code></td><td><code>TRANSFER</code></td><td>`BLAKE2b_32(old_wallet</td><td></td></tr><tr><td><code>0x08</code></td><td><code>EXIT</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x09</code></td><td><code>MERKLE_ROOT</code></td><td>raw 32-byte Merkle root</td><td>Deployed</td></tr><tr><td><code>0x0A</code></td><td><code>STAKING_DEPOSIT</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0B</code></td><td><code>STAKING_WITHDRAW</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0C</code></td><td><code>STAKING_REWARD</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0D</code></td><td><code>GOVERNANCE_PROPOSAL</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0E</code></td><td><code>GOVERNANCE_VOTE</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0F</code></td><td><code>GOVERNANCE_RESULT</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr></tbody></table>
+<p>Implementations of the deployed <code>ZAP1</code> flow currently use the first nine event
+types in production. The staking and governance event types are reserved and
+MUST NOT be assumed stable until separately activated.</p>
+<h3 id="hash-construction"><a class="hanchor" href="#hash-construction" aria-hidden="true" tabindex="-1">#</a>Hash Construction</h3>
+<p>Field sizes for hash inputs:</p>
+<ul>
+<li><code>wallet_hash</code>: 32 bytes (application-derived identifier)</li>
+<li><code>serial_number</code>: 32 bytes</li>
+<li><code>contract_sha256</code>: 32 bytes</li>
+<li><code>facility_id</code>: 32 bytes (zero-padded if shorter)</li>
+<li><code>timestamp_be</code>: u64 big-endian (8 bytes)</li>
+<li><code>month_be</code>: u16 big-endian (2 bytes)</li>
+<li><code>year_be</code>: u16 big-endian (2 bytes)</li>
+<li><code>amount_zat_be</code>: u64 big-endian (8 bytes)</li>
+<li><code>epoch_be</code>: u32 big-endian (4 bytes)</li>
+<li><code>validator_id</code>: 32 bytes</li>
+<li><code>proposal_id</code>: 32 bytes</li>
+<li><code>proposal_hash</code>, <code>vote_commitment</code>, <code>result_hash</code>: 32 bytes each</li>
+<li><code>old_wallet</code>, <code>new_wallet</code>: 32 bytes each</li>
+</ul>
+<p>Unless otherwise specified, event payload hashes use BLAKE2b with:</p>
+<ul>
+<li>digest length: 32 bytes</li>
+<li>personalization: <code>NordicShield_</code> (13 bytes, zero-padded to 16 bytes per BLAKE2b spec)</li>
+</ul>
+<p>The hash input for each event type is defined in the table above. The
+<code>MERKLE_ROOT</code> event is a special case whose payload hash is the 32-byte Merkle
+root itself, without an additional BLAKE2b compression step.</p>
+<p>For event types that carry a serial number, the <code>serial_hash</code> payload field MUST
+be:</p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span>BLAKE2b_32(serial_number)</span></span></code></pre>
+<p>with the same personalization string <code>NordicShield_</code>.</p>
+<p>If no serial number is applicable, <code>serial_hash</code> MUST be 32 zero bytes.</p>
+<h3 id="merkle-tree-commitments"><a class="hanchor" href="#merkle-tree-commitments" aria-hidden="true" tabindex="-1">#</a>Merkle Tree Commitments</h3>
+<p>Applications using this attestation protocol SHOULD aggregate event payload hashes into
+an append-only binary Merkle tree. For the deployed <code>ZAP1</code> protocol:</p>
+<ul>
+<li>each event produces one leaf</li>
+<li>leaves are ordered by insertion sequence</li>
+<li>parent nodes are <code>BLAKE2b_32(left || right)</code></li>
+<li>Merkle node personalization is <code>NordicShield_MRK</code></li>
+<li>if a level has odd cardinality, the final node is duplicated</li>
+</ul>
+<p>An inclusion proof consists of:</p>
+<ul>
+<li>leaf hash</li>
+<li>sibling hashes</li>
+<li>sibling positions</li>
+<li>derived Merkle root</li>
+<li>anchor transaction identifier</li>
+<li>anchor block height</li>
+</ul>
+<h3 id="on-chain-anchoring"><a class="hanchor" href="#on-chain-anchoring" aria-hidden="true" tabindex="-1">#</a>On-Chain Anchoring</h3>
+<p>When anchoring a Merkle root to Zcash:</p>
+<ul>
+<li>the event type MUST be <code>0x09</code></li>
+<li>the payload hash MUST be the raw current Merkle root</li>
+<li>the shielded memo field SHOULD be encoded as <code>ZAP1:09:{payload}</code></li>
+</ul>
+<p>The deployed <code>ZAP1</code> implementation broadcasts shielded memo commitments using
+<code>zingo-cli</code>. The current deployment anchors every 10 events or every 24 hours,
+whichever occurs first.</p>
+<h3 id="verification-procedure"><a class="hanchor" href="#verification-procedure" aria-hidden="true" tabindex="-1">#</a>Verification Procedure</h3>
+<p>To verify a committed event, a verifier:</p>
+<ol>
+<li>recomputes the event payload hash from the application fields</li>
+<li>reconstructs the attestation payload and event leaf hash</li>
+<li>walks the Merkle proof path to derive the root</li>
+<li>retrieves the referenced anchor transaction</li>
+<li>confirms that the shielded memo field contains the same <code>0x09</code> root commitment</li>
+<li>confirms that the transaction is mined on the intended chain</li>
+</ol>
+<h2 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h2>
+<p>This design separates protocol semantics from wallet transport.</p>
+<p>The binary layout is fixed-width for all critical fields so parsers can extract
+event type, cohort identifier, and proof-relevant material without needing to
+understand any free-form label text. BLAKE2b-256 is used for compactness and
+performance. Personalization strings provide domain separation between event
+payload hashing and Merkle internal-node hashing.</p>
+<p>Anchoring Merkle roots rather than full event records minimizes chain load while
+preserving independent verifiability. The shielded memo field remains short and constant-sized
+for the root-commitment case even as the underlying event history grows.</p>
+<h2 id="privacy-considerations"><a class="hanchor" href="#privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Privacy Considerations</h2>
+<p>This protocol avoids writing participant-identifying plaintext
+data to chain. Implementations MUST ensure that <code>wallet_hash</code>, <code>serial_hash</code>,
+contract digests, and other payload inputs are derived values rather than directly
+identifying customer records.</p>
+<p>The optional <code>label</code> field may leak application metadata if misused. Protocols
+using this ZIP SHOULD either omit the <code>label</code> field or constrain it to operational
+strings that do not identify participants.</p>
+<h2 id="security-considerations"><a class="hanchor" href="#security-considerations" aria-hidden="true" tabindex="-1">#</a>Security Considerations</h2>
+<p>This protocol provides integrity and auditability, not confidentiality of the
+underlying application database. Security depends on:</p>
+<ul>
+<li>correct construction of event hashes</li>
+<li>correct Merkle insertion ordering</li>
+<li>correct association between proof bundles and the anchored root that covers
+them</li>
+<li>correct wallet-side retrieval of the mined shielded-memo-bearing transaction</li>
+</ul>
+<p>This ZIP does not address:</p>
+<ul>
+<li>fraudulent off-chain data entry before hashing</li>
+<li>theft of the key used to authorize anchor transactions</li>
+<li>application-level authorization of transfers or exits</li>
+</ul>
+<p>The deployed <code>ZAP1</code> stack currently uses single-operator anchor signing, with a
+separate FROST migration design under development for threshold authorization of
+future root anchors.</p>
+<h2 id="backwards-compatibility"><a class="hanchor" href="#backwards-compatibility" aria-hidden="true" tabindex="-1">#</a>Backwards Compatibility</h2>
+<p>This ZIP codifies the deployed version-<code>0x01</code> <code>ZAP1</code> format. Existing proof
+bundles remain valid as long as verifiers preserve the original event hash
+construction, Merkle hashing rules, and anchor transaction references.</p>
+<p>Future incompatible payload layouts MUST use a new version byte and SHOULD use a
+distinct human-readable protocol marker.</p>
+<h2 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h2>
+<p>Reference implementations are available at:</p>
+<ul>
+<li><a href="https://github.com/Frontier-Compute/zap1">Frontier-Compute/zap1</a>, which implements the deployed <code>ZAP1</code> attestation protocol, Merkle tree maintenance, proof bundle generation, and root anchoring flow.</li>
+<li><a href="https://github.com/Frontier-Compute/zap1-verify">Frontier-Compute/zap1-verify</a> <sup><a href="#user-content-fn-zap1-verify" id="user-content-fnref-zap1-verify" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>, which provides a standalone Rust and WASM verifier for ZAP1 leaf hashes and Merkle proofs.</li>
+</ul>
+<p>In the deployed <code>zap1</code> implementation:</p>
+<ul>
+<li>event payload hashes are computed with BLAKE2b-256 and personalization <code>NordicShield_</code></li>
+<li>Merkle internal nodes use personalization <code>NordicShield_MRK</code></li>
+<li>root anchors are transmitted as <code>ZAP1:09:{root}</code></li>
+</ul>
+<h2 id="test-vectors"><a class="hanchor" href="#test-vectors" aria-hidden="true" tabindex="-1">#</a>Test Vectors</h2>
+<p>A companion test vector package SHOULD provide:</p>
+<ul>
+<li>one event hash vector for each deployed event type <code>0x01</code> through <code>0x09</code></li>
+<li>the exact input fields used to derive the payload hash</li>
+<li>the expected <code>leaf_hash</code></li>
+<li>the hash personalization strings used</li>
+</ul>
+<p>The deployed <code>ZAP1</code> implementation <sup><a href="#user-content-fn-zap1" id="user-content-fnref-zap1" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> publishes those vectors separately as:</p>
+<ul>
+<li><a href="https://github.com/Frontier-Compute/zap1/blob/main/TEST_VECTORS.md">Frontier-Compute/zap1/TEST_VECTORS.md</a></li>
+<li><a href="https://github.com/Frontier-Compute/zap1/blob/main/TEST_VECTORS.md">TEST_VECTORS.md</a></li>
+</ul>
+<h2 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h2>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-zip-0302">
+<p><a href="https://zips.z.cash/zip-0302">ZIP 302: Standardized Memo Field Format</a> <a href="#user-content-fnref-zip-0302" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zap1-verify">
+<p><a href="https://github.com/Frontier-Compute/zap1-verify">Frontier-Compute/zap1-verify: standalone Rust and WASM verifier for ZAP1 proofs</a> <a href="#user-content-fnref-zap1-verify" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zap1">
+<p><a href="https://github.com/Frontier-Compute/zap1">Frontier-Compute/zap1: ZAP1 attestation protocol reference implementation</a> <a href="#user-content-fnref-zap1" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>
