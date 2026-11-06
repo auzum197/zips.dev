@@ -18,7 +18,7 @@ function PrRefs({ pr }: {
 }) {
     if (pr.zipRefs.length === 0 && pr.draftRefs.length === 0)
         return null;
-    return (<span className="flex shrink-0 flex-wrap items-baseline gap-x-2 font-mono text-xs">
+    return (<span className="flex min-w-0 flex-wrap items-baseline gap-x-2 font-mono text-xs">
       {pr.zipRefs.map((n) => getZipByNumber(n) ? (<Link key={`z${n}`} href={`/zip/${n}/`} className="text-accent hover:underline">
             ZIP {n}
           </Link>) : (<span key={`z${n}`} className="text-faint">

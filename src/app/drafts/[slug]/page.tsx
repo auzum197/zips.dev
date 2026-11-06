@@ -170,7 +170,7 @@ export default async function Page({ params, }: {
     const html = getZipHtml(zip.slug);
     return (<div className="relative mx-auto max-w-[88rem] pt-6">
       <aside className="group/ztoc absolute left-0 top-6 bottom-0 hidden w-64 min-[70rem]:block">
-        <button type="button" aria-label="Show table of contents" className="sticky top-[4.5rem] z-10 hidden h-8 w-8 items-center justify-center rounded-md border border-border-subtle text-muted-foreground zen:pointer-events-auto zen:grid zen:bg-background/70 zen:transition-opacity zen:duration-[600ms] zen:delay-250 zen:hover:text-foreground zen:group-hover/ztoc:pointer-events-none zen:group-hover/ztoc:opacity-0 zen:group-hover/ztoc:delay-0 zen:group-hover/ztoc:duration-[400ms]">
+        <button type="button" aria-label="Show table of contents" className="sticky top-6 z-10 hidden h-8 w-8 items-center justify-center rounded-md border border-border-subtle text-muted-foreground zen:pointer-events-auto zen:grid zen:bg-background/70 zen:transition-opacity zen:duration-[600ms] zen:delay-250 zen:hover:text-foreground zen:group-hover/ztoc:pointer-events-none zen:group-hover/ztoc:opacity-0 zen:group-hover/ztoc:delay-0 zen:group-hover/ztoc:duration-[400ms]">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
             <path d="M9 6h11"/>
             <path d="M9 12h11"/>
@@ -180,7 +180,7 @@ export default async function Page({ params, }: {
             <path d="M5 18v.01"/>
           </svg>
         </button>
-        <div className="toc-scroll sticky top-[4.5rem] max-h-[calc(100vh-6rem)] overflow-y-auto pr-1 [overscroll-behavior:contain] zen:pointer-events-none zen:opacity-0 zen:transition-opacity zen:duration-[600ms] zen:delay-250 zen:[transition-timing-function:cubic-bezier(0.23,1,0.32,1)] zen:group-hover/ztoc:pointer-events-auto zen:group-hover/ztoc:opacity-100 zen:group-hover/ztoc:delay-0 zen:group-hover/ztoc:duration-[400ms]">
+        <div className="toc-scroll sticky top-6 max-h-[calc(100vh-6rem)] overflow-y-auto pr-1 [overscroll-behavior:contain] zen:pointer-events-none zen:opacity-0 zen:transition-opacity zen:duration-[600ms] zen:delay-250 zen:[transition-timing-function:cubic-bezier(0.23,1,0.32,1)] zen:group-hover/ztoc:pointer-events-auto zen:group-hover/ztoc:opacity-100 zen:group-hover/ztoc:delay-0 zen:group-hover/ztoc:duration-[400ms]">
           <ZipToc headings={zip.headings}/>
         </div>
       </aside>
@@ -191,6 +191,9 @@ export default async function Page({ params, }: {
           <div className={cn("mt-2.5", badgesRow)}>
             <StatusBadge status={zip.status} group={statusGroup(zip.status)}/>
             {zip.revision !== null && <Badge variant="outline">r{zip.revision}</Badge>}
+          </div>
+          <div className="min-[70rem]:hidden" data-pagefind-ignore>
+            <ZipToc headings={zip.headings} floating/>
           </div>
         </header>
         <div className="prose" dangerouslySetInnerHTML={{ __html: html }}/>
