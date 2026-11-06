@@ -2,18 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import StatusBadge from "@/components/status-badge";
+import DateRow from "@/components/date-row";
+import UpgradeZipTable from "@/components/upgrade-zip-table";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, } from "@/components/ui/table";
 import { getUpgrades, getZipByNumber } from "@/lib/data";
-import { cn } from "@/lib/utils";
 import type { Upgrade, ZipMeta } from "@/lib/types";
-function dateSlice(value: string | Date | undefined): string | null {
-    if (value === undefined)
-        return null;
-    const d = value instanceof Date ? value : new Date(value);
-    return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-}
+import { dateSlice } from "@/lib/date";
 function getUpgrade(id: string): Upgrade | undefined {
     return getUpgrades().find((u) => u.id === id);
 }
@@ -35,17 +30,6 @@ export async function generateMetadata({ params, }: {
         title: `${u.name} (${u.code})`,
         description: u.summary,
     };
-}
-function DateRow({ label, value }: {
-    label: string;
-    value: string | null;
-}) {
-    return (<span className="whitespace-nowrap">
-      {label}{" "}
-      <span className={cn("font-mono", value ? "text-foreground" : "text-faint")}>
-        {value ?? "—"}
-      </span>
-    </span>);
 }
 function zipOrUndefined(n: number): ZipMeta | undefined {
     return getZipByNumber(n);
@@ -96,36 +80,7 @@ export default async function UpgradePage({ params, }: {
         <h2 className="mb-3 text-base font-semibold tracking-tight">
           Included ZIPs <span className="font-normal text-faint">({zips.length})</span>
         </h2>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ZIP</TableHead>
-              <TableHead>Title</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Category</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {zips.map((z) => (<TableRow key={z.slug}>
-                <TableCell className="whitespace-nowrap font-mono">
-                  <Link href={`/zip/${z.number}/`} className="hover:text-accent">
-                    {z.displayNumber}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Link href={`/zip/${z.number}/`} className="hover:text-accent">
-                    {z.title}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={z.status}/>
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {z.category}
-                </TableCell>
-              </TableRow>))}
-          </TableBody>
-        </Table>
+        <UpgradeZipTable zips={zips}/>
       </section>
 
       <p className="text-sm">

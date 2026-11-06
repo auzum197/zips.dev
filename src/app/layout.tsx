@@ -9,6 +9,7 @@ import "@fontsource/ibm-plex-serif/600.css";
 import "./globals.css";
 import SiteNav from "@/components/site-nav";
 import SiteFooter from "@/components/site-footer";
+import { getMeta } from "@/lib/data";
 export const metadata: Metadata = {
     title: {
         default: "zips.dev",
@@ -27,7 +28,7 @@ export default function RootLayout({ children }: {
       <body>
         <SiteNav />
         <main className="mx-auto w-full max-w-[88rem] px-5 pb-12">{children}</main>
-        <SiteFooter />
+        <SiteFooter meta={getMeta()}/>
       </body>
     </html>);
 }

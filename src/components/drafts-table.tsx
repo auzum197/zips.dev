@@ -1,0 +1,40 @@
+import Link from "next/link";
+import StatusBadge from "@/components/status-badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, } from "@/components/ui/table";
+import { statusGroup, type ZipMeta } from "@/lib/types";
+export default function DraftsTable({ drafts, }: {
+    drafts: ZipMeta[];
+}) {
+    return (<Table className="mb-8 mt-4">
+      <TableHeader>
+        <TableRow>
+          <TableHead scope="col">Title</TableHead>
+          <TableHead scope="col">Draft</TableHead>
+          <TableHead scope="col">Status</TableHead>
+          <TableHead scope="col">Category</TableHead>
+          <TableHead scope="col">Created</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {drafts.map((d) => (<TableRow key={d.slug}>
+            <TableCell>
+              <Link href={`/drafts/${d.slug}/`} className="font-medium text-foreground hover:text-accent">
+                {d.title}
+              </Link>
+            </TableCell>
+            <TableCell className="whitespace-nowrap font-mono text-[0.8125rem] text-muted-foreground">
+              <Link href={`/drafts/${d.slug}/`} className="font-normal text-muted-foreground hover:text-accent">
+                {d.slug.replace(/^draft-/, "")}
+              </Link>
+            </TableCell>
+            <TableCell>
+              <StatusBadge status={d.status} group={statusGroup(d.status)}/>
+            </TableCell>
+            <TableCell>{d.category}</TableCell>
+            <TableCell className="whitespace-nowrap font-mono text-muted-foreground">
+              {d.created ?? "—"}
+            </TableCell>
+          </TableRow>))}
+      </TableBody>
+    </Table>);
+}
