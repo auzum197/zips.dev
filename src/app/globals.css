@@ -103,12 +103,58 @@
 
   html {
     -webkit-text-size-adjust: 100%;
+  }
+  /* the document itself never scrolls: the site header stays outside the
+     scroll container, so macOS rubber-banding never moves it. Only
+     #scroll-root (main + footer) scrolls, and only it may bounce. */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  #scroll-root {
     scroll-behavior: smooth;
-    scroll-padding-top: 4rem;
+    scroll-padding-top: 1.5rem;
+    overscroll-behavior-y: contain;
+    scrollbar-width: none;
+  }
+  #scroll-root::-webkit-scrollbar {
+    display: none;
+  }
+  body {
+    position: relative;
+  }
+  /* zen: the header overlays the scroller instead of reserving a band, so
+     content slides under its transparent surface. The scroller keeps the
+     header's height as top padding, which scrolls away with the content. */
+  html.zen #site-header {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+  }
+  html.zen #scroll-root {
+    padding-top: var(--header-h, 3.25rem);
+  }
+  /* phones: the header overlays the scroller, follows the page, and hides
+     while scrolling down (see header-autohide.tsx). */
+  @media (width < 48rem) {
+    #site-header {
+      position: absolute;
+      inset-inline: 0;
+      top: 0;
+      transition: transform 320ms cubic-bezier(0.23, 1, 0.32, 1);
+    }
+    #site-header[data-hidden="true"] {
+      transform: translateY(-100%);
+    }
+    #scroll-root {
+      padding-top: var(--header-h, 5.5rem);
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    html {
+    #scroll-root {
       scroll-behavior: auto;
     }
     *,
@@ -147,6 +193,9 @@
   line-height: var(--line-height-prose);
   max-width: var(--prose-measure, 60ch);
   color: color-mix(in srgb, var(--foreground) 94%, var(--background));
+  /* long URLs and TeX source (<tt class="math">) must never widen the page —
+     on phones that zooms the whole layout out */
+  overflow-wrap: anywhere;
 }
 @media (max-width: 48rem) {
   .prose {
@@ -191,7 +240,7 @@
 .prose h2[id],
 .prose h3[id],
 .prose h4[id] {
-  scroll-margin-top: 5.5rem;
+  scroll-margin-top: 0.5rem;
 }
 /* hover-reveal anchor links (injected at build) — real elements, so the
    anchor stays visible while the cursor rests on it */
@@ -408,9 +457,13 @@
   color: var(--purple);
 }
 
-/* docutils MathML from :math: roles */
+/* docutils MathML from :math: roles — a formula wider than the measure
+   scrolls inside itself instead of widening the page */
 .prose math {
   font-size: 0.95em;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 /* chrome that zen removes (nav, footer, meta panels) fades instead of
@@ -438,6 +491,54 @@ html.zen .zen-fade {
 html.zen .zen-dim {
   opacity: 0;
   pointer-events: none;
+}
+
+/* narrow-viewport ToC: a bottom sheet (<dialog>) opened from a floating
+   pill. Slides up on open and down on close; @starting-style + allow-discrete
+   give the entry/exit transitions, older engines just show/hide it. The
+   global reduced-motion rule above disables the motion. */
+.toc-sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  max-height: 72dvh;
+  padding: 0 0 env(safe-area-inset-bottom);
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 1rem 1rem 0 0;
+  background: var(--background);
+  color: var(--foreground);
+  flex-direction: column;
+  transform: translateY(100%);
+  transition:
+    transform 320ms cubic-bezier(0.23, 1, 0.32, 1),
+    display 320ms allow-discrete,
+    overlay 320ms allow-discrete;
+}
+.toc-sheet[open] {
+  display: flex;
+  transform: translateY(0);
+}
+.toc-sheet::backdrop {
+  background: rgb(0 0 0 / 0.35);
+  opacity: 0;
+  transition:
+    opacity 240ms ease-out,
+    display 240ms allow-discrete,
+    overlay 240ms allow-discrete;
+}
+.toc-sheet[open]::backdrop {
+  opacity: 1;
+}
+@starting-style {
+  .toc-sheet[open] {
+    transform: translateY(100%);
+  }
+  .toc-sheet[open]::backdrop {
+    opacity: 0;
+  }
 }
 
 /* hidden-scrollbar scroll container (ToC) — wheel/touch still scroll */

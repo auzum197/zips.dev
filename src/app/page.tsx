@@ -3,7 +3,7 @@ import IndexFilters, { type IndexRow } from "@/components/index-filters";
 import { getDrafts, getMeta, getNumberedZips, getUpgrades } from "@/lib/data";
 import { statusGroup } from "@/lib/types";
 export const metadata: Metadata = {
-    title: { absolute: "zips.dev" },
+    title: { absolute: "zipreader" },
 };
 export default function HomePage() {
     const zips = [...getNumberedZips()].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));

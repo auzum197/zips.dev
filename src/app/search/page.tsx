@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import SearchBox from "@/components/search-box";
 export const metadata: Metadata = {
     title: "Search",
-    description: "Full-text search across every ZIP on zips.dev.",
+    description: "Full-text search across every ZIP on zipreader.",
 };
 export default function SearchPage() {
     return (<>
