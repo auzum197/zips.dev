@@ -374,9 +374,24 @@ for (const f of fs.readdirSync(ZIPS_DIR)) {
         assetNames.add(f);
     }
 }
+/** Fail fast when the RST renderer is unusable, before anything is written.
+ *  Without this, a machine without docutils turns every RST ZIP into an error
+ *  stub and overwrites the committed snapshots. */
+function preflightRst() {
+    const res = spawnSync("python3", ["-c", "import docutils, sys; print(docutils.__version__)"], { encoding: "utf8" });
+    if (res.status !== 0) {
+        throw new Error(`sync: the RST renderer is unavailable (python3 with docutils is required; run \`pip install docutils\`). ${(res.stderr || res.error?.message || "").trim().slice(0, 200)}`);
+    }
+    console.log(`sync: docutils ${res.stdout.trim()}`);
+}
+/** Set SYNC_ALLOW_RENDER_FAILURES=1 to keep going when individual documents
+ *  fail to render; they are then published as error stubs linking upstream. */
+const ALLOW_RENDER_FAILURES = process.env.SYNC_ALLOW_RENDER_FAILURES === "1";
 async function main() {
+    preflightRst();
     const zips = [];
     const failures = [];
+    const renderedHtml = new Map();
     for (const filename of files) {
         const slug = filename.replace(/\.(md|rst)$/i, "");
         const format = /\.md$/i.test(filename) ? "md" : "rst";
@@ -422,7 +437,7 @@ async function main() {
             wordCount: wordCount(html),
             rendered: html0 !== null,
         });
-        fs.writeFileSync(path.join(RENDERED, `${slug}.html`), html);
+        renderedHtml.set(slug, html);
     }
     zips.sort((a, b) => {
         if (a.kind !== b.kind)
@@ -432,8 +447,13 @@ async function main() {
         return a.slug.localeCompare(b.slug);
     });
     console.log(`sync: parsed ${zips.length} documents (${zips.filter((z) => z.kind === "zip").length} ZIPs, ${zips.filter((z) => z.kind === "draft").length} drafts), ${failures.length} render failures`);
-    if (failures.length)
+    if (failures.length) {
         console.warn(`sync: failed: ${failures.join(", ")}`);
+        if (!ALLOW_RENDER_FAILURES)
+            throw new Error(`sync: ${failures.length} document(s) failed to render; nothing was written. Fix the renderer, or set SYNC_ALLOW_RENDER_FAILURES=1 to publish error stubs for them.`);
+    }
+    for (const [slug, html] of renderedHtml)
+        fs.writeFileSync(path.join(RENDERED, `${slug}.html`), html);
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
     const ghHeaders = {
         Accept: "application/vnd.github+json",
