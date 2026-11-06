@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
-import type { Crossrefs, Implementation, NewProposal, PrMeta, Upgrade, UpstreamMeta, ZipMeta, } from "./types";
+import type { Crossrefs, Implementation, NewProposal, PrMeta, PrPreview, Upgrade, UpstreamMeta, ZipMeta, } from "./types";
 const CONTENT = path.join(process.cwd(), "content");
 const DATA = path.join(process.cwd(), "data");
 function readJson<T>(file: string): T {
@@ -39,9 +39,42 @@ export function getPrs(): PrMeta[] {
 export function getPrByNumber(n: number): PrMeta | undefined {
     return getPrs().find((p) => p.number === n);
 }
-export function getPrPreviewHtml(n: number): string | null {
-    const p = path.join(CONTENT, "rendered", `pr-${n}.html`);
-    return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
+/** "zips/zip-0316.rst" → "zip-0316" */
+function previewSlug(filename: string): string {
+    return filename.replace(/^.*\//, "").replace(/\.(md|rst)$/i, "");
+}
+/**
+ * Every rendered preview of a PR's changed documents, in file-list order.
+ * Falls back to the single legacy `preview` field when reading a snapshot
+ * written before `previews` existed.
+ */
+export function prPreviews(pr: PrMeta): PrPreview[] {
+    const list = pr.previews && pr.previews.length > 0
+        ? pr.previews
+        : pr.preview
+            ? [pr.preview]
+            : [];
+    return list.map((p) => (p.slug ? p : { ...p, slug: previewSlug(p.filename) }));
+}
+export function getPrPreviewHtml(n: number, slug: string): string | null {
+    const p = path.join(CONTENT, "rendered", `pr-${n}-${slug}.html`);
+    if (fs.existsSync(p))
+        return fs.readFileSync(p, "utf8");
+    const legacy = path.join(CONTENT, "rendered", `pr-${n}.html`);
+    return fs.existsSync(legacy) ? fs.readFileSync(legacy, "utf8") : null;
+}
+/**
+ * Best link for a PR's rendered preview: the specific document when one is
+ * requested (or only one exists), the overview when several exist.
+ */
+export function prPreviewHref(pr: PrMeta, targetSlug?: string): string | null {
+    const previews = prPreviews(pr);
+    if (previews.length === 0)
+        return null;
+    const match = targetSlug ? previews.find((p) => p.slug === targetSlug) : undefined;
+    if (match)
+        return `/prs/${pr.number}/${match.slug}/`;
+    return previews.length === 1 ? `/prs/${pr.number}/${previews[0].slug}/` : `/prs/${pr.number}/`;
 }
 export function getPrError(): string | null {
     return readJson<{

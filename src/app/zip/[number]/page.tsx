@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { getCrossrefs, getMeta, getNumberedZips, getZipByNumber, getZipBySlug, getZipHtml, prsForZip, upgradeNameForZip, } from "@/lib/data";
+import { getCrossrefs, getMeta, getNumberedZips, getZipByNumber, getZipBySlug, getZipHtml, prPreviewHref, prsForZip, upgradeNameForZip, } from "@/lib/data";
 import { statusGroup, type Crossrefs, type PrMeta, type Upgrade, type ZipMeta, } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import StatusBadge from "@/components/status-badge";
@@ -145,11 +145,14 @@ function MetaPanel({ zip, prs, upgrades, crossrefs, }: {
 
       {prs.length > 0 && (<Section title="Open PRs">
           <ul className="space-y-0.5">
-            {prs.map((p) => (<li key={p.number} className="min-w-0">
-                <Link href={p.preview ? `/prs/${p.number}/` : p.url} className="block truncate hover:text-accent" title={p.preview ? `${p.title} — rendered preview of the proposed text` : p.title}>
-                  <span className="font-mono text-accent">#{p.number}</span> {p.title}
-                </Link>
-              </li>))}
+            {prs.map((p) => {
+                const href = prPreviewHref(p, zip.slug);
+                return (<li key={p.number} className="min-w-0">
+                  <Link href={href ?? p.url} className="block truncate hover:text-accent" title={href ? `${p.title} — rendered preview of the proposed text` : p.title}>
+                    <span className="font-mono text-accent">#{p.number}</span> {p.title}
+                  </Link>
+                </li>);
+            })}
           </ul>
         </Section>)}
 
