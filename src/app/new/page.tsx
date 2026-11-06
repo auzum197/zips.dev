@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getNewProposals } from "@/lib/data";
+import { getNewProposals, prPreviews } from "@/lib/data";
 import type { NewProposal } from "@/lib/types";
 export const metadata: Metadata = {
     title: "New Proposals",
@@ -14,9 +14,11 @@ function ProposalRow({ p }: {
     p: NewProposal;
 }) {
     const pr = p.pr;
-    const title = pr.preview?.title ?? pr.title;
+    const preview = prPreviews(pr).find((pv) => pv.slug === p.slug) ?? null;
+    const title = preview?.title ?? pr.title;
+    const href = preview ? `/prs/${pr.number}/${preview.slug}/` : pr.url;
     return (<li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle py-2.5">
-      <a href={pr.preview ? `/prs/${pr.number}/` : pr.url} title={pr.preview ? "Rendered preview of the proposed text" : undefined} className="min-w-0 flex-1 basis-64 leading-snug transition-colors hover:text-accent">
+      <a href={href} title={preview ? "Rendered preview of the proposed text" : undefined} className="min-w-0 flex-1 basis-64 leading-snug transition-colors hover:text-accent">
         {title}
       </a>
       {p.kind === "zip" ? (<span className="shrink-0 font-mono text-xs text-accent">

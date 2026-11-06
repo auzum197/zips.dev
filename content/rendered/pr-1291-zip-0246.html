@@ -1,0 +1,542 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot; and &quot;MUST NOT&quot; in this document are to be interpreted as described
+in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they appear in all capitals.</p>
+<p>The terms &quot;consensus branch&quot;, &quot;epoch&quot;, and &quot;network upgrade&quot; in this document are to be
+interpreted as described in ZIP 200. <a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a></p>
+<p>The term &quot;field encoding&quot; refers to the binary serialized form of a Zcash transaction
+field, as specified in section 7.1 of the Zcash protocol specification
+<a class="brackets" href="#protocol-txnencoding" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP defines the sighash algorithms associated with the v6 transaction
+format.</p>
+<p>This proposal also defines the new concept of &quot;sighash algorithm versioning&quot;:
+where previously each transaction version had a single associated sighash
+algorithm, going forward it will be possible for signers to use any sighash
+algorithm within the closed set specified for a given transaction version (and
+made available in consensus via network upgrades).</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The motivation for sighash algorithm versioning is that we want to be able to
+specify the V6 transaction format and signatures without knowing what the
+signatures for atomic swaps in action bundles will need to commit to. This
+allows for future signature hash algorithms to be specified for V6 transactions
+that support signing parts of a transaction while leaving the remainder of the
+transaction malleable, or that commit to additional state that nodes may start
+tracking in a future upgrade and that is not part of an individual transaction
+being signed.</p>
+<p>Being able to remove support for sighash algorithm versions makes it possible
+to respond effectively in the case that a bug is found in a previously deployed
+sighash algorithm.</p>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul class="simple">
+<li><p>Continue to support existing functionality of the protocol (e.g. multisig and
+signing modes for transparent inputs).</p></li>
+<li><p>It should be possible to update this ZIP with additional sighash algorithm
+versions that might have divergent behavior with respect to previous
+versions, after previous versions have been deployed in network upgrades.</p></li>
+<li><p>It should be possible to disable support for sighash algorithm versions in
+network upgrades.</p></li>
+<li><p>At the time that one is making a signature, the set of valid sighash
+algorithm versions is known to consensus.</p></li>
+<li><p>Sighash version information is present alongside the signature.</p></li>
+</ul>
+</section>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<ul class="simple">
+<li><p>Sighash algorithm versioning as defined in this ZIP does not need to
+constrain how signature hashes are constructed for future transaction
+versions.</p></li>
+</ul>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="sighash-versioning"><a class="hanchor" href="#sighash-versioning" aria-hidden="true" tabindex="-1">#</a>Sighash versioning</h2>
+<p>Rough summary:</p>
+<ul class="simple">
+<li><p>Sighash versions are numbered starting from 0 for each tx version.</p></li>
+<li><p>v0 is by convention the &quot;commit to all effecting data&quot; sighash algorithm. Other
+versions can commit to whatever makes sense for desired functionality within
+that tx version.</p></li>
+<li><p>Consensus rules choose the digest algorithm for each signer based on
+<span class="docutils literal">sighashVersion</span>.</p></li>
+</ul>
+<p>The sighash version is encoded as a single byte alongside any associated data
+that the sighash algorithm version requires (for deterministically computing the
+digest):</p>
+<p><span class="docutils literal">sighashInfo = [sighashVersion] || associatedData</span></p>
+<p>where <span class="docutils literal">associatedData</span> is specific to the bundle it appears in.</p>
+<p>The following sighash algorithm versions are defined for v6 transactions:</p>
+<table>
+<tbody>
+<tr><td></td>
+<td colspan="4"><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mspace width="4.5em"></mspace>
+</math> <span class="docutils literal">associatedData</span></p></td>
+</tr>
+<tr><td><p><span class="docutils literal">sighashVersion</span></p></td>
+<td><p>Transparent</p></td>
+<td><p>Sapling</p></td>
+<td><p>Orchard</p></td>
+<td><p>Issuance</p></td>
+</tr>
+<tr><td><p>0</p></td>
+<td><p><span class="docutils literal">[]</span></p></td>
+<td><p><span class="docutils literal">[]</span></p></td>
+<td><p><span class="docutils literal">[]</span></p></td>
+<td><p><span class="docutils literal">[]</span></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<h2 id="v0-digests"><a class="hanchor" href="#v0-digests" aria-hidden="true" tabindex="-1">#</a>v0 Digests</h2>
+<p>The v0 digests are based on the v5 transaction digest algorithm defined in
+ZIP 244 <a class="brackets" href="#zip-0244" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>.</p>
+<p>TODO: Update the Authorizing Data Commitment below for the <span class="docutils literal">sighashInfo</span>
+changes to the tx format.</p>
+<h3 id="txid-digest"><a class="hanchor" href="#txid-digest" aria-hidden="true" tabindex="-1">#</a>TxId Digest</h3>
+<p>The overall structure of the TxID digest is as follows; each name referenced
+here will either be referenced or described in detail below:</p>
+<pre class="literal-block">txid_digest
+├── header_digest *
+├── transparent_digest
+│   ├── prevouts_digest
+│   ├── sequence_digest
+│   └── outputs_digest
+├── sapling_digest
+│   ├── sapling_spends_digest
+│   │   ├── sapling_spends_compact_digest
+│   │   └── sapling_spends_noncompact_digest
+│   ├── sapling_outputs_digest *
+│   │   ├── sapling_outputs_compact_digest *
+│   │   └── sapling_outputs_noncompact_digest *
+│   └── valueBalance
+├── orchard_digest *
+│   ├── orchard_action_groups_digest *
+│   │   ├── orchard_actions_compact_digest *
+│   │   ├── orchard_actions_noncompact_digest *
+│   │   ├── flagsOrchard
+│   │   ├── anchorOrchard
+│   │   ├── nAGExpiryHeight *
+│   │   └── orchard_burn_digest *
+│   └── valueBalanceOrchard
+├── issuance_digest *
+│   ├── issuerLength *
+│   ├── issuer *
+│   └── issue_actions_digest *
+│       ├── assetDescHash *
+│       ├── issue_notes_digest *
+│       └── flagsIssuance *
+└── memo_digest *
+    ├── nonce *
+    └── memo_chunks_digest *
+        └── memo_chunk_digest *</pre>
+<p>Each node written as <span class="docutils literal">snake_case</span> in this tree is a BLAKE2b-256 hash of its
+children, initialized with a personalization string specific to that branch
+of the tree. Nodes that are not themselves digests are written in <span class="docutils literal">camelCase</span>.
+In the specification below, nodes of the tree are presented in depth-first order.</p>
+<p>The nodes with a <span class="docutils literal">*</span> have new definitions given below. All other nodes have the
+same definition as in ZIP 244 <a class="brackets" href="#zip-0244" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>.</p>
+<h4 id="txid-digest-1"><a class="hanchor" href="#txid-digest-1" aria-hidden="true" tabindex="-1">#</a>txid_digest</h4>
+<p>A BLAKE2b-256 hash of the following values</p>
+<pre class="literal-block">T.1: header_digest       (32-byte hash output)
+T.2: transparent_digest  (32-byte hash output)
+T.3: sapling_digest      (32-byte hash output)
+T.4: orchard_digest      (32-byte hash output)
+T.5: issuance_digest     (32-byte hash output)
+T.6: memo_digest         (32-byte hash output)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZcashTxHash_&quot; || CONSENSUS_BRANCH_ID</pre>
+<p><span class="docutils literal">ZcashTxHash_</span> has 1 underscore character.</p>
+<p>As in ZIP 244 <a class="brackets" href="#zip-0244" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>, CONSENSUS_BRANCH_ID is the 4-byte little-endian encoding of
+the consensus branch ID for the epoch of the block containing the transaction.</p>
+<h5 id="t-1-header-digest">T.1: header_digest</h5>
+<p>A BLAKE2b-256 hash of the following values</p>
+<pre class="literal-block">T.1a: version             (4-byte little-endian version identifier including overwinter flag)
+T.1b: version_group_id    (4-byte little-endian version group identifier)
+T.1c: consensus_branch_id (4-byte little-endian consensus branch id)
+T.1d: lock_time           (4-byte little-endian nLockTime value)
+T.1e: expiry_height       (4-byte little-endian block height)
+T.1f: fee                 (8-byte little-endian fee amount)
+T.1g: burn_amount         (8-byte little-endian burn amount)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdHeadersHash&quot;</pre>
+<h6 id="t-3b-sapling-outputs-digest">T.3b: sapling_outputs_digest</h6>
+<p>In the case that Sapling outputs are present, this digest is a BLAKE2b-256 hash of the
+following values</p>
+<pre class="literal-block">T.3b.i:  sapling_outputs_compact_digest    (32-byte hash)
+T.3b.ii: sapling_outputs_noncompact_digest (32-byte hash)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSOutputHash&quot;</pre>
+<p>In the case that the transaction has Sapling spends but no Sapling outputs,
+<span class="docutils literal">sapling_outputs_digest</span> is</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdSOutputHash&quot;, [])</pre>
+<h6 aria-level="7" id="t-3b-i-sapling-outputs-compact-digest">T.3b.i: sapling_outputs_compact_digest</h6>
+<p>A BLAKE2b-256 hash of the subset of Sapling output information included in the
+ZIP-307 <a class="brackets" href="#zip-0307" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a> <span class="docutils literal">CompactBlock</span> format for all Sapling shielded outputs
+belonging to the transaction. For each output, the following elements are included
+in the hash:</p>
+<pre class="literal-block">T.3b.i.1: cmu                  (field encoding bytes)
+T.3b.i.2: ephemeral_key        (field encoding bytes)
+T.3b.i.3: enc_ciphertext       (field encoding bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxId6SOutC_Hash&quot; (1 underscore character)</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-sapling-output-field-encodings" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h6 aria-level="7" id="t-3b-ii-sapling-outputs-noncompact-digest">T.3b.ii: sapling_outputs_noncompact_digest</h6>
+<p>A BLAKE2b-256 hash of the remaining subset of Sapling output information <strong>not</strong> included
+in the ZIP 307 <a class="brackets" href="#zip-0307" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a> <span class="docutils literal">CompactBlock</span> format, excluding zkproof data, for all
+Sapling shielded outputs belonging to the transaction. For each output, the following
+elements are included in the hash:</p>
+<pre class="literal-block">T.3b.ii.1: cv                    (field encoding bytes)
+T.3b.ii.3: out_ciphertext        (field encoding bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxId6SOutN_Hash&quot; (1 underscore character)</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-sapling-output-field-encodings" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+</section>
+<h5 id="t-4-orchard-digest">T.4: orchard_digest</h5>
+<p>When OrchardZSA Actions Groups are present in the transaction, this digest is a BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">T.4a: orchard_action_groups_digest   (32-byte hash output)
+T.4b: valueBalanceOrchard            (64-bit signed little-endian)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdOrchardHash&quot;</pre>
+<p>In the case that the transaction has no OrchardZSA Action Groups, <span class="docutils literal">orchard_digest</span> is</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdOrchardHash&quot;, [])</pre>
+<h6 id="t-4a-orchard-action-groups-digest">T.4a: orchard_action_groups_digest</h6>
+<p>A BLAKE2b-256 hash of the subset of OrchardZSA Action Groups information for all OrchardZSA Action Groups belonging to the transaction.
+For each Action Group, the following elements are included in the hash:</p>
+<pre class="literal-block">T.4a.i   : orchard_actions_compact_digest      (32-byte hash output)
+T.4a.ii  : orchard_actions_noncompact_digest   (32-byte hash output)
+T.4a.iii : flagsOrchard                        (1 byte)
+T.4a.iv  : anchorOrchard                       (32 bytes)
+T.4a.v   : nAGExpiryHeight                     (4 bytes)
+T.4a.vi  : orchard_burn_digest                 (32-byte hash output)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdOrcActGHash&quot;</pre>
+<h6 aria-level="7" id="t-4a-i-orchard-actions-compact-digest">T.4a.i: orchard_actions_compact_digest</h6>
+<p>A BLAKE2b-256 hash of the subset of OrchardZSA Action information intended to be included in
+an updated version of the ZIP-307 <a class="brackets" href="#zip-0307" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a> <span class="docutils literal">CompactBlock</span> format for all OrchardZSA
+Actions belonging to the Action Group. For each Action, the following elements are included
+in the hash:</p>
+<pre class="literal-block">T.4a.i.1 : nullifier            (field encoding bytes)
+T.4a.i.2 : cmx                  (field encoding bytes)
+T.4a.i.3 : ephemeralKey         (field encoding bytes)
+T.4a.i.4 : encCiphertext        (field encoding bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxId6OActC_Hash&quot; (1 underscore character)</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-orchardzsa-action-description-orchardzsaaction" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h6 aria-level="7" id="t-4a-ii-orchard-actions-noncompact-digest">T.4a.ii: orchard_actions_noncompact_digest</h6>
+<p>A BLAKE2b-256 hash of the remaining subset of OrchardZSA Action information <strong>not</strong> intended
+for inclusion in an updated version of the the ZIP 307 <a class="brackets" href="#zip-0307" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a> <span class="docutils literal">CompactBlock</span>
+format, for all OrchardZSA Actions belonging to the Action Group. For each Action,
+the following elements are included in the hash:</p>
+<pre class="literal-block">T.4a.ii.1 : cv                    (field encoding bytes)
+T.4a.ii.2 : rk                    (field encoding bytes)
+T.4a.ii.3 : outCiphertext         (field encoding bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxId6OActN_Hash&quot; (1 underscore character)</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-orchardzsa-action-description-orchardzsaaction" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+<h6 id="t-4a-vi-orchard-burn-digest">T.4a.vi: orchard_burn_digest</h6>
+<p>A BLAKE2b-256 hash of the data from the burn fields of the transaction. For each tuple in
+the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗋</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math> set, the following elements are included in the hash:</p>
+<pre class="literal-block">T.4b.i : assetBase    (field encoding bytes)
+T.4b.ii: valueBurn    (64-bit unsigned little-endian)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdOrcBurnHash&quot;</pre>
+<p>In case the transaction does not perform the burning of any Assets (i.e. the
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗋</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math> set is empty), the <span class="docutils literal">orchard_burn_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdOrcBurnHash&quot;, [])</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-orchardzsa-asset-burn-description" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+<h5 id="t-5-issuance-digest">T.5: issuance_digest</h5>
+<p>A BLAKE2b-256 hash of the following values</p>
+<pre class="literal-block">T.5a: issuerLength            (field encoding bytes)
+T.5b: issuer                  (field encoding bytes)
+T.5c: issue_actions_digest    (32-byte hash output)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdSAIssueHash&quot;</pre>
+<p>In case the transaction has no issuance components, <span class="docutils literal">issuance_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdSAIssueHash&quot;, [])</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-transaction-format" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+<h6 id="t-5a-issue-actions-digest">T.5a: issue_actions_digest</h6>
+<p>A BLAKE2b-256 hash of Issue Action information for all Issuance Actions belonging to the transaction. For each Action, the following elements are included in the hash:</p>
+<pre class="literal-block">T.5a.i  : assetDescHash           (field encoding bytes)
+T.5a.ii : issue_notes_digest      (32-byte hash output)
+T.5a.iii: flagsIssuance           (1 byte)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdIssuActHash&quot;</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-issuance-action-description-issueaction" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a>.</p>
+<h6 aria-level="7" id="t-5a-i-issue-notes-digest">T.5a.i: issue_notes_digest</h6>
+<p>A BLAKE2b-256 hash of Note information for all Issue Note Descriptions belonging to the Issuance Action. For each Note, the following elements are included in the hash:</p>
+<pre class="literal-block">T.5a.i.1: recipient                    (field encoding bytes)
+T.5a.i.2: value                        (field encoding bytes)
+T.5a.i.3: rho                          (field encoding bytes)
+T.5a.i.4: rseed                        (field encoding bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdIAcNoteHash&quot;</pre>
+<p>In case the transaction has no Issue Notes, <span class="docutils literal">issue_notes_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdIAcNoteHash&quot;, [])</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-issue-note-description-issuenotedescription" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+</section>
+<h5 id="t-6-memo-digest">T.6: memo_digest</h5>
+<p>A BLAKE2b-256 hash of the following values</p>
+<pre class="literal-block">T.6a: nonce                 (field encoding bytes)
+T.6b: memo_chunks_digest    (32-byte hash output)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdMemo___Hash&quot; (3 underscore characters)</pre>
+<p>In case the transaction has no memo chunks, <span class="docutils literal">memo_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdMemo___Hash&quot;, [])</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-transaction-format" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+<h6 id="t-6b-memo-chunks-digest">T.6b: memo_chunks_digest</h6>
+<p>A BLAKE2b-256 hash of the concatenated <span class="docutils literal">memo_chunk_digest</span> values of all memo chunks
+within the memo bundle.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdMemoCksHash&quot;</pre>
+<p>In the case that the transaction has no memo chunks,
+<span class="docutils literal">memo_chunks_digest</span> is</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxIdMemoCksHash&quot;, [])</pre>
+<h6 aria-level="7" id="t-6b-i-memo-chunk-digest">T.6b.i: memo_chunk_digest</h6>
+<p>A BLAKE2b-256 hash of the field encoding of a single encrypted Memo Chunk.</p>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxIdMemoCk_Hash&quot; (1 underscore character)</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-transaction-format" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+</section>
+</section>
+</section>
+<h3 id="signature-digest"><a class="hanchor" href="#signature-digest" aria-hidden="true" tabindex="-1">#</a>Signature Digest</h3>
+<p>The per-input transaction digest algorithm to generate the signature digest in ZIP 244 <a class="brackets" href="#zip-0244-sigdigest" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a> is modified so that a signature digest is produced for each transparent input, each Sapling input, each OrchardZSA Action, and additionally for each Issuance Action.
+The modifications replace the <span class="docutils literal">orchard_digest</span> in ZIP 244 with a new <span class="docutils literal">orchard_digest</span>, and add a new branch, <span class="docutils literal">issuance_digest</span>, for the Issuance Action information.</p>
+<p>The overall structure of the hash is as follows. We omit the descriptions of the sections that do not change for the OrchardZSA protocol:</p>
+<pre class="literal-block">signature_digest
+├── header_digest
+├── transparent_sig_digest
+├── sapling_digest
+├── orchard_digest
+├── issuance_digest
+└── memo_digest</pre>
+<h4 id="signature-digest-1"><a class="hanchor" href="#signature-digest-1" aria-hidden="true" tabindex="-1">#</a>signature_digest</h4>
+<p>A BLAKE2b-256 hash of the following values</p>
+<pre class="literal-block">S.1: header_digest          (32-byte hash output)
+S.2: transparent_sig_digest (32-byte hash output)
+S.3: sapling_digest         (32-byte hash output)
+S.4: orchard_digest         (32-byte hash output)
+S.5: issuance_digest        (32-byte hash output)
+S.6: memo_digest            (32-byte hash output)</pre>
+<p>The personalization field remains the same as in ZIP 244 <a class="brackets" href="#zip-0244" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>, namely:</p>
+<pre class="literal-block">&quot;ZcashTxHash_&quot; || CONSENSUS_BRANCH_ID</pre>
+<p><span class="docutils literal">ZcashTxHash_</span> has 1 underscore character.</p>
+<h5 id="s-4-orchard-digest">S.4: orchard_digest</h5>
+<p>Identical to that specified for the transaction identifier.</p>
+</section>
+<h5 id="s-5-issuance-digest">S.5: issuance_digest</h5>
+<p>Identical to the <span class="docutils literal">issuance_digest</span> specified for the transaction identifier.</p>
+</section>
+<h5 id="s-6-memo-digest">S.6: memo_digest</h5>
+<p>Identical to that specified for the transaction identifier.</p>
+</section>
+</section>
+</section>
+<h3 id="authorizing-data-commitment"><a class="hanchor" href="#authorizing-data-commitment" aria-hidden="true" tabindex="-1">#</a>Authorizing Data Commitment</h3>
+<p>The transaction digest algorithm defined in ZIP 244 <a class="brackets" href="#zip-0244-authcommitment" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a> which commits to the authorizing data of a transaction is modified by the OrchardZSA protocol to have the structure specified in this section.
+There is a new branch added for issuance information, and the <span class="docutils literal">orchard_auth_digest</span> in ZIP 244 is altered to account for the presence of Action Groups.</p>
+<p>We omit the descriptions of the sections that do not change for the OrchardZSA protocol:</p>
+<pre class="literal-block">auth_digest
+├── transparent_auth_digest
+├── sapling_auth_digest
+├── orchard_auth_digest
+└── issuance_auth_digest</pre>
+<p>The pair (Transaction Identifier, Auth Commitment) constitutes a commitment to all the data of a serialized transaction that may be included in a block.</p>
+<h4 id="auth-digest"><a class="hanchor" href="#auth-digest" aria-hidden="true" tabindex="-1">#</a>auth_digest</h4>
+<p>A BLAKE2b-256 hash of the following values</p>
+<pre class="literal-block">A.1: transparent_auth_digest          (32-byte hash output)
+A.2: sapling_auth_digest              (32-byte hash output)
+A.3: orchard_auth_digest              (32-byte hash output)
+A.4: issuance_auth_digest             (32-byte hash output)</pre>
+<p>The personalization field of this hash remains the same as in ZIP 244.</p>
+<p>Note that while the structure of <span class="docutils literal">sapling_auth_digest</span> remains the same as in ZIP 244, the field encodings of some of its components
+(viz. <span class="docutils literal">spend_auth_sigs</span> and <span class="docutils literal">binding_sig</span>) differ due to changes to their field encodings in ZIP 230 <a class="brackets" href="#zip-0230-transaction-format" id="footnote-reference-24" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+<h5 id="a-1-transparent-auth-digest">A.1: transparent_auth_digest</h5>
+<p>In the case that the transaction contains transparent inputs, this is a BLAKE2b-256 hash of the concatenation of the field encoding of the <span class="docutils literal">TransparentSighashInfo</span> value for each transparent input in transaction order, followed by the concatenation of the field encoding of the Bitcoin <span class="docutils literal">scriptSig</span> value for each transparent input in transaction order:</p>
+<pre class="literal-block">A.1a: TransparentSighashInfo    (field encoding bytes)
+A.1b: scriptSig                 (field encoding bytes)</pre>
+<p>The personalization field of this hash is:</p>
+<pre class="literal-block">&quot;ZTxAuthTransHash&quot;</pre>
+<p>In the case that the transaction has no transparent inputs, <span class="docutils literal">transparent_auth_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxAuthTransHash&quot;, [])</pre>
+<p>The field encoding of <span class="docutils literal">TransparentSighashInfo</span> is specified in ZIP 230 <a class="brackets" href="#zip-0230-transparent-sighash-info-field-encodings" id="footnote-reference-25" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h5 id="a-3-orchard-auth-digest">A.3: orchard_auth_digest</h5>
+<p>In the case that OrchardZSA Action Groups are present, this is a BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">A.3a: orchard_action_groups_auth_digest    (32-byte hash output)
+A.3b: bindingSigOrchard                    (field encoding bytes)</pre>
+<p>The personalization field of this hash is the same as in ZIP 244, that is:</p>
+<pre class="literal-block">&quot;ZTxAuthOrchaHash&quot;</pre>
+<p>In case that the transaction has no OrchardZSA Action Groups, <span class="docutils literal">orchard_auth_digest</span> is:</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxAuthOrchaHash&quot;, [])</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-transaction-format" id="footnote-reference-26" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.
+Note that this means the encoding of <span class="docutils literal">bindingSigOrchard</span> differs from that used in ZIP 244.</p>
+<h6 id="a-3a-orchard-action-groups-auth-digest">A.3a: orchard_action_groups_auth_digest</h6>
+<p>A BLAKE2b-256 hash of the subset of OrchardZSA Action Group information for all OrchardZSA Action Groups belonging to the transaction.
+For each OrchardZSA Action Group, this is a BLAKE2b-256 hash of the following values:</p>
+<pre class="literal-block">A.3a.i:  proofsOrchard                              (field encoding bytes)
+A.3a.ii: orchard_zsa_spend_auth_sigs_auth_digest    (32-byte hash output)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxAuthOrcAGHash&quot;</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-orchardzsa-action-group-description" id="footnote-reference-27" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>.</p>
+<h6 aria-level="7" id="a-3a-ii-orchard-zsa-spend-auth-sigs-auth-digest">A.3a.ii: orchard_zsa_spend_auth_sigs_auth_digest</h6>
+<p>This is a BLAKE2b-256 hash of the concatenation of <span class="docutils literal">OrchardSignature</span> encodings for the spend authorization signature of each OrchardZSA Action in the OrchardZSA Action Group (i.e. the contents of the <span class="docutils literal">vSpendAuthSigsOrchard</span> field of the <span class="docutils literal">ActionGroupDescription</span>):</p>
+<pre class="literal-block">A.3a.ii.1: spendAuthSigsOrchard    (field encoding bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxAuthOrSASHash&quot;</pre>
+<p>The encoding of <span class="docutils literal">OrchardSignature</span> is specified in ZIP 230 <a class="brackets" href="#zip-0230-orchard-signature-orchardsignature" id="footnote-reference-28" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a>.
+Note that this means the encoding of <span class="docutils literal">spendAuthSigsOrchard</span> differs from that used in ZIP 244.</p>
+</section>
+</section>
+</section>
+</section>
+<h4 id="a-4-issuance-auth-digest"><a class="hanchor" href="#a-4-issuance-auth-digest" aria-hidden="true" tabindex="-1">#</a>A.4: issuance_auth_digest</h4>
+<p>In the case that Issuance Actions are present, this is a BLAKE2b-256 hash of the field encoding of the <span class="docutils literal">issueAuthSig</span> field of the transaction:</p>
+<pre class="literal-block">A.4a: issueAuthSig            (field encoding bytes)</pre>
+<p>The personalization field of this hash is set to:</p>
+<pre class="literal-block">&quot;ZTxAuthZSAOrHash&quot;</pre>
+<p>In the case that the transaction has no Orchard Actions, <span class="docutils literal">issuance_auth_digest</span> is</p>
+<pre class="literal-block">BLAKE2b-256(&quot;ZTxAuthZSAOrHash&quot;, [])</pre>
+<p>The field encodings are specified in ZIP 230 <a class="brackets" href="#zip-0230-transaction-format" id="footnote-reference-29" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+</section>
+</section>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>TBD</p>
+<h2 id="rationale-for-auth-digest-domain-separator-reuse-from-zip-244"><a class="hanchor" href="#rationale-for-auth-digest-domain-separator-reuse-from-zip-244" aria-hidden="true" tabindex="-1">#</a>Rationale for <span class="docutils literal">auth_digest</span> domain separator reuse from ZIP 244</h2>
+<p>An authorizing data commitment cannot be used without the context of a transaction ID.
+That is, it cannot be used independently from the <span class="docutils literal">version</span> and <span class="docutils literal">versionGroupId</span> fields committed to within the transaction ID.
+Therefore, reusing the same personalization values within the authorizing data commitment tree as in ZIP 244 is safe, even though the structure may have changed.</p>
+</section>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p>TBD</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.2 or later [NU6.1]</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-spenddesc" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#spenddesc">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.4: Spend Descriptions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-outputdesc" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#outputdesc">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.5: Output Descriptions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-actiondesc" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#actiondesc">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.6: Action Descriptions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2022.3.8. Section 7.1: Transaction Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-transaction-format" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-16">1</a>,<a role="doc-backlink" href="#footnote-reference-19">2</a>,<a role="doc-backlink" href="#footnote-reference-20">3</a>,<a role="doc-backlink" href="#footnote-reference-24">4</a>,<a role="doc-backlink" href="#footnote-reference-26">5</a>,<a role="doc-backlink" href="#footnote-reference-29">6</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#transaction-format">ZIP 230: Version 6 Transaction Format — Specification: Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-orchardzsa-action-group-description" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-27">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#orchardzsa-action-group-description">ZIP 230: Version 6 Transaction Format — Specification: OrchardZSA Action Group Description</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-orchardzsa-action-description-orchardzsaaction" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-12">1</a>,<a role="doc-backlink" href="#footnote-reference-14">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#orchardzsa-action-description-orchardzsaaction">ZIP 230: Version 6 Transaction Format — Specification: OrchardZSA Action Description</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-orchardzsa-asset-burn-description" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-15">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#orchardzsa-asset-burn-description">ZIP 230: Version 6 Transaction Format — Specification: OrchardZSA Asset Burn Description</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-sapling-output-field-encodings" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-8">1</a>,<a role="doc-backlink" href="#footnote-reference-10">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#sapling-output-description-outputdescriptionv6">ZIP 230: Version 6 Transaction Format — Specification: Sapling Output Description (OutputDescriptionV6)</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-transparent-sighash-info-field-encodings" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-25">13</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#transparent-sighash-information-transparentsighashinfo">ZIP 230: Version 6 Transaction Format — Specification: Transparent Sighash Information</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-orchard-signature-orchardsignature" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-28">14</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#orchard-signature-orchardsignature">ZIP 230: Version 6 Transaction Format — Specification: Orchard Signature</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-issuance-action-description-issueaction" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-17">15</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#issuance-action-description-issueaction">ZIP 230: Version 6 Transaction Format — Specification: Issuance Action Description</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-issue-note-description-issuenotedescription" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-18">16</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#issue-note-description-issuenotedescription">ZIP 230: Version 6 Transaction Format — Specification: Issue Note Description</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-5">2</a>,<a role="doc-backlink" href="#footnote-reference-6">3</a>,<a role="doc-backlink" href="#footnote-reference-22">4</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244-sigdigest" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-21">18</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0244.rst#signature-digest">ZIP 244: Transaction Identifier Non-Malleability: Signature Digest</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244-authcommitment" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-23">19</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0244.rst#authorizing-data-commitment">ZIP 244: Transaction Identifier Non-Malleability: Authorizing Data Commitment</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0307" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-7">1</a>,<a role="doc-backlink" href="#footnote-reference-9">2</a>,<a role="doc-backlink" href="#footnote-reference-11">3</a>,<a role="doc-backlink" href="#footnote-reference-13">4</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0307.rst">ZIP 307: Light Client Protocol for Payment Detection</a></p>
+</aside>
+</aside>
+</section>
