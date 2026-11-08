@@ -1,0 +1,367 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", and "SHOULD" in this document are to be
+interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when, they appear
+in all capitals.</p>
+<p>The terms "block chain", "consensus branch", and "network upgrade" follow
+ZIP 200. <sup><a href="#user-content-fn-zip-0200" id="user-content-fnref-zip-0200" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> Block and transaction encodings follow the Zcash Protocol
+Specification. <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>MB means 1,000,000 bytes. GB means 1,000,000,000 bytes. The existing block
+size limit is 2 MB; this proposal increases it to 3 MB.</p>
+<p>"Orphan rate" means distinct observed stale blocks divided by the sum of
+canonical and observed stale blocks. Here, a stale block is a block outside
+the final agreed chain. The experiment below counts a block
+only if at least one node recorded a successful commit. It does not count
+every solved block that a miner discarded before submission.</p>
+<p>"Reach 90%" means elapsed time from the miner's solution-ready event to
+decoded block availability at 72 of the experiment's 80 nodes, including
+the originating node at time zero.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This proposal increases the block size limit from 2,000,000 to 3,000,000 bytes
+(3 MB) in a network upgrade after NU7. It preserves ZIP 218's shielded action
+limits and shared shielded budget. <sup><a href="#user-content-fn-zip-0218" id="user-content-fnref-zip-0218" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> It also preserves the
+2,000,000-byte transaction cap enforced by zcashd and the existing signature-operation
+limit.</p>
+<p>The additional space primarily increases capacity for transparent
+transactions. It prepares the block byte budget for future shielded
+throughput without raising today's shielded scanning burden through an
+action-limit increase. A future proposal to increase shielded action limits
+would depend on adoption and operational validation of private information
+retrieval (PIR), with measured wallet bandwidth and privacy costs.</p>
+<p>The proposal also changes block-message size negotiation so that upgraded
+peers can relay valid 3 MB blocks. It leaves block target spacing to separate
+proposals. Larger blocks increase full-node bandwidth, storage, and
+potential validation work.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>ZIP 218 separates the block byte budget from the shielded action budget.
+The byte budget limits serialized data; the action budget limits shielded
+work and compact sync bandwidth. Its action limits do not apply to the
+transparent components of transactions. <sup><a href="#user-content-fn-zip-0218" id="user-content-fnref-zip-0218-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>Increasing the byte budget now allows more transparent transactions when
+bytes are the binding constraint. Increasing transparent throughput is an
+intermediate benefit, not Zcash's long-term scaling objective. Deploying
+and measuring larger blocks also prepares the network for future shielded
+throughput once wallets can handle it privately and efficiently.</p>
+<p>This proposal separates those decisions. It increases block space while
+retaining all shielded action limits. PIR adoption does not automatically
+activate higher limits; any change requires a separate consensus proposal.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>This proposal does not change transaction disclosure, shielded proofs, or
+the information that transparent transactions expose. It does not encourage
+wallets to replace shielded transactions with transparent transactions.</p>
+<p>At unchanged block target spacing, retaining the shielded action limits
+preserves ZIP 218's bound on compact shielded fields per block and per day.
+This does not bound every wallet download: transaction metadata, transparent
+queries, and full-transaction retrieval can add traffic. A separately
+activated spacing reduction would also increase the daily bound.</p>
+<p>Longer block propagation can increase stale blocks and reorganization risk.
+Wallets should not reduce their confirmation or anchor-depth policies on
+the strength of the experiment below. The observed orphan rate does
+not establish a reorganization-depth bound.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul>
+<li>Increase the maximum serialized block size to exactly 3 MB.</li>
+<li>Preserve historical validity and all existing shielded action limits.</li>
+<li>Preserve transaction-size, signature-operation, and script limits.</li>
+<li>Support full-sized blocks through relay, synchronization, and mining.</li>
+<li>Bound resource use before accepting untrusted block bodies.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="activation-and-block-size"><a class="hanchor" href="#activation-and-block-size" aria-hidden="true" tabindex="-1">#</a>Activation and block size</h2>
+<p>Define the following constants:</p>
+<p><math><mrow><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mi>.</mi></mrow></math></p>
+<p><math><mrow><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>3</mn><mo>×</mo><msup><mn>10</mn><mn>6</mn></msup><mo>=</mo><mn>3,000,000.</mn></mrow></math></p>
+<p>A deployment ZIP will assign <math><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></math> for each
+network. It MUST be greater than that network's NU7 activation height.
+Let <math><mrow><mi>A</mi><mo>=</mo><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></mrow></math>. For block height
+<math><mrow><mi>h</mi><mo>∈</mo><mi>ℕ</mi></mrow></math>, define:</p>
+<p><math><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>h</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mo fence="true" form="prefix" stretchy="true">{</mo><mtable><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mn>2,000,000</mn></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mi>h</mi><mo>&#x3C;</mo><mi>A</mi><mo separator="true">,</mo></mrow></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mn>3,000,000</mn></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mi>h</mi><mo>≥</mo><mi>A</mi><mi>.</mi></mrow></mtd></mtr></mtable><mo fence="true" form="postfix" stretchy="true"></mo></mrow></mrow></math></p>
+<p>Replace the fixed block size bound in § 7.6 'Block Header Encoding and
+Consensus' with the requirement that a block at height <math><mi>h</mi></math> MUST have encoded
+size at most <math><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>h</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>. <sup><a href="#user-content-fn-protocol-blockheader" id="user-content-fnref-protocol-blockheader" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup></p>
+<p>In the same section, qualify the comparison with Bitcoin's block size limit:
+Zcash's 2,000,000-byte limit applies below <math><mi>A</mi></math>; the 3,000,000-byte limit applies
+at or above <math><mi>A</mi></math>.</p>
+<p>In ZIP 218's specification, replace the statement that the overall 2 MB block
+size limit continues to apply with a reference to <math><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>h</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
+after this proposal activates. ZIP 218's shielded action limits remain
+unchanged. <sup><a href="#user-content-fn-zip-0218" id="user-content-fnref-zip-0218-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>Encoded size includes the block header, its Equihash solution, the encoded
+transaction count, and every transaction, including the coinbase. It excludes
+the 24-byte P2P message header and storage or RPC wrappers. No field receives
+a size discount.</p>
+<p>Validators MUST select the limit using the candidate block's height on its
+parent chain. The local tip height and the peer's advertised height MUST NOT
+determine consensus validity. Validators MUST retain the old limit below
+<math><mi>A</mi></math>, including during initial synchronization, side-chain validation, and
+reorganizations across activation.</p>
+<h2 id="transaction-and-computational-limits"><a class="hanchor" href="#transaction-and-computational-limits" aria-hidden="true" tabindex="-1">#</a>Transaction and computational limits</h2>
+<p>Define <math><mrow><mrow><mi>𝖳</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>2,000,000</mn></mrow></math> bytes.
+For every block at or above <math><mi>A</mi></math>, each transaction, including the coinbase,
+MUST have encoded size at most <math><mrow><mi>𝖳</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math>.
+Pre-activation transaction rules remain unchanged.</p>
+<p>The transaction bound remains independent of the block bound. The additional
+space admits more transactions. zcashd already enforces an explicit
+2,000,000-byte transaction cap. The protocol specification states a
+100,000-byte cap before Sapling; after Sapling, the block envelope also
+limits the size of any included transaction. This proposal makes the
+independent 2,000,000-byte post-activation transaction cap explicit, so
+increasing the block envelope does not admit larger individual transactions.
+<sup><a href="#user-content-fn-zcashd-limits" id="user-content-fnref-zcashd-limits" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>Implementations MUST continue to enforce ZIP 218's existing per-pool limits
+and shared global shielded budget. Orchard and Ironwood actions continue to
+consume the same shared budget. Extra transparent bytes do not exempt a
+mixed transaction's shielded components from those limits. <sup><a href="#user-content-fn-zip-0218" id="user-content-fnref-zip-0218-4" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>The block signature-operation limit remains 20,000, using the existing
+counting rules, including P2SH signature operations. Existing script limits
+and transaction-format bounds remain unchanged. <sup><a href="#user-content-fn-zcashd-limits" id="user-content-fnref-zcashd-limits-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup></p>
+<p>This proposal changes neither block target spacing nor the difficulty
+algorithm, issuance schedule, funding streams, transaction expiry, or
+coinbase maturity.</p>
+<h2 id="block-relay-and-message-framing"><a class="hanchor" href="#block-relay-and-message-framing" aria-hidden="true" tabindex="-1">#</a>Block relay and message framing</h2>
+<p>ZIP 204 currently limits each message payload to 2,097,152 bytes. That limit
+cannot carry a valid 3 MB block. Amend its 'Maximum Message Size' rules as
+follows. <sup><a href="#user-content-fn-zip-0204" id="user-content-fnref-zip-0204" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></p>
+<p>Define <math><mrow><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>𝖵</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi></mrow></math>, to be assigned by the
+deployment ZIP. For a connection whose negotiated protocol version is at
+least this value, the maximum <code>block</code> message payload is 3,000,000 bytes.
+For older negotiated versions, retain the 2,097,152-byte maximum. Other
+commands retain their existing payload and item-count limits.</p>
+<p>Nodes MUST reject a declared payload length above the applicable maximum
+before allocating a buffer for that payload. A decoder MUST consume exactly
+one block from a <code>block</code> payload and reject trailing data, truncated fields,
+and invalid encodings. Existing checksum checks remain in force.</p>
+<p>Upgraded nodes MUST support the larger <code>block</code> payload on upgraded
+connections even when their local tip is below <math><mi>A</mi></math>. They still apply the
+height-dependent consensus bound when validating the block. This permits
+initial synchronization and out-of-order delivery across activation without
+accepting oversized pre-activation blocks.</p>
+<p>Senders MUST NOT send a payload above the peer connection's negotiated
+maximum. The deployment MUST update minimum peer versions and apply
+ZIP 201's upgrade peer-management rules so that upgraded nodes can retain
+compatible peers at activation. <sup><a href="#user-content-fn-zip-0201" id="user-content-fnref-zip-0201" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup></p>
+<h2 id="mining-and-node-interfaces"><a class="hanchor" href="#mining-and-node-interfaces" aria-hidden="true" tabindex="-1">#</a>Mining and node interfaces</h2>
+<p><code>getblocktemplate</code> MUST report <code>sizelimit</code> for the candidate height, normally
+one above the selected parent. Template selection MUST reserve space for
+the complete header, encoded transaction count, and completed coinbase.
+Miners MUST re-evaluate the limit when a parent change crosses activation.</p>
+<p>Block submission and retrieval interfaces MUST support every otherwise-valid
+block within the applicable limit. This includes proposal validation, RPC
+submission, historical retrieval, and local block import. Hex-encoded RPC
+block data alone can occupy 6,000,000 characters; request limits also need
+room for the enclosing request.</p>
+<p>Deserializers MUST distinguish the block envelope limit from transaction
+and field limits. Increasing the block limit MUST NOT implicitly increase
+<code>tx</code>, inventory, address, or header-message limits. Nodes SHOULD bound
+aggregate queued block bytes and decoded memory, rather than relying only
+on a count of blocks or connections.</p>
+<p>This proposal does not increase mempool memory defaults or change ZIP 317's
+fee calculation. ZIP 401's cost limit remains a node resource policy, not a
+fixed entitlement to a number of full blocks. <sup><a href="#user-content-fn-zip-0317" id="user-content-fnref-zip-0317" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> <sup><a href="#user-content-fn-zip-0401" id="user-content-fnref-zip-0401" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup></p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<h2 id="choice-of-block-size"><a class="hanchor" href="#choice-of-block-size" aria-hidden="true" tabindex="-1">#</a>Choice of block size</h2>
+<p>The authors chose 3 MB as an attainable limit for current Zakura and Zebra
+Andale implementations while keeping orphan rates within a reasonable range.
+This is an engineering target, not a claim that 3 MB is an optimal threshold.
+The experiment below provides preliminary Zakura evidence near that size.
+Matched measurements across both clients remain necessary before deployment.</p>
+<h2 id="throughput-and-resource-costs"><a class="hanchor" href="#throughput-and-resource-costs" aria-hidden="true" tabindex="-1">#</a>Throughput and resource costs</h2>
+<p>The new byte budget is <math><mrow><mn>3,000,000</mn><mi>/</mi><mn>2,000,000</mn><mo>=</mo><mn>1.5</mn></mrow></math> times the old
+budget, an increase of 50%. Transaction throughput depends
+on the workload. Transparent transactions can use the additional space,
+but signature operations, script execution, and UTXO access can become
+binding constraints. Action-limited shielded workloads do not receive a
+corresponding increase in transactions per block.</p>
+<p>The following bounds assume every canonical block reaches 3 MB and blocks
+arrive at the stated target spacing:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Target spacing</th><th>Raw block payload rate</th><th>Raw block data per day</th><th>Capacity relative to 2 MB at 25 seconds</th></tr></thead><tbody><tr><td>25 seconds</td><td>120,000 bytes/second</td><td>10.368 GB</td><td>1.5×</td></tr><tr><td>20 seconds</td><td>150,000 bytes/second</td><td>12.96 GB</td><td>1.875×</td></tr></tbody></table>
+<p>These figures exclude repeated relay, stale blocks, transport overhead,
+indexes, and state growth. They describe full-block traffic, not light-wallet
+compact sync. Disk and memory costs can grow differently from serialized
+bytes, especially for blocks with many small transparent outputs.</p>
+<p>Keeping the 20,000 signature-operation limit bounds counted operations; it
+does not bound all validation work. Transparent-heavy blocks require
+measurements of script execution, UTXO reads and writes, memory, and
+validation-to-mining-tip latency.</p>
+<h2 id="propagation-experiment"><a class="hanchor" href="#propagation-experiment" aria-hidden="true" tabindex="-1">#</a>Propagation experiment</h2>
+<p>A November 2026 private-network experiment used 80 Zakura nodes across 12
+regions at a 20-second target spacing. Blocks filled twice ZIP 218's normal
+shielded action limit: 660 Ironwood actions. The measured blocks occupied
+3,026,379 bytes, approximately 3 MB and slightly above the proposed limit.
+<sup><a href="#user-content-fn-experiment" id="user-content-fnref-experiment" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Measurement</th><th>Mean</th><th>Median</th><th>95th percentile</th></tr></thead><tbody><tr><td>Peer-to-peer block propagation</td><td>TODO</td><td>TODO</td><td>TODO</td></tr><tr><td>Block propagation to 90% of nodes</td><td>1.20 s</td><td>1.02 s</td><td>2.18 s</td></tr></tbody></table>
+<p>The 90% result covers 809 canonical blocks. It measures time from the miner's
+solution-ready event to decoded block availability at 72 of 80 nodes. It
+includes submission and network delivery, rather than validated mining-tip
+adoption. The saved summary does not contain a separate peer-to-peer timing
+measurement; that row remains TODO.</p>
+<p>The observed orphan rate was <strong>3.6%</strong>, including startup. The rate counts
+blocks committed by at least one node that were absent from the final agreed
+chain. It excludes solved blocks that no node recorded as committed.</p>
+<p>These results support further evaluation of 3 MB blocks. They do not establish
+a Mainnet orphan-rate bound. Cross-host clock error affects propagation
+timing, and the propagation sample excludes stale blocks.</p>
+<p><strong>TODO:</strong> Add peer-to-peer propagation measurements with explicit send and
+receive boundaries. Add results from experiments with different block sizes
+and shielded/transparent transaction mixes, including the proposed unchanged
+shielded action limits. Report propagation to 90% of nodes and orphan rates
+for each configuration, including Zakura and Zebra Andale results.</p>
+<h2 id="validation-benchmarks"><a class="hanchor" href="#validation-benchmarks" aria-hidden="true" tabindex="-1">#</a>Validation benchmarks</h2>
+<p>The original Zcash block-size increase prompted analysis of verification
+costs across different input/output mixes. <sup><a href="#user-content-fn-zcashd-worst-case" id="user-content-fnref-zcashd-worst-case" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup> A fixed
+signature-operation limit does not capture every validation cost.</p>
+<p>Before deployment, benchmark the following workloads at the proposed limit:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Workload</th><th>Costs to examine</th></tr></thead><tbody><tr><td>Many small transparent transactions</td><td>Per-transaction overhead and UTXO lookups</td></tr><tr><td>Output-heavy transparent transactions</td><td>UTXO growth and database writes</td></tr><tr><td>Signature-heavy transparent transactions</td><td>Signature verification and script execution</td></tr><tr><td>Mixed transparent and shielded transactions</td><td>Combined UTXO and proof-verification work under unchanged action limits</td></tr></tbody></table>
+<p>For each workload, report validation-to-mining-tip time, UTXO reads and writes,
+and peak memory. Record client version, hardware, and cache conditions so
+others can reproduce the results.</p>
+<h2 id="separating-block-space-from-shielded-action-limits"><a class="hanchor" href="#separating-block-space-from-shielded-action-limits" aria-hidden="true" tabindex="-1">#</a>Separating block space from shielded action limits</h2>
+<p>Shielded wallet bandwidth remains the constraint on increasing Ironwood
+actions. The experiment tests propagation under a heavier shielded workload;
+it does not demonstrate that wallets can afford that workload.</p>
+<p>A future action-limit proposal should follow PIR adoption and operational
+testing. It should quantify query bandwidth, server cost, privacy assumptions,
+failure behavior, and wallet recovery costs. This ZIP creates neither an
+automatic action-limit increase nor an exception for PIR-enabled wallets.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p><strong>TODO:</strong> link implementations and activation vectors. The experiment's
+private-network byte override is evidence for propagation, not a reference
+implementation of this height-dependent consensus and negotiation change.</p>
+<p>Implementations need coverage for:</p>
+<ul>
+<li>Blocks of 2,000,000 and 2,000,001 bytes on both sides of activation;
+blocks of 3,000,000 and 3,000,001 bytes after activation.</li>
+<li>Transactions of 2,000,000 and 2,000,001 bytes inside otherwise-valid
+post-activation blocks; coinbase and transaction-count encoding overhead.</li>
+<li>Unchanged action and signature-operation boundaries, including mixed
+pools, transparent components, and P2SH accounting.</li>
+<li>Larger blocks received before the local tip reaches activation, historical
+replay, and reorganizations that cross activation in either direction.</li>
+<li>Negotiated old and new peers; exact payload limits, malformed lengths,
+trailing bytes, truncation, and unchanged limits for other commands.</li>
+<li>Mining templates and submission across a parent change; storage round trips,
+checkpoint synchronization, and full-block RPC retrieval.</li>
+<li>Many-small-transaction and output-heavy blocks, bounded decoder allocations,
+concurrent downloads, and peers that send large bodies slowly.</li>
+</ul>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>Deploy through a network upgrade after NU7. A deployment ZIP will assign
+activation heights, consensus branch IDs, and the new protocol version.
+This proposal can activate with a separately specified spacing change, but
+does not require a 20-second target.</p>
+<p>Before advancing to Proposed status, publish reproducible experiment inputs
+and resolve the deployment assignments. Validate the byte and computational
+boundaries across independent clients. Run matched 3 MB transparent and
+mixed workloads at the selected spacing, including constrained bandwidth,
+propagation tails, stale blocks, UTXO growth, and mining-tip adoption.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0200">
+<p><a href="https://zips.z.cash/zip-0200">ZIP 200: Network Upgrade Mechanism</a> <a href="#user-content-fnref-zip-0200" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0218">
+<p><a href="https://zips.z.cash/zip-0218">ZIP 218: 25-second Block Target Spacing</a> <a href="#user-content-fnref-zip-0218" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0218-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0218-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-0218-4" data-footnote-backref="" aria-label="Back to reference 4-4" class="data-footnote-backref">↩<sup>4</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-blockheader">
+<p><a href="/upstream/protocol/protocol.pdf#blockheader">Zcash Protocol Specification, § 7.6: Block Header Encoding and Consensus</a> <a href="#user-content-fnref-protocol-blockheader" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcashd-limits">
+<p><a href="https://github.com/zcash/zcash/blob/master/src/consensus/consensus.h">zcashd: consensus limits</a> <a href="#user-content-fnref-zcashd-limits" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zcashd-limits-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0204">
+<p><a href="https://zips.z.cash/zip-0204">ZIP 204: Zcash P2P Network Protocol</a> <a href="#user-content-fnref-zip-0204" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0201">
+<p><a href="https://zips.z.cash/zip-0201">ZIP 201: Network Peer Management for Overwinter</a> <a href="#user-content-fnref-zip-0201" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0317">
+<p><a href="https://zips.z.cash/zip-0317">ZIP 317: Proportional Transfer Fee Mechanism</a> <a href="#user-content-fnref-zip-0317" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0401">
+<p><a href="https://zips.z.cash/zip-0401">ZIP 401: Addressing Mempool Denial-of-Service</a> <a href="#user-content-fnref-zip-0401" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-experiment">
+<p><a href="https://github.com/valargroup/zips/blob/19190bf6cbab395dcf1da3813426559debe7ce04/zips/draft-valargroup-3-mb-block-size/experiment-summary.json">November 2026 larger-block experiment: local evidence summary</a> <a href="#user-content-fnref-experiment" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcashd-worst-case">
+<p><a href="https://github.com/zcash/zcash/issues/1077">zcashd issue #1077: Worst-case block verification costs</a> <a href="#user-content-fnref-zcashd-worst-case" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

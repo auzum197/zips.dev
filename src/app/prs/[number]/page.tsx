@@ -5,6 +5,7 @@ import { diffToHtml } from "@/lib/diff";
 import { getMeta, getPrByNumber, getPrPreviewHtml, getPrs, getZipByNumber } from "@/lib/data";
 import StatusBadge from "@/components/status-badge";
 import TocSidebar from "@/components/toc-sidebar";
+import ZipToc from "@/components/zip-toc";
 import { Badge } from "@/components/ui/badge";
 export const dynamicParams = false;
 export function generateStaticParams() {
@@ -85,6 +86,9 @@ export default async function PrPreviewPage({ params, }: {
             Unofficial preview — the proposed text below is rendered from the pull
             request head and is not part of the canonical ZIP set.
           </p>
+          {hasToc && (<div className="min-[70rem]:hidden">
+              <ZipToc headings={headings} floating/>
+            </div>)}
         </header>
 
         <article data-pagefind-body>

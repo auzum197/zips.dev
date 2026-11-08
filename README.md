@@ -1,4 +1,4 @@
-# zips.dev
+# zipreader
 
 An unofficial, static web frontend for the [zcash/zips](https://github.com/zcash/zips) repository — rendered ZIPs, open PRs as browsable proposals, an implementation matrix, network-upgrade timelines, and curated cross-references.
 

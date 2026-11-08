@@ -8,6 +8,7 @@ import MetaPanel from "@/components/meta-panel";
 import PageHeader from "@/components/page-header";
 import StatusBadge from "@/components/status-badge";
 import TocSidebar from "@/components/toc-sidebar";
+import ZipToc from "@/components/zip-toc";
 import { Badge } from "@/components/ui/badge";
 export const dynamicParams = false;
 export function generateStaticParams() {
@@ -51,6 +52,9 @@ export default async function Page({ params, }: {
           <div className={cn("mt-2.5", badgesRow)}>
             <StatusBadge status={zip.status} group={statusGroup(zip.status)}/>
             {zip.revision !== null && <Badge variant="outline">r{zip.revision}</Badge>}
+          </div>
+          <div className="min-[70rem]:hidden" data-pagefind-ignore>
+            <ZipToc headings={zip.headings} floating/>
           </div>
         </header>
         <div className="prose" dangerouslySetInnerHTML={{ __html: html }}/>

@@ -9,11 +9,13 @@ import "@fontsource/ibm-plex-serif/600.css";
 import "./globals.css";
 import SiteNav from "@/components/site-nav";
 import SiteFooter from "@/components/site-footer";
+import ScrollReset from "@/components/scroll-reset";
+import HeaderAutohide from "@/components/header-autohide";
 import { getMeta } from "@/lib/data";
 export const metadata: Metadata = {
     title: {
-        default: "zips.dev",
-        template: "%s · zips.dev",
+        default: "zipreader",
+        template: "%s · zipreader",
     },
     description: "Unofficial explorer for Zcash Improvement Proposals: rendered ZIPs, open PRs, implementations, and network upgrade timelines.",
 };
@@ -25,10 +27,14 @@ export default function RootLayout({ children }: {
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInit }}/>
       </head>
-      <body>
+      <body className="flex h-full flex-col">
         <SiteNav />
-        <main className="mx-auto w-full max-w-[88rem] px-5 pb-12">{children}</main>
-        <SiteFooter meta={getMeta()}/>
+        <div id="scroll-root" className="min-h-0 flex-1 overflow-y-auto">
+          <ScrollReset />
+          <HeaderAutohide />
+          <main className="mx-auto w-full max-w-[88rem] px-5 pb-12">{children}</main>
+          <SiteFooter meta={getMeta()}/>
+        </div>
       </body>
     </html>);
 }

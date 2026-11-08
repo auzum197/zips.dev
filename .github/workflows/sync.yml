@@ -2,7 +2,14 @@ name: sync
 
 # Refresh the vendored zcash/zips clone, render, fetch PRs, publish snapshots,
 # build the static site and deploy to GitHub Pages.
+#
+# Runs on every push to main (merged PRs deploy immediately), on the daily
+# schedule, and on demand. The snapshot commit this job pushes uses
+# GITHUB_TOKEN, and GitHub never starts a workflow from such a push, so it
+# cannot retrigger itself.
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: "23 5 * * *" # daily, off the hour
   workflow_dispatch:
@@ -26,7 +33,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Always work from the tip of main, not the commit that triggered the
+      # run. Runs are serialised by the concurrency group, so a queued push run
+      # or a rerun would otherwise start behind the snapshot commit the
+      # previous run pushed, and its own snapshot commit would conflict.
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - uses: actions/setup-python@v5
         with:
@@ -63,6 +76,8 @@ jobs:
             echo "No snapshot changes — nothing to publish."
           else
             git commit -q -m "sync: refresh snapshots @ $(cd vendor/zips && git rev-parse --short HEAD)"
+            # main may have moved while this job ran (that is what triggered us)
+            git pull --rebase --autostash origin main
             git push
           fi
 
@@ -81,3 +96,7 @@ jobs:
       # actions/deploy-pages v5.0.1
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
+        with:
+          # Pages propagation for this site has taken ~5 min on good days and
+          # exceeded the action's 10 min default once; give it 20 min.
+          timeout: 1200000

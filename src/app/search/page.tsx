@@ -3,7 +3,7 @@ import SearchBox from "@/components/search-box";
 import PageHeader from "@/components/page-header";
 export const metadata: Metadata = {
     title: "Search",
-    description: "Full-text search across every ZIP on zips.dev.",
+    description: "Full-text search across every ZIP on zipreader.",
 };
 export default function SearchPage() {
     return (<>
