@@ -106,6 +106,9 @@ export function getNewProposals(): NewProposal[] {
 export function upgradeNameForZip(number: number): Upgrade[] {
     return getUpgrades().filter((u) => u.zips.includes(number));
 }
+export function getDraftSlugs(): Set<string> {
+    return new Set(getDrafts().map((z) => z.slug));
+}
 export function allZipNumbers(): number[] {
     return getNumberedZips()
         .map((z) => z.number)

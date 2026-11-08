@@ -23,7 +23,7 @@ export const Default: Story = {
             }),
             makePr({
                 number: 802,
-                title: "draft-crosschain: new draft",
+                title: "draft-crosschain: an unknown draft slug (renders faint)",
                 zipRefs: [],
                 draftRefs: ["draft-crosschain"],
                 preview: {
@@ -37,6 +37,7 @@ export const Default: Story = {
             }),
         ],
         existingZipNumbers: [321],
+        existingDraftSlugs: [],
     },
 };
 

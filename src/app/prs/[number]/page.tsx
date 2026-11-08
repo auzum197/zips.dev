@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { diffToHtml } from "@/lib/diff";
-import { getMeta, getPrByNumber, getPrPreviewHtml, getPrs, getZipByNumber } from "@/lib/data";
+import { getDraftSlugs, getMeta, getPrByNumber, getPrPreviewHtml, getPrs, getZipByNumber } from "@/lib/data";
 import StatusBadge from "@/components/status-badge";
 import TocSidebar from "@/components/toc-sidebar";
 import ZipToc from "@/components/zip-toc";
@@ -42,6 +42,14 @@ export default async function PrPreviewPage({ params, }: {
     const base = pr.zipRefs.length ? getZipByNumber(pr.zipRefs[0]) : undefined;
     const headings = pr.preview.headings;
     const hasToc = headings.length > 0;
+    const draftSlugs = getDraftSlugs();
+    const existingZips = pr.zipRefs.filter((z) => getZipByNumber(z) !== undefined);
+    const newZips = pr.zipRefs.filter((z) => getZipByNumber(z) === undefined);
+    const existingDrafts = pr.draftRefs.filter((d) => draftSlugs.has(d));
+    const newDrafts = pr.draftRefs.filter((d) => !draftSlugs.has(d));
+    const refLink = "underline underline-offset-2";
+    const refNew = "text-faint";
+    const sep = <span className="mr-2">·</span>;
     return (<div className="relative mx-auto max-w-[88rem] pt-6">
       {hasToc && <TocSidebar headings={headings}/>}
 
@@ -49,19 +57,32 @@ export default async function PrPreviewPage({ params, }: {
         <header className="mb-8 border-b border-border-subtle pb-4">
           <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-muted-foreground">
             <Badge variant="accent">PR #{pr.number}</Badge>
-            <span>proposed changes to</span>
-            {pr.zipRefs.map((z, i) => (<span key={z}>
-                {i > 0 && <span className="mr-2">·</span>}
-                <Link href={`/zip/${z}/`} className="underline underline-offset-2">
-                  ZIP {z}
-                </Link>
-              </span>))}
-            {pr.draftRefs.map((d) => (<span key={d}>
-                <span className="mr-2">·</span>
-                <Link href={`/drafts/${d}/`} className="underline underline-offset-2">
-                  {d}
-                </Link>
-              </span>))}
+            {(existingZips.length > 0 || existingDrafts.length > 0) && (<>
+                <span>proposed changes to</span>
+                {existingZips.map((z, i) => (<span key={`z${z}`}>
+                    {i > 0 && sep}
+                    <Link href={`/zip/${z}/`} className={refLink}>
+                      ZIP {z}
+                    </Link>
+                  </span>))}
+                {existingDrafts.map((d, i) => (<span key={`d${d}`}>
+                    {(i > 0 || existingZips.length > 0) && sep}
+                    <Link href={`/drafts/${d}/`} className={refLink}>
+                      {d}
+                    </Link>
+                  </span>))}
+              </>)}
+            {(newZips.length > 0 || newDrafts.length > 0) && (<>
+                <span>proposes new</span>
+                {newZips.map((z, i) => (<span key={`nz${z}`}>
+                    {i > 0 && sep}
+                    <span className={refNew}>ZIP {z}</span>
+                  </span>))}
+                {newDrafts.map((d, i) => (<span key={`nd${d}`}>
+                    {(i > 0 || newZips.length > 0) && sep}
+                    <span className={refNew}>{d}</span>
+                  </span>))}
+              </>)}
           </p>
           <h1 className="font-display mb-3 text-[clamp(1.75rem,3vw,2.35rem)] leading-[1.2] font-semibold tracking-[-0.02em] [text-wrap:pretty]">
             {pr.title}

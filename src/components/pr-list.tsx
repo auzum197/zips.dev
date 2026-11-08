@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { dateSlice } from "@/lib/date";
 import type { PrMeta } from "@/lib/types";
-function PrRefs({ pr, existingZipNumbers, }: {
+function PrRefs({ pr, existingZipNumbers, existingDraftSlugs, }: {
     pr: PrMeta;
     existingZipNumbers: Set<number>;
+    existingDraftSlugs: Set<string>;
 }) {
     if (pr.zipRefs.length === 0 && pr.draftRefs.length === 0)
         return null;
@@ -13,14 +14,17 @@ function PrRefs({ pr, existingZipNumbers, }: {
           </Link>) : (<span key={`z${n}`} className="text-faint">
             ZIP {n}
           </span>))}
-      {pr.draftRefs.map((slug) => (<Link key={`d${slug}`} href={`/drafts/${slug}/`} className="text-accent hover:underline">
-          {slug}
-        </Link>))}
+      {pr.draftRefs.map((slug) => existingDraftSlugs.has(slug) ? (<Link key={`d${slug}`} href={`/drafts/${slug}/`} className="text-accent hover:underline">
+            {slug}
+          </Link>) : (<span key={`d${slug}`} className="text-faint">
+            {slug}
+          </span>))}
     </span>);
 }
-function PrRow({ pr, existingZipNumbers, }: {
+function PrRow({ pr, existingZipNumbers, existingDraftSlugs, }: {
     pr: PrMeta;
     existingZipNumbers: Set<number>;
+    existingDraftSlugs: Set<string>;
 }) {
     return (<li id={`pr-${pr.number}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle py-2.5 scroll-mt-18 [&:target]:bg-muted">
       <span className="shrink-0 font-mono text-xs text-faint tabular-nums">
@@ -30,20 +34,24 @@ function PrRow({ pr, existingZipNumbers, }: {
         {pr.title}
       </a>
       {pr.claimed && (<span className="shrink-0 font-mono text-xs text-purple">claimed</span>)}
-      <PrRefs pr={pr} existingZipNumbers={existingZipNumbers}/>
+      <PrRefs pr={pr} existingZipNumbers={existingZipNumbers} existingDraftSlugs={existingDraftSlugs}/>
       <span className="shrink-0 whitespace-nowrap text-xs text-faint max-sm:hidden">
         {pr.author ?? "unknown"} · {dateSlice(pr.updatedAt) ?? "—"}
       </span>
     </li>);
 }
-export default function PrList({ prs, existingZipNumbers = [], }: {
+export default function PrList({ prs, existingZipNumbers = [], existingDraftSlugs = [], }: {
     prs: PrMeta[];
     existingZipNumbers?: Iterable<number>;
+    existingDraftSlugs?: Iterable<string>;
 }) {
     const existing = existingZipNumbers instanceof Set
         ? existingZipNumbers
         : new Set(existingZipNumbers);
+    const existingDrafts = existingDraftSlugs instanceof Set
+        ? existingDraftSlugs
+        : new Set(existingDraftSlugs);
     return (<ul className="border-t border-border-subtle text-sm">
-      {prs.map((pr) => (<PrRow key={pr.number} pr={pr} existingZipNumbers={existing}/>))}
+      {prs.map((pr) => (<PrRow key={pr.number} pr={pr} existingZipNumbers={existing} existingDraftSlugs={existingDrafts}/>))}
     </ul>);
 }
