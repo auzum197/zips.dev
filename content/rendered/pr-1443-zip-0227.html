@@ -1,0 +1,4331 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot;, &quot;MUST NOT&quot;, &quot;SHOULD&quot;, &quot;RECOMMENDED&quot;, and &quot;MAY&quot; in this document are to be interpreted as described in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they appear in all capitals.</p>
+<p>The term &quot;network upgrade&quot; in this document is to be interpreted as described in ZIP 200 <a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>.</p>
+<p>The character § is used when referring to sections of the Zcash Protocol Specification. <a class="brackets" href="#protocol" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>24<span class="fn-bracket">]</span></a></p>
+<p>The terms &quot;Orchard&quot; and &quot;Action&quot; in this document are to be interpreted as described in
+ZIP 224 <a class="brackets" href="#zip-0224" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>.</p>
+<p>We define the following additional terms:</p>
+<ul class="simple">
+<li><p>Asset: A type of note that can be transferred on the Zcash blockchain. Each Asset is identified by an Asset Identifier <a class="reference internal" href="#specification-asset-identifier-asset-uuid-and-asset-base">Specification: Asset Identifier, Asset UUID, and Asset Base</a>.</p>
+<ul>
+<li><p>ZEC is the default (and currently the only defined) Asset for the Zcash mainnet.</p></li>
+<li><p>TAZ is the default (and currently the only defined) Asset for the Zcash testnet.</p></li>
+<li><p>We use the term &quot;Custom Asset&quot; to refer to any Asset other than ZEC and TAZ.</p></li>
+</ul>
+</li>
+<li><p>Issuance Action: an instance of a single issuance of a Zcash Shielded Asset. It defines the issuance of a single Asset Identifier.</p></li>
+<li><p>Issuance Bundle: the bundle in the transaction that contains all the issuance actions of that transaction.</p></li>
+</ul>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP (ZIP 227) proposes the Orchard Zcash Shielded Assets (OrchardZSA) protocol, in conjunction with ZIP 226 <a class="brackets" href="#zip-0226" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. This protocol is an extension of the Orchard protocol that enables the creation, transfer and burn of Custom Assets on the Zcash chain. The creation of such Assets is defined in this ZIP (ZIP 227), while the transfer and burn of such Assets is defined in ZIP 226 <a class="brackets" href="#zip-0226" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. This ZIP must only be implemented in conjunction with ZIP 226 <a class="brackets" href="#zip-0226" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. The proposed issuance mechanism is only valid for the OrchardZSA transfer protocol, because it produces notes that can only be transferred via this protocol.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>This ZIP introduces the issuance mechanism for Custom Assets on the Zcash chain. While originally part of a single ZSA ZIP, the issuance mechanism turned out to be substantial enough to stand on its own and justify the creation of this supporting ZIP for ZIP 226 <a class="brackets" href="#zip-0226" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.</p>
+<p>This ZIP only enables <em>transparent</em> issuance. As a first step, transparency will allow for proper testing of the applications that will be most used in the Zcash ecosystem, and will enable the supply of Assets to be tracked.</p>
+<p>The issuance mechanism described in this ZIP is broad enough for issuers to either create Assets on Zcash (i.e. Assets that originate on the Zcash blockchain), as well as for institutions to create bridges from other chains and issue Assets that wrap tokens from those chains. This enables what we hope will be a useful set of applications.</p>
+</section>
+<h1 id="use-cases"><a class="hanchor" href="#use-cases" aria-hidden="true" tabindex="-1">#</a>Use Cases</h1>
+<p>The design presented in this ZIP enables issuance of shielded Assets in various modes:</p>
+<ul class="simple">
+<li><p>The issuer may or may not know the receivers of the issued Asset in advance.</p></li>
+<li><p>The Asset can be of non-fungible type, where each Asset type can be made part of a single “series”.</p></li>
+<li><p>The supply of the Asset can be limited in advance or not.</p></li>
+<li><p>The Asset can be a wrapped version of an Asset issued by another chain (as long as there is a bridge that supports transfer of that Asset between chains).</p></li>
+</ul>
+<p>See the <a class="reference internal" href="#concrete-applications">Concrete Applications</a> section for more details.</p>
+</section>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul class="simple">
+<li><p>Any user of the Zcash blockchain can issue Custom Assets on chain.</p></li>
+<li><p>The issuance mechanism should enable public tracking of the supply of the Assets on the Zcash blockchain.</p></li>
+<li><p>Issuing or changing the attributes of a specific Asset should require cryptographic authorization.</p></li>
+<li><p>The Asset identification should be unique (among all shielded pools) and different issuer public keys should not be able to generate the same Asset Identifier.</p></li>
+<li><p>An issuer should be able to issue different Assets in the same transaction. In other words, in a single &quot;issuance bundle&quot;, the issuer should be able publish many &quot;issuance actions&quot;, potentially creating multiple Custom Assets.</p></li>
+<li><p>Every &quot;issuance action&quot; should contain a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> boolean that defines whether the specific Custom Asset can have further tokens issued or not.</p></li>
+</ul>
+</section>
+<h1 id="specification-issuance-keys-issuer-identifier-and-issuance-authorization-signature-scheme"><a class="hanchor" href="#specification-issuance-keys-issuer-identifier-and-issuance-authorization-signature-scheme" aria-hidden="true" tabindex="-1">#</a>Specification: Issuance Keys, Issuer Identifier, and Issuance Authorization Signature Scheme</h1>
+<h2 id="issuance-keys"><a class="hanchor" href="#issuance-keys" aria-hidden="true" tabindex="-1">#</a>Issuance Keys</h2>
+<p>The OrchardZSA Protocol adds the following keys used for issuance:</p>
+<ol class="arabic simple">
+<li><p>The issuance authorizing key, denoted as <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, is the key used to authorize the issuance of Asset Identifiers by a given issuer, and is only used by that issuer.</p></li>
+<li><p>The issuance validating key, denoted as <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, is the key that is used to validate issuance transactions. This key is used to validate the issuance of Asset Identifiers by a given issuer.</p></li>
+</ol>
+<p>The relations between these keys are shown in the following diagram:</p>
+<figure class="align-center">
+<img alt="/upstream/zip-0227-key-components-zsa.svg" src="/upstream/zip-0227-key-components-zsa.svg" style="width: 450px;" />
+<figcaption>
+<p>Diagram of Issuance Key Components for the OrchardZSA Protocol</p>
+</figcaption>
+</figure>
+</section>
+<h2 id="issuer-identifier"><a class="hanchor" href="#issuer-identifier" aria-hidden="true" tabindex="-1">#</a>Issuer Identifier</h2>
+<p>The identifier for a particular issuer is denoted by <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math>. This identifier is used by all blockchain users (specifically the owners of notes for that Asset, and consensus validators) to associate the Asset in question with the issuer.</p>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math> is equal to the encoding <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math> (specified below in <a class="reference internal" href="#derivation-of-issuance-validating-key">Derivation of issuance validating key</a>) of the issuance validating key <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> used to validate the issuance of Asset Identifiers by that issuer.</p>
+<p>Note: the equality of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math> and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math> might not hold in future when key rotation is specified for issuance key pairs.</p>
+</section>
+<h2 id="issuance-authorization-signature-scheme"><a class="hanchor" href="#issuance-authorization-signature-scheme" aria-hidden="true" tabindex="-1">#</a>Issuance Authorization Signature Scheme</h2>
+<p>The issuance authorization signature, encoded in the <span class="docutils literal">issueAuthSig</span> field of an issuance bundle, is used to authorize the issuance of Custom Assets by the issuer.</p>
+<p>The issuance authorization signature scheme, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math>, comprises all the associated types and algorithms required for a signature scheme in §4.1.7 ‘Signature’ <a class="brackets" href="#protocol-abstractsig" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>27<span class="fn-bracket">]</span></a>.</p>
+<p>Batch verification MAY be used. Precomputation MAY be used if and only if it produces equivalent results.</p>
+<h3 id="orchard-zsa-issuance-authorization-signature-scheme"><a class="hanchor" href="#orchard-zsa-issuance-authorization-signature-scheme" aria-hidden="true" tabindex="-1">#</a>Orchard ZSA Issuance Authorization Signature Scheme</h3>
+<p>In the OrchardZSA protocol, we instantiate the issuance authorization signature scheme <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math> as a BIP-340 Schnorr signature over the secp256k1 curve.
+We define the constants as per the secp256k1 standard parameters, as described in BIP 340.</p>
+<p>The associated types of the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math> signature scheme, which are identical to BIP 340, are as follows:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖬</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖺</mi>
+    <mi>𝗀</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <msup>
+    <mi>𝔹</mi>
+    <msup>
+      <mi>𝕐</mi>
+      <mrow>
+        <mo stretchy="false">[</mo>
+        <mi>ℕ</mi>
+        <mo stretchy="false">]</mo>
+      </mrow>
+    </msup>
+  </msup>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝗎</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <msup>
+    <mi>𝔹</mi>
+    <msup>
+      <mi>𝕐</mi>
+      <mrow>
+        <mo stretchy="false">[</mo>
+        <mn>64</mn>
+        <mo stretchy="false">]</mo>
+      </mrow>
+    </msup>
+  </msup>
+  <mo>∪</mo>
+  <mo>{</mo>
+  <mi>⊥</mi>
+  <mo>}</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo>=</mo>
+  <msup>
+    <mi>𝔹</mi>
+    <msup>
+      <mi>𝕐</mi>
+      <mrow>
+        <mo stretchy="false">[</mo>
+        <mn>32</mn>
+        <mo stretchy="false">]</mo>
+      </mrow>
+    </msup>
+  </msup>
+  <mo>∪</mo>
+  <mo>{</mo>
+  <mi>⊥</mi>
+  <mo>}</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <msup>
+    <mi>𝔹</mi>
+    <msup>
+      <mi>𝕐</mi>
+      <mrow>
+        <mo stretchy="false">[</mo>
+        <mn>32</mn>
+        <mo stretchy="false">]</mo>
+      </mrow>
+    </msup>
+  </msup>
+</math></p></li>
+</ul>
+<p>where <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝔹</mi>
+    <msup>
+      <mi>𝕐</mi>
+      <mrow>
+        <mo stretchy="false">[</mo>
+        <mi>k</mi>
+        <mo stretchy="false">]</mo>
+      </mrow>
+    </msup>
+  </msup>
+</math> denotes the set of sequences of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> bytes, and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝔹</mi>
+    <msup>
+      <mi>𝕐</mi>
+      <mrow>
+        <mo stretchy="false">[</mo>
+        <mi>ℕ</mi>
+        <mo stretchy="false">]</mo>
+      </mrow>
+    </msup>
+  </msup>
+</math> denotes the type of byte sequences of arbitrary length, as defined in the Zcash protocol specification <a class="brackets" href="#protocol-notation" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>25<span class="fn-bracket">]</span></a>.</p>
+<p>The issuance authorizing key generation algorithm and the issuance validating key derivation algorithm are defined in the <a class="reference internal" href="#issuance-key-derivation">Issuance Key Derivation</a> section, while the corresponding signing and validation algorithms are defined in the <a class="reference internal" href="#issuance-authorization-signing-and-validation">Issuance Authorization Signing and Validation</a> section.</p>
+</section>
+</section>
+<h2 id="issuance-key-derivation"><a class="hanchor" href="#issuance-key-derivation" aria-hidden="true" tabindex="-1">#</a>Issuance Key Derivation</h2>
+<h3 id="issuance-authorizing-key-generation-for-hierarchical-deterministic-wallets"><a class="hanchor" href="#issuance-authorizing-key-generation-for-hierarchical-deterministic-wallets" aria-hidden="true" tabindex="-1">#</a>Issuance authorizing key generation for hierarchical deterministic wallets</h3>
+<p>The issuance authorizing key is generated using the Hardened-only key derivation process defined in ZIP 32 <a class="brackets" href="#zip-0032-hardened-only-key-derivation" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.
+For the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> context, we define the following constants:</p>
+<ul class="simple">
+<li><p><tt class="math">\mathsf{Issuance.MKGDomain} := \texttt{“ZcashSA\_Issue\_V1”}</tt></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+    <mo>.</mo>
+    <mi>𝖢</mi>
+    <mi>𝖪</mi>
+    <mi>𝖣</mi>
+    <mi>𝖣</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝖺</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟾𝟷</mn>
+  </mrow>
+</math></p></li>
+</ul>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> be a seed byte sequence of a chosen length, which MUST be at least 32 and at most 252 bytes.
+We define the master extended issuance key <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖨</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖺</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝖾</mi>
+    </mrow>
+  </msub>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <msup>
+    <mrow>
+      <mi>𝖬</mi>
+      <mi>𝖪</mi>
+      <mi>𝖦</mi>
+      <mi>𝗁</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖨</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖺</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝖾</mi>
+    </mrow>
+  </msup>
+  <mo stretchy="false">(</mo>
+  <mi>S</mi>
+  <mo stretchy="false">)</mo>
+</math>.</p>
+<p>We use hardened-only child key derivation as defined in ZIP 32 <a class="brackets" href="#zip-0032-hardened-only-child-key-derivation" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> for the issuance authorizing key.</p>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝖪</mi>
+    <mi>𝖣</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo>,</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+  <mo>→</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mi>i</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math> :</p>
+<ul class="simple">
+<li><p>Return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖢</mi>
+      <mi>𝖪</mi>
+      <mi>𝖣</mi>
+      <mi>𝗁</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖨</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖺</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝖾</mi>
+    </mrow>
+  </msup>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo>,</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+</ul>
+<p>We use the notation of ZIP 32 <a class="brackets" href="#zip-0032-orchard-key-path" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> for shielded HD paths, and define the issuance authorizing key path as <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖨</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖺</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝖾</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">/</mo>
+  <mrow>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑟</mi>
+    <mi>𝑝</mi>
+    <mi>𝑜</mi>
+    <mi>𝑠</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mrow>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑡</mi>
+    <mi>𝑦</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mrow>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑢</mi>
+    <mi>𝑛</mi>
+    <mi>𝑡</mi>
+  </mrow>
+  <mo>'</mo>
+</math>. We fix the path levels as follows:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑟</mi>
+    <mi>𝑝</mi>
+    <mi>𝑜</mi>
+    <mi>𝑠</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math>: a constant set to $227$ (i.e. <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mi>𝚎</mi>
+    <mn>𝟹</mn>
+  </mrow>
+</math>). <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑟</mi>
+    <mi>𝑝</mi>
+    <mi>𝑜</mi>
+    <mi>𝑠</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>'</mo>
+</math> is thus $227'$ (or <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟾𝟶𝟶𝟶𝟶𝟶</mn>
+    <mi>𝚎</mi>
+    <mn>𝟹</mn>
+  </mrow>
+</math>) following the BIP 43 recommendation. <a class="brackets" href="#bip-0043" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑡</mi>
+    <mi>𝑦</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math>: Defined as in ZIP 32 <a class="brackets" href="#zip-0032-key-path-levels" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑢</mi>
+    <mi>𝑛</mi>
+    <mi>𝑡</mi>
+  </mrow>
+</math>: fixed to index <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p></li>
+</ul>
+<p>From the generated <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>𝖼</mi>
+  <mo stretchy="false">)</mo>
+</math>, we set the issuance authorizing key to be <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>.</p>
+</section>
+<h3 id="derivation-of-issuance-validating-key"><a class="hanchor" href="#derivation-of-issuance-validating-key" aria-hidden="true" tabindex="-1">#</a>Derivation of issuance validating key</h3>
+<p>Define $mathsf{IssueAuthSig.DerivePublic} ;{small ⦂}; (mathsf{isk} ;{small ⦂}; mathsf{IssueAuthSig.Private}) to mathsf{IssueAuthSig.Public}$ as:</p>
+<ul class="simple">
+<li><p><tt class="math">\mathsf{ik} := \textit{PubKey}(\mathsf{isk})</tt></p></li>
+<li><p>Return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math> if the <tt class="math">\textit{PubKey}</tt> algorithm invocation fails, otherwise return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>.</p></li>
+</ul>
+<p>where the <tt class="math">\textit{PubKey}</tt> algorithm is defined in BIP 340 <a class="brackets" href="#bip-0340" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>, and the output of the algorithm is in big-endian order as defined in BIP 340.</p>
+<p>The encoding of this validating key, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math>, includes an initial byte indicating the signature scheme, which MUST be <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟶</mn>
+  </mrow>
+</math> indicating BIP 340.
+That is, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+  </mrow>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟶</mn>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>. This enables future ZIPs to specify alternative signature schemes.
+Note that this encoding currently only appears in the <span class="docutils literal">issuer</span> field of an issuance bundle.</p>
+<p>It is possible for the <tt class="math">\textit{PubKey}</tt> algorithm to fail with very low probability, which means that <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math> could return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math> with very low probability.
+If this happens, discard the keys and repeat with a different <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>.</p>
+<p>This allows the issuer to use the same wallet it usually uses to transfer Assets, while keeping a disconnect from the other keys. Specifically, this method is aligned with the requirements and motivation of ZIP 32 <a class="brackets" href="#zip-0032" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>. It provides further anonymity and the ability to delegate issuance of an Asset (or in the future, use a multi-signature protocol) while the rest of the keys remain safe in the wallet.</p>
+</section>
+</section>
+<h2 id="issuance-authorization-signing-and-validation"><a class="hanchor" href="#issuance-authorization-signing-and-validation" aria-hidden="true" tabindex="-1">#</a>Issuance Authorization Signing and Validation</h2>
+<p>Define $mathsf{IssueAuthSig.Sign} ;{small ⦂}; (mathsf{isk} ;{small ⦂}; mathsf{IssueAuthSig.Private}) times (M ;{small ⦂}; mathsf{IssueAuthSig.Message}) to mathsf{IssueAuthSig.Signature}$ as:</p>
+<ul class="simple">
+<li><p>Let the auxiliary data <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟶</mn>
+  </mrow>
+  <msup>
+    <mo stretchy="false">]</mo>
+    <mn>32</mn>
+  </msup>
+</math>.</p></li>
+<li><p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtext>\sigma </mtext>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>M</mi>
+  <mo stretchy="false">)</mo>
+</math> with auxiliary data <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+</math>.</p></li>
+<li><p>Return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math> if the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math> algorithm fails in the previous step, otherwise return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtext>\sigma </mtext>
+</math>.</p></li>
+</ul>
+<p>where the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math> algorithm is defined in BIP 340 <a class="brackets" href="#bip-0340" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>.
+Note that <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math> could return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math> with very low probability.</p>
+<p>Define $mathsf{IssueAuthSig.Validate} ;{small ⦂}; (mathsf{ik} ;{small ⦂}; mathsf{IssueAuthSig.Public}) times (M ;{small ⦂}; mathsf{IssueAuthSig.Message}) times (text{σ} ;{small ⦂}; mathsf{IssueAuthSig.Signature}) to mathbb{B}$ as:</p>
+<ul class="simple">
+<li><p>Return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math> if <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtext>\sigma </mtext>
+  <mo>=</mo>
+  <mi>⊥</mi>
+</math>.</p></li>
+<li><p>Return <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math> if <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖵</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗄</mi>
+    <mi>𝖾</mi>
+    <mi>𝗒</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>M</mi>
+  <mo>,</mo>
+  <mtext>\sigma </mtext>
+  <mo stretchy="false">)</mo>
+</math> succeeds, otherwise <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p></li>
+</ul>
+<p>where the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖵</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+  </mrow>
+</math> algorithm is defined in BIP 340 <a class="brackets" href="#bip-0340" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>.</p>
+<p>The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚒</mi>
+    <mi>𝚜</mi>
+    <mi>𝚜</mi>
+    <mi>𝚞</mi>
+    <mi>𝚎</mi>
+    <mi>𝙰</mi>
+    <mi>𝚞</mi>
+    <mi>𝚝</mi>
+    <mi>𝚑</mi>
+    <mi>𝚂</mi>
+    <mi>𝚒</mi>
+    <mi>𝚐</mi>
+  </mrow>
+</math> field of an issuance bundle encodes the signature with an initial byte indicating the signature scheme, which MUST be <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟶</mn>
+  </mrow>
+</math> indicating BIP 340.
+That is, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚒</mi>
+    <mi>𝚜</mi>
+    <mi>𝚜</mi>
+    <mi>𝚞</mi>
+    <mi>𝚎</mi>
+    <mi>𝙰</mi>
+    <mi>𝚞</mi>
+    <mi>𝚝</mi>
+    <mi>𝚑</mi>
+    <mi>𝚂</mi>
+    <mi>𝚒</mi>
+    <mi>𝚐</mi>
+  </mrow>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟶</mn>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mtext>\sigma </mtext>
+</math>. This enables future ZIPs to specify alternative signature schemes.</p>
+</section>
+</section>
+<h1 id="specification-asset-identifier-asset-uuid-and-asset-base"><a class="hanchor" href="#specification-asset-identifier-asset-uuid-and-asset-base" aria-hidden="true" tabindex="-1">#</a>Specification: Asset Identifier, Asset UUID, and Asset Base</h1>
+<p>The definition of the Asset Identifier, and that of the Asset UUID and Asset Base for a given Asset Identifier, will be described in this section.
+For context, the relations between the Asset Identifier, Asset UUID, and Asset Base are shown in the following diagram:</p>
+<figure class="align-center">
+<img alt="/upstream/zip-0227-asset-identifier-relation.svg" src="/upstream/zip-0227-asset-identifier-relation.svg" style="width: 600px;" />
+<figcaption>
+<p>Diagram relating the Asset Identifier, Asset UUID, and Asset Base.</p>
+</figcaption>
+</figure>
+<p><strong>Note:</strong> To keep notations light and concise, we may omit <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> in the subscript when the Asset Identifier is clear from the context.</p>
+<h2 id="asset-identifier"><a class="hanchor" href="#asset-identifier" aria-hidden="true" tabindex="-1">#</a>Asset Identifier</h2>
+<p>Every Asset has a globally-unique Asset Identifier, denoted <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math>. A given
+Asset Identifier is used across all Zcash protocols that support ZSAs -- that is, the
+OrchardZSA protocol and potentially future Zcash shielded protocols.</p>
+<h3 id="zip-227-asset-identifiers"><a class="hanchor" href="#zip-227-asset-identifiers" aria-hidden="true" tabindex="-1">#</a>ZIP 227 Asset Identifiers</h3>
+<p>Assets issued using the protocol specified in this ZIP are scoped to the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math>
+that issued them. Within that scope, Asset Identifier uniqueness is obtained by way of an
+asset description, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>_</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math>, which includes any information pertaining to
+the issuance. <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>_</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math> is a non-empty byte sequence which SHOULD be a
+well-formed UTF-8 code unit sequence according to Unicode 15.0.0 or later.</p>
+<p>Define</p>
+<pre class="math">
+\mathsf{assetDescHash} := \textsf{BLAKE2b-256}(\texttt{“ZSA-AssetDescCRH”},\; \mathsf{asset\_desc}),
+</pre>
+<p>We define Asset Identifiers for Assets issued under this ZIP as</p>
+<div>
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>
+</div>
+<p>and define their canonical encoding as</p>
+<div>
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟶</mn>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+</math>
+</div>
+<p>Note that the initial <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟶</mn>
+  </mrow>
+</math> byte is a version byte, enabling future ZIPs to specify alternative issuance protocols and Asset Identifiers. (This should not be confused with the first byte of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math>, currently equal to the first byte of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math>, that indicates the issuance signature scheme.)</p>
+<p>Wallets MUST NOT display just the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>_</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math> string to their users as the name of the Asset. Some possible alternatives include:</p>
+<ul class="simple">
+<li><p>Wallets could allow clients to provide an additional configuration file that stores a one-to-one mapping of names to Asset Identifiers via a petname system <a class="brackets" href="#petnames" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>35<span class="fn-bracket">]</span></a>. This allows clients to rename the Assets in a way they find useful. Default versions of this file with well-known Assets listed can be made available online as a starting point for clients.</p></li>
+<li><p>The Asset UUID could be used as a more compact byte sequence to uniquely determine an Asset, and wallets could support clients scanning QR codes to load Asset information into their wallets.</p></li>
+</ul>
+</section>
+</section>
+<h2 id="asset-uuids"><a class="hanchor" href="#asset-uuids" aria-hidden="true" tabindex="-1">#</a>Asset UUIDs</h2>
+<p>From the Asset Identifier, we derive an Asset UUID</p>
+<pre class="math">
+\mathsf{AssetUuid_{AssetId}} := \textsf{BLAKE2b-512}(\texttt{“ZSA-Asset-Digest”},\; \mathsf{EncodeAssetId}(\mathsf{AssetId})),
+</pre>
+<p>where <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> is the canonical encoding scheme for the
+Asset Identifier.</p>
+</section>
+<h2 id="asset-bases"><a class="hanchor" href="#asset-bases" aria-hidden="true" tabindex="-1">#</a>Asset Bases</h2>
+<p>From the Asset UUID, we derive a specific Asset Base that represents the Custom Asset
+within each shielded protocol:</p>
+<div>
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝖠</mi>
+        <mi>𝗌</mi>
+        <mi>𝗌</mi>
+        <mi>𝖾</mi>
+        <mi>𝗍</mi>
+        <mi>𝖨</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖴</mi>
+    <mi>𝗎</mi>
+    <mi>𝗂</mi>
+    <msub>
+      <mi>𝖽</mi>
+      <mrow>
+        <mi>𝖠</mi>
+        <mi>𝗌</mi>
+        <mi>𝗌</mi>
+        <mi>𝖾</mi>
+        <mi>𝗍</mi>
+        <mi>𝖨</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>
+</div>
+<p>This Asset Base is included in shielded notes within the shielded protocol.</p>
+<h3 id="orchardzsa-asset-bases"><a class="hanchor" href="#orchardzsa-asset-bases" aria-hidden="true" tabindex="-1">#</a>OrchardZSA Asset Bases</h3>
+<p>In the case of the OrchardZSA protocol, we define</p>
+<pre class="math">
+\mathsf{ZSAValueBase}(\mathsf{AssetUuid}) := \mathsf{GroupHash}^\mathbb{P}(\texttt{&quot;z.cash:OrchardZSA&quot;}, \mathsf{AssetUuid})
+</pre>
+<p>where <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖦</mi>
+      <mi>𝗋</mi>
+      <mi>𝗈</mi>
+      <mi>𝗎</mi>
+      <mi>𝗉</mi>
+      <mi>𝖧</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗁</mi>
+    </mrow>
+    <mi>ℙ</mi>
+  </msup>
+</math> is defined as in <a class="brackets" href="#protocol-concretegrouphashpallasandvesta" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>32<span class="fn-bracket">]</span></a>.</p>
+<figure class="align-center">
+<img alt="/upstream/zip-0227-asset-identifier-relation-orchard-zsa.svg" src="/upstream/zip-0227-asset-identifier-relation-orchard-zsa.svg" style="width: 800px;" />
+<figcaption>
+<p>Diagram relating the Issuer identifier, asset description, asset description hash, Asset Identifier, Asset UUID, and Asset Base for the OrchardZSA Protocol.</p>
+</figcaption>
+</figure>
+</section>
+</section>
+</section>
+<h1 id="specification-issue-note-issuance-action-issuance-bundle-and-issuance-protocol"><a class="hanchor" href="#specification-issue-note-issuance-action-issuance-bundle-and-issuance-protocol" aria-hidden="true" tabindex="-1">#</a>Specification: Issue Note, Issuance Action, Issuance Bundle and Issuance Protocol</h1>
+<h2 id="issue-note"><a class="hanchor" href="#issue-note" aria-hidden="true" tabindex="-1">#</a>Issue Note</h2>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>ℓ</mi>
+    <mrow>
+      <mi>𝗏</mi>
+      <mi>𝖺</mi>
+      <mi>𝗅</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+    </mrow>
+  </msub>
+</math> be as defined in §5.3 ‘Constants’ <a class="brackets" href="#protocol-constants" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></a>.
+An Issue Note represents that a value <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝗏</mi>
+  <mo>∶</mo>
+  <mo>{</mo>
+  <mn>0</mn>
+  <mo>.</mo>
+  <mo>.</mo>
+  <msup>
+    <mn>2</mn>
+    <msub>
+      <mi>ℓ</mi>
+      <mrow>
+        <mi>𝗏</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+        <mi>𝗎</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msub>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+</math> of a specific Custom Asset is issued to a recipient.
+An Issue Note is a tuple <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mi>𝗏</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>,</mo>
+  <mtext>\rho </mtext>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>, where:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖽</mi>
+  <mo>∶</mo>
+  <msup>
+    <mi>𝔹</mi>
+    <mrow>
+      <mo stretchy="false">[</mo>
+      <msub>
+        <mi>ℓ</mi>
+        <mi>𝖽</mi>
+      </msub>
+      <mo stretchy="false">]</mo>
+    </mrow>
+  </msup>
+</math> is the diversifier of the recipient's shielded payment address, as in §3.2 ‘Notes’ <a class="brackets" href="#protocol-notes" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>26<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo>∶</mo>
+  <msup>
+    <mrow>
+      <mi>𝖪</mi>
+      <mi>𝖠</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msup>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math> is the recipient's diversified transmission key, as in §3.2 ‘Notes’ <a class="brackets" href="#protocol-notes" id="footnote-reference-24" role="doc-noteref"><span class="fn-bracket">[</span>26<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝗏</mi>
+  <mo>∶</mo>
+  <mo>{</mo>
+  <mn>0</mn>
+  <mo>.</mo>
+  <mo>.</mo>
+  <msup>
+    <mn>2</mn>
+    <msub>
+      <mi>ℓ</mi>
+      <mrow>
+        <mi>𝗏</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+        <mi>𝗎</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msub>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+</math> is the value of the note in terms of the number of Asset tokens.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>∶</mo>
+  <msup>
+    <mi>ℙ</mi>
+    <mo>*</mo>
+  </msup>
+</math> is the Asset Base corresponding to the ZSA being issued in the Issue Note.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtext>\rho </mtext>
+  <mo>∶</mo>
+  <msub>
+    <mi>𝔽</mi>
+    <msub>
+      <mi>q</mi>
+      <mi>ℙ</mi>
+    </msub>
+  </msub>
+</math> is used to derive the nullifier of the note, and is computed as in <a class="reference internal" href="#computation-of">Computation of ρ</a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo>∶</mo>
+  <msup>
+    <mi>𝔹</mi>
+    <mrow>
+      <mo stretchy="false">[</mo>
+      <msup>
+        <mi>𝕐</mi>
+        <mn>32</mn>
+      </msup>
+      <mo stretchy="false">]</mo>
+    </mrow>
+  </msup>
+</math> MUST be sampled uniformly at random by the issuer.</p></li>
+</ul>
+<p>ZIP 230 <a class="brackets" href="#zip-0230-issue-note" id="footnote-reference-25" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a> defines, in <span class="docutils literal">IssueNoteDescription</span>, field encodings which together with
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math> from the parent <a class="reference internal" href="#issuance-bundle">Issuance Bundle</a> and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+</math> from the parent
+<a class="reference internal" href="#issuance-action">Issuance Action</a>, specify an Issue Note.</p>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msup>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝖨</mi>
+        <mi>𝗌</mi>
+        <mi>𝗌</mi>
+        <mi>𝗎</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math> be the type of an Issue Note, i.e.</p>
+<div>
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msup>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝖨</mi>
+        <mi>𝗌</mi>
+        <mi>𝗌</mi>
+        <mi>𝗎</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <msup>
+    <mi>𝔹</mi>
+    <mrow>
+      <mo stretchy="false">[</mo>
+      <msub>
+        <mi>ℓ</mi>
+        <mi>𝖽</mi>
+      </msub>
+      <mo stretchy="false">]</mo>
+    </mrow>
+  </msup>
+  <mo>×</mo>
+  <msup>
+    <mrow>
+      <mi>𝖪</mi>
+      <mi>𝖠</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msup>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo>×</mo>
+  <mo>{</mo>
+  <mn>0</mn>
+  <mo>.</mo>
+  <mo>.</mo>
+  <msup>
+    <mn>2</mn>
+    <msub>
+      <mi>ℓ</mi>
+      <mrow>
+        <mi>𝗏</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+        <mi>𝗎</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msub>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+  <mo>×</mo>
+  <msup>
+    <mi>ℙ</mi>
+    <mo>*</mo>
+  </msup>
+  <mo>×</mo>
+  <msub>
+    <mi>𝔽</mi>
+    <msub>
+      <mi>q</mi>
+      <mi>ℙ</mi>
+    </msub>
+  </msub>
+  <mo>×</mo>
+  <msup>
+    <mi>𝔹</mi>
+    <mrow>
+      <mo stretchy="false">[</mo>
+      <msup>
+        <mi>𝕐</mi>
+        <mn>32</mn>
+      </msup>
+      <mo stretchy="false">]</mo>
+    </mrow>
+  </msup>
+  <mo>.</mo>
+</math>
+</div>
+<p>The note commitments of Issue Notes are computed in the same manner as for OrchardZSA Notes.
+They will be added to the note commitment tree as any other shielded note when the transaction issuing the Asset is included on chain.
+This prevents future usage of the note from being linked to the issuance transaction, as the nullifier key is not known to the validators and chain observers.</p>
+</section>
+<h2 id="issuance-action"><a class="hanchor" href="#issuance-action" aria-hidden="true" tabindex="-1">#</a>Issuance Action</h2>
+<p>An issuance action, <span class="docutils literal">IssueAction</span>, is the instance of issuing a specific Custom Asset, and contains the following fields:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">assetDescHash</span>: the hash of the Asset description, as defined in the <a class="reference internal" href="#zip-227-asset-identifiers">ZIP 227 Asset Identifiers</a> section.</p></li>
+<li><p><span class="docutils literal">vNotes</span>: an array of Issue Notes containing the unencrypted output notes to the recipients of the Asset.</p></li>
+<li><p><span class="docutils literal">flagsIssuance</span>: a byte that stores the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> boolean that defines whether the issuance of that specific Custom Asset is finalized or not.</p></li>
+</ul>
+<p>The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> boolean is set by the Issuer to signal that there will be no further issuance of the specific Custom Asset.
+As we will see in <a class="reference internal" href="#specification-consensus-rule-changes">Specification: Consensus Rule Changes</a>, transactions that attempt to issue further amounts of a Custom Asset that has previously been finalized will be rejected.</p>
+<p>The complete encoding of these fields into an <span class="docutils literal">IssueAction</span> is defined in ZIP 230 <a class="brackets" href="#zip-0230-issuance-action-description" id="footnote-reference-26" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h2 id="issuance-bundle"><a class="hanchor" href="#issuance-bundle" aria-hidden="true" tabindex="-1">#</a>Issuance Bundle</h2>
+<p>An issuance bundle is the aggregate of all the issuance-related information.
+Specifically, contains all the issuance actions and the issuer signature on the transaction SIGHASH that validates the issuance itself.
+It contains the following fields:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">issuer</span>: the issuer identifier, that allows the validators to verify that the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> is properly associated with the issuer.</p></li>
+<li><p><span class="docutils literal">vIssueActions</span>: an array of issuance actions, of type <span class="docutils literal">IssueAction</span>.</p></li>
+<li><p><span class="docutils literal">issueAuthSig</span>: the encoding of a signature of the transaction SIGHASH, signed by the issuance authorizing key, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, that validates the issuance.</p></li>
+</ul>
+<p>The issuance bundle is added within the transaction format as a new bundle.
+The detailed encoding of the issuance bundle as a part of the V6 transaction format is defined in ZIP 230 <a class="brackets" href="#zip-0230-transaction-format" id="footnote-reference-27" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>.</p>
+</section>
+<h2 id="computation-of"><a class="hanchor" href="#computation-of" aria-hidden="true" tabindex="-1">#</a>Computation of ρ</h2>
+<p>We define a function $mathsf{DeriveIssuedRho} : mathbb{F}_{q_{mathbb{P}}} times {0 .. 2^{32} - 1} times {0 .. 2^{32} - 1} to mathbb{F}_{q_{mathbb{P}}}$ for Issue Notes in the OrchardZSA Protocol as follows:</p>
+<pre class="math">
+\mathsf{DeriveIssuedRho}(\mathsf{nf}, \mathsf{i_{A}}, \mathsf{i_{N}}) := \mathsf{ToBase}^{\mathsf{Orchard}}\big(\mathsf{PRF}^{\mathsf{expand}}\big(\mathsf{I2LEOSP}_{256}(\mathsf{nf}), [\mathtt{0x84}] \,||\, \mathsf{I2LEOSP}_{32}(\mathsf{i_{A}}) \,||\, \mathsf{I2LEOSP}_{32}(\mathsf{i_{N}})\big)\big),
+</pre>
+<p>where <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖳</mi>
+      <mi>𝗈</mi>
+      <mi>𝖡</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msup>
+</math> is defined in §4.2.3 ‘Orchard Key Components’ <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-28" role="doc-noteref"><span class="fn-bracket">[</span>28<span class="fn-bracket">]</span></a>, and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow>
+      <mi>𝖯</mi>
+      <mi>𝖱</mi>
+      <mi>𝖥</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖾</mi>
+      <mi>𝗑</mi>
+      <mi>𝗉</mi>
+      <mi>𝖺</mi>
+      <mi>𝗇</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msup>
+</math> is defined in §5.4.2 ‘Pseudo Random Functions’ <a class="brackets" href="#protocol-concreteprfs" id="footnote-reference-29" role="doc-noteref"><span class="fn-bracket">[</span>31<span class="fn-bracket">]</span></a>.</p>
+<p>The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtext>\rho </mtext>
+</math> field of an Issue Note is computed as</p>
+<div>
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mtext>\rho </mtext>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖱</mi>
+    <mi>𝗁</mi>
+    <mi>𝗈</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝖿</mi>
+    </mrow>
+    <mn>0,0</mn>
+  </msub>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <msub>
+      <mi>𝗑</mi>
+      <mrow>
+        <mi>𝖠</mi>
+        <mi>𝖼</mi>
+        <mi>𝗍</mi>
+        <mi>𝗂</mi>
+        <mi>𝗈</mi>
+        <mi>𝗇</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <msub>
+      <mi>𝗑</mi>
+      <mrow>
+        <mi>𝖭</mi>
+        <mi>𝗈</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>,</mo>
+</math>
+</div>
+<p>where <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝖿</mi>
+    </mrow>
+    <mn>0,0</mn>
+  </msub>
+</math> is the nullifier for the input note in the first Action in the first Action Group of the OrchardZSA Bundle of the transaction, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <msub>
+      <mi>𝗑</mi>
+      <mrow>
+        <mi>𝖠</mi>
+        <mi>𝖼</mi>
+        <mi>𝗍</mi>
+        <mi>𝗂</mi>
+        <mi>𝗈</mi>
+        <mi>𝗇</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> is the zero-based index of the Issuance Action in the Issuance Bundle, and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <msub>
+      <mi>𝗑</mi>
+      <mrow>
+        <mi>𝖭</mi>
+        <mi>𝗈</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> is the zero-based index of the Issue Note in the Issuance Action.</p>
+<p><strong>NOTE:</strong> This implicitly requires that there always is an Action Group in the OrchardZSA bundle of the transaction.
+This is enforced by a consensus rule in the <a class="reference internal" href="#specification-consensus-rule-changes">Specification: Consensus Rule Changes</a> section.</p>
+</section>
+<h2 id="issuance-protocol"><a class="hanchor" href="#issuance-protocol" aria-hidden="true" tabindex="-1">#</a>Issuance Protocol</h2>
+<p>The issuer program performs the following operations:</p>
+<p>For all actions <span class="docutils literal">IssueAction</span>:</p>
+<ul>
+<li><p>encode <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>_</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math> as a UTF-8 byte string.</p></li>
+<li><p>compute <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+</math></p></li>
+<li><p>compute <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖴</mi>
+    <mi>𝗎</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> from the issuer identifier <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math> and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖼</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+</math> as decribed in the <a class="reference internal" href="#specification-asset-identifier-asset-uuid-and-asset-base">Specification: Asset Identifier, Asset UUID, and Asset Base</a> section.</p></li>
+<li><p>compute <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> from <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖴</mi>
+    <mi>𝗎</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> as decribed in the <a class="reference internal" href="#specification-asset-identifier-asset-uuid-and-asset-base">Specification: Asset Identifier, Asset UUID, and Asset Base</a> section.</p></li>
+<li><p>set the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> boolean as desired (if more issuance actions are to be created for this <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>, set <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>, otherwise set <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1</mn>
+</math>).</p></li>
+<li><p>for each recipient <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math>:</p>
+<blockquote>
+<ul class="simple">
+<li><p>generate an Issue Note, <code class="math-src">$mathsf{note}_i = (mathsf{d}_i, mathsf{pk}_{mathsf{d}_i}, mathsf{v}_i, mathsf{AssetBase}, text{ρ}_i, mathsf{rseed}_i)$</code>.</p></li>
+<li><p>encode the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗈</mi>
+      <mi>𝗍</mi>
+      <mi>𝖾</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+</math> into the vector <span class="docutils literal">vNotes</span> of the <span class="docutils literal">IssueAction</span>.</p></li>
+</ul>
+</blockquote>
+</li>
+<li><p>encode the <span class="docutils literal">IssueAction</span> into the vector <span class="docutils literal">vIssueActions</span> of the bundle.</p></li>
+</ul>
+<p>For the <span class="docutils literal">IssueBundle</span> (see “ZSA Issuance Bundle Fields” in <a class="brackets" href="#zip-0230-transaction-format" id="footnote-reference-30" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>):</p>
+<ul class="simple">
+<li><p>encode the <span class="docutils literal">vIssueActions</span> vector.</p></li>
+<li><p>fill the <span class="docutils literal">issuerLength</span> and <span class="docutils literal">issuer</span> fields using <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math>.</p></li>
+<li><p>sign the SIGHASH transaction hash with the issuance authorizing key, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, using the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math> signature scheme. The signature is then added to the issuance bundle.</p></li>
+</ul>
+<p><strong>Note:</strong> The note commitment is not included in the <span class="docutils literal">IssuanceAction</span> itself. As explained below, it is computed later by the validators and added to the note commitment tree.</p>
+</section>
+</section>
+<h1 id="specification-reference-notes-and-global-issuance-state"><a class="hanchor" href="#specification-reference-notes-and-global-issuance-state" aria-hidden="true" tabindex="-1">#</a>Specification: Reference Notes and Global Issuance State</h1>
+<h2 id="reference-notes"><a class="hanchor" href="#reference-notes" aria-hidden="true" tabindex="-1">#</a>Reference Notes</h2>
+<p>A reference note for a Custom Asset MUST be included by the issuer as the first Note in the Action of the Issuance Bundle where that Custom Asset is being issued for the first time.</p>
+<p>A reference note for a Custom Asset is an Issue Note where the value <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝗏</mi>
+</math> is set to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>, the Asset Base (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>) corresponds to that of the Custom Asset, and the recipient address <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗉</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>𝖽</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math> is set to the default diversified payment address (i.e. the diversified payment address with diversifier index <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>) derived from the all-zero Orchard spending key using the algorithm specified in §4.2.3 ‘Orchard Key Components’ <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-31" role="doc-noteref"><span class="fn-bracket">[</span>28<span class="fn-bracket">]</span></a>. This corresponds to a 43-byte <span class="docutils literal">u8</span> array with the following entries:</p>
+<pre class="literal-block">[
+  204, 54, 96, 25, 89, 33, 59, 107, 12, 219, 150, 167, 92, 23, 195, 166, 104, 169, 127, 13, 106,
+  140, 92, 225, 100, 165, 24, 234, 155, 169, 165, 14, 167, 81, 145, 253, 134, 27, 15, 241, 14,
+  98, 176,
+]</pre>
+</section>
+<h2 id="global-issuance-state"><a class="hanchor" href="#global-issuance-state" aria-hidden="true" tabindex="-1">#</a>Global Issuance State</h2>
+<p>The maximum total supply of any issued Custom Asset is denoted by the constant <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖬</mi>
+    <mi>𝖠</mi>
+    <mi>𝖷</mi>
+    <mi>_</mi>
+    <mi>𝖨</mi>
+    <mi>𝖲</mi>
+    <mi>𝖲</mi>
+    <mi>𝖴</mi>
+    <mi>𝖤</mi>
+  </mrow>
+  <mo>∶</mo>
+  <mo>=</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>64</mn>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+</math>.</p>
+<p>Issuance requires the following additions to the global state:</p>
+<p>A map, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo>∶</mo>
+  <msup>
+    <mi>ℙ</mi>
+    <mo>*</mo>
+  </msup>
+  <mo>→</mo>
+  <mo>{</mo>
+  <mn>0</mn>
+  <mo>.</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖬</mi>
+    <mi>𝖠</mi>
+    <mi>𝖷</mi>
+    <mi>_</mi>
+    <mi>𝖨</mi>
+    <mi>𝖲</mi>
+    <mi>𝖲</mi>
+    <mi>𝖴</mi>
+    <mi>𝖤</mi>
+  </mrow>
+  <mo>}</mo>
+  <mo>×</mo>
+  <mi>𝔹</mi>
+  <mo>×</mo>
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msup>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝖨</mi>
+        <mi>𝗌</mi>
+        <mi>𝗌</mi>
+        <mi>𝗎</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math>, from the Asset Base, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>∶</mo>
+  <msup>
+    <mi>ℙ</mi>
+    <mo>*</mo>
+  </msup>
+</math>, to a tuple <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖻</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>, for every Asset that has been issued.
+We use the notation <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖻</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+  </mrow>
+</math>, and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> to access, respectively, the elements of the tuple stored in the global state for a given <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>.
+If <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mi>⊥</mi>
+</math>, it is assumed that <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖻</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>, and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>=</mo>
+  <mi>⊥</mi>
+</math>.</p>
+<p>For any Asset represented by <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖻</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>∈</mo>
+  <mo>{</mo>
+  <mn>0</mn>
+  <mo>.</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖬</mi>
+    <mi>𝖠</mi>
+    <mi>𝖷</mi>
+    <mi>_</mi>
+    <mi>𝖨</mi>
+    <mi>𝖲</mi>
+    <mi>𝖲</mi>
+    <mi>𝖴</mi>
+    <mi>𝖤</mi>
+  </mrow>
+  <mo>}</mo>
+</math> stores the amount of the Asset in circulation, computed as the amount of the Asset that has been issued less the amount of the Asset that has been burnt.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+  </mrow>
+  <mo>∶</mo>
+  <mi>𝔹</mi>
+</math> is a Boolean that stores the finalization status of the Asset (i.e.: whether the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> flag has been set to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math> in any preceding issuance transaction for the Asset). The value of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+  </mrow>
+</math> for any <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> cannot be changed from <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math> to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>∶</mo>
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msup>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝖨</mi>
+        <mi>𝗌</mi>
+        <mi>𝗌</mi>
+        <mi>𝗎</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math> stores the reference note for the Asset, as defined in the <a class="reference internal" href="#reference-notes">Reference Notes</a> section.</p></li>
+</ul>
+</section>
+<h2 id="management-of-the-global-issuance-state"><a class="hanchor" href="#management-of-the-global-issuance-state" aria-hidden="true" tabindex="-1">#</a>Management of the Global Issuance State</h2>
+<p>The issuance state, that is, the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math> map, MUST be updated by a node during the processing of any transaction that contains burn information, or an issuance bundle.
+The issuance state is chained as follows:</p>
+<ul class="simple">
+<li><p>The input issuance state for the activation block of the OrchardZSA protocol is the empty map.</p></li>
+<li><p>The input issuance state for the first transaction of a block is the final issuance state of the immediately preceding block.</p></li>
+<li><p>The input issuance state of each subsequent transaction in the block is the output issuance state of the immediately preceding transaction.</p></li>
+<li><p>The final issuance state of a block is the output issuance state of the last transaction in the block.</p></li>
+</ul>
+<p>We describe the consensus rule changes that govern the management of the global issuance state in the <a class="reference internal" href="#specification-consensus-rule-changes">Specification: Consensus Rule Changes</a> section.
+We use <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖨</mi>
+      <mi>𝖭</mi>
+    </mrow>
+  </msub>
+</math> and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝖴</mi>
+      <mi>𝖳</mi>
+    </mrow>
+  </msub>
+</math> to denote the input issuance state and output issuance state for a transaction, respectively.</p>
+</section>
+</section>
+<h1 id="specification-consensus-rule-changes"><a class="hanchor" href="#specification-consensus-rule-changes" aria-hidden="true" tabindex="-1">#</a>Specification: Consensus Rule Changes</h1>
+<p>Let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+</math> be the SIGHASH transaction hash of this transaction, as defined in §4.10 ‘SIGHASH Transaction Hashing’ <a class="brackets" href="#protocol-sighash" id="footnote-reference-32" role="doc-noteref"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></a> with the modifications described in ZIP 226 <a class="brackets" href="#zip-0226-txiddigest" id="footnote-reference-33" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>, using <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖨</mi>
+    <mi>𝖦</mi>
+    <mi>𝖧</mi>
+    <mi>𝖠</mi>
+    <mi>𝖲</mi>
+    <mi>𝖧</mi>
+    <mi>_</mi>
+    <mi>𝖠</mi>
+    <mi>𝖫</mi>
+    <mi>𝖫</mi>
+  </mrow>
+</math>.</p>
+<p>For every transaction:</p>
+<ul class="simple">
+<li><p>The <span class="docutils literal">nActionGroupsOrchard</span> field MUST have a value of either <span class="docutils literal">0</span> or <span class="docutils literal">1</span> and the <span class="docutils literal">nAGExpiryHeight</span> field MUST have a value of <span class="docutils literal">0</span>.</p></li>
+<li><p>The output issuance state of the transaction MUST be initialized to be the same as the input issuance state, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝖴</mi>
+      <mi>𝖳</mi>
+    </mrow>
+  </msub>
+  <mo>=</mo>
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖨</mi>
+      <mi>𝖭</mi>
+    </mrow>
+  </msub>
+</math>.</p></li>
+<li><p>The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗋</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math> set MUST satisfy the consensus rules specified in ZIP 226 <a class="brackets" href="#zip-0226-assetburn" id="footnote-reference-34" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>It MUST be the case that for all <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>𝗏</mi>
+  <mo stretchy="false">)</mo>
+  <mo>∈</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗋</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝖴</mi>
+      <mi>𝖳</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖻</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>≥</mo>
+  <mi>𝗏</mi>
+</math>. The node then MUST update <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝖴</mi>
+      <mi>𝖳</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> prior to processing the issuance bundle in the following manner. For every <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>𝗏</mi>
+  <mo stretchy="false">)</mo>
+  <mo>∈</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝗎</mi>
+    <mi>𝗋</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math>, $mathsf{issued_assets}_{mathsf{OUT}}(mathsf{AssetBase}).mathsf{balance} = mathsf{issued_assets}_{mathsf{OUT}}(mathsf{AssetBase}).mathsf{balance} - mathsf{v}$.</p></li>
+</ul>
+<p>If the transaction contains an issuance bundle:</p>
+<ul>
+<li><p>It MUST also contain at least one OrchardZSA Action Group.</p></li>
+<li><p>The encoding <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math> of the issuance key <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> used to validate the issuance authorization signature MUST be taken from the <span class="docutils literal">issuer</span> field, and MUST start with the byte value <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟶</mn>
+  </mrow>
+</math> indicating a BIP 340 public key.</p></li>
+<li><p>The issuance authorization signature, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math>, MUST be a valid <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math> signature over <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+</math>, i.e. <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖨</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+  <mo>.</mo>
+  <mspace width="-0.1667em"></mspace>
+  <mrow>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mn>1</mn>
+</math>.</p></li>
+<li><p>For every issuance action description (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖠</mi>
+      <mi>𝖼</mi>
+      <mi>𝗍</mi>
+      <mi>𝗂</mi>
+      <mi>𝗈</mi>
+      <mi>𝗇</mi>
+    </mrow>
+    <mi>𝗂</mi>
+  </msub>
+  <mo>,</mo>
+  <mspace width="0.25em"></mspace>
+  <mn>1</mn>
+  <mo>≤</mo>
+  <mi>i</mi>
+  <mo>≤</mo>
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙸</mi>
+    <mi>𝚜</mi>
+    <mi>𝚜</mi>
+    <mi>𝚞</mi>
+    <mi>𝚎</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝚜</mi>
+  </mrow>
+</math>) in the issuance bundle:</p>
+<ul>
+<li><p>Every <span class="docutils literal">IssueNoteDescription</span> in the <span class="docutils literal">IssueAction</span> MUST be a valid field encoding as defined in ZIP 230 <a class="brackets" href="#zip-0230-issue-note" id="footnote-reference-35" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Let an Issue Note (with type <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖭</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msup>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝖨</mi>
+        <mi>𝗌</mi>
+        <mi>𝗌</mi>
+        <mi>𝗎</mi>
+        <mi>𝖾</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math>) be constructed from the fields of each <span class="docutils literal">IssueNoteDescription</span>, with the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> derived from the <span class="docutils literal">assetDescHash</span> field of the <span class="docutils literal">IssueAction</span> and the <span class="docutils literal">issuer</span> field of the issuance bundle, as described in the <a class="reference internal" href="#specification-asset-identifier-asset-uuid-and-asset-base">Specification: Asset Identifier, Asset UUID, and Asset Base</a> section.</p></li>
+<li><p>It MUST be the case that <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝖴</mi>
+      <mi>𝖳</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+  </mrow>
+  <mo>≠</mo>
+  <mn>1</mn>
+</math>.</p></li>
+<li><p>If <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝖴</mi>
+      <mi>𝖳</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>=</mo>
+  <mi>⊥</mi>
+</math>, then let <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖾</mi>
+    <mi>𝗐</mi>
+    <mi>_</mi>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> be the first Issue Note in the Issuance Action.</p>
+<blockquote>
+<ul class="simple">
+<li><p>The recipient address <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗉</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>𝖽</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math> of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖾</mi>
+    <mi>𝗐</mi>
+    <mi>_</mi>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> MUST be the default diversified payment address derived from the all-zero Orchard spending key, as described in the <a class="reference internal" href="#reference-notes">Reference Notes</a> section.</p></li>
+<li><p>The value of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖾</mi>
+    <mi>𝗐</mi>
+    <mi>_</mi>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> MUST be <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p></li>
+<li><p>The node MUST update <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝖴</mi>
+      <mi>𝖳</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝖾</mi>
+    <mi>𝗐</mi>
+    <mi>_</mi>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <msub>
+      <mi>𝖾</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝖾</mi>
+        <mi>𝖿</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math>.</p></li>
+</ul>
+</blockquote>
+</li>
+<li><p>For every Issue Note, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗈</mi>
+      <mi>𝗍</mi>
+      <mi>𝖾</mi>
+    </mrow>
+    <mi>j</mi>
+  </msub>
+</math> for <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+  <mo>≤</mo>
+  <mi>j</mi>
+  <mo>≤</mo>
+  <mrow>
+    <mi>𝚗</mi>
+    <mi>𝙽</mi>
+    <mi>𝚘</mi>
+    <mi>𝚝</mi>
+    <mi>𝚎</mi>
+    <mi>𝚜</mi>
+  </mrow>
+</math> in <span class="docutils literal">IssueAction</span>:</p>
+<ul class="simple">
+<li><p>The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtext>\rho </mtext>
+</math> field of the issue note MUST have been computed as described in the <a class="reference internal" href="#computation-of">Computation of ρ</a> section.</p></li>
+<li><p>It MUST be the case that <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝖴</mi>
+      <mi>𝖳</mi>
+    </mrow>
+  </msub>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖻</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>+</mo>
+  <msub>
+    <mi>𝗏</mi>
+    <mi>j</mi>
+  </msub>
+  <mo>≤</mo>
+  <mrow>
+    <mi>𝖬</mi>
+    <mi>𝖠</mi>
+    <mi>𝖷</mi>
+    <mi>_</mi>
+    <mi>𝖨</mi>
+    <mi>𝖲</mi>
+    <mi>𝖲</mi>
+    <mi>𝖴</mi>
+    <mi>𝖤</mi>
+  </mrow>
+</math>, where <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝗏</mi>
+    <mi>j</mi>
+  </msub>
+</math> is the value of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗈</mi>
+      <mi>𝗍</mi>
+      <mi>𝖾</mi>
+    </mrow>
+    <mi>j</mi>
+  </msub>
+</math>. The node then MUST update <code class="math-src">$mathsf{issued_assets}_{mathsf{OUT}}.mathsf{balance} = mathsf{issued_assets}_{mathsf{OUT}}.mathsf{balance} + mathsf{v}_j$</code>.</p></li>
+<li><p>The node MUST compute the note commitment, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖼</mi>
+      <mi>𝗆</mi>
+    </mrow>
+    <mrow>
+      <mi>𝗂</mi>
+      <mo>,</mo>
+      <mi>𝗃</mi>
+    </mrow>
+  </msub>
+</math>, as defined in the Note Structure and Commitment section of ZIP 226 <a class="brackets" href="#zip-0226-note-structure-and-commitment" id="footnote-reference-36" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+</li>
+<li><p>If <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1</mn>
+</math> within the <span class="docutils literal">flagsIssuance</span> field of <span class="docutils literal">IssueAction</span>, the node MUST set <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗂</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝗎</mi>
+      <mi>𝖾</mi>
+      <mi>𝖽</mi>
+      <mi>_</mi>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗌</mi>
+      <mi>𝖾</mi>
+      <mi>𝗍</mi>
+      <mi>𝗌</mi>
+    </mrow>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝖴</mi>
+      <mi>𝖳</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>.</mo>
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1</mn>
+</math>.</p></li>
+</ul>
+</li>
+</ul>
+<h2 id="addition-to-the-note-commitment-tree"><a class="hanchor" href="#addition-to-the-note-commitment-tree" aria-hidden="true" tabindex="-1">#</a>Addition to the Note Commitment Tree</h2>
+<p>If the transaction is added to the block chain, the note commitments of all the OrchardZSA Notes and the Issue Notes in the transaction are added to the note commitment tree of the associated treestate.
+The order of addition to the tree is as specified below:</p>
+<ul class="simple">
+<li><p>For each Action Group in the OrchardZSA Bundle:</p>
+<ul>
+<li><p>For every Action in the Action Group, append the note commitment of every new OrchardZSA note in the Action to the note commitment tree.</p></li>
+</ul>
+</li>
+<li><p>For each Issue Action in the Issue Bundle:</p>
+<ul>
+<li><p>For every Issue Note in the Issue Action, append the note commitment of the Issue Note to the note commitment tree.</p></li>
+</ul>
+</li>
+</ul>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>The following is a list of rationale for different decisions made in the proposal:</p>
+<ul class="simple">
+<li><p>The issuance key structure is independent of the original key tree, but derived in an analogous manner (via ZIP 32). This keeps the issuance details and the Asset Identifiers consistent across multiple shielded pools. It also separates the issuance authority from the spend authority, allowing for the potential transfer of issuance authority without compromising the spend authority.</p></li>
+<li><p>The Custom Asset is described via a combination of the issuer identifier and an asset description string, to preclude the possibility of two different issuers creating colliding Custom Assets.</p></li>
+<li><p>The requirement of at least one OrchardZSA Action Group in the presence of an issue bundle is both to allow for the computation of the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtext>\rho </mtext>
+</math> field of the issue notes, as well as to prevent replay attacks. If a transaction includes only an issue bundle, the SIGHASH transaction hash would be computed solely based on the issue bundle. A duplicate bundle would have the same SIGHASH transaction hash, potentially allowing for a replay attack.</p></li>
+</ul>
+<h2 id="hash-of-the-asset-description"><a class="hanchor" href="#hash-of-the-asset-description" aria-hidden="true" tabindex="-1">#</a>Hash of the asset description</h2>
+<p>In an earlier version of this ZIP, the asset description was a direct component of the
+Asset Identifier, and was stored on-chain in each issuance transaction. The Asset
+Identifier and issuance transactions now instead include a collision-resistant hash of the
+asset description, for the following reasons:</p>
+<ul class="simple">
+<li><p>A hash output (32 bytes per Issue Action) incurs lower average bandwidth costs in
+issuance transactions than the asset description (previously up to 512 bytes).</p></li>
+<li><p>The asset description can be longer than 512 bytes without incurring chain costs.</p></li>
+<li><p>Including an asset description byte string directly in issuance transactions does not
+ensure that the &quot;user-visible&quot; asset description is consensus-visible, because the byte
+string could itself be a hash of another off-chain description (even if the consensus
+rules had required it to be a Unicode string instead of only recommending it).</p></li>
+<li><p>The lack of key rotation in this issuance protocol means that it is not sufficient to
+mark an <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math> as trusted and then accept whatever asset descriptions are issued
+by it. Each Asset Identifier needs to be independently verified, which requires some
+out-of-band protocol that can also convey the corresponding asset description.</p></li>
+<li><p>If issuance transactions include the asset descriptions directly, wallets will discover
+them during scanning. This is an &quot;attractive nuisance&quot; because it would result in
+wallets being more likely to expose the asset description directly to users without any
+verification that the received asset has the value that a user might expect from that
+description. By instead using a collision-resistant hash of an asset description,
+wallets are forced to look up the corresponding asset description when a payment is
+received in an unknown asset. That lookup can be mediated by a trusted party or common
+trusted registry of known assets, or else will need to be approved directly by a user
+who can personally assert their interest in that specific asset.</p></li>
+</ul>
+</section>
+<h2 id="rationale-for-global-issuance-state"><a class="hanchor" href="#rationale-for-global-issuance-state" aria-hidden="true" tabindex="-1">#</a>Rationale for Global Issuance State</h2>
+<p>It is necessary to ensure that the balance of any issued Custom Asset never becomes negative within a shielded pool, along the lines of ZIP 209 <a class="brackets" href="#zip-0209" id="footnote-reference-37" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.
+However, unlike for the shielded ZEC pools, there is no individual transaction field that directly corresponds to both the issued and burnt amounts for a given Asset.
+Therefore, we require that all nodes maintain a record of the current amount in circulation for every issued Custom Asset, and update this record based on the issuance and burn transactions processed.
+This allows for efficient detection of balance violations for any Asset, in which case we specify a consensus rule to reject the transaction or block.</p>
+<p>We limit the total issuance of any Asset to a maximum of <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖬</mi>
+    <mi>𝖠</mi>
+    <mi>𝖷</mi>
+    <mi>_</mi>
+    <mi>𝖨</mi>
+    <mi>𝖲</mi>
+    <mi>𝖲</mi>
+    <mi>𝖴</mi>
+    <mi>𝖤</mi>
+  </mrow>
+</math>.
+This is a practical limit that also allows an issuer to issue the complete supply of an Asset in a single transaction.</p>
+<p>Nodes also need to reject transactions that issue Custom Assets that have been previously finalized.
+The <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>_</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math> map allows nodes to store whether or not a given Asset has been finalized.</p>
+</section>
+<h2 id="concrete-applications"><a class="hanchor" href="#concrete-applications" aria-hidden="true" tabindex="-1">#</a>Concrete Applications</h2>
+<p><strong>Asset Features</strong></p>
+<ul>
+<li><p>By using the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> boolean and the burning mechanism defined in <a class="brackets" href="#zip-0226" id="footnote-reference-38" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>, issuers can control the supply production of any Asset associated to their issuer keys. For example,</p>
+<blockquote>
+<ul class="simple">
+<li><p>by setting <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1</mn>
+</math> from the first issuance action for that Asset Identifier, the issuer is in essence creating a one-time issuance transaction. This is useful when the max supply is capped from the beginning and the distribution is known in advance. All tokens are issued at once and distributed as needed.</p></li>
+</ul>
+</blockquote>
+</li>
+<li><p>Issuers can also stop the existing supply production of any Asset associated to their issuer keys. This could be done by</p>
+<blockquote>
+<ul class="simple">
+<li><p>issuing a last set of tokens of that specific <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math>, for which <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1</mn>
+</math>, or by</p></li>
+<li><p>issuing a transaction with a single note in the issuance action pertaining to that <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math>, where the note will contain a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>. This can be used for application-specific purposes (NFT collections) or for security purposes to revoke the Asset issuance (see Security and Privacy Considerations).</p></li>
+</ul>
+</blockquote>
+</li>
+<li><p>The issuance and burn mechanisms can be used in conjunction to determine the supply of Assets on the Zcash ecosystem. This allows for the bridging of Assets defined on other chains.</p></li>
+<li><p>Furthermore, NFT issuance is enabled by issuing in a single bundle several issuance actions, where each <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> corresponds to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1</mn>
+</math> at the fundamental unit level. Issuers and users should make sure that <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1</mn>
+</math> for each of the actions in this scenario.</p></li>
+</ul>
+</section>
+</section>
+<h1 id="modifications-relative-to-zip-244"><a class="hanchor" href="#modifications-relative-to-zip-244" aria-hidden="true" tabindex="-1">#</a>Modifications relative to ZIP 244 <a class="brackets" href="#zip-0244" id="footnote-reference-39" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a></h1>
+<p>Relative to the sighash algorithm defined in ZIP 244, the sighash algorithm
+that applies to v6 transactions differs by including the issuance bundle
+components within the tree hash. See ZIP 246 <a class="brackets" href="#zip-0246" id="footnote-reference-40" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a> for details.</p>
+</section>
+<h1 id="changes-to-zip-317"><a class="hanchor" href="#changes-to-zip-317" aria-hidden="true" tabindex="-1">#</a>Changes to ZIP 317 <a class="brackets" href="#zip-0317" id="footnote-reference-41" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a></h1>
+<p>The conventional fee in ZEC is altered to take into account both the presence of
+issuance actions within a transaction, and the creation of new Custom Assets
+within the global chain state. See the Fee calculation section of ZIP 317
+<a class="brackets" href="#zip-0317-fee-calculation" id="footnote-reference-42" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a> for details.</p>
+<h2 id="rationale-for-paying-fees-in-zec"><a class="hanchor" href="#rationale-for-paying-fees-in-zec" aria-hidden="true" tabindex="-1">#</a>Rationale for paying fees in ZEC</h2>
+<details>
+<summary>Click to show/hide</summary><p>We choose to maintain the native ZEC Asset as the primary token for the Zcash blockchain, similar to how ETH is needed for ERC20 transactions to the benefit of the Ethereum ecosystem.</p>
+<p>An alternative proposal for the OrchardZSA fee mechanism that was not adopted was to adopt a new type of fee, denominated in the custom Asset being issued or transferred.
+In the context of transparent transactions, such a fee allows miners to “tap into” the ZSA value of the transactions, rather than the ZEC value of transactions.
+However when transactions are shielded, any design that lifts value from the transaction would also leak information about it.</p>
+</details></section>
+</section>
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Security and Privacy Considerations</h1>
+<h2 id="displaying-asset-identifier-information-to-users"><a class="hanchor" href="#displaying-asset-identifier-information-to-users" aria-hidden="true" tabindex="-1">#</a>Displaying Asset Identifier information to users</h2>
+<p>Wallets need to communicate the names of the Assets in a non-confusing way to users, since the byte representation of the Asset Identifier would be hard to read for an end user. Possible solutions are provided in the <a class="reference internal" href="#specification-asset-identifier-asset-uuid-and-asset-base">Specification: Asset Identifier, Asset UUID, and Asset Base</a> section.</p>
+</section>
+<h2 id="issuance-key-compromise"><a class="hanchor" href="#issuance-key-compromise" aria-hidden="true" tabindex="-1">#</a>Issuance Key Compromise</h2>
+<p>The design of this protocol does not currently allow for rotation of the issuance validating key that would allow for replacing the key of a specific Asset. In case of compromise, the following actions are recommended:</p>
+<ul class="simple">
+<li><p>If an issuer identifier is compromised, the <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> boolean for all the Assets issued with that key should be set to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math>; then the issuer should change to a new issuance authorizing key (hence a new issuer identifier), and issue new Assets, each with a new <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math>.</p></li>
+</ul>
+</section>
+<h2 id="bridging-assets"><a class="hanchor" href="#bridging-assets" aria-hidden="true" tabindex="-1">#</a>Bridging Assets</h2>
+<p>For bridging purposes, the secure method of off-boarding Assets is to burn an Asset with the burning mechanism in ZIP 226 <a class="brackets" href="#zip-0226" id="footnote-reference-43" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. Users should be aware of issuers that demand the Assets be sent to a specific address on the Zcash chain to be redeemed elsewhere, as this may not reflect the real reserve value of the specific Asset.</p>
+</section>
+</section>
+<h1 id="other-considerations"><a class="hanchor" href="#other-considerations" aria-hidden="true" tabindex="-1">#</a>Other Considerations</h1>
+<h2 id="implementing-zcash-nodes"><a class="hanchor" href="#implementing-zcash-nodes" aria-hidden="true" tabindex="-1">#</a>Implementing Zcash Nodes</h2>
+<p>Although not enforced in the global state, it is RECOMMENDED that Zcash full validators keep track of the total supply of Assets as a mutable mapping <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝗎</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝗎</mi>
+    <mi>𝗉</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗒</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝖿</mi>
+    <mi>𝗈</mi>
+    <mi>𝖬</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+  </mrow>
+</math> from <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝗌</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+    <mi>𝖨</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> to <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗈</mi>
+    <mi>𝗍</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖲</mi>
+    <mi>𝗎</mi>
+    <mi>𝗉</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗒</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> in order to properly keep track of the total supply for different Asset Identifiers. This is useful for wallets and other applications that need to keep track of the total supply of Assets.</p>
+</section>
+</section>
+<h1 id="test-vectors"><a class="hanchor" href="#test-vectors" aria-hidden="true" tabindex="-1">#</a>Test Vectors</h1>
+<ul class="simple">
+<li><p>LINK TBD</p></li>
+</ul>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h1>
+<ul class="simple">
+<li><p>LINK TBD</p></li>
+<li><p>LINK TBD</p></li>
+</ul>
+</section>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>TBD</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-17">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-hardened-only-key-derivation" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-11">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#specification-hardened-only-key-derivation">ZIP 32: Shielded Hierarchical Deterministic Wallets — Specification: Hardened-only key derivation</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-hardened-only-child-key-derivation" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#hardened-only-child-key-derivation">ZIP 32: Shielded Hierarchical Deterministic Wallets — Hardened-only child key derivation</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-key-path-levels" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-15">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#key-path-levels">ZIP 32: Shielded Hierarchical Deterministic Wallets — Key path levels</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-orchard-key-path" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#orchard-key-path">ZIP 32: Shielded Hierarchical Deterministic Wallets — Orchard key path</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0209" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-37">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0209.rst">ZIP 209: Prohibit Out-of-Range Shielded Chain Value Pool Balances</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0224" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0224.rst">ZIP 224: Orchard</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0226" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-6">2</a>,<a role="doc-backlink" href="#footnote-reference-7">3</a>,<a role="doc-backlink" href="#footnote-reference-8">4</a>,<a role="doc-backlink" href="#footnote-reference-38">5</a>,<a role="doc-backlink" href="#footnote-reference-43">6</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0226.rst">ZIP 226: Transfer and Burn of Zcash Shielded Assets</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0226-note-structure-and-commitment" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-36">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0226.rst#note-structure-and-commitment">ZIP 226: Transfer and Burn of Zcash Shielded Assets — Note Structure and Commitment</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0226-assetburn" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-34">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0226.rst#additional-consensus-rules-for-the-assetburn-set">ZIP 226: Transfer and Burn of Zcash Shielded Assets — Additional Consensus Rules for the assetBurn set</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0226-txiddigest" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-33">13</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0226.rst#txid-digest">ZIP 226: Transfer and Burn of Zcash Shielded Assets — TxId Digest</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0226-authcommitment" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0226.rst#authorizing-data-commitment">ZIP 226: Transfer and Burn of Zcash Shielded Assets — Authorizing Data Commitment</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-issuance-action-description" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-26">15</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#issuance-action-description-issueaction">ZIP 230: Version 6 Transaction Format — Issuance Action Description (IssueAction)</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-issue-note" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-25">1</a>,<a role="doc-backlink" href="#footnote-reference-35">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#issue-note-description-issuenotedescription">ZIP 230: Version 6 Transaction Format — Issue Note Description (IssueNoteDescription)</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0230-transaction-format" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-27">1</a>,<a role="doc-backlink" href="#footnote-reference-30">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0230.rst#transaction-format">ZIP 230: Version 6 Transaction Format — Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-39">18</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0246" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-40">19</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0246.rst">ZIP 246: Digests for the Version 6 Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0317" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-41">20</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0317.rst">ZIP 317: Proportional Transfer Fee Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0317-fee-calculation" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-42">21</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0317.rst#fee-calculation">ZIP 317: Proportional Transfer Fee Mechanism — Fee calculation</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0043" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-14">22</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0043.mediawiki">BIP 43: Purpose Field for Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0340" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-16">1</a>,<a role="doc-backlink" href="#footnote-reference-18">2</a>,<a role="doc-backlink" href="#footnote-reference-19">3</a>)</span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki">BIP 340: Schnorr Signatures for secp256k1</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">24</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.2 [NU6.1] or later.</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-notation" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">25</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#notation">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 2: Notation</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-notes" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>26<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-23">1</a>,<a role="doc-backlink" href="#footnote-reference-24">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#notes">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 3.2: Notes</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-abstractsig" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">27</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#abstractsig">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.1.7: Signature</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-orchardkeycomponents" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>28<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-28">1</a>,<a role="doc-backlink" href="#footnote-reference-31">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#orchardkeycomponents">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.2.3: Orchard Key Components</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-sighash" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-32">29</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#sighash">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.10: SIGHASH Transaction Hashing</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-constants" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-22">30</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#constants">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 5.3: Constants</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concreteprfs" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-29">31</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concreteprfs">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 5.4.2: Pseudo Random Functions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretegrouphashpallasandvesta" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-21">32</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretegrouphashpallasandvesta">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 5.4.9.8: Group Hash into Pallas and Vesta</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-orchardpaymentaddrencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>33<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#orchardpaymentaddrencoding">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 5.6.4.2: Orchard Raw Payment Addresses</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>34<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 7.1: Transaction Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="petnames" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-20">35</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/HTTP://www.skyhunter.com/marcs/petnames/IntroPetNames.html">An Introduction to Petname Systems. Marc Stiegler, updated June 2010.</a></p>
+</aside>
+</aside>
+</section>
