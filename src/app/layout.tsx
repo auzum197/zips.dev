@@ -11,6 +11,7 @@ import SiteNav from "@/components/site-nav";
 import SiteFooter from "@/components/site-footer";
 import ScrollReset from "@/components/scroll-reset";
 import HeaderAutohide from "@/components/header-autohide";
+import { getMeta } from "@/lib/data";
 export const metadata: Metadata = {
     title: {
         default: "zipreader",
@@ -32,7 +33,7 @@ export default function RootLayout({ children }: {
           <ScrollReset />
           <HeaderAutohide />
           <main className="mx-auto w-full max-w-[88rem] px-5 pb-12">{children}</main>
-          <SiteFooter />
+          <SiteFooter meta={getMeta()}/>
         </div>
       </body>
     </html>);
