@@ -32,7 +32,10 @@ pnpm sync        # clone/pull vendor/zips + render + fetch PRs → content/
 pnpm dev         # search won't work in dev (no pagefind assets); everything else does
 pnpm build       # sync + next build + pagefind → out/
 pnpm start       # preview the static export (pnpm dlx serve out)
+pnpm storybook   # component workbench at http://localhost:6006
 ```
+
+Every component has its own story file next to it (`src/components/*.stories.tsx`, `src/components/ui/*.stories.tsx`). Mock data lives in `src/lib/fixtures.ts`.
 
 pnpm is the package manager of record: `"packageManager"` pins the version (Corepack-compatible), `pnpm-lock.yaml` is committed, CI installs with `--frozen-lockfile`.
 

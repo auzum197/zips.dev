@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Input } from "@/components/ui/input";
-type PagefindResultData = {
+export type PagefindResultData = {
     url: string;
     excerpt: string;
     meta?: {

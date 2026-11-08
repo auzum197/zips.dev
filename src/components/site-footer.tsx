@@ -1,6 +1,7 @@
-import { getMeta } from "@/lib/data";
-export default function SiteFooter() {
-    const meta = getMeta();
+import type { UpstreamMeta } from "@/lib/types";
+export default function SiteFooter({ meta }: {
+    meta: UpstreamMeta;
+}) {
     const synced = new Date(meta.syncedAt);
     return (<footer className="zen-dim border-t border-border-subtle pb-8 pt-5 text-[0.8125rem] text-muted-foreground">
       <div className="mx-auto max-w-[88rem] px-5">

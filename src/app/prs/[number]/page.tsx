@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { diffToHtml } from "@/lib/diff";
+import { dateSlice } from "@/lib/date";
 import { getMeta, getPrByNumber, getPrs, getZipByNumber, getZipBySlug, prPreviews, } from "@/lib/data";
 import { type PrMeta, type PrPreview } from "@/lib/types";
 import StatusBadge from "@/components/status-badge";
@@ -22,10 +23,6 @@ export async function generateMetadata({ params, }: {
     if (!pr)
         return {};
     return { title: `PR ${pr.number}: ${pr.title}` };
-}
-function dateSlice(iso: string): string {
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? "—" : d.toISOString().slice(0, 10);
 }
 function docBase(slug: string): {
     href: string;
@@ -99,33 +96,33 @@ export default async function PrOverviewPage({ params, }: {
             <Badge variant="accent">PR #{pr.number}</Badge>
             <span>proposed changes to</span>
             {pr.zipRefs.map((z, i) => {
-                // Link to whichever page exists: the numbered ZIP, or the
-                // numberless draft living in a zip-NNNN file.
-                const base = docBase(`zip-${String(z).padStart(4, "0")}`);
-                return (<span key={z}>
+            // Link to whichever page exists: the numbered ZIP, or the
+            // numberless draft living in a zip-NNNN file.
+            const base = docBase(`zip-${String(z).padStart(4, "0")}`);
+            return (<span key={z}>
                     {i > 0 && <span className="mr-2">·</span>}
                     {base ? (<Link href={base.href} className="underline underline-offset-2">
                         ZIP {z}
                       </Link>) : (<span>ZIP {z}</span>)}
                   </span>);
-            })}
+        })}
             {pr.draftRefs.map((d) => {
-                const exists = Boolean(getZipBySlug(d));
-                return (<span key={d}>
+            const exists = Boolean(getZipBySlug(d));
+            return (<span key={d}>
                     <span className="mr-2">·</span>
                     {exists ? (<Link href={`/drafts/${d}/`} className="underline underline-offset-2">
                         {d}
                       </Link>) : (<span>{d}</span>)}
                   </span>);
-            })}
+        })}
           </p>
           <h1 className="font-display mb-3 text-[clamp(1.75rem,3vw,2.35rem)] leading-[1.2] font-semibold tracking-[-0.02em] [text-wrap:pretty]">
             {pr.title}
           </h1>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted-foreground">
             <span>
-              by {pr.author ?? "unknown"} · created {dateSlice(pr.createdAt)} ·
-              updated {dateSlice(pr.updatedAt)}
+              by {pr.author ?? "unknown"} · created {dateSlice(pr.createdAt) ?? "—"} ·
+              updated {dateSlice(pr.updatedAt) ?? "—"}
             </span>
             <span className="text-faint">
               {pr.changedFiles} file{pr.changedFiles === 1 ? "" : "s"} ·{" "}

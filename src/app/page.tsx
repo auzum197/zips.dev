@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import IndexFilters, { type IndexRow } from "@/components/index-filters";
+import PageHeader from "@/components/page-header";
 import { getDrafts, getMeta, getNumberedZips, getUpgrades } from "@/lib/data";
 import { statusGroup } from "@/lib/types";
 export const metadata: Metadata = {
@@ -27,13 +28,12 @@ export default function HomePage() {
         upgrades: upgradeNames.get(z.number as number) ?? [],
     }));
     return (<>
-      <h1 className="mt-8 font-display text-2xl font-semibold tracking-tight">ZIPs</h1>
-      <p className="text-[0.9375rem] text-muted-foreground">
-        {zips.length} numbered · {drafts.length} drafts ·{" "}
-        <a href={meta.commitUrl}>
-          zcash/zips@{meta.commitShort}
-        </a>
-      </p>
+      <PageHeader title="ZIPs" intro={<>
+          {zips.length} numbered · {drafts.length} drafts ·{" "}
+          <a href={meta.commitUrl}>
+            zcash/zips@{meta.commitShort}
+          </a>
+        </>} introClassName=""/>
       <IndexFilters rows={rows}/>
     </>);
 }
