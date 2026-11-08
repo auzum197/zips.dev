@@ -89,32 +89,45 @@ export default async function PrOverviewPage({ params, }: {
         notFound();
     const meta = getMeta();
     const diffableFiles = pr.files.filter((f) => f.patch);
+    // Split refs into documents that already have a page (link them) and
+    // documents this PR introduces (no page yet, so plain text).
+    const refs = [
+        ...pr.zipRefs.map((z) => {
+            // Link to whichever page exists: the numbered ZIP, or the
+            // numberless draft living in a zip-NNNN file.
+            const base = docBase(`zip-${String(z).padStart(4, "0")}`);
+            return { key: `z${z}`, label: `ZIP ${z}`, href: base?.href ?? null };
+        }),
+        ...pr.draftRefs.map((d) => ({
+            key: `d${d}`,
+            label: d,
+            href: getZipBySlug(d) ? `/drafts/${d}/` : null,
+        })),
+    ];
+    const existingRefs = refs.filter((r): r is typeof r & { href: string } => r.href !== null);
+    const newRefs = refs.filter((r) => r.href === null);
+    const sep = <span className="mr-2">·</span>;
     return (<div className="relative mx-auto max-w-[88rem] pt-6">
       <div className="mx-auto max-w-[84ch] [--prose-measure:84ch]">
         <header className="mb-8 border-b border-border-subtle pb-4">
           <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-muted-foreground">
             <Badge variant="accent">PR #{pr.number}</Badge>
-            <span>proposed changes to</span>
-            {pr.zipRefs.map((z, i) => {
-            // Link to whichever page exists: the numbered ZIP, or the
-            // numberless draft living in a zip-NNNN file.
-            const base = docBase(`zip-${String(z).padStart(4, "0")}`);
-            return (<span key={z}>
-                    {i > 0 && <span className="mr-2">·</span>}
-                    {base ? (<Link href={base.href} className="underline underline-offset-2">
-                        ZIP {z}
-                      </Link>) : (<span>ZIP {z}</span>)}
-                  </span>);
-        })}
-            {pr.draftRefs.map((d) => {
-            const exists = Boolean(getZipBySlug(d));
-            return (<span key={d}>
-                    <span className="mr-2">·</span>
-                    {exists ? (<Link href={`/drafts/${d}/`} className="underline underline-offset-2">
-                        {d}
-                      </Link>) : (<span>{d}</span>)}
-                  </span>);
-        })}
+            {existingRefs.length > 0 && (<>
+                <span>proposed changes to</span>
+                {existingRefs.map((r, i) => (<span key={r.key}>
+                    {i > 0 && sep}
+                    <Link href={r.href} className="underline underline-offset-2">
+                      {r.label}
+                    </Link>
+                  </span>))}
+              </>)}
+            {newRefs.length > 0 && (<>
+                <span>proposes new</span>
+                {newRefs.map((r, i) => (<span key={r.key}>
+                    {i > 0 && sep}
+                    <span className="text-faint">{r.label}</span>
+                  </span>))}
+              </>)}
           </p>
           <h1 className="font-display mb-3 text-[clamp(1.75rem,3vw,2.35rem)] leading-[1.2] font-semibold tracking-[-0.02em] [text-wrap:pretty]">
             {pr.title}
