@@ -555,6 +555,7 @@ async function main() {
                 claimed: prClaimIndex.has(pr.number),
                 files: small && files ? files.map((f) => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch ?? null })) : [],
                 filesTruncated: !small,
+                previews: [],
                 preview: null,
             });
         }
@@ -579,14 +580,16 @@ async function main() {
         }
     }
     const DOC_RE = /^(?:zips\/)?(zip-\d{4}|draft-[a-z0-9-]+)\.(md|rst)$/i;
+    const docSlug = (filename) => filename.replace(/^.*\//, "").replace(/\.(md|rst)$/i, "");
     let previews = 0;
+    let previewPrs = 0;
     for (const pr of prs) {
         if (!pr.mapped && !pr.claimed)
             continue;
         try {
-            let docFile = pr.files.find((f) => DOC_RE.test(f.filename) && f.status !== "removed");
+            let docFiles = pr.files.filter((f) => DOC_RE.test(f.filename) && f.status !== "removed");
             let headSha = pr.headSha;
-            if ((!docFile || !headSha) && (pr.files.length === 0 || !headSha)) {
+            if ((docFiles.length === 0 || !headSha) && (pr.files.length === 0 || !headSha)) {
                 const patchRes = await fetch(`https://github.com/${REPO}/pull/${pr.number}.patch`, {
                     headers: { "User-Agent": "zips.dev-sync" },
                     redirect: "follow",
@@ -599,65 +602,102 @@ async function main() {
                     if (shas.length)
                         headSha = headSha ?? shas[shas.length - 1];
                     const names = [...patchText.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)].map((m) => m[2]);
-                    const patchDoc = names.find((f) => DOC_RE.test(f));
-                    if (patchDoc && !docFile) {
-                        docFile = { filename: patchDoc, status: "modified", additions: 0, deletions: 0, patch: patchText.slice(0, 400000) };
+                    const patchDocs = names.filter((f) => DOC_RE.test(f));
+                    if (patchDocs.length > 0 && docFiles.length === 0) {
+                        const sections = patchText.split(/^(?=diff --git )/m);
+                        const perFilePatch = (filename) => sections.find((s) => s.match(/^diff --git a\/\S+ b\/(\S+)$/m)?.[1] === filename) ?? patchText.slice(0, 400000);
+                        docFiles = patchDocs.map((filename) => ({ filename, status: "modified", additions: 0, deletions: 0, patch: null }));
                         if (pr.files.length === 0)
-                            pr.files = [docFile];
+                            pr.files = docFiles.map((f) => ({ ...f, patch: perFilePatch(f.filename).slice(0, 400000) }));
                     }
                 }
             }
-            if (!docFile)
+            if (docFiles.length === 0)
                 continue;
-            let raw = null;
-            if (pr.headRepo && headSha) {
-                const rawRes = await fetch(`https://raw.githubusercontent.com/${pr.headRepo}/${headSha}/${docFile.filename}`, { headers: { "User-Agent": "zips.dev-sync" } });
-                if (rawRes.ok)
-                    raw = await rawRes.text();
-            }
-            if (raw === null) {
+            let pullHeadSha = null;
+            const fetchPullHead = async () => {
+                if (pullHeadSha)
+                    return pullHeadSha;
                 const fr = spawnSync("git", ["-C", VENDOR, "fetch", "--depth", "1", "origin", `pull/${pr.number}/head`], {
                     encoding: "utf8",
                 });
                 if (fr.status !== 0)
                     throw new Error(`git fetch failed: ${fr.stderr.slice(0, 80)}`);
-                const sha = spawnSync("git", ["-C", VENDOR, "rev-parse", "FETCH_HEAD"], { encoding: "utf8" }).stdout.trim();
-                const show = spawnSync("git", ["-C", VENDOR, "show", `${sha}:${docFile.filename}`], {
-                    encoding: "utf8",
-                    maxBuffer: 8 * 1024 * 1024,
-                });
-                if (show.status !== 0)
-                    throw new Error(`git show failed: ${show.stderr.slice(0, 80)}`);
-                raw = show.stdout;
-                headSha = sha;
-            }
-            if (!raw)
-                throw new Error("file content unavailable");
-            if (raw.length > 1500000)
-                throw new Error("too large");
-            const { meta: hdr, body } = parseHeader(raw);
-            const format = /\.md$/i.test(docFile.filename) ? "md" : "rst";
-            const html0 = format === "md" ? await renderMd(body) : renderRst(body, `pr-${pr.number}`);
-            if (html0 === null)
-                throw new Error("render failed");
-            const html = injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
-            const revMatch = String(hdr?.status ?? "").match(/\[Revision\s+(\d+)\]\s*(.+)/i);
-            pr.preview = {
-                filename: docFile.filename,
-                title: (hdr?.title ?? pr.title).trim(),
-                status: revMatch ? revMatch[2].trim() : (hdr?.status ?? "Draft").trim(),
-                headings: extractHeadings(html),
-                format,
+                pullHeadSha = spawnSync("git", ["-C", VENDOR, "rev-parse", "FETCH_HEAD"], { encoding: "utf8" }).stdout.trim();
+                return pullHeadSha;
             };
+            const rendered = [];
+            for (const docFile of docFiles) {
+                try {
+                    let raw = null;
+                    if (pr.headRepo && headSha) {
+                        const rawRes = await fetch(`https://raw.githubusercontent.com/${pr.headRepo}/${headSha}/${docFile.filename}`, { headers: { "User-Agent": "zips.dev-sync" } });
+                        if (rawRes.ok)
+                            raw = await rawRes.text();
+                    }
+                    if (raw === null) {
+                        const sha = await fetchPullHead();
+                        const show = spawnSync("git", ["-C", VENDOR, "show", `${sha}:${docFile.filename}`], {
+                            encoding: "utf8",
+                            maxBuffer: 8 * 1024 * 1024,
+                        });
+                        if (show.status !== 0)
+                            throw new Error(`git show failed: ${show.stderr.slice(0, 80)}`);
+                        raw = show.stdout;
+                        headSha = sha;
+                    }
+                    if (!raw)
+                        throw new Error("file content unavailable");
+                    if (raw.length > 1500000)
+                        throw new Error("too large");
+                    const { meta: hdr, body } = parseHeader(raw);
+                    const format = /\.md$/i.test(docFile.filename) ? "md" : "rst";
+                    const slug = docSlug(docFile.filename);
+                    const html0 = format === "md" ? await renderMd(body) : renderRst(body, `pr-${pr.number}-${slug}`);
+                    if (html0 === null)
+                        throw new Error("render failed");
+                    const html = injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
+                    const revMatch = String(hdr?.status ?? "").match(/\[Revision\s+(\d+)\]\s*(.+)/i);
+                    rendered.push({
+                        filename: docFile.filename,
+                        slug,
+                        title: (hdr?.title ?? pr.title).trim(),
+                        status: revMatch ? revMatch[2].trim() : (hdr?.status ?? "Draft").trim(),
+                        headings: extractHeadings(html),
+                        format,
+                    });
+                    fs.writeFileSync(path.join(RENDERED, `pr-${pr.number}-${slug}.html`), html);
+                }
+                catch (e) {
+                    console.warn(`sync: preview failed for PR ${pr.number} ${docFile.filename}: ${String(e.message ?? e).slice(0, 100)}`);
+                }
+            }
+            if (rendered.length === 0)
+                continue;
+            pr.previews = rendered;
+            pr.preview = rendered[0] ?? null;
             pr.headSha = headSha;
-            fs.writeFileSync(path.join(RENDERED, `pr-${pr.number}.html`), html);
-            previews++;
+            previews += rendered.length;
+            previewPrs++;
         }
         catch (e) {
             console.warn(`sync: preview failed for PR ${pr.number}: ${String(e.message ?? e).slice(0, 100)}`);
         }
     }
-    console.log(`sync: rendered ${previews} PR previews`);
+    console.log(`sync: rendered ${previews} previews for ${previewPrs} PRs`);
+    // Retire the single-document pr-<number>.html outputs. Skipped when the PR
+    // snapshot was reused from cache, so a stale snapshot keeps readable files.
+    if (!prError) {
+        let removedLegacy = 0;
+        for (const f of fs.readdirSync(RENDERED)) {
+            if (/^pr-\d+\.html$/.test(f)) {
+                fs.unlinkSync(path.join(RENDERED, f));
+                removedLegacy++;
+            }
+        }
+        if (removedLegacy)
+            console.log(`sync: removed ${removedLegacy} legacy pr-<number>.html previews`);
+    }
     const publicZip = (z) => {
         const { headings, ...rest } = z;
         return rest;

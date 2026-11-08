@@ -28,6 +28,7 @@ export const Default: Story = {
                 draftRefs: ["draft-crosschain"],
                 preview: {
                     filename: "draft-crosschain.md",
+                    slug: "draft-crosschain",
                     title: "Draft: crosschain",
                     status: "Draft",
                     headings: [],

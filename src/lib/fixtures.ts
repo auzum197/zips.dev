@@ -55,6 +55,7 @@ export function makePr(overrides: Partial<PrMeta> = {}): PrMeta {
         claimed: false,
         files: [],
         filesTruncated: false,
+        previews: [],
         preview: null,
         ...overrides,
     };
@@ -92,6 +93,7 @@ export function makeProposal(overrides: Partial<NewProposal> = {}): NewProposal 
         title: "ZIP 350: An abstraction for cross-chain transfers",
         preview: {
             filename: "zip-0350.md",
+            slug: "zip-0350",
             title: "ZIP 350: An abstraction for cross-chain transfers",
             status: "Draft",
             headings: [],
