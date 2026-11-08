@@ -43,6 +43,8 @@ export interface PrFile {
 }
 export interface PrPreview {
     filename: string;
+    /** Basename of `filename` without extension, e.g. "zip-0316" or "draft-arya-wallet-to-wallet-messaging". */
+    slug: string;
     title: string;
     status: string;
     headings: ZipHeading[];
@@ -75,6 +77,9 @@ export interface PrMeta {
     claimed: boolean;
     files: PrFile[];
     filesTruncated: boolean;
+    /** Every changed ZIP/draft document rendered from the PR head, in file-list order. */
+    previews: PrPreview[];
+    /** First element of `previews`; kept for backward compatibility of the public API. */
     preview: PrPreview | null;
 }
 export interface Upgrade {

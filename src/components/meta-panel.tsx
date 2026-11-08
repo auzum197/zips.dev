@@ -4,6 +4,7 @@ import AuthorList from "@/components/author-list";
 import PlainList from "@/components/plain-list";
 import StatusBadge from "@/components/status-badge";
 import { Badge, badgeVariants } from "@/components/ui/badge";
+import { prPreviewHref } from "@/lib/data";
 import type { Crossrefs, PrMeta, Upgrade, UpstreamMeta, ZipMeta, } from "@/lib/types";
 import { statusGroup } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -87,11 +88,16 @@ export default function MetaPanel({ zip, prs, upgrades, crossrefs, related, comm
 
       {prs.length > 0 && (<PanelSection title="Open PRs">
           <ul className="space-y-0.5">
-            {prs.map((p) => (<li key={p.number} className="min-w-0">
-                <Link href={p.preview ? `/prs/${p.number}/` : p.url} className="block truncate hover:text-accent" title={p.preview ? `${p.title} — rendered preview of the proposed text` : p.title}>
-                  <span className="font-mono text-accent">#{p.number}</span> {p.title}
-                </Link>
-              </li>))}
+            {prs.map((p) => {
+                // Deep-link to the changed document when the PR previewed one
+                // for this ZIP/draft; multi-doc PRs fall back to the overview.
+                const href = prPreviewHref(p, zip.slug);
+                return (<li key={p.number} className="min-w-0">
+                  <Link href={href ?? p.url} className="block truncate hover:text-accent" title={href ? `${p.title} — rendered preview of the proposed text` : p.title}>
+                    <span className="font-mono text-accent">#{p.number}</span> {p.title}
+                  </Link>
+                </li>);
+            })}
           </ul>
         </PanelSection>)}
 

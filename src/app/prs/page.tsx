@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import PrList from "@/components/pr-list";
 import PageHeader from "@/components/page-header";
-import { getDraftSlugs, getPrError, getPrs, getZipByNumber } from "@/lib/data";
+import { getPrError, getPrs, getZipByNumber } from "@/lib/data";
 import type { PrMeta } from "@/lib/types";
 export const metadata: Metadata = {
     title: "Pull Requests",
@@ -18,7 +18,6 @@ export default function PrsPage() {
     const existingZipNumbers = new Set(prs
         .flatMap((p) => p.zipRefs)
         .filter((n) => getZipByNumber(n) !== undefined));
-    const existingDraftSlugs = getDraftSlugs();
     return (<>
       <PageHeader title="Pull Requests" intro={<>
           Open PRs to zcash/zips, cached at sync time · {prs.length} PR
@@ -35,7 +34,7 @@ export default function PrsPage() {
           {mapped.length} PR{mapped.length === 1 ? "" : "s"} reference a ZIP or
           draft in their title or body.
         </p>
-        <PrList prs={mapped} existingZipNumbers={existingZipNumbers} existingDraftSlugs={existingDraftSlugs}/>
+        <PrList prs={mapped} existingZipNumbers={existingZipNumbers}/>
       </section>
 
       {unmapped.length > 0 && (<section className="mt-10">
@@ -44,7 +43,7 @@ export default function PrsPage() {
             {unmapped.length} PR{unmapped.length === 1 ? "" : "s"} with no
             detectable ZIP reference.
           </p>
-          <PrList prs={unmapped} existingZipNumbers={existingZipNumbers} existingDraftSlugs={existingDraftSlugs}/>
+          <PrList prs={unmapped} existingZipNumbers={existingZipNumbers}/>
         </section>)}
     </>);
 }
