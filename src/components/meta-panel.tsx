@@ -3,12 +3,14 @@ import PanelSection from "@/components/panel-section";
 import AuthorList from "@/components/author-list";
 import PlainList from "@/components/plain-list";
 import StatusBadge from "@/components/status-badge";
-import { Badge, badgeVariants } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
+import { isRevisionList } from "@/lib/zip-status";
+import { badgeVariants } from "@/components/ui/badge-variants";
 import { prPreviewHref } from "@/lib/data";
 import type { Crossrefs, PrMeta, Upgrade, UpstreamMeta, ZipMeta, } from "@/lib/types";
 import { statusGroup } from "@/lib/types";
 import { cn } from "@/lib/utils";
-const badgesRow = "inline-flex flex-wrap items-center gap-1.5 [&>span]:whitespace-normal";
+const badgesRow = "inline-flex flex-wrap items-center gap-1.5";
 export default function MetaPanel({ zip, prs, upgrades, crossrefs, related, commit, className, }: {
     zip: ZipMeta;
     prs: PrMeta[];
@@ -24,7 +26,7 @@ export default function MetaPanel({ zip, prs, upgrades, crossrefs, related, comm
       <PanelSection title="Status">
         <p className={cn("m-0", badgesRow)}>
           <StatusBadge status={zip.status} group={statusGroup(zip.status)}/>
-          {zip.revision !== null && <Badge variant="outline">r{zip.revision}</Badge>}
+          {zip.revision !== null && !isRevisionList(zip.status) && <Badge variant="outline">r{zip.revision}</Badge>}
         </p>
       </PanelSection>
 
