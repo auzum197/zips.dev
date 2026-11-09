@@ -41,6 +41,21 @@ function decodeEntities(s) {
 function stripTags(s) {
     return decodeEntities(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
+/* A ZIP header "Status:" is either a plain status ("Final"), one revision
+   ("[Revision 1] Final"), or a list of per-revision statuses
+   ("[Revision 0: Canopy, Revision 1: NU6] Final, [Revision 2: NU7] Proposed").
+   Unwrap only the one-revision form. Keep a list verbatim, so the site can
+   show one badge per entry (src/lib/zip-status.ts). `revision` is the highest
+   revision the header names, or null if it names none. */
+function normalizeStatus(raw, fallback) {
+    const text = String(raw ?? "").trim();
+    if (!text)
+        return { status: fallback, revision: null };
+    const revs = [...text.matchAll(/Revision\s+(\d+)/gi)].map((m) => Number(m[1]));
+    const revision = revs.length > 0 ? Math.max(...revs) : null;
+    const single = text.match(/^\[Revision\s+\d+\]\s*([^[\],]+)$/i);
+    return { status: single ? single[1].trim() : text, revision };
+}
 function parseHeader(source) {
     const lines = source.replace(/\r\n/g, "\n").split("\n");
     let i = 0;
@@ -399,9 +414,7 @@ async function main() {
         const { meta: hdr, body } = parseHeader(raw);
         const numberMatch = String(hdr?.zip ?? "").match(/^\d+$/);
         const number = numberMatch ? parseInt(String(hdr.zip), 10) : null;
-        const revMatch = String(hdr?.status ?? "").match(/\[Revision\s+(\d+)\]\s*(.+)/i);
-        const revision = revMatch ? Number(revMatch[1]) : null;
-        const status = revMatch ? revMatch[2].trim() : (hdr?.status ?? "Unknown").trim();
+        const { status, revision } = normalizeStatus(hdr?.status, "Unknown");
         const html0 = await (format === "md" ? renderMd(body) : Promise.resolve(renderRst(body, slug)));
         const html = html0 === null ? `<p class="render-error">This document could not be rendered (RST conversion failed). <a href="https://github.com/${REPO}/blob/${commit}/zips/${filename}">Read the source on GitHub.</a></p>` : injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
         if (html0 === null)
@@ -657,12 +670,11 @@ async function main() {
                     if (html0 === null)
                         throw new Error("render failed");
                     const html = injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
-                    const revMatch = String(hdr?.status ?? "").match(/\[Revision\s+(\d+)\]\s*(.+)/i);
                     rendered.push({
                         filename: docFile.filename,
                         slug,
                         title: (hdr?.title ?? pr.title).trim(),
-                        status: revMatch ? revMatch[2].trim() : (hdr?.status ?? "Draft").trim(),
+                        status: normalizeStatus(hdr?.status, "Draft").status,
                         headings: extractHeadings(html),
                         format,
                     });

@@ -1,24 +1,39 @@
+"use client";
 import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
-const badgeVariants = cva("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-xs leading-5 whitespace-nowrap w-fit", {
-    variants: {
-        variant: {
-            default: "border-transparent bg-accent text-accent-foreground",
-            secondary: "border-border bg-muted text-muted-foreground",
-            success: "border-success bg-success-soft text-success",
-            warn: "border-warn bg-warn-soft text-warn",
-            destructive: "border-destructive bg-danger-soft text-destructive",
-            purple: "border-purple bg-purple-soft text-purple",
-            accent: "border-accent bg-accent-soft text-accent",
-            outline: "border-border text-muted-foreground",
-        },
-    },
-    defaultVariants: {
-        variant: "secondary",
-    },
-});
-function Badge({ className, variant, ...props }: React.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
-    return (<span className={cn(badgeVariants({ variant }), className)} {...props}/>);
+import { badgeVariants, type BadgeVariantProps } from "@/components/ui/badge-variants";
+/* CSS cannot tell if a box wrapped, so measure it: when the label takes more
+   than one line, set data-wrapped and the badge changes from a capsule to a
+   rounded card (see badge-variants.ts). The wrapped shape only adds padding,
+   so it cannot cause the label to fit on one line again: no flip-flop. */
+function useWrapped(ref: React.RefObject<HTMLElement | null>) {
+    const [wrapped, setWrapped] = React.useState(false);
+    React.useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el)
+            return;
+        const measure = () => {
+            const cs = getComputedStyle(el);
+            const content = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+            setWrapped(content > parseFloat(cs.lineHeight) * 1.5);
+        };
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [ref]);
+    return wrapped;
 }
-export { Badge, badgeVariants };
+function Badge({ className, variant, ref, ...props }: React.ComponentProps<"span"> & BadgeVariantProps) {
+    const local = React.useRef<HTMLSpanElement>(null);
+    const wrapped = useWrapped(local);
+    const setRef = React.useCallback((node: HTMLSpanElement | null) => {
+        local.current = node;
+        if (typeof ref === "function")
+            ref(node);
+        else if (ref)
+            ref.current = node;
+    }, [ref]);
+    return (<span ref={setRef} data-wrapped={wrapped || undefined} className={cn(badgeVariants({ variant }), className)} {...props}/>);
+}
+export { Badge };
