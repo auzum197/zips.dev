@@ -2,461 +2,162 @@
 <p>The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" in this
 document are to be interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only
 when, they appear in all capitals.</p>
-<p>The terms "Unified Address", "Unified Viewing Key", "Receiver", "Metadata
-Item", "Typecode", "Producer", and "Consumer" are to be interpreted as defined
-in ZIP 316. <sup><a href="#user-content-fn-zip-0316" id="user-content-fnref-zip-0316" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> An "Orchard Receiver" is a Receiver with Typecode
-<math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟹</mn></mrow></math>.</p>
-<dl><dt>compactSize</dt><dd>A variable-length integer as used in the Bitcoin protocol,
-<sup><a href="#user-content-fn-bitcoin-compactsize" id="user-content-fnref-bitcoin-compactsize" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> in minimal encoding, with a value of at most
-<math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟸𝟶𝟶𝟶𝟶𝟶𝟶</mn></mrow></math>.</dd><dt>Sender wallet</dt><dd>The wallet that creates and deposits an Envelope.</dd><dt>Recipient wallet</dt><dd>The wallet an Envelope is encrypted to.</dd><dt>Envelope</dt><dd>An encrypted message, padded to a size class, as deposited in a Mailbox.</dd><dt>Mailbox</dt><dd>A service that holds Envelopes for a Recipient wallet until it fetches them.</dd><dt>Mailbox Descriptor</dt><dd>The data a Sender wallet needs to deposit an Envelope in a Mailbox.</dd><dt>Transport Binding</dt><dd>A specification of the Mailbox operations over one anonymity network,
-identified by a <code>binding_id</code>.</dd><dt>Payload</dt><dd>The typed content carried inside an Envelope.</dd></dl>
+<p>The terms "Unified Address" and "Receiver" are to be interpreted as defined
+in ZIP 316. <sup><a href="#user-content-fn-zip-0316" id="user-content-fnref-zip-0316" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<dl><dt>Envelope</dt><dd>An encrypted message, padded to one of three sizes.</dd><dt>Mailbox</dt><dd>A queue of Envelopes held by a Mailbox Server under a Mailbox ID.</dd><dt>Conversation</dt><dd>The state two wallets share after a first Envelope: a secret from which
+they derive Envelope keys and Mailbox IDs.</dd><dt>Contact Mailbox, Pairwise Mailbox</dt><dd>The Mailbox derived from an Orchard Receiver, and one derived from a
+Conversation, a direction, and a week-long epoch.</dd><dt>Routing Binding</dt><dd>A specification of how wallets reach Mailbox Servers, and optionally each
+other, over one anonymity network.</dd></dl>
 <h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
-<p>This ZIP specifies an off-chain channel between Zcash wallets. A Sender wallet
-that holds a Recipient wallet's Unified Address deposits an encrypted Envelope
-in a Mailbox over an anonymity network, and the Recipient wallet fetches it
-later. Neither wallet reveals its network identity to the other, and the
-Mailbox operator does not learn who sent an Envelope.</p>
-<p>Envelopes are encrypted to the Orchard Receiver of the Unified Address, using
-the Orchard key agreement with a domain-separated key derivation, so no new
-keys have to be exchanged. A new ZIP 316 Metadata Item carries the Mailbox
-Descriptor in the Unified Address. Payload types are defined for
-acknowledgements, text, ZIP 321 payment requests, and PCZTs, with codes
-reserved for FROST signing rounds and off-chain note delivery. Mailbox
-credentials are derived from the wallet seed with ZIP 32 registered key
-derivation.</p>
-<p>Anyone who holds the recipient's Orchard incoming viewing key can read its
-Envelopes, and a Mailbox Descriptor links every Unified Address that carries
-it. Transport Bindings are specified separately; Appendix A sketches one for
-the Nym mixnet. <sup><a href="#user-content-fn-nym" id="user-content-fnref-nym" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>This ZIP specifies an off-chain channel between Zcash wallets. A wallet that
+holds another wallet's Unified Address deposits an encrypted Envelope in a
+Mailbox, reaching the Mailbox Server over an anonymity network, and the
+recipient fetches it later. Neither wallet reveals its network identity to
+the other or to the server.</p>
+<p>Nothing is added to the Unified Address. The Mailbox ID and Mailbox Server
+are derived from the address's Orchard Receiver, the Envelope is encrypted to
+that Receiver using the Orchard key agreement, and fetching requires the
+incoming viewing key. Every first Envelope also starts a Conversation, whose
+mailboxes rotate each epoch, so that an ongoing exchange does not accumulate
+metadata under one identifier. Routing is separate from storage: mailboxes
+are reached over any supported anonymity network, and prompt replies can also
+go directly between the wallets. Payload types are defined for
+acknowledgements, text, ZIP 321 payment requests, and PCZTs.</p>
+<p>Anyone who holds the recipient's Orchard incoming viewing key can read and
+fetch its Envelopes, and a Mailbox Server sees the volume and timing of what
+each Mailbox ID receives. Appendix A sketches Routing Bindings for the Nym
+mixnet <sup><a href="#user-content-fn-nym" id="user-content-fnref-nym" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> and for Tor. <sup><a href="#user-content-fn-tor-rend" id="user-content-fnref-tor-rend" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
 <h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
-<p>Several wallet protocols need a direct channel between wallets. Each wallet
-that wants one currently builds its own, so wallets from different vendors
-cannot talk to each other:</p>
+<p>Several wallet protocols need a direct channel between wallets, and each
+wallet that wants one currently builds its own:</p>
 <ul>
 <li>Multisig and hardware-signer flows pass PCZTs <sup><a href="#user-content-fn-pczt" id="user-content-fnref-pczt" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> between parties.</li>
-<li>FROST signing (ZIP 312 <sup><a href="#user-content-fn-zip-0312" id="user-content-fnref-zip-0312" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>) runs over a confidential, authenticated
-channel between the Coordinator and the signers whose mechanism ZIP 312
-leaves out of scope. This ZIP supplies the confidential, anonymous
-transport; a FROST payload would have to carry its own authentication.</li>
-<li>Payment requests (ZIP 321 <sup><a href="#user-content-fn-zip-0321" id="user-content-fnref-zip-0321" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>) and acknowledgements have no
-wallet-to-wallet transport.</li>
+<li>FROST signing (ZIP 312 <sup><a href="#user-content-fn-zip-0312" id="user-content-fnref-zip-0312" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>) needs a confidential, authenticated
+channel that ZIP 312 leaves out of scope. This ZIP supplies confidentiality
+and anonymity; a FROST payload would carry its own authentication.</li>
+<li>Payment requests (ZIP 321 <sup><a href="#user-content-fn-zip-0321" id="user-content-fnref-zip-0321" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>) have no wallet-to-wallet transport.</li>
 <li>Project Tachyon <sup><a href="#user-content-fn-tachyon" id="user-content-fnref-tachyon" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup> <sup><a href="#user-content-fn-tachyon-post" id="user-content-fnref-tachyon-post" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> proposes removing in-band secret
 distribution from transactions, which makes an off-chain delivery channel a
-requirement rather than an add-on.</li>
+requirement.</li>
 </ul>
-<p>On-chain memos are the only standard channel today. ZIP 231 <sup><a href="#user-content-fn-zip-0231" id="user-content-fnref-zip-0231" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>
-proposes to lift their 512-byte size cap, but memos would still cost fees, be
-stored by every full validator forever, and need a block confirmation per
-round, which rules out interactive protocols such as PCZT and FROST
-exchanges.</p>
-<p>ZIP 324 <sup><a href="#user-content-fn-zip-0324" id="user-content-fnref-zip-0324" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup> delegates delivery to a channel the parties already
-share, such as a secure messenger or a QR code, for the case where the sender
-has no address for the recipient. It does not help when the sender does hold
-a Unified Address, which is the case this ZIP covers.</p>
-<p>The idea is not new. Hornby's 2020 light wallet privacy review <sup><a href="#user-content-fn-hornby-2020" id="user-content-fnref-hornby-2020" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>
-lists out-of-band transaction delivery over a mixnet as an option and notes
-that scalable Zcash will need a mixnet or similar technology anyway. zips#629
-<sup><a href="#user-content-fn-zips-629" id="user-content-fnref-zips-629" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> suggests a mixnet plus a "private mailbox" to keep offline
-reception. The Nym × Zcash integration guide <sup><a href="#user-content-fn-nym-zcash" id="user-content-fnref-nym-zcash" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup> covers routing a
-wallet's chain-sync and transaction-submission traffic through the mixnet,
-not wallet-to-wallet delivery. This ZIP fills that gap.</p>
+<p>On-chain memos are the only standard channel today. Even without their size
+cap (ZIP 231 <sup><a href="#user-content-fn-zip-0231" id="user-content-fnref-zip-0231" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>) they cost fees, are stored forever, and need a
+block confirmation per round. ZIP 324 <sup><a href="#user-content-fn-zip-0324" id="user-content-fnref-zip-0324" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup> covers the case where the
+sender has no address for the recipient; this ZIP covers the case where it
+does.</p>
+<p>Out-of-band delivery over a mixnet, with a mailbox for offline recipients,
+has been proposed before. <sup><a href="#user-content-fn-hornby-2020" id="user-content-fnref-hornby-2020" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup> <sup><a href="#user-content-fn-zips-629" id="user-content-fnref-zips-629" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> The Nym × Zcash
+integration <sup><a href="#user-content-fn-nym-zcash" id="user-content-fnref-nym-zcash" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup> routes chain-sync and transaction submission through
+the mixnet, not wallet-to-wallet messages.</p>
 <h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
-<p><strong>Who can read Envelopes.</strong> Envelopes are encrypted to an Orchard Receiver, so
-anyone holding the account's Orchard incoming viewing key can decrypt them.
-That is the trust model of incoming notes, but Envelopes can carry more: a
-PCZT reveals a transaction the recipient is about to sign, including its
-outputs. Users who share incoming viewing keys with auditors or watch-only
-services should not expect Envelopes to be private from them.</p>
-<p><strong>Linkability.</strong> A Mailbox Descriptor is a stable identifier. Two Unified
-Addresses that carry the same descriptor are linked to one recipient by anyone
-who sees both, which defeats diversified addresses. Unlinkable addresses
-therefore need separate mailboxes, at the cost of more credentials to derive
-and more mailboxes to fetch from. A <code>reply_to</code> address inside an Envelope has
-the same property for the sender.</p>
-<p><strong>Network observers and the Mailbox operator.</strong> The anonymity network hides
-the sender's network identity from the operator and the recipient, and the
-recipient's from the sender. The operator still sees how many Envelopes a
-mailbox receives, their size classes, and when they are deposited and
-fetched. In bindings where the recipient connects to its own mailbox
-directly, as in the Nym sketch of Appendix A, the operator also learns the
-recipient's network identity unless the connection is tunnelled, for example
-over Tor. Network privacy is only as good as the anonymity set: while few
-wallets use a binding, cover traffic carries most of the weight.</p>
-<p><strong>Timing.</strong> A deposit made at the same moment as a related on-chain
-broadcast, a fetch triggered by opening the app, or an immediate
-acknowledgement each leak timing that an observer can correlate with chain
-activity. The wallet behaviour rules in the specification reduce but do not
-remove this.</p>
-<p><strong>No sender authentication and no forward secrecy.</strong> Envelopes do not
-authenticate their sender, so a Text payload can impersonate anyone; the
-specification forbids presenting it as coming from a named party. Envelope
-keys derive from long-lived keys, so compromise of an incoming viewing key
-exposes every Envelope the adversary has recorded, as for on-chain notes.</p>
-<p><strong>Denial of service.</strong> Anyone holding a Unified Address can fill its mailbox.
-The cost falls on the mailbox's storage and the recipient's bandwidth; trial
-decryption itself is cheap. Bindings are expected to document quotas, and the
-unencrypted Envelope header lets a wallet see size classes before fetching
-bodies where a binding allows that.</p>
+<p><strong>Incoming viewing key holders.</strong> Whoever holds an account's Orchard incoming
+viewing key can read and fetch every Envelope ever sent to its addresses, and
+by fetching can cause the server to delete them. It can also derive the
+secret of every Conversation started with those addresses, and so read,
+fetch, and send Envelopes in them, in both directions. There is no forward
+secrecy. Envelopes can reveal more than notes do: a PCZT shows a transaction
+before it is signed. The viewing keys of the wallet that starts a
+Conversation give no access to it.</p>
+<p>All diversified addresses of an account share one incoming viewing key, so
+using a different address does not help. Viewing keys of different accounts
+are unrelated: a user who shares an account's viewing key, for example with
+an auditor or a watch-only service, keeps messages from its holder only by
+receiving them at addresses of another account.</p>
+<p><strong>Mailbox Servers.</strong> A server never learns a network identity. It sees each
+Mailbox ID it holds and the number, size, and timing of the Envelopes
+deposited in and fetched from it. A Contact Mailbox lives as long as its
+address, and anyone who knows the address can compute its ID and server, so
+that server holds a long-lived traffic record for the address. Pairwise
+Mailbox IDs change every epoch and can be computed only by the two wallets
+and the responder's viewing key holders.</p>
+<p><strong>Linking addresses.</strong> Diversified addresses of one wallet have unrelated
+Contact Mailboxes. A server can still link them if the wallet fetches them
+together, which is why fetches use separate sessions and schedules.</p>
+<p><strong>No opt-in signal.</strong> Every address with an Orchard Receiver has a Contact
+Mailbox whether or not its wallet implements this ZIP, so a sender cannot
+tell whether its Envelope will be read.</p>
+<p><strong>The other wallet.</strong> Envelopes do not authenticate their sender. An answer
+shows the sender that the recipient was online. Both wallets can fetch from
+the Pairwise Mailboxes of both directions, so each can see when the other's
+fetches cause its Envelopes to be deleted, and a wallet in Conversations with
+two addresses can compare them.</p>
+<p><strong>Network observers.</strong> Privacy is bounded by the anonymity set of the Routing
+Binding. A wallet's entry point to the network sees its IP address but no
+Mailbox ID, server, or Zcash address.</p>
+<p><strong>Denial of service.</strong> Anyone can deposit under any Mailbox ID, at the
+expense of the server's storage and the recipient's bandwidth.</p>
 <h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
 <ul>
 <li>A sender holding only a recipient's Unified Address can deliver a message
-with no prior contact.</li>
-<li>The recipient need not be online when the message is sent.</li>
-<li>No long-term key material is needed beyond what the wallet derives from its
-seed, and a wallet restored from seed can recover its mailboxes on a
-best-effort basis.</li>
-<li>Neither the Mailbox operator nor a network observer learns the sender's
-network identity or links a sender to a recipient. The sender does not learn
-the recipient's network identity.</li>
-<li>An Envelope reveals nothing about its content beyond its size class.</li>
-<li>Wallets that implement ZIP 316 but not this ZIP can still parse and pay a
-Unified Address that carries a Mailbox Descriptor, provided the Typecode
-registration requested in the Specification is granted.</li>
-<li>The core protocol does not depend on any one network or token.</li>
+with no prior contact, while the recipient is offline.</li>
+<li>Unified Addresses and ZIP 316 are unchanged, and first contact needs no key
+material beyond the recipient's existing Orchard keys.</li>
+<li>A wallet can use many diversified addresses without a Mailbox Server, a
+network observer, or a sender being able to link them.</li>
+<li>No Mailbox Server or network observer learns the network identity of a
+sender or recipient, and neither wallet learns the other's.</li>
+<li>No party that sees a wallet's IP address is bound to that wallet's
+addresses or mailboxes.</li>
+<li>Two wallets can keep exchanging messages without a Mailbox Server
+accumulating metadata under a long-lived identifier.</li>
+<li>An Envelope reveals nothing about its content beyond its size.</li>
+<li>The protocol does not depend on any one network or token.</li>
 </ul>
 <h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
 <ul>
-<li>Sender authentication at the Envelope layer. Payload types that need it
-carry their own.</li>
-<li>Guaranteed delivery. Delivery is best-effort; protocols built on top have to
-handle loss.</li>
-<li>Forward secrecy.</li>
-<li>Group messaging.</li>
-<li>Hiding the recipient's network identity from its own Mailbox operator. A
-binding may provide this, and a wallet can add Tor, but the core does not
-require it.</li>
+<li>Sender authentication, guaranteed delivery, forward secrecy, and group
+messaging.</li>
+<li>Backup and recovery. Contact Mailboxes can be recomputed from the wallet's
+addresses and viewing keys; Conversations cannot.</li>
 </ul>
 <h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
-<h2 id="overview"><a class="hanchor" href="#overview" aria-hidden="true" tabindex="-1">#</a>Overview</h2>
-<pre><code>Sender wallet                                        Recipient wallet
-     |                                                      ^
-     | 1. read Orchard Receiver and Mailbox                 |
-     |    Descriptor from the recipient's UA                |
-     | 2. build and encrypt the Envelope                    | 5. trial-decrypt
-     | 3. Deposit over the anonymity network                |    with ivk
-     v                                                      |
-  [ Mailbox ] -------------- 4. Fetch over the anonymity network
-</code></pre>
-<h2 id="mailbox-descriptors"><a class="hanchor" href="#mailbox-descriptors" aria-hidden="true" tabindex="-1">#</a>Mailbox Descriptors</h2>
-<p>A Mailbox Descriptor is encoded as:</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>binding_id</code></td><td><code>u16</code> (LE)</td><td>Identifies the Transport Binding</td></tr><tr><td><code>descriptor_len</code></td><td><code>compactSize</code></td><td>Length of <code>descriptor</code></td></tr><tr><td><code>descriptor</code></td><td><code>byte[descriptor_len]</code></td><td>Binding-specific bytes</td></tr></tbody></table>
-<p>Registered <code>binding_id</code> values:</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th><code>binding_id</code></th><th>Binding</th></tr></thead><tbody><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟶</mn></mrow></math></td><td>Reserved</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟷</mn></mrow></math></td><td>Nym mixnet (Appendix A, non-normative)</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mi>𝙵</mi><mi>𝙵</mi><mn>𝟶𝟶</mn></mrow></math>–<math><mrow><mn>𝟶</mn><mi>𝚡</mi><mi>𝙵</mi><mi>𝙵</mi><mi>𝙵</mi><mi>𝙵</mi></mrow></math></td><td>Experimental; MUST NOT be used in production</td></tr></tbody></table>
-<h2 id="metadata-item"><a class="hanchor" href="#metadata-item" aria-hidden="true" tabindex="-1">#</a>Unified Address Metadata Item</h2>
-<p>This ZIP defines a ZIP 316 Metadata Item, <strong>Mailbox Descriptors</strong>, with a
-Typecode in the Non-MUST-understand Metadata range <math><mrow><mn>𝟶</mn><mi>𝚡</mi><mi>𝙲</mi><mn>𝟶</mn></mrow></math> to
-<math><mrow><mn>𝟶</mn><mi>𝚡</mi><mi>𝙳</mi><mi>𝙵</mi></mrow></math>, to be assigned by the ZIP Editors. <sup><a href="#user-content-fn-zip-0316-metadata" id="user-content-fnref-zip-0316-metadata" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup></p>
-<p>The Item's value MUST parse as one or more Mailbox Descriptors, concatenated
-with no trailing bytes, in the recipient's order of preference. Descriptors
-with an unrecognised <code>binding_id</code> MUST be skipped, not rejected. A Sender
-wallet SHOULD use the first descriptor whose binding it supports.</p>
-<p>A Unified Address that carries this Item MUST also carry an Orchard Receiver;
-Envelopes are encrypted to that Receiver. The Item MUST NOT appear in a
-Unified Viewing Key.</p>
-<p>A Mailbox Descriptor is a stable identifier. A wallet MUST NOT put the same
-descriptor into two Unified Addresses that the user expects to be unlinkable.
-Wallets SHOULD include the Item only in addresses generated for a purpose
-that calls for messaging, and SHOULD NOT include it by default.</p>
-<p>If a binding's descriptors can go stale (for example in Appendix A, when the
-recipient changes gateway), the wallet SHOULD also set an Address Expiry Time
-Metadata Item <sup><a href="#user-content-fn-zip-0316-expiry" id="user-content-fnref-zip-0316-expiry" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup> on the address. Address Expiry Typecodes are
-MUST-understand, so such an address can only be paid by Consumers that
-implement ZIP 316 Revision 2; see <a href="#open-issues">Open issues</a>.</p>
-<h3 id="typecode-registration"><a class="hanchor" href="#typecode-registration" aria-hidden="true" tabindex="-1">#</a>Typecode registration</h3>
-<p>The ZIP 316 Typecode Registry <sup><a href="#user-content-fn-zip-0316-registry" id="user-content-fnref-zip-0316-registry" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup> does not currently permit
-Producers to include Non-MUST-understand Metadata in any address type, and
-additions to the registry are made by 2xxx-series ZIPs. This ZIP requests the
-following row, to be applied when it reaches Proposed status:</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Typecode</th><th>Description</th><th>R0</th><th>R2 <code>zu</code></th><th>R2 <code>tu</code></th></tr></thead><tbody><tr><td>TBD</td><td>Mailbox Descriptors</td><td>✅</td><td>✅</td><td>✅</td></tr></tbody></table>
-<p>The Item has no effect on transaction construction, so it meets ZIP 316's
-condition for <code>zu</code> addresses. Permitting it in Revision 0 addresses is what
-lets wallets that predate this ZIP pay the address, because Consumers ignore
-Items with Typecodes they do not recognise. If the ZIP Editors permit it only
-in Revision 2 addresses, the compatibility requirement holds only for
-Consumers that implement ZIP 316 Revision 2.</p>
-<h2 id="envelope-encryption"><a class="hanchor" href="#envelope-encryption" aria-hidden="true" tabindex="-1">#</a>Envelope encryption</h2>
-<p>Let <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝖽</mi><mo separator="true">,</mo><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> be the recipient's Orchard Receiver. Let
-<math><mrow><mi>𝖪</mi><msup><mi>𝖠</mi><mrow class="tml-lrg-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math> <sup><a href="#user-content-fn-protocol-orchardkeyagreement" id="user-content-fnref-protocol-orchardkeyagreement" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup>,
-<math><mrow><mi>𝖣</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗒</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><msup><mi>𝗁</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math> <sup><a href="#user-content-fn-protocol-diversifyhash" id="user-content-fnref-protocol-diversifyhash" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup>,
-<math><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub></math> and <math><msub><mrow><mi>𝖺</mi><mi>𝖻</mi><mi>𝗌</mi><mi>𝗍</mi></mrow><mi>ℙ</mi></msub></math>
-<sup><a href="#user-content-fn-protocol-pallasandvesta" id="user-content-fnref-protocol-pallasandvesta" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup>, and <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>
-<sup><a href="#user-content-fn-protocol-orchardkeycomponents" id="user-content-fnref-protocol-orchardkeycomponents" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup> be as defined in the Zcash Protocol
-Specification, and let <math><msub><mrow><mi>𝖫</mi><mi>𝖤</mi><mi>𝖡</mi><mi>𝖲</mi><mn>𝟤</mn><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow><mn>256</mn></msub></math> be used to encode Pallas
-points as 32-byte strings as in <math><mrow><mi>𝖪</mi><mi>𝖣</mi><msup><mi>𝖥</mi><mrow class="tml-med-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math>.
-<sup><a href="#user-content-fn-protocol-orchardkdf" id="user-content-fnref-protocol-orchardkdf" data-footnote-ref="" aria-describedby="footnote-label">22</a></sup></p>
-<p>The sender:</p>
-<ol>
-<li>
-<p>Computes <math><mrow><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo>=</mo><mrow><mi>𝖣</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗒</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><msup><mi>𝗁</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝖽</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
-</li>
-<li>
-<p>Chooses <math><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math> uniformly at random from
-<math><mrow><mi>𝖪</mi><msup><mi>𝖠</mi><mrow class="tml-lrg-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mi>.</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi></mrow></math>. <math><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math> MUST NOT be reused across
-Envelopes.</p>
-</li>
-<li>
-<p>Computes <math><mrow><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mi>𝖪</mi><msup><mi>𝖠</mi><mrow class="tml-lrg-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mi>.</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝖯</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖼</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>,
-<math><mrow><mrow><mi>𝗌</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖲</mi><mi>𝖾</mi><mi>𝖼</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗍</mi></mrow><mo>=</mo><mrow><mi>𝖪</mi><msup><mi>𝖠</mi><mrow class="tml-lrg-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mi>.</mi><mi>𝖠</mi><mi>𝗀</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>,
-and <math><mrow><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗁</mi><mi>𝖾</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖪</mi><mi>𝖾</mi><mi>𝗒</mi></mrow><mo>=</mo><msub><mrow><mi>𝖫</mi><mi>𝖤</mi><mi>𝖡</mi><mi>𝖲</mi><mn>𝟤</mn><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow><mn>256</mn></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
-</li>
-<li>
-<p>Derives the 32-byte key</p>
-<p><math><mrow><mspace width="2em"></mspace><mi>𝖪</mi><mo>=</mo><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟤𝟧𝟨</mn></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝚊𝚕𝚕𝚎𝚝𝙼𝚜𝚐_"</mtext><mo separator="true">,</mo><msub><mrow><mi>𝖫</mi><mi>𝖤</mi><mi>𝖡</mi><mi>𝖲</mi><mn>𝟤</mn><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow><mn>256</mn></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗌</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖲</mi><mi>𝖾</mi><mi>𝖼</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗁</mi><mi>𝖾</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖪</mi><mi>𝖾</mi><mi>𝗒</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
-<p>This is <math><mrow><mi>𝖪</mi><mi>𝖣</mi><msup><mi>𝖥</mi><mrow class="tml-med-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math> with a different personalization, so
-Envelope keys are domain-separated from note encryption keys even though
-they share the key agreement.</p>
-</li>
-<li>
-<p>Chooses the smallest size class (see <a href="#envelope-format">Envelope format</a>)
-whose padded size <math><mi>N</mi></math> fits the plaintext, and pads the plaintext with zero
-bytes to exactly <math><mi>N</mi></math> bytes.</p>
-</li>
-<li>
-<p>Computes</p>
-<p><math><mrow><mspace width="2em"></mspace><mi>𝖢</mi><mo>=</mo><mrow><mi>𝖨</mi><mi>𝖤</mi><mi>𝖳</mi><mi>𝖥</mi><mi>_</mi><mi>𝖠</mi><mi>𝖤</mi><mi>𝖠</mi><mi>𝖣</mi><mi>_</mi><mi>𝖢</mi><mi>𝖧</mi><mi>𝖠</mi><mi>𝖢</mi><mi>𝖧</mi><mi>𝖠</mi><mn>𝟤𝟢</mn><mi>_</mi><mi>𝖯</mi><mi>𝖮</mi><mi>𝖫</mi><mi>𝖸</mi><mn>𝟣𝟥𝟢𝟧.</mn><mi>𝖤</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝗋</mi><mi>𝗒</mi><mi>𝗉</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝖪</mi><mo separator="true">,</mo><mrow><mi>𝗇</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝖾</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖺</mi><mi>𝖺</mi><mi>𝖽</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗉</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗑</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
-<sup><a href="#user-content-fn-rfc8439" id="user-content-fnref-rfc8439" data-footnote-ref="" aria-describedby="footnote-label">23</a></sup></p>
-<p>with <math><mrow><mrow><mi>𝗇</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝖾</mi></mrow><mo>=</mo><msup><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶</mn></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mn>12</mn></msup></mrow></math> and
-<math><mrow><mrow><mi>𝖺</mi><mi>𝖺</mi><mi>𝖽</mi></mrow><mo>=</mo><mrow><mi>𝚟</mi><mi>𝚎</mi><mi>𝚛</mi><mi>𝚜</mi><mi>𝚒</mi><mi>𝚘</mi><mi>𝚗</mi></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝚜</mi><mi>𝚒</mi><mi>𝚣</mi><mi>𝚎</mi><mi>_</mi><mi>𝚌</mi><mi>𝚕</mi><mi>𝚊</mi><mi>𝚜</mi><mi>𝚜</mi></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗁</mi><mi>𝖾</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖪</mi><mi>𝖾</mi><mi>𝗒</mi></mrow></mrow></math>.
-The zero nonce is safe because <math><mi>𝖪</mi></math> is unique to each
-<math><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>.</p>
-</li>
-</ol>
-<p>The recipient, for each Orchard incoming viewing key <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> it holds:</p>
-<ol>
-<li>Computes <math><mrow><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow><mo>=</mo><msub><mrow><mi>𝖺</mi><mi>𝖻</mi><mi>𝗌</mi><mi>𝗍</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗁</mi><mi>𝖾</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖪</mi><mi>𝖾</mi><mi>𝗒</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>
-and rejects the Envelope if the result is <math><mi>⊥</mi></math> or the identity
-<math><msub><mi class="mathcal">𝒪</mi><mi>ℙ</mi></msub></math>.</li>
-<li>Computes <math><mrow><mrow><mi>𝗌</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖲</mi><mi>𝖾</mi><mi>𝖼</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗍</mi></mrow><mo>=</mo><mrow><mi>𝖪</mi><msup><mi>𝖠</mi><mrow class="tml-lrg-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mi>.</mi><mi>𝖠</mi><mi>𝗀</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.
-Since <math><mrow><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo>=</mo><mrow><mi>𝖪</mi><msup><mi>𝖠</mi><mrow class="tml-lrg-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup><mi>.</mi><mi>𝖣</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝖯</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝖼</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>,
-this equals the sender's value.</li>
-<li>Derives <math><mi>𝖪</mi></math> as above and attempts decryption with the same
-<math><mrow><mi>𝖺</mi><mi>𝖺</mi><mi>𝖽</mi></mrow></math>. On failure, the Envelope is not for this key.</li>
-<li>Rejects the plaintext if it does not parse as described in
-<a href="#plaintext-format">Plaintext format</a>, or if any padding byte is nonzero.</li>
-<li>Rejects the Envelope unless the plaintext's <math><mi>𝖽</mi></math> is the
-diversifier of an address of this account that this wallet issued either
-with a Mailbox Descriptors Item or as a <code>reply_to</code>.</li>
-</ol>
-<p>A wallet processes an Envelope under the first <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> for which
-decryption succeeds. Steps 1 and 2 cost one point decompression and one
-scalar multiplication per Envelope and account.</p>
-<h2 id="envelope-format"><a class="hanchor" href="#envelope-format" aria-hidden="true" tabindex="-1">#</a>Envelope format</h2>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>version</code></td><td><code>byte</code></td><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟷</mn></mrow></math></td></tr><tr><td><code>size_class</code></td><td><code>byte</code></td><td>See table below</td></tr><tr><td><code>ephemeralKey</code></td><td><code>byte[32]</code></td><td><math><mrow><msub><mrow><mi>𝖫</mi><mi>𝖤</mi><mi>𝖡</mi><mi>𝖲</mi><mn>𝟤</mn><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow><mn>256</mn></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></td></tr><tr><td><code>ciphertext</code></td><td><code>byte[N + 16]</code></td><td>AEAD output; <math><mi>N</mi></math> is set by <code>size_class</code></td></tr></tbody></table>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th><code>size_class</code></th><th>Padded plaintext size <math><mi>N</mi></math></th><th>Intended use</th></tr></thead><tbody><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶</mn></mrow></math></td><td>2048 bytes</td><td>Acks, URIs, short text</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟷</mn></mrow></math></td><td>32768 bytes</td><td>Small PCZTs, FROST rounds</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟸</mn></mrow></math></td><td>262144 bytes</td><td>Large PCZTs</td></tr></tbody></table>
-<p>Other values are reserved. Recipients MUST reject Envelopes with an unknown
-<code>version</code> or <code>size_class</code>, or whose length does not match <code>size_class</code>.</p>
-<h2 id="plaintext-format"><a class="hanchor" href="#plaintext-format" aria-hidden="true" tabindex="-1">#</a>Plaintext format</h2>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>payload_type</code></td><td><code>u16</code> (LE)</td><td>See <a href="#payload-types">Payload types</a></td></tr><tr><td><code>flags</code></td><td><code>byte</code></td><td>Bit 0: <code>ack_requested</code>; see below</td></tr><tr><td><code>d</code></td><td><code>byte[11]</code></td><td>Diversifier of the Orchard Receiver the Envelope was sent to</td></tr><tr><td><code>message_id</code></td><td><code>byte[32]</code></td><td>Uniformly random</td></tr><tr><td><code>in_reply_to</code></td><td><code>byte[32]</code></td><td><code>message_id</code> of the Envelope this one answers, or all zero</td></tr><tr><td><code>expiry_time</code></td><td><code>u64</code> (LE)</td><td>Unix seconds; <math><mn>0</mn></math> means no expiry</td></tr><tr><td><code>reply_len</code></td><td><code>compactSize</code></td><td>Length of <code>reply_to</code></td></tr><tr><td><code>reply_to</code></td><td><code>byte[reply_len]</code></td><td>A Unified Address, or empty</td></tr><tr><td><code>payload_len</code></td><td><code>compactSize</code></td><td>Length of <code>payload</code></td></tr><tr><td><code>payload</code></td><td><code>byte[payload_len]</code></td><td>Type-specific</td></tr><tr><td><code>padding</code></td><td><code>byte[]</code></td><td>Zero bytes up to <math><mi>N</mi></math></td></tr></tbody></table>
-<p>Senders MUST set bits of <code>flags</code> other than bit 0 to <math><mn>0</mn></math>; recipients MUST
-ignore bits they do not recognise.</p>
-<p><code>d</code> lets the recipient attribute the Envelope to one of its addresses without
-trusting <code>reply_to</code>, and <code>in_reply_to</code> lets protocols with several rounds
-match answers to requests.</p>
-<p><code>reply_to</code>, if present, is the UTF-8 string encoding of a Unified Address
-<sup><a href="#user-content-fn-zip-0316-encoding" id="user-content-fnref-zip-0316-encoding" data-footnote-ref="" aria-describedby="footnote-label">24</a></sup> whose Human-Readable Part matches the network of the
-Envelope's recipient. It MUST carry an Orchard Receiver and MAY carry a
-Mailbox Descriptors Item. A reply is encrypted to
-that Receiver. It is deposited in the mailbox named by the Item if there is
-one, or sent by a transport-level anonymous reply if the binding provides one
-(see <a href="#mailbox-operations">Mailbox operations</a>); if neither is available, no
-reply is possible. A sender that wants replies without linking them to its
-other addresses SHOULD use a Unified Address and mailbox dedicated to replies.</p>
-<p>Senders SHOULD round <code>expiry_time</code> to the hour, to avoid leaking clock skew.</p>
-<p>Recipients:</p>
+<h2 id="notation"><a class="hanchor" href="#notation" aria-hidden="true" tabindex="-1">#</a>Notation</h2>
+<p><math><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟤𝟧𝟨</mn></mrow></math> and <math><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟧𝟣𝟤</mn></mrow></math>
+<sup><a href="#user-content-fn-protocol-blake2" id="user-content-fnref-protocol-blake2" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup>, <math><mrow><mi>𝖣</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗒</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><msup><mi>𝗁</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math>
+<sup><a href="#user-content-fn-protocol-diversifyhash" id="user-content-fnref-protocol-diversifyhash" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>, <math><mrow><mi>𝖳</mi><mi>𝗈</mi><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><msup><mi>𝗋</mi><mrow class="tml-sml-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math> <sup><a href="#user-content-fn-protocol-orchardkeycomponents" id="user-content-fnref-protocol-orchardkeycomponents" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup>, <math><mrow><mi>𝖲</mi><mi>𝗒</mi><mi>𝗆</mi></mrow></math> <sup><a href="#user-content-fn-protocol-sym" id="user-content-fnref-protocol-sym" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup>,
+<math><msup><mrow><mi>𝖦</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗉</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗁</mi></mrow><mi>ℙ</mi></msup></math> <sup><a href="#user-content-fn-protocol-grouphash" id="user-content-fnref-protocol-grouphash" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup>,
+<math><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub></math> and <math><msub><mi class="mathcal">𝒪</mi><mi>ℙ</mi></msub></math>
+<sup><a href="#user-content-fn-protocol-pallasandvesta" id="user-content-fnref-protocol-pallasandvesta" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup>, and <math><mrow><mi>𝖨</mi><mn>𝟤</mn><mi>𝖫</mi><mi>𝖤</mi><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow></math> and <math><mrow><mi>𝖫</mi><mi>𝖤</mi><mi>𝖡</mi><mi>𝖲</mi><mn>𝟤</mn><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow></math>
+<sup><a href="#user-content-fn-protocol-endian" id="user-content-fnref-protocol-endian" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup> are as defined in the Zcash Protocol Specification.</p>
 <ul>
-<li>MUST drop Envelopes whose <code>expiry_time</code> is nonzero and in the past.</li>
-<li>MUST drop Envelopes whose <code>message_id</code> they have already processed, and
-SHOULD remember processed <code>message_id</code>s at least until their expiry, or for
-a wallet-chosen period when <code>expiry_time</code> is <math><mn>0</mn></math>.</li>
-<li>MUST ignore the payload of an Envelope with an unknown <code>payload_type</code>, but
-still record its <code>message_id</code>.</li>
+<li><math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>Q</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><msub><mrow><mi>𝖫</mi><mi>𝖤</mi><mi>𝖡</mi><mi>𝖲</mi><mn>𝟤</mn><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow><mn>256</mn></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>Q</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</li>
+<li><math><mrow><mrow><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>p</mi><mo separator="true">,</mo><mi>x</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mrow><mi>𝖳</mi><mi>𝗈</mi><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><msup><mi>𝗋</mi><mrow class="tml-sml-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟧𝟣𝟤</mn></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>p</mi><mo separator="true">,</mo><mi>x</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</li>
+<li><math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>b</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math> is the one-byte string with value <math><mi>b</mi></math>.</li>
 </ul>
-<h2 id="payload-types"><a class="hanchor" href="#payload-types" aria-hidden="true" tabindex="-1">#</a>Payload types</h2>
+<p>Integers are encoded little-endian. Times are in hours since the Unix epoch,
+rounded down.</p>
+<p>Throughout, <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝖽</mi><mo separator="true">,</mo><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> is an Orchard Receiver with raw
+encoding <math><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗏</mi></mrow></math>, <sup><a href="#user-content-fn-protocol-orchardaddrencoding" id="user-content-fnref-protocol-orchardaddrencoding" data-footnote-ref="" aria-describedby="footnote-label">22</a></sup> incoming viewing key
+<math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>, and
+<math><mrow><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo>=</mo><mrow><mi>𝖣</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗒</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><msup><mi>𝗁</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝖽</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<h2 id="envelopes"><a class="hanchor" href="#envelopes" aria-hidden="true" tabindex="-1">#</a>Envelopes</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>version</code></td><td><code>byte</code></td><td><math><mn>1</mn></math></td></tr><tr><td><code>ephemeralKey</code></td><td><code>byte[32]</code></td><td><math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></td></tr><tr><td><code>ciphertext</code></td><td><code>byte[N + 16]</code></td><td><math><mi>N</mi></math> is 2048, 32768, or 262144</td></tr></tbody></table>
+<p>The plaintext is:</p>
 
 
 
@@ -507,203 +208,308 @@ still record its <code>message_id</code>.</li>
 
 
 
-<table><thead><tr><th><code>payload_type</code></th><th>Name</th><th>Payload</th></tr></thead><tbody><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟶</mn></mrow></math></td><td>Reserved</td><td>—</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟷</mn></mrow></math></td><td>Ack</td><td>Empty; <code>in_reply_to</code> names the acknowledged Envelope</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟸</mn></mrow></math></td><td>Text</td><td>UTF-8 text for display to the user</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟹</mn></mrow></math></td><td>Payment request</td><td>UTF-8 ZIP 321 URI <sup><a href="#user-content-fn-zip-0321" id="user-content-fnref-zip-0321-2" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟺</mn></mrow></math></td><td>PCZT</td><td>Serialized PCZT <sup><a href="#user-content-fn-pczt" id="user-content-fnref-pczt-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>; format reference TBD</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟻</mn></mrow></math></td><td>Reserved</td><td>FROST round messages (ZIP 312 <sup><a href="#user-content-fn-zip-0312" id="user-content-fnref-zip-0312-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>); format TBD</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟼</mn></mrow></math></td><td>Reserved</td><td>Off-chain note delivery <sup><a href="#user-content-fn-tachyon" id="user-content-fnref-tachyon-2" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>; format TBD</td></tr><tr><td><math><mrow><mn>𝟶</mn><mi>𝚡</mi><mi>𝙵</mi><mn>𝟶𝟶𝟶</mn></mrow></math>–<math><mrow><mn>𝟶</mn><mi>𝚡</mi><mi>𝙵</mi><mi>𝙵</mi><mi>𝙵</mi><mi>𝙵</mi></mrow></math></td><td>Experimental</td><td>MUST NOT be used in production</td></tr></tbody></table>
-<p>An Ack MUST NOT set <code>ack_requested</code>.</p>
-<p>Payloads MUST NOT carry spend authority, such as spending keys or ZIP 324 URIs
-<sup><a href="#user-content-fn-zip-0324" id="user-content-fnref-zip-0324-2" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>, because every holder of the recipient's incoming viewing key can
-read them.</p>
-<p>Payload types that cause side effects SHOULD carry their own replay
-protection; <code>message_id</code> deduplication and <code>expiry_time</code> only bound replay.</p>
-<h2 id="mailbox-operations"><a class="hanchor" href="#mailbox-operations" aria-hidden="true" tabindex="-1">#</a>Mailbox operations</h2>
-<p>A Transport Binding MUST provide these operations:</p>
+
+
+
+
+
+<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>seed</code></td><td><code>byte[32]</code></td><td>Uniformly random</td></tr><tr><td><code>payload_type</code></td><td><code>u16</code></td><td>See <a href="#payloads">Payloads</a></td></tr><tr><td><code>flags</code></td><td><code>byte</code></td><td>Bit 0: <code>ack_requested</code></td></tr><tr><td><code>expiry_time</code></td><td><code>u32</code></td><td>Time from which the Envelope is dropped</td></tr><tr><td><code>fast_len</code></td><td><code>byte</code></td><td>Length of <code>fast_reply</code></td></tr><tr><td><code>fast_reply</code></td><td><code>byte[fast_len]</code></td><td>See <a href="#fast-mode">Fast mode</a>; may be empty</td></tr><tr><td><code>payload_len</code></td><td><code>u32</code></td><td>Length of <code>payload</code></td></tr><tr><td><code>payload</code></td><td><code>byte[payload_len]</code></td><td></td></tr><tr><td>padding</td><td><code>byte[]</code></td><td>Zero bytes up to the smallest <math><mi>N</mi></math> that fits</td></tr></tbody></table>
+<p>Every Envelope belongs to a Conversation with secret <math><mi>κ</mi></math>, and is sent by
+its <em>initiator</em> (<math><mrow><mi>δ</mi><mo>=</mo><mn>0</mn></mrow></math>) or its <em>responder</em> (<math><mrow><mi>δ</mi><mo>=</mo><mn>1</mn></mrow></math>).
+<math><msub><mi>𝗀</mi><mi>𝖽</mi></msub></math>, <math><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow></math>, and <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> below are those of the
+responder's Receiver. With</p>
+<p><math><mrow><mspace width="2em"></mspace><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙴𝚜𝚔___"</mtext><mo separator="true">,</mo><mrow><mi>𝚜</mi><mi>𝚎</mi><mi>𝚎</mi><mi>𝚍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mspace width="1em"></mspace><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><msub><mi>𝗀</mi><mi>𝖽</mi></msub></mrow></math></p>
+<p><math><mrow><mspace width="2em"></mspace><mi>𝖪</mi><mo>=</mo><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟤𝟧𝟨</mn></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙿𝚊𝚒𝚛𝙺_"</mtext><mo separator="true">,</mo><mi>κ</mi><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>δ</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝚎</mi><mi>𝚙</mi><mi>𝚑</mi><mi>𝚎</mi><mi>𝚖</mi><mi>𝚎</mi><mi>𝚛</mi><mi>𝚊</mi><mi>𝚕</mi><mi>𝙺</mi><mi>𝚎</mi><mi>𝚢</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p>the ciphertext is <math><mrow><mi>𝖲</mi><mi>𝗒</mi><mi>𝗆</mi><mi>.</mi><mi>𝖤</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝗋</mi><mi>𝗒</mi><mi>𝗉</mi><msub><mi>𝗍</mi><mi>𝖪</mi></msub></mrow></math> of the plaintext.</p>
+<p>A <em>first Envelope</em> starts a Conversation. Its sender is the initiator, and</p>
+<p><math><mrow><mspace width="2em"></mspace><mi>κ</mi><mo>=</mo><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟤𝟧𝟨</mn></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙿𝚊𝚒𝚛𝚂_"</mtext><mo separator="true">,</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝚎</mi><mi>𝚙</mi><mi>𝚑</mi><mi>𝚎</mi><mi>𝚖</mi><mi>𝚎</mi><mi>𝚛</mi><mi>𝚊</mi><mi>𝚕</mi><mi>𝙺</mi><mi>𝚎</mi><mi>𝚢</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p>which the responder computes from
+<math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow></mrow></math>, as in Orchard
+note decryption.</p>
+<p>The recipient processes an Envelope only as a first Envelope to the Receiver
+whose Contact Mailbox it was fetched from, or in the Conversation and
+direction of the Pairwise Mailbox it was fetched from or of the <code>fast_reply</code>
+address it arrived at. It MUST drop the Envelope, with no behaviour that
+depends on which check failed, if:</p>
 <ul>
-<li><strong>Deposit</strong>(descriptor, envelope): deliver an Envelope to the Mailbox named
-by the descriptor.</li>
-<li><strong>Fetch</strong>(credential) → envelopes: retrieve held Envelopes.</li>
-<li><strong>Delete</strong>(credential, handles): remove fetched Envelopes, unless the
-binding documents that Fetch removes them implicitly.</li>
+<li><code>version</code> or the length is unknown;</li>
+<li>decryption fails, the plaintext does not parse, or the padding is not zero;</li>
+<li><math><mrow><mrow><mi>𝚎</mi><mi>𝚙</mi><mi>𝚑</mi><mi>𝚎</mi><mi>𝚖</mi><mi>𝚎</mi><mi>𝚛</mi><mi>𝚊</mi><mi>𝚕</mi><mi>𝙺</mi><mi>𝚎</mi><mi>𝚢</mi></mrow><mo>≠</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>;</li>
+<li><code>expiry_time</code> has been reached; or</li>
+<li>it has already processed an Envelope with this <code>ephemeralKey</code>.</li>
 </ul>
-<p>A Transport Binding MUST hide the sender's network identity from the Mailbox
-operator and from the recipient, and MUST hide the recipient's network
-identity from the sender. It SHOULD hide the recipient's network identity from
-the Mailbox operator, and SHOULD resist timing correlation by a global
-passive adversary. Bindings SHOULD rate-limit Deposit and SHOULD bound the
-storage a mailbox can consume.</p>
-<p>A Transport Binding specification MUST state:</p>
+<p>It ignores the payload of an unknown <code>payload_type</code> and unknown bits of
+<code>flags</code>, which senders set to zero.</p>
+<h2 id="payloads"><a class="hanchor" href="#payloads" aria-hidden="true" tabindex="-1">#</a>Payloads</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th><code>payload_type</code></th><th>Name</th><th><code>payload</code></th></tr></thead><tbody><tr><td><math><mn>1</mn></math></td><td>Ack</td><td><code>ephemeralKey</code> of the acknowledged Envelope</td></tr><tr><td><math><mn>2</mn></math></td><td>Text</td><td>UTF-8 text for display to the user</td></tr><tr><td><math><mn>3</mn></math></td><td>Payment request</td><td>UTF-8 ZIP 321 URI <sup><a href="#user-content-fn-zip-0321" id="user-content-fnref-zip-0321-2" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></td></tr><tr><td><math><mn>4</mn></math></td><td>PCZT</td><td>Serialized PCZT <sup><a href="#user-content-fn-pczt" id="user-content-fnref-pczt-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>; format reference TBD</td></tr></tbody></table>
+<p>An Ack MUST NOT set <code>ack_requested</code>. Payloads MUST NOT carry spend authority,
+such as spending keys or ZIP 324 URIs. <sup><a href="#user-content-fn-zip-0324" id="user-content-fnref-zip-0324-2" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup></p>
+<h2 id="mailboxes"><a class="hanchor" href="#mailboxes" aria-hidden="true" tabindex="-1">#</a>Mailboxes</h2>
+<p>A Mailbox ID is <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>G</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>P</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>, where
+<math><mrow><mi>P</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>a</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mi>G</mi></mrow></math> for a scalar <math><mi>a</mi></math> that authorizes fetching. A derivation below
+that yields <math><msub><mi class="mathcal">𝒪</mi><mi>ℙ</mi></msub></math> for <math><mi>G</mi></math> or <math><mi>P</mi></math> defines no mailbox.</p>
+<p>The <strong>Contact Mailbox</strong> of a Receiver has</p>
+<p><math><mrow><mspace width="2em"></mspace><mi>r</mi><mo>=</mo><mrow><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙼𝚋𝚡𝙾𝚛𝚌"</mtext><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗏</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mspace width="1em"></mspace><mi>G</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>r</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo separator="true">,</mo><mspace width="1em"></mspace><mi>P</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>r</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow></mrow></math></p>
+<p>so <math><mrow><mi>a</mi><mo>=</mo><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></mrow></math>.</p>
+<p>The <strong>Pairwise Mailbox</strong> of a Conversation for direction <math><mi>δ</mi></math> and epoch
+<math><mi>e</mi></math> has, with <math><mrow><mi>m</mi><mo>=</mo><mi>κ</mi><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>δ</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><msub><mrow><mi>𝖨</mi><mn>𝟤</mn><mi>𝖫</mi><mi>𝖤</mi><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow><mn>32</mn></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>e</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>,</p>
+<p><math><mrow><mspace width="2em"></mspace><mi>G</mi><mo>=</mo><msup><mrow><mi>𝖦</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗉</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗁</mi></mrow><mi>ℙ</mi></msup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚣.𝚌𝚊𝚜𝚑:𝚆𝚊𝚕𝚕𝚎𝚝𝙼𝚜𝚐-𝚙𝚊𝚒𝚛"</mtext><mo separator="true">,</mo><mi>m</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mspace width="1em"></mspace><mi>a</mi><mo>=</mo><mrow><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙿𝚊𝚒𝚛𝚇_"</mtext><mo separator="true">,</mo><mi>m</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mspace width="1em"></mspace><mi>P</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>a</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mi>G</mi></mrow></math></p>
+<p>The epoch at time <math><mi>t</mi></math> is <math><mrow><mrow><mi>𝖿</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>t</mi><mi>/</mi><mn>168</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<p>A Server List entry is a 32-byte <code>server_id</code> and, for each network the server
+is on, an address in the format of that network's Routing Binding. The
+Mailbox Server of a Mailbox ID <math><mrow><mi>𝗂</mi><mi>𝖽</mi></mrow></math> is the entry with the smallest
+<math><mrow><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟤𝟧𝟨</mn></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝚂𝚛𝚟𝚂𝚎𝚕"</mtext><mo separator="true">,</mo><mrow><mi>𝚜</mi><mi>𝚎</mi><mi>𝚛</mi><mi>𝚟</mi><mi>𝚎</mi><mi>𝚛</mi><mi>_</mi><mi>𝚒</mi><mi>𝚍</mi></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝗂</mi><mi>𝖽</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>,
+compared as a byte string.</p>
+<p>TODO: specify the Server List; see <a href="#open-issues">Open issues</a>.</p>
+<h2 id="conversations"><a class="hanchor" href="#conversations" aria-hidden="true" tabindex="-1">#</a>Conversations</h2>
+<p>A first Envelope is deposited in the Contact Mailbox of the Receiver it is
+encrypted to. In the Conversation it starts:</p>
 <ul>
-<li>the descriptor encoding;</li>
-<li>how the 64-byte mailbox key from
-<a href="#mailbox-key-derivation">Mailbox key derivation</a> is turned into the
-binding's credentials;</li>
-<li>the retention period, or how a wallet learns it;</li>
-<li>per-mailbox storage quotas, if any;</li>
-<li>which size classes it supports;</li>
-<li>how replies work: by depositing to a <code>reply_to</code> mailbox, by a
-transport-level anonymous reply, or both, and how long each path stays
-usable;</li>
-<li>rate limiting and cost, if any;</li>
-<li>what network identity, timing, and size information each party can
-observe.</li>
+<li>An Envelope is deposited in the Pairwise Mailbox of its sender's direction
+and of the epoch in which it is deposited.</li>
+<li>The responder fetches the Pairwise Mailboxes for <math><mrow><mi>δ</mi><mo>=</mo><mn>0</mn></mrow></math> from the
+moment it first sends an Envelope.</li>
+<li>The initiator fetches the Pairwise Mailboxes for <math><mrow><mi>δ</mi><mo>=</mo><mn>1</mn></mrow></math> for as long
+as it wants an answer. It MUST NOT send another Envelope in the
+Conversation until it has received one; until then, anything further it
+sends is another first Envelope.</li>
+<li>A wallet fetches the mailbox of the current epoch, and that of an ended
+epoch until it has fetched it at least 24 hours after the epoch ended.</li>
 </ul>
-<h2 id="mailbox-key-derivation"><a class="hanchor" href="#mailbox-key-derivation" aria-hidden="true" tabindex="-1">#</a>Mailbox key derivation</h2>
-<p>Mailbox credentials are derived from the wallet seed <math><mi>S</mi></math> with ZIP 32
-registered key derivation <sup><a href="#user-content-fn-zip-0032-registered" id="user-content-fnref-zip-0032-registered" data-footnote-ref="" aria-describedby="footnote-label">25</a></sup>, using
-<math><mrow><mrow><mi>𝖢</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗍</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mo>=</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝚊𝚕𝚕𝚎𝚝𝙼𝚎𝚜𝚜𝚊𝚐𝚒𝚗𝚐"</mtext></mrow></math> and
-<math><mrow><mi>𝖹</mi><mi>𝗂</mi><mi>𝗉</mi><mi>𝖭</mi><mi>𝗎</mi><mi>𝗆</mi><mi>𝖻</mi><mi>𝖾</mi><mi>𝗋</mi></mrow></math> equal to the number assigned to this ZIP:</p>
+<p>Each Conversation costs the responder a fetch schedule, so a wallet SHOULD
+NOT answer a first Envelope, even with an Ack, without the user's approval.
+Either wallet MAY forget a Conversation at any time; the other is not told.</p>
+<h2 id="mailbox-servers"><a class="hanchor" href="#mailbox-servers" aria-hidden="true" tabindex="-1">#</a>Mailbox Servers</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Request</th><th>Fields</th><th>Response</th></tr></thead><tbody><tr><td>Deposit</td><td><math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math>, <code>mailbox_id</code>, an Envelope</td><td>None</td></tr><tr><td>Fetch</td><td><math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mn>2</mn><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math>, <code>mailbox_id</code>, <code>after</code> (<code>u64</code>), <code>time</code> (<code>u32</code>), <code>sig</code> (<code>byte[64]</code>)</td><td>(<code>seq</code> (<code>u64</code>), <code>len</code> (<code>u32</code>), Envelope) triples</td></tr></tbody></table>
+<p>The server gives each deposited Envelope a nonzero <code>seq</code> greater than any it
+has ever given under that Mailbox ID. Fetch returns, in order, the Envelopes with
+<code>seq</code> greater than <code>after</code>, up to a size of the server's choosing, and allows
+the server to delete those with <code>seq</code> up to <code>after</code>. The server MAY also
+discard Envelopes after a retention period of its choosing.</p>
+<p><code>sig</code> is a RedPallas signature <sup><a href="#user-content-fn-protocol-reddsa" id="user-content-fnref-protocol-reddsa" data-footnote-ref="" aria-describedby="footnote-label">23</a></sup> with generator <math><mi>G</mi></math> in place
+of the fixed one, signing key <math><mi>a</mi></math>, and validating key <math><mi>P</mi></math>, over <code>server_id</code>
+followed by the request without <code>sig</code>. The wallet SHOULD make the signature's
+random input <math><mi>T</mi></math> depend on <math><mi>a</mi></math> as well as on fresh randomness, since a
+repeated or predictable <math><mi>T</mi></math> reveals <math><mi>a</mi></math>.</p>
+<p>The server MUST drop a request, without responding, if it is malformed, including
+when either half of <code>mailbox_id</code> is not the encoding of a Pallas point other
+than <math><msub><mi class="mathcal">𝒪</mi><mi>ℙ</mi></msub></math>, or, for Fetch, if <code>time</code> is not within an hour of the server's clock or <code>sig</code>
+does not validate. It MUST NOT distinguish a mailbox it holds nothing for
+from an empty one.</p>
+<h2 id="routing"><a class="hanchor" href="#routing" aria-hidden="true" tabindex="-1">#</a>Routing</h2>
+<p>A Routing Binding carries requests to Mailbox Servers and responses back. It
+MUST:</p>
 <ul>
-<li><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mrow><mi>s</mi><mi>u</mi><mi>b</mi><mi>t</mi><mi>r</mi><mi>e</mi><mi>e</mi></mrow></msub><mo separator="true">,</mo><msub><mi>𝖼</mi><mrow><mi>s</mi><mi>u</mi><mi>b</mi><mi>t</mi><mi>r</mi><mi>e</mi><mi>e</mi></mrow></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mrow><mi>𝖱</mi><mi>𝖾</mi><mi>𝗀</mi><mi>𝖪</mi><mi>𝖣</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖢</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗑</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗍</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mo separator="true">,</mo><mi>S</mi><mo separator="true">,</mo><mrow><mi>𝖹</mi><mi>𝗂</mi><mi>𝗉</mi><mi>𝖭</mi><mi>𝗎</mi><mi>𝗆</mi><mi>𝖻</mi><mi>𝖾</mi><mi>𝗋</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></li>
-<li><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mi>n</mi></msub><mo separator="true">,</mo><msub><mi>𝖼</mi><mi>n</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mrow><mi>𝖢</mi><mi>𝖪</mi><mi>𝖣</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗀</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mrow><mi>s</mi><mi>u</mi><mi>b</mi><mi>t</mi><mi>r</mi><mi>e</mi><mi>e</mi></mrow></msub><mo separator="true">,</mo><msub><mi>𝖼</mi><mrow><mi>s</mi><mi>u</mi><mi>b</mi><mi>t</mi><mi>r</mi><mi>e</mi><mi>e</mi></mrow></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mrow><mi>𝖼</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>_</mi><mi>𝗍</mi><mi>𝗒</mi><mi>𝗉</mi><mi>𝖾</mi></mrow><mo>+</mo><msup><mn>2</mn><mn>31</mn></msup><mo separator="true">,</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mspace width="0.1667em"></mspace><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></li>
-<li><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mi>b</mi></msub><mo separator="true">,</mo><msub><mi>𝖼</mi><mi>b</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mrow><mi>𝖢</mi><mi>𝖪</mi><mi>𝖣</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗀</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mi>n</mi></msub><mo separator="true">,</mo><msub><mi>𝖼</mi><mi>n</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mrow><mi>𝚋</mi><mi>𝚒</mi><mi>𝚗</mi><mi>𝚍</mi><mi>𝚒</mi><mi>𝚗</mi><mi>𝚐</mi><mi>_</mi><mi>𝚒</mi><mi>𝚍</mi></mrow><mo>+</mo><msup><mn>2</mn><mn>31</mn></msup><mo separator="true">,</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mspace width="0.1667em"></mspace><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></li>
-<li><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mi>a</mi></msub><mo separator="true">,</mo><msub><mi>𝖼</mi><mi>a</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mrow><mi>𝖢</mi><mi>𝖪</mi><mi>𝖣</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝗀</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mi>b</mi></msub><mo separator="true">,</mo><msub><mi>𝖼</mi><mi>b</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mrow><mi>𝖺</mi><mi>𝖼</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗇</mi><mi>𝗍</mi></mrow><mo>+</mo><msup><mn>2</mn><mn>31</mn></msup><mo separator="true">,</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mspace width="0.1667em"></mspace><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></li>
-<li><math><mrow><msub><mi>𝖪</mi><mi>i</mi></msub><mo>=</mo><mrow><mi>𝖽</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>_</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝗂</mi><mi>𝗅</mi><mi>𝖽</mi><mi>_</mi><mi>𝖼</mi><mi>𝗋</mi><mi>𝗒</mi><mi>𝗉</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗎</mi><mi>𝖾</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow><mi>a</mi></msub><mo separator="true">,</mo><msub><mi>𝖼</mi><mi>a</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mi>i</mi><mo>+</mo><msup><mn>2</mn><mn>31</mn></msup><mo separator="true">,</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mspace width="0.1667em"></mspace><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></li>
+<li>hide the wallet's network identity from the server and from everyone but
+the wallet's own entry point to the network;</li>
+<li>keep requests and responses confidential and authentic between the wallet
+and the server;</li>
+<li>provide <em>sessions</em> such that neither the server nor a network observer can
+tell whether two requests in different sessions come from one wallet.</li>
 </ul>
-<p>where <math><mrow><mi>𝖼</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>_</mi><mi>𝗍</mi><mi>𝗒</mi><mi>𝗉</mi><mi>𝖾</mi></mrow></math> is the ZIP 32 coin type of the network
-<sup><a href="#user-content-fn-zip-0032-paths" id="user-content-fnref-zip-0032-paths" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup>, so that Mainnet and Testnet mailboxes are unlinkable;
-<math><mrow><mi>𝖺</mi><mi>𝖼</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗇</mi><mi>𝗍</mi></mrow></math> is the ZIP 32 account index of the Orchard key whose
-addresses carry the descriptor; and <math><mi>i</mi></math> is a per-binding, per-account counter
-that the wallet increments for each new mailbox. <math><msub><mi>𝖪</mi><mi>i</mi></msub></math> is 64
-bytes; each binding states how it is split into credentials.</p>
-<p>A wallet restored from seed can rebuild its credentials by scanning <math><mi>i</mi></math> from
-<math><mn>0</mn></math> with a gap limit, subject to the binding's own limits (for example,
-knowing which gateway each mailbox used).</p>
+<p>Its specification states the server address format, the framing of requests,
+responses, and Envelopes sent in fast mode, what a session is, and what each
+party can observe.</p>
+<p>A wallet MUST use a new session for each Deposit, and MUST NOT use one
+session for two Mailbox IDs. It MUST NOT bypass the anonymity network when it
+is unavailable.</p>
+<h3 id="fast-mode"><a class="hanchor" href="#fast-mode" aria-hidden="true" tabindex="-1">#</a>Fast mode</h3>
+<p>A Routing Binding MAY define addresses at which a wallet can receive
+Envelopes directly for a limited time without revealing its network identity
+to the sender. <code>fast_reply</code>, if not empty, is:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>network_id</code></td><td><code>byte</code></td><td>Identifies the Routing Binding</td></tr><tr><td><code>valid_until</code></td><td><code>u32</code></td><td>Time from which the address is not used</td></tr><tr><td><code>address</code></td><td><code>byte[]</code></td><td>As specified by the Routing Binding</td></tr></tbody></table>
+<p>A wallet MUST create a new address for each <code>fast_reply</code> and use it for
+nothing else, so that neither its host nor the other wallet can tie it to a
+Zcash address or to another <code>fast_reply</code>.</p>
+<p>A wallet that answers an Envelope with a <code>fast_reply</code> MAY, before
+<code>valid_until</code> and as well as depositing its answer, send the same Envelope to
+<code>address</code> from a session used for nothing else.</p>
 <h2 id="wallet-behaviour"><a class="hanchor" href="#wallet-behaviour" aria-hidden="true" tabindex="-1">#</a>Wallet behaviour</h2>
-<p>Sending:</p>
 <ul>
-<li>Wallets SHOULD NOT deposit an Envelope at the same moment as a related
-on-chain broadcast, and SHOULD add a random delay when the use is not
-interactive.</li>
-<li>Wallets MUST NOT fall back to a direct connection to a Mailbox when the
-binding's anonymity network is unavailable.</li>
-</ul>
-<p>Fetching:</p>
-<ul>
-<li>Wallets SHOULD fetch on a randomized schedule that does not depend on user
-actions, including when no message is expected.</li>
-<li>Wallets SHOULD cap the bytes they fetch and trial-decrypt per Fetch.</li>
-</ul>
-<p>Acknowledgements:</p>
-<ul>
-<li>Wallets SHOULD send an Ack only when <code>ack_requested</code> is set, and SHOULD
-delay it by a random amount.</li>
-</ul>
-<p>Display:</p>
-<ul>
-<li>Envelopes are not authenticated. Wallets MUST NOT present a message as
-coming from a named party unless the payload type itself authenticates the
-sender, and SHOULD NOT open links in Text payloads without user
-confirmation.</li>
-</ul>
-<p>Viewing keys:</p>
-<ul>
-<li>Wallets that export an account's incoming viewing key to a third party
-SHOULD NOT advertise mailboxes on that account's addresses.</li>
+<li>Wallets SHOULD fetch each mailbox on its own randomized schedule,
+independent of user actions and of their other mailboxes, and SHOULD set
+<code>after</code> to the last <code>seq</code> they received, or to <math><mn>0</mn></math>.</li>
+<li>Wallets SHOULD delay Acks, and deposits that are not part of an interactive
+exchange, by a random amount, in particular relative to a related on-chain
+broadcast. They SHOULD send an Ack only when <code>ack_requested</code> is set.</li>
+<li>Wallets MUST NOT present a message as coming from a named party.</li>
+<li>Wallets SHOULD NOT fetch the Contact Mailboxes of an account whose incoming
+viewing key they have exported, and SHOULD give out addresses of another
+account for messaging instead. If they do fetch them, they SHOULD tell the
+user that the holder of the key can read and delete the account's messages
+and send messages in its Conversations.</li>
 </ul>
 <h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
-<p><strong>Why reuse Orchard key agreement?</strong> It needs no new keys and no prior
-contact: any Unified Address with an Orchard Receiver is already a public
-encryption key. The cost is that incoming viewing key holders can read
-Envelopes; a dedicated messaging key in the descriptor would avoid that at
-the cost of a larger Item.</p>
-<p><strong>Why fixed size classes?</strong> Exact lengths would leak payload types and
-content. Three classes keep the anonymity set per class large while still
-allowing PCZTs.</p>
-<p><strong>Why no ZIP 324 payload?</strong> A sender that can use this channel already holds
-the recipient's Unified Address and can pay it on chain, and a ZIP 324 URI
-carries spend authority that every incoming viewing key holder could use.</p>
-<p><strong>Why a transport-agnostic core?</strong> Tying a standard to one network and its
-token is a long-term risk. Nym is sketched first because it is live,
-packet-based, uses cover traffic, stores messages for offline clients, and
-offers sender-anonymous replies.</p>
+<p><strong>Why reuse the Orchard keys?</strong> Any address with an Orchard Receiver is
+already a public encryption key, so first contact needs nothing new. The cost
+is the power it gives incoming viewing key holders.</p>
+<p><strong>Why derive the mailbox instead of advertising it?</strong> Advertising it would
+need a ZIP 316 Metadata Item, lengthen addresses, and allow one mailbox to be
+put in two addresses, linking them. Derivation gives every diversified
+address its own mailbox. In exchange, senders cannot tell whether a recipient
+reads messages, wallets have to agree on a Server List, and fetching has to
+be authorized by a key the wallet already has.</p>
+<p><strong>Why is a Mailbox ID a pair of points?</strong> It lets a server verify knowledge
+of <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> without having been told anything by the recipient, and
+without the fetcher revealing its Receiver. Under the Decisional
+Diffie–Hellman assumption the pair cannot be linked to the Receiver or to
+the mailbox of another address with the same <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>; neither can the
+signatures.</p>
+<p><strong>Why is <math><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow></math> checked?</strong> For the reason given in ZIP 212:
+<sup><a href="#user-content-fn-zip-0212" id="user-content-fnref-zip-0212" data-footnote-ref="" aria-describedby="footnote-label">24</a></sup> an Envelope encrypted to one address also decrypts under any
+other address with the same <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>, so without the check a sender
+could deposit an Envelope made for one address in the mailbox of another and
+learn from a reaction that they belong to one wallet. The check also ties
+<math><mi>κ</mi></math> to a single Receiver.</p>
+<p><strong>Why Conversations?</strong> A Contact Mailbox gives its server a record of
+everything sent to an address. Pairwise Mailboxes move an ongoing exchange to
+identifiers that change weekly, and they give the recipient a way to answer
+without the sender disclosing an address. Shorter epochs would leak less but
+cost a returning wallet one fetch per missed epoch and Conversation.</p>
+<p><strong>Why is there no Delete request?</strong> Deleting on the next fetch puts a random
+delay between reading an Envelope and its disappearance, which the sender in
+a Conversation can observe.</p>
+<p><strong>Why separate routing from mailboxes?</strong> A party that stores messages for a
+wallet's address and also sees the wallet's IP address, as a Nym gateway
+named in an address would, can link the two. Here the server that stores
+Envelopes never sees an IP address, and the entry point that sees one never
+learns a Mailbox ID. It also means wallets on different networks can exchange
+messages, and the protocol outlives any one network.</p>
+<p><strong>Why fixed sizes?</strong> Exact lengths would leak payload types.</p>
+<p><strong>Why no ZIP 324 payload?</strong> A sender on this channel already holds the
+recipient's address and can pay it, and a ZIP 324 URI carries spend authority
+that every incoming viewing key holder could use.</p>
 <h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
 <p>None yet.</p>
 <h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Open issues</h1>
 <ul>
-<li>Assignment of the Metadata Item Typecode, whether it is permitted in
-Revision 0 addresses, and this ZIP's number, which the key derivation
-depends on.</li>
-<li>Whether to encrypt to a dedicated messaging key carried in the descriptor
-instead of to the Orchard Receiver, so that incoming viewing key holders
-cannot read Envelopes.</li>
-<li>Address Expiry Items make an address unpayable by ZIP 316 Revision 0
-Consumers, while the compatibility requirement assumes they can pay it.
-Whether to recommend expiry, shorter-lived descriptors, or neither.</li>
-<li>The cost of running one mailbox per unlinkable address, and whether wallets
-should offer a deliberately linkable "contact" mode.</li>
-<li>A stable reference for the PCZT serialization.</li>
-<li>The FROST round message format and its authentication layer.</li>
-<li>The off-chain note delivery format, to be aligned with Tachyon.</li>
-<li>Support for Sapling-only recipients.</li>
-<li>A Tor onion-service binding.</li>
-<li>Whether the Nym binding in Appendix A becomes normative in this ZIP or in a
-separate one, once its TBDs are resolved.</li>
+<li>The Server List: encoding, maintenance, distribution, authentication,
+handling of changes, and whether one network is mandatory to implement. If
+operators could choose their <code>server_id</code>, one could choose it so as to be
+selected for a particular address.</li>
+<li>Who runs Mailbox Servers and what pays for them; quotas, retention, and
+whether Deposit should carry a payment or proof of work.</li>
+<li>Whether an opt-in signal is needed after all.</li>
+<li>Whether Conversations should add an ephemeral key exchange in their first
+two Envelopes. That would give forward secrecy and shut out a viewing key
+holder who only reads, though not one who answers a first Envelope before
+the wallet does. First Envelopes cannot be protected without publishing a
+separate messaging key, for which an address has no place.</li>
+<li>Whether Fetch needs a way to skip large Envelopes.</li>
+<li>Sapling-only recipients.</li>
+<li>Payload types for FROST round messages, with their authentication, and for
+off-chain note delivery.</li>
 </ul>
-<h1 id="nym-binding"><a class="hanchor" href="#nym-binding" aria-hidden="true" tabindex="-1">#</a>Appendix A: Nym transport binding (non-normative)</h1>
-<p>This appendix sketches a binding for the Nym mixnet so that the core protocol
-can be evaluated against a real network. It is not a complete Transport
-Binding specification: the items marked TBD have to be resolved before it can
-be made normative. <code>binding_id</code> <math><mrow><mn>𝟶</mn><mi>𝚡</mi><mn>𝟶𝟶𝟶𝟷</mn></mrow></math> is reserved for it.</p>
-<p><strong>Descriptor.</strong> The 96-byte binary form of a Nym client address,
-<sup><a href="#user-content-fn-nym-addressing" id="user-content-fnref-nym-addressing" data-footnote-ref="" aria-describedby="footnote-label">27</a></sup> <sup><a href="#user-content-fn-nym-recipient" id="user-content-fnref-nym-recipient" data-footnote-ref="" aria-describedby="footnote-label">28</a></sup> laid out as follows:</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td>client identity key</td><td><code>byte[32]</code></td><td>Ed25519 public key</td></tr><tr><td>client encryption key</td><td><code>byte[32]</code></td><td>X25519 public key</td></tr><tr><td>gateway identity key</td><td><code>byte[32]</code></td><td>Ed25519 public key of the gateway</td></tr></tbody></table>
-<p><strong>Credentials.</strong> The first 32 bytes of <math><msub><mi>𝖪</mi><mi>i</mi></msub></math> would be the Ed25519
-seed of the client identity key, and the last 32 bytes the X25519 secret key
-<sup><a href="#user-content-fn-rfc7748" id="user-content-fnref-rfc7748" data-footnote-ref="" aria-describedby="footnote-label">29</a></sup> of the client encryption key. The Nym Rust SDK accepts externally
-supplied client keys through a custom key store. <sup><a href="#user-content-fn-nym-sdk-keys" id="user-content-fnref-nym-sdk-keys" data-footnote-ref="" aria-describedby="footnote-label">30</a></sup></p>
-<p><strong>Deposit.</strong> The sender sends the Envelope as a Nym message to the
-descriptor's address through the mixnet, from an ephemeral Nym client with
-fresh keys rather than from its own mailbox client, attaching reply SURBs
-<sup><a href="#user-content-fn-nym-surbs" id="user-content-fnref-nym-surbs" data-footnote-ref="" aria-describedby="footnote-label">31</a></sup> if it expects a prompt reply. Each ephemeral client has to
-register with an entry gateway and hold bandwidth credentials; the cost and
-latency of doing so per message are unverified (TBD).</p>
-<p><strong>Fetch.</strong> The recipient runs a Nym client with the derived keys, connected to
-the gateway named in the descriptor, with cover traffic on. The gateway stores
-messages while the client is offline and delivers them when it connects.
-<sup><a href="#user-content-fn-nym-addressing" id="user-content-fnref-nym-addressing-2" data-footnote-ref="" aria-describedby="footnote-label">27</a></sup></p>
-<p><strong>Delete.</strong> Implicit on delivery by the gateway (TBD: confirm).</p>
-<p><strong>Retention.</strong> Not documented by Nym (TBD).</p>
-<p><strong>Size classes.</strong> All. Nym splits a message into fixed-size Sphinx packets,
-so larger classes take more packets and leave a larger timing footprint.</p>
-<p><strong>Replies.</strong> SURB reply keys expire after 24 hours, <sup><a href="#user-content-fn-nym-surbs" id="user-content-fnref-nym-surbs-2" data-footnote-ref="" aria-describedby="footnote-label">31</a></sup> so SURBs
-serve interactive exchanges only. A recipient that fetches later can reply
-only to a <code>reply_to</code> address that carries a Nym descriptor.</p>
-<p><strong>Rate limiting and cost.</strong> Sending through Nym consumes bandwidth
-credentials. Who pays, and whether they can be bought with shielded ZEC, is
-TBD.</p>
-<p><strong>Gateway changes.</strong> The gateway is part of the descriptor. If the recipient
-moves gateway, old descriptors stop working and a new Unified Address has to
-be issued. How a wallet restored from seed learns which gateway each mailbox
-index used is TBD.</p>
-<p><strong>Observability.</strong> The recipient's gateway, which is the Mailbox operator,
-sees the recipient's connection, including its IP address unless the
-connection is tunnelled over Tor, and the count and size of stored messages.
-The sender's entry gateway sees the sender's IP address but not the
-destination. Mix nodes see packets only. A global passive adversary faces
-Nym's mixing delays and cover traffic.</p>
+<h1 id="appendix-a-routing-bindings-non-normative"><a class="hanchor" href="#appendix-a-routing-bindings-non-normative" aria-hidden="true" tabindex="-1">#</a>Appendix A: Routing Bindings (non-normative)</h1>
+<p>These sketches exist so that the protocol can be evaluated against real
+networks. Items marked TBD have to be resolved before either is normative.</p>
+<h2 id="nym-mixnet"><a class="hanchor" href="#nym-mixnet" aria-hidden="true" tabindex="-1">#</a>Nym mixnet</h2>
+<p><code>network_id</code> <math><mn>1</mn></math>.</p>
+<ul>
+<li><strong>Server address.</strong> The 96-byte Nym client address <sup><a href="#user-content-fn-nym-addressing" id="user-content-fnref-nym-addressing" data-footnote-ref="" aria-describedby="footnote-label">25</a></sup> of a
+client run by the server.</li>
+<li><strong>Sessions.</strong> A Nym client with fresh keys. Each has to register with an
+entry gateway and hold bandwidth credentials; the cost and latency per
+request, and who pays, are TBD.</li>
+<li><strong>Framing.</strong> A request is one Nym message. Fetch attaches reply SURBs
+<sup><a href="#user-content-fn-nym-surbs" id="user-content-fnref-nym-surbs" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup> for the response; how many, and how the server asks for more,
+is TBD.</li>
+<li><strong>Fast mode.</strong> <code>address</code> is the 96-byte address of a client created for
+the purpose, with an independently chosen gateway; an Envelope is one Nym
+message. Its gateway holds messages while the client is offline, for
+24 hours by default, <sup><a href="#user-content-fn-nym-gateway-retention" id="user-content-fnref-nym-gateway-retention" data-footnote-ref="" aria-describedby="footnote-label">27</a></sup> which bounds <code>valid_until</code>.</li>
+<li><strong>Observability.</strong> A wallet's entry gateway sees its IP address and traffic
+volume but not the destination. Mixing delays and
+cover traffic hinder a global passive adversary. Larger Envelopes take more
+packets.</li>
+</ul>
+<h2 id="tor"><a class="hanchor" href="#tor" aria-hidden="true" tabindex="-1">#</a>Tor</h2>
+<p><code>network_id</code> <math><mn>2</mn></math>.</p>
+<ul>
+<li><strong>Server address.</strong> The 32-byte public key of a version 3 onion service.
+<sup><a href="#user-content-fn-tor-rend" id="user-content-fnref-tor-rend-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> The port is TBD.</li>
+<li><strong>Sessions.</strong> A connection over a circuit shared with no other session.</li>
+<li><strong>Framing.</strong> One request per connection, with request and response each
+preceded by a <code>u32</code> length (TBD).</li>
+<li><strong>Observability.</strong> A wallet's guard sees its IP address and traffic timing.
+Tor adds no delays or cover traffic, so a global passive adversary can
+correlate a wallet's traffic with requests arriving at a server.</li>
+</ul>
 <h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
 <section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
 <ol>
@@ -713,23 +519,23 @@ Nym's mixing delays and cover traffic.</p>
 <li id="user-content-fn-zip-0316">
 <p><a href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a> <a href="#user-content-fnref-zip-0316" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
 </li>
-<li id="user-content-fn-bitcoin-compactsize">
-<p><a href="https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer">Variable length integer. Bitcoin Wiki</a> <a href="#user-content-fnref-bitcoin-compactsize" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
-</li>
 <li id="user-content-fn-nym">
-<p><a href="https://nym.com/docs">Nym documentation</a> <a href="#user-content-fnref-nym" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+<p><a href="https://nym.com/docs">Nym documentation</a> <a href="#user-content-fnref-nym" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tor-rend">
+<p><a href="https://spec.torproject.org/rend-spec/">Tor Rendezvous Specification - Version 3</a> <a href="#user-content-fnref-tor-rend" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-tor-rend-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
 </li>
 <li id="user-content-fn-pczt">
 <p><a href="https://github.com/zcash/librustzcash/tree/main/pczt">Partially Created Zcash Transactions (librustzcash <code>pczt</code> crate)</a> <a href="#user-content-fnref-pczt" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-pczt-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
 </li>
 <li id="user-content-fn-zip-0312">
-<p><a href="/upstream/zip-0312.rst">ZIP 312: FROST for Spend Authorization Multisignatures</a> <a href="#user-content-fnref-zip-0312" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0312-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+<p><a href="/upstream/zip-0312.rst">ZIP 312: FROST for Spend Authorization Multisignatures</a> <a href="#user-content-fnref-zip-0312" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
 </li>
 <li id="user-content-fn-zip-0321">
 <p><a href="/upstream/zip-0321.rst">ZIP 321: Payment Request URIs</a> <a href="#user-content-fnref-zip-0321" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0321-2" data-footnote-backref="" aria-label="Back to reference 7-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
 </li>
 <li id="user-content-fn-tachyon">
-<p><a href="https://eprint.iacr.org/2025/2031">Sean Bowe and Ian Miers, "A Note on Notes: Towards Scalable Anonymous Payments via Evolving Nullifiers and Oblivious Synchronization", IACR ePrint 2025/2031</a> <a href="#user-content-fnref-tachyon" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-tachyon-2" data-footnote-backref="" aria-label="Back to reference 8-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+<p><a href="https://eprint.iacr.org/2025/2031">Sean Bowe and Ian Miers, "A Note on Notes: Towards Scalable Anonymous Payments via Evolving Nullifiers and Oblivious Synchronization", IACR ePrint 2025/2031</a> <a href="#user-content-fnref-tachyon" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
 </li>
 <li id="user-content-fn-tachyon-post">
 <p><a href="https://forum.zcashcommunity.com/t/scaling-zcash-tachyon-ragu/50789">Sean Bowe, "Tachyon: Scaling Zcash with Oblivious Synchronization" (Zcash Community Forum thread)</a> <a href="#user-content-fnref-tachyon-post" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
@@ -749,56 +555,44 @@ Nym's mixing delays and cover traffic.</p>
 <li id="user-content-fn-nym-zcash">
 <p><a href="https://zcash-sdk.nym.com/">Nym × Zcash Integration Guide</a> <a href="#user-content-fnref-nym-zcash" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a></p>
 </li>
-<li id="user-content-fn-zip-0316-metadata">
-<p><a href="/upstream/zip-0316.rst#metadata-items">ZIP 316: Unified Addresses and Unified Viewing Keys — Metadata Items</a> <a href="#user-content-fnref-zip-0316-metadata" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
-</li>
-<li id="user-content-fn-zip-0316-expiry">
-<p><a href="/upstream/zip-0316.rst#address-expiration-metadata">ZIP 316: Unified Addresses and Unified Viewing Keys — Address Expiration Metadata</a> <a href="#user-content-fnref-zip-0316-expiry" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a></p>
-</li>
-<li id="user-content-fn-zip-0316-registry">
-<p><a href="/upstream/zip-0316.rst#typecode-registry">ZIP 316: Unified Addresses and Unified Viewing Keys — Typecode Registry</a> <a href="#user-content-fnref-zip-0316-registry" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a></p>
-</li>
-<li id="user-content-fn-protocol-orchardkeyagreement">
-<p><a href="/upstream/protocol/protocol.pdf#concreteorchardkeyagreement">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.5.5: Orchard Key Agreement</a> <a href="#user-content-fnref-protocol-orchardkeyagreement" data-footnote-backref="" aria-label="Back to reference 18" class="data-footnote-backref">↩</a></p>
+<li id="user-content-fn-protocol-blake2">
+<p><a href="/upstream/protocol/protocol.pdf#concreteblake2">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.1.2: BLAKE2 Hash Functions</a> <a href="#user-content-fnref-protocol-blake2" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
 </li>
 <li id="user-content-fn-protocol-diversifyhash">
-<p><a href="/upstream/protocol/protocol.pdf#concretediversifyhash">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.1.6: DiversifyHash^Sapling and DiversifyHash^Orchard Hash Functions</a> <a href="#user-content-fnref-protocol-diversifyhash" data-footnote-backref="" aria-label="Back to reference 19" class="data-footnote-backref">↩</a></p>
+<p><a href="/upstream/protocol/protocol.pdf#concretediversifyhash">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.1.6: DiversifyHash^Sapling and DiversifyHash^Orchard Hash Functions</a> <a href="#user-content-fnref-protocol-diversifyhash" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-orchardkeycomponents">
+<p><a href="/upstream/protocol/protocol.pdf#orchardkeycomponents">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 4.2.3: Orchard Key Components</a> <a href="#user-content-fnref-protocol-orchardkeycomponents" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-sym">
+<p><a href="/upstream/protocol/protocol.pdf#concretesym">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.3: Symmetric Encryption</a> <a href="#user-content-fnref-protocol-sym" data-footnote-backref="" aria-label="Back to reference 18" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-grouphash">
+<p><a href="/upstream/protocol/protocol.pdf#concretegrouphashpallasandvesta">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.9.8: Group Hash into Pallas and Vesta</a> <a href="#user-content-fnref-protocol-grouphash" data-footnote-backref="" aria-label="Back to reference 19" class="data-footnote-backref">↩</a></p>
 </li>
 <li id="user-content-fn-protocol-pallasandvesta">
 <p><a href="/upstream/protocol/protocol.pdf#pallasandvesta">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.9.6: Pallas and Vesta</a> <a href="#user-content-fnref-protocol-pallasandvesta" data-footnote-backref="" aria-label="Back to reference 20" class="data-footnote-backref">↩</a></p>
 </li>
-<li id="user-content-fn-protocol-orchardkeycomponents">
-<p><a href="/upstream/protocol/protocol.pdf#orchardkeycomponents">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 4.2.3: Orchard Key Components</a> <a href="#user-content-fnref-protocol-orchardkeycomponents" data-footnote-backref="" aria-label="Back to reference 21" class="data-footnote-backref">↩</a></p>
+<li id="user-content-fn-protocol-endian">
+<p><a href="/upstream/protocol/protocol.pdf#endian">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.1: Integers, Bit Sequences, and Endianness</a> <a href="#user-content-fnref-protocol-endian" data-footnote-backref="" aria-label="Back to reference 21" class="data-footnote-backref">↩</a></p>
 </li>
-<li id="user-content-fn-protocol-orchardkdf">
-<p><a href="/upstream/protocol/protocol.pdf#concreteorchardkdf">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.5.6: Orchard Key Derivation</a> <a href="#user-content-fnref-protocol-orchardkdf" data-footnote-backref="" aria-label="Back to reference 22" class="data-footnote-backref">↩</a></p>
+<li id="user-content-fn-protocol-orchardaddrencoding">
+<p><a href="/upstream/protocol/protocol.pdf#orchardpaymentaddrencoding">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.6.4.2: Orchard Raw Payment Addresses</a> <a href="#user-content-fnref-protocol-orchardaddrencoding" data-footnote-backref="" aria-label="Back to reference 22" class="data-footnote-backref">↩</a></p>
 </li>
-<li id="user-content-fn-rfc8439">
-<p><a href="https://www.rfc-editor.org/rfc/rfc8439.html">RFC 8439: ChaCha20 and Poly1305 for IETF Protocols</a> <a href="#user-content-fnref-rfc8439" data-footnote-backref="" aria-label="Back to reference 23" class="data-footnote-backref">↩</a></p>
+<li id="user-content-fn-protocol-reddsa">
+<p><a href="/upstream/protocol/protocol.pdf#concretereddsa">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.7: RedDSA, RedJubjub, and RedPallas</a> <a href="#user-content-fnref-protocol-reddsa" data-footnote-backref="" aria-label="Back to reference 23" class="data-footnote-backref">↩</a></p>
 </li>
-<li id="user-content-fn-zip-0316-encoding">
-<p><a href="/upstream/zip-0316.rst#encoding-of-unified-addresses">ZIP 316: Unified Addresses and Unified Viewing Keys — Encoding of Unified Addresses</a> <a href="#user-content-fnref-zip-0316-encoding" data-footnote-backref="" aria-label="Back to reference 24" class="data-footnote-backref">↩</a></p>
-</li>
-<li id="user-content-fn-zip-0032-registered">
-<p><a href="/upstream/zip-0032.rst#specification-registered-key-derivation">ZIP 32: Shielded Hierarchical Deterministic Wallets — Specification: Registered key derivation</a> <a href="#user-content-fnref-zip-0032-registered" data-footnote-backref="" aria-label="Back to reference 25" class="data-footnote-backref">↩</a></p>
-</li>
-<li id="user-content-fn-zip-0032-paths">
-<p><a href="/upstream/zip-0032.rst#key-path-levels">ZIP 32: Shielded Hierarchical Deterministic Wallets — Key path levels</a> <a href="#user-content-fnref-zip-0032-paths" data-footnote-backref="" aria-label="Back to reference 26" class="data-footnote-backref">↩</a></p>
+<li id="user-content-fn-zip-0212">
+<p><a href="/upstream/zip-0212.rst">ZIP 212: Allow Recipient to Derive Ephemeral Secret from Note Plaintext</a> <a href="#user-content-fnref-zip-0212" data-footnote-backref="" aria-label="Back to reference 24" class="data-footnote-backref">↩</a></p>
 </li>
 <li id="user-content-fn-nym-addressing">
-<p><a href="https://nym.com/docs/network/reference/addressing">Nym documentation: Addressing System</a> <a href="#user-content-fnref-nym-addressing" data-footnote-backref="" aria-label="Back to reference 27" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-nym-addressing-2" data-footnote-backref="" aria-label="Back to reference 27-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
-</li>
-<li id="user-content-fn-nym-recipient">
-<p><a href="https://docs.rs/nym-sphinx-addressing/latest/src/nym_sphinx_addressing/clients.rs.html"><code>nym-sphinx-addressing</code> crate: <code>Recipient</code> (source)</a> <a href="#user-content-fnref-nym-recipient" data-footnote-backref="" aria-label="Back to reference 28" class="data-footnote-backref">↩</a></p>
-</li>
-<li id="user-content-fn-rfc7748">
-<p><a href="https://www.rfc-editor.org/rfc/rfc7748.html">RFC 7748: Elliptic Curves for Security</a> <a href="#user-content-fnref-rfc7748" data-footnote-backref="" aria-label="Back to reference 29" class="data-footnote-backref">↩</a></p>
-</li>
-<li id="user-content-fn-nym-sdk-keys">
-<p><a href="https://docs.rs/crate/nym-sdk/latest/source/examples/shared_identity.rs"><code>nym-sdk</code> crate: <code>shared_identity.rs</code> example</a> <a href="#user-content-fnref-nym-sdk-keys" data-footnote-backref="" aria-label="Back to reference 30" class="data-footnote-backref">↩</a></p>
+<p><a href="https://nym.com/docs/network/reference/addressing">Nym documentation: Addressing System</a> <a href="#user-content-fnref-nym-addressing" data-footnote-backref="" aria-label="Back to reference 25" class="data-footnote-backref">↩</a></p>
 </li>
 <li id="user-content-fn-nym-surbs">
-<p><a href="https://nym.com/docs/network/mixnet-mode/anonymous-replies">Nym documentation: Anonymous Replies (SURBs)</a> <a href="#user-content-fnref-nym-surbs" data-footnote-backref="" aria-label="Back to reference 31" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-nym-surbs-2" data-footnote-backref="" aria-label="Back to reference 31-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+<p><a href="https://nym.com/docs/network/mixnet-mode/anonymous-replies">Nym documentation: Anonymous Replies (SURBs)</a> <a href="#user-content-fnref-nym-surbs" data-footnote-backref="" aria-label="Back to reference 26" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-nym-gateway-retention">
+<p><a href="https://github.com/nymtech/nym/blob/develop/nym-node/src/config/gateway_tasks.rs"><code>nym-node</code> source: <code>StaleMessageDebug::DEFAULT_STALE_MESSAGES_MAX_AGE</code> in <code>config/gateway_tasks.rs</code></a> <a href="#user-content-fnref-nym-gateway-retention" data-footnote-backref="" aria-label="Back to reference 27" class="data-footnote-backref">↩</a></p>
 </li>
 </ol>
 </section>
