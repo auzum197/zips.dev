@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import PrList from "@/components/pr-list";
 import PageHeader from "@/components/page-header";
 import { getPrError, getPrs, getZipByNumber } from "@/lib/data";
@@ -45,5 +46,14 @@ export default function PrsPage() {
           </p>
           <PrList prs={unmapped} existingZipNumbers={existingZipNumbers}/>
         </section>)}
+
+      <p className="mt-10 text-sm text-muted-foreground">
+        This page lists only zcash/zips. Third-party proposal repositories
+        watched by the site live in{" "}
+        <Link href="/external/" className="underline underline-offset-2">
+          external drafts
+        </Link>
+        .
+      </p>
     </>);
 }

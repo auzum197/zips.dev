@@ -6,6 +6,7 @@ const links = [
     { href: "/drafts/", label: "Drafts" },
     { href: "/new/", label: "New" },
     { href: "/prs/", label: "PRs" },
+    { href: "/external/", label: "External" },
     { href: "/matrix/", label: "Matrix" },
     { href: "/upgrades/", label: "Upgrades" },
     { href: "/search/", label: "Search" },

@@ -1,0 +1,377 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key word "MUST" in this document is to be interpreted as described in
+BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when, it appears in all capitals.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This document proposes the Tachyon shielded protocol, which defines a new shielded pool with various scalability advantages. Tachyon enables validators to prune nullifier state, and supports aggregation of ZK proofs.
+Tachyon decouples note-encryption and transmission semantics from the shielded
+protocol, allowing more-scalable payment protocols to be built on top.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>The Orchard shielded protocol specified by ZIP-224 introduced a proof system designed around a curve cycle, with two main motivations:</p>
+<ul>
+<li>Removing the system's reliance on a "trusted setup", both to harden the trust assumptions of the shielded protocol and to remove the coordination complexity of the setup process.</li>
+<li>Introduce the possibility of integrating known scaling techniques based on recursive zero-knowledge proofs in a future upgrade.</li>
+</ul>
+<p>While the first goal was achieved, the Orchard shielded protocol does not utilize Halo 2's recursion capability for a scalable protocol.</p>
+<p>We are thus motivated to deploy a new shielded protocol focused on scalability, fully utilizing recursive proofs to overcome two major bottlenecks:</p>
+<ul>
+<li>Nullifier state growth:
+<ul>
+<li>All of Zcash's existing shielded protocols have an unfortunate drawback of infinitely growing nullifier state. All validators must store the full historical nullifier set, the entirety of which must be retained to validate shielded transactions.</li>
+<li>This limits scalability, as raising the transaction throughput would result in linear growth of disk and memory requirements for validators.</li>
+</ul>
+</li>
+<li>Proof size and verification cost:
+<ul>
+<li>Orchard uses a single proof per bundle, but its size grows linearly with the number
+of actions. Proofs from separate transactions cannot be recursively combined under
+the deployed protocol.<sup><a href="#user-content-fn-zip-0225" id="user-content-fnref-zip-0225" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></li>
+<li>Increasing transaction throughput therefore increases the proof data that validators
+must receive and store, as well as their total proof-verification workload.</li>
+</ul>
+</li>
+</ul>
+<p>Tachyon remediates both bottlenecks by leveraging recursive proofs:</p>
+<ul>
+<li>By requiring users to privately obtain and supply a recursive zero-knowledge proof of their notes spendability along with their transaction, nullifier state may be organized into <a href="#epochs"><em>epochs</em></a> and periodically pruned by validators.</li>
+<li>By allowing proofs from multiple transactions to be aggregated into a single proof, storage and verification costs can be amortized for proof data.</li>
+</ul>
+<p>Tachyon decouples note transmission from the shielded protocol. The blockchain can still carry arbitrary payloads, but the Tachyon shielded protocol treats them as opaque rather than prescribing their encryption or note-transmission semantics. Higher-level payment protocols define how recipients discover and decrypt this data, and may use private information retrieval (PIR) to retrieve it privately.<sup><a href="#user-content-fn-tachyon-secret-distribution" id="user-content-fnref-tachyon-secret-distribution" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> <sup><a href="#user-content-fn-tachyon-payment-protocols" id="user-content-fnref-tachyon-payment-protocols" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>Encryption, transport, and discovery are not prescribed by this
+ZIP. This separation permits note transmission and discovery to evolve
+independently of consensus, including approaches that avoid scanning every
+transaction. <sup><a href="#user-content-fn-tachyon-payment-protocols" id="user-content-fnref-tachyon-payment-protocols-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>The Tachyon protocol MUST be implemented as specified in the Zcash Protocol
+Specification.<sup><a href="#user-content-fn-protocol-tachyon" id="user-content-fnref-protocol-tachyon" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup></p>
+<h2 id="curves-and-fields"><a class="hanchor" href="#curves-and-fields" aria-hidden="true" tabindex="-1">#</a>Curves and fields</h2>
+<p>Tachyon retains the Pallas / Vesta (Pasta) curve cycle and finite fields used by
+Orchard, as described in ZIP 224.<sup><a href="#user-content-fn-zip-0224" id="user-content-fnref-zip-0224" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> The base field of each curve is the
+scalar field of the other; their parameters are unchanged.<sup><a href="#user-content-fn-protocol-pallasandvesta" id="user-content-fnref-protocol-pallasandvesta" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></p>
+<p>Pallas remains the application curve, used for RedPallas signatures and value
+commitments. Unlike Orchard's non-recursive use of Halo 2, Tachyon's Ragu proving
+system utilizes the full curve cycle for recursive proof composition.<sup><a href="#user-content-fn-ragu" id="user-content-fnref-ragu" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup></p>
+<h2 id="proving-system"><a class="hanchor" href="#proving-system" aria-hidden="true" tabindex="-1">#</a>Proving system</h2>
+<p>Tachyon uses the Ragu proving system,<sup><a href="#user-content-fn-ragu" id="user-content-fnref-ragu-2" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup> with R1CS-like arithmetization inspired by Bootle16<sup><a href="#user-content-fn-bootle16" id="user-content-fnref-bootle16" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>, efficient recursion via split accumulation, and its online polynomial oracle and transcript bridging features.<sup><a href="#user-content-fn-bclms21" id="user-content-fnref-bclms21" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup></p>
+<h2 id="tachygrams"><a class="hanchor" href="#tachygrams" aria-hidden="true" tabindex="-1">#</a>Tachygrams</h2>
+<p>Tachyon unifies the on-chain representation and consensus treatment of note
+commitments and nullifiers, referring to both as <em>tachygrams</em>.</p>
+<p>A tachygram is a Pallas base-field element representing a note commitment, a
+nullifier, or a padding value. A spend contributes nullifiers for its epoch and
+the next; an output contributes a note commitment and a padding tachygram to the stamp's tachygram multiset. Both
+action types contribute exactly two values, so the tachygram count alone does not
+reveal the split between spends and outputs.</p>
+<p>Tachygrams are published as an untyped multiset. The zero-knowledge proof enforces
+their correct derivation and association with the covered actions.
+Consensus therefore need not distinguish note commitments from nullifiers or
+padding: it verifies the proof and applies the same duplicate-rejection
+rules and accumulator updates to all tachygrams.<sup><a href="#user-content-fn-tachyon-tachygrams" id="user-content-fnref-tachyon-tachygrams" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup></p>
+<h2 id="stamp"><a class="hanchor" href="#stamp" aria-hidden="true" tabindex="-1">#</a>Stamp</h2>
+<p>A stamp packages a recursive zero-knowledge proof, a pool-state anchor, and the
+<a href="#tachygrams">tachygrams</a> associated with the actions it covers. The anchor
+identifies the pool state referenced by the proof. The proof binds the covered
+actions to the tachygrams and establishes the corresponding note-creation or
+spendability statements.<sup><a href="#user-content-fn-protocol-tachyon-stamp-verification" id="user-content-fnref-protocol-tachyon-stamp-verification" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup></p>
+<p>A stamp can cover actions from a single transaction or aggregate actions from
+multiple transactions. <a href="#prooftree">Aggregation</a> replaces
+the input stamps with a single stamp, while the actions and their signatures
+remain in their respective transactions.<sup><a href="#user-content-fn-tachyon-proof-tree" id="user-content-fnref-tachyon-proof-tree" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup>
+The bundle-format ZIP specifies how
+<a href="/upstream/draft-tachyon-bundle-format.md#pointerstamp">pointer stamps</a> reference the covering
+transaction and how <a href="/upstream/draft-tachyon-bundle-format.md#blockvalidity">block validation</a>
+checks complete coverage.</p>
+<h2 id="epochs"><a class="hanchor" href="#epochs" aria-hidden="true" tabindex="-1">#</a>Epochs</h2>
+<p>An epoch is a fixed-length interval of consecutive blocks, identified by an index derived from block height. Each note has a deterministic nullifier for each epoch, independent of the choice of anchor. A spend referencing a pool state in epoch <math><mi>e</mi></math> publishes the note’s nullifiers for epochs <math><mi>e</mi></math> and <math><mrow><mi>e</mi><mo>+</mo><mn>1</mn></mrow></math>, allowing inclusion across an epoch boundary.<sup><a href="#user-content-fn-tachyon-nullifiers" id="user-content-fnref-tachyon-nullifiers" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup></p>
+<p>When validating a transaction, validators check for duplicate nullifiers in the
+current and immediately preceding epochs. Recursive spendability proofs cover
+earlier history, allowing validators to prune older nullifier state from their
+active duplicate-checking set.
+<sup><a href="#user-content-fn-tachyon-tachygrams" id="user-content-fnref-tachyon-tachygrams-2" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup> <sup><a href="#user-content-fn-tachyon-proof-tree" id="user-content-fnref-tachyon-proof-tree-2" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup></p>
+<p>Epoch boundaries and cross-epoch validation rules MUST be implemented as specified
+in the Zcash Protocol Specification.<sup><a href="#user-content-fn-protocol-tachyon-epochs" id="user-content-fnref-protocol-tachyon-epochs" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup></p>
+<h2 id="proof-tree"><a class="hanchor" href="#proof-tree" aria-hidden="true" tabindex="-1">#</a>Proof tree</h2>
+<p>Instead of Orchard's single action circuit, Tachyon uses a recursive proof tree of
+specialized proof-carrying data (PCD) steps. Each step enforces its own constraints and recursively verifies up to two input PCD proofs, producing a new folded PCD proof.</p>
+<p>Spend proofs combine evidence of note creation, correct per-epoch nullifier
+derivation, and continued unspentness up to an anchor. Separate output steps prove
+correct construction of new notes. Both branches produce stamp proofs whose
+headers bind an anchor and commitments to the action-digest and tachygram
+multisets. Tachygrams comprise nullifiers, note commitments, and padding values.</p>
+<p>Stamps at a common anchor can be merged recursively, first to cover a transaction's
+actions and then to aggregate independently constructed transactions. Before merging, anyone with the published transaction and chain data (likely a miner or other aggregator) can use anchor-chain proofs to lift stamps to a later anchor within the same spending epoch, enabling them to be merged during aggregation. Validators check the resulting proof against commitments reconstructed from the
+covered actions and published tachygrams, and check the anchor against chain state.</p>
+<ul>
+<li>PCD step statements and composition rules: <sup><a href="#user-content-fn-protocol-tachyon-proof-tree" id="user-content-fnref-protocol-tachyon-proof-tree" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup></li>
+<li>Stamp public inputs and verification: <sup><a href="#user-content-fn-protocol-tachyon-stamp-verification" id="user-content-fnref-protocol-tachyon-stamp-verification-2" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup></li>
+<li>Design description: <sup><a href="#user-content-fn-tachyon-proof-tree" id="user-content-fnref-tachyon-proof-tree-3" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup></li>
+</ul>
+<h2 id="commitment-schemes"><a class="hanchor" href="#commitment-schemes" aria-hidden="true" tabindex="-1">#</a>Commitment schemes</h2>
+<p>Tachyon retains Orchard's homomorphic Pedersen value commitments on Pallas,
+including the value and randomness generators. A Tachyon action commits to a
+signed value, positive for spends and negative for outputs.</p>
+<p>For the note structure and Poseidon note commitment, see
+<a href="#notesandnotecommitments">Notes and note commitments</a>.</p>
+<ul>
+<li>Value commitment scheme: <sup><a href="#user-content-fn-protocol-valuecommit" id="user-content-fnref-protocol-valuecommit" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup></li>
+<li>Design and implementation: <sup><a href="#user-content-fn-tachyon-authorization" id="user-content-fnref-tachyon-authorization" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup></li>
+</ul>
+<h3 id="multiset-commitments"><a class="hanchor" href="#multiset-commitments" aria-hidden="true" tabindex="-1">#</a>Multiset commitments</h3>
+<p>Tachyon uses deterministic Pedersen polynomial commitments on Vesta for
+action-digest and tachygram multisets. A multiset of Pallas base-field elements is
+encoded by taking its members as the roots of a monic polynomial. For action
+digests <math><msub><mi>d</mi><mi>i</mi></msub></math> and tachygrams <math><msub><mi>t</mi><mi>j</mi></msub></math>:</p>
+<math display="block" class="tml-display" style="display:block math;"><mrow><mi>T</mi><mo form="prefix" stretchy="false">(</mo><mi>X</mi><mo form="postfix" stretchy="false">)</mo><mo>=</mo><mrow><munder><mo movablelimits="false">∏</mo><mi>j</mi></munder></mrow><mo fence="true" symmetric="true" minsize="1.2em" maxsize="1.2em">(</mo><mi>X</mi><mo>−</mo><msub><mi>t</mi><mi>j</mi></msub><mo fence="true" symmetric="true" minsize="1.2em" maxsize="1.2em">)</mo></mrow></math>
+<p>The commitment to a polynomial of degree <math><mi>n</mi></math> is the deterministic, untrapdoored
+Pedersen commitment to its <math><mrow><mi>n</mi><mo>+</mo><mn>1</mn></mrow></math> coefficients over the Vesta group, using the
+polynomial-commitment generators fixed by Ragu, with no blinding term. The
+coefficients are ordered by ascending degree: the constant term pairs with <math><msub><mi>G</mi><mn>0</mn></msub></math>,
+and the degree-<math><mi>k</mi></math> coefficient pairs with <math><msub><mi>G</mi><mi>k</mi></msub></math>.</p>
+<p>A polynomial is invariant under permutation of its roots, and a repeated member
+becomes a repeated root. These commitments therefore preserve multiplicity but
+not order. They are deterministic functions of the public multisets and reveal
+no information beyond those multisets.</p>
+<p>The multiset commitment construction MUST be implemented as specified in the
+Zcash Protocol Specification.<sup><a href="#user-content-fn-protocol-tachyon-multisetcommit" id="user-content-fnref-protocol-tachyon-multisetcommit" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup>
+Design and implementation: <sup><a href="#user-content-fn-tachyon-multisetcommit" id="user-content-fnref-tachyon-multisetcommit" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup>.</p>
+<h2 id="tachygram-accumulator"><a class="hanchor" href="#tachygram-accumulator" aria-hidden="true" tabindex="-1">#</a>Tachygram accumulator</h2>
+<p>Tachyon unifies the history represented by Orchard's note commitment tree and
+nullifier set in a single accumulator over <a href="#tachygrams">tachygrams</a>: note
+commitments, nullifiers, and padding values.</p>
+<p>The construction is a Poseidon hash chain of smaller multiset accumulators, one
+per stamp. Each stamp's tachygram-multiset commitment is absorbed into the chain,
+which also records epoch transitions, to derive pool-state anchors. Validators
+still retain recent tachygrams for the duplicate checks described under
+<a href="#epochs">Epochs</a>.</p>
+<p>The tachygram accumulator MUST be implemented as specified in the Zcash Protocol
+Specification.<sup><a href="#user-content-fn-protocol-tachyon-accumulator" id="user-content-fnref-protocol-tachyon-accumulator" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup></p>
+<h2 id="keys-and-addresses"><a class="hanchor" href="#keys-and-addresses" aria-hidden="true" tabindex="-1">#</a>Keys and addresses</h2>
+<p>Tachyon's key design deliberately stays close to Orchard. It retains the 32-byte
+spending key <math><mrow><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, derivation of the spend-authorizing key <math><mrow><mi>𝖺</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>
+and base-field nullifier key <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math>, and RedPallas spend authorization with
+a spend-validating key <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> and randomized per-spend keys.</p>
+<p>The principal changes are:</p>
+<ul>
+<li>The proof-authorizing key is explicitly represented as
+<math><mrow><mrow><mi>𝗉</mi><mi>𝖺</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>, allowing proof construction without
+the spend-authorizing key.</li>
+<li>The per-action randomizer <math><mi>α</mi></math> MUST be derived from the note commitment
+<math><mrow><mi>𝖼</mi><mi>𝗆</mi></mrow></math> and per-action entropy using a domain-separated derivation. For a
+spend, the randomized spend-validating key
+<math><mrow><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow><mo>+</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>α</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mi class="mathcal">𝒢</mi></mrow></math> therefore binds the action's
+signed effecting data to the underlying note, even though its tachygrams are
+carried separately in the stamp.<sup><a href="#user-content-fn-tachyon-action-authorization" id="user-content-fnref-tachyon-action-authorization" data-footnote-ref="" aria-describedby="footnote-label">22</a></sup></li>
+<li>The recipient is represented by a field-element payment key <math><mrow><mi>𝗉</mi><mi>𝗄</mi></mrow></math>,
+derived from <math><mrow><mi>𝖺</mi><mi>𝗄</mi></mrow></math> and <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math> using domain-separated Poseidon,
+in place of Orchard's diversifier and diversified transmission key.</li>
+<li>Orchard's viewing-key and diversified-address machinery is omitted from the
+core protocol. Address management, viewing capabilities, transmission keys,
+note encryption, and retrieval are instead defined by higher-level payment
+protocols. Encrypted notes can still be published as opaque on-chain
+payloads.<sup><a href="#user-content-fn-tachyon-payment-protocols" id="user-content-fnref-tachyon-payment-protocols-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></li>
+</ul>
+<p>Key components and derivation: <sup><a href="#user-content-fn-protocol-tachyon-keys" id="user-content-fnref-protocol-tachyon-keys" data-footnote-ref="" aria-describedby="footnote-label">23</a></sup>.
+Design and implementation: <sup><a href="#user-content-fn-tachyon-keys" id="user-content-fnref-tachyon-keys" data-footnote-ref="" aria-describedby="footnote-label">24</a></sup> <sup><a href="#user-content-fn-tachyon-key-derivation" id="user-content-fnref-tachyon-key-derivation" data-footnote-ref="" aria-describedby="footnote-label">25</a></sup>.</p>
+<h2 id="notes-and-note-commitments"><a class="hanchor" href="#notes-and-note-commitments" aria-hidden="true" tabindex="-1">#</a>Notes and note commitments</h2>
+<p>A Tachyon note has the form <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗉</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mi>v</mi><mo separator="true">,</mo><mi>ψ</mi><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗆</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math>, where
+<math><mrow><mi>𝗉</mi><mi>𝗄</mi></mrow></math> is the recipient's payment key, <math><mi>v</mi></math> is a non-negative value in
+zatoshis, <math><mi>ψ</mi></math> is the nullifier trapdoor, and <math><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗆</mi></mrow></math> is note-commitment
+randomness. The payment key, nullifier trapdoor, and commitment randomness are Pallas base-field elements. The value is a non-negative integer amount in zatoshis, also encoded as a field element when computing the commitment. Unlike
+Orchard, the note has no <math><mi>ρ</mi></math> field linking it to the nullifier of a spend in
+the same action.<sup><a href="#user-content-fn-tachyon-notes" id="user-content-fnref-tachyon-notes" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup></p>
+<p>The note commitment is a field element computed using domain-separated Poseidon
+in place of Orchard's Sinsemilla construction:</p>
+<p><math><mrow><mrow><mi>𝖼</mi><mi>𝗆</mi></mrow><mo>=</mo><msub><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mtext>𝚃𝚊𝚌𝚑𝚢𝚘𝚗-𝙲𝚖𝙳𝚎𝚛𝚒𝚟𝚎</mtext></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗆</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗉</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mi>v</mi><mo separator="true">,</mo><mi>ψ</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mi>.</mi></mrow></math></p>
+<p>An output action publishes <math><mrow><mi>𝖼</mi><mi>𝗆</mi></mrow></math> together with a padding tachygram. <sup><a href="#user-content-fn-tachyon-note-implementation" id="user-content-fnref-tachyon-note-implementation" data-footnote-ref="" aria-describedby="footnote-label">27</a></sup> <sup><a href="#user-content-fn-tachyon-tachygrams" id="user-content-fnref-tachyon-tachygrams-3" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>
+The note structure and commitment MUST be implemented as specified in the Zcash
+Protocol Specification.<sup><a href="#user-content-fn-protocol-tachyon-notecommit" id="user-content-fnref-protocol-tachyon-notecommit" data-footnote-ref="" aria-describedby="footnote-label">28</a></sup></p>
+<h2 id="nullifiers"><a class="hanchor" href="#nullifiers" aria-hidden="true" tabindex="-1">#</a>Nullifiers</h2>
+<p>Unlike Orchard's fixed nullifier per note, Tachyon uses <em>evolving nullifiers</em>,
+deriving a different nullifier for each <a href="#epochs">epoch</a>.<sup><a href="#user-content-fn-evolving-nullifiers" id="user-content-fnref-evolving-nullifiers" data-footnote-ref="" aria-describedby="footnote-label">29</a></sup>
+A per-note master key <math><mrow><mi>𝗆</mi><mi>𝗄</mi></mrow></math> is derived from the note's <math><mi>ψ</mi></math> and the
+recipient's nullifier key <math><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow></math>. Abstractly:</p>
+<p><math><mrow><mrow><mi>𝗆</mi><mi>𝗄</mi></mrow><mo>=</mo><msub><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mtext>𝚃𝚊𝚌𝚑𝚢𝚘𝚗-𝙽𝚏𝙼𝚊𝚜𝚝𝚎𝚛</mtext></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>ψ</mi><mo separator="true">,</mo><mrow><mi>𝗇</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo></mrow></math></p>
+<p><math><mrow><msub><mrow><mi>𝗇</mi><mi>𝖿</mi></mrow><mi>e</mi></msub><mo>=</mo><msubsup><mrow><mi>𝖯</mi><mi>𝖱</mi><mi>𝖥</mi></mrow><mrow><mi>𝗆</mi><mi>𝗄</mi></mrow><mrow><mi>𝗇</mi><mi>𝖿</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝗒</mi><mi>𝗈</mi><mi>𝗇</mi></mrow></msubsup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>e</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mi>.</mi></mrow></math></p>
+<p>The PRF uses a domain-separated Poseidon sponge to derive groups of consecutive
+epochs' nullifiers. Its outputs are Pallas base-field elements.<sup><a href="#user-content-fn-tachyon-nullifiers" id="user-content-fnref-tachyon-nullifiers-2" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup></p>
+<p>A spend publishes <math><msub><mrow><mi>𝗇</mi><mi>𝖿</mi></mrow><mi>e</mi></msub></math> and <math><msub><mrow><mi>𝗇</mi><mi>𝖿</mi></mrow><mrow><mi>e</mi><mo>+</mo><mn>1</mn></mrow></msub></math>, where <math><mi>e</mi></math> is the epoch
+of its referenced pool state. The proof establishes that the note's applicable
+nullifiers were absent between its creation and that state; validators check for their non-existence in the retained tachygrams. This combines proofs of historical unspentness with a prunable consensus nullifier
+set.<sup><a href="#user-content-fn-tachyon-proof-tree" id="user-content-fnref-tachyon-proof-tree-4" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup></p>
+<p>Nullifier derivation and its proof constraints MUST be implemented as specified
+in the Zcash Protocol Specification.<sup><a href="#user-content-fn-protocol-tachyon-nullifiers" id="user-content-fnref-protocol-tachyon-nullifiers" data-footnote-ref="" aria-describedby="footnote-label">30</a></sup></p>
+<h2 id="consensus-rules"><a class="hanchor" href="#consensus-rules" aria-hidden="true" tabindex="-1">#</a>Consensus rules</h2>
+<p>Tachyon consensus validation MUST be implemented as specified in the Zcash
+Protocol Specification.<sup><a href="#user-content-fn-protocol-tachyon-consensus" id="user-content-fnref-protocol-tachyon-consensus" data-footnote-ref="" aria-describedby="footnote-label">31</a></sup> The following summary groups
+the principal checks by what they validate: each transaction's bundle, or a stamp covering
+one or more bundles. Aggregation combines stamp proofs, but does not eliminate
+the checks on individual bundles.</p>
+<h3 id="per-bundle-checks"><a class="hanchor" href="#per-bundle-checks" aria-hidden="true" tabindex="-1">#</a>Per-bundle checks</h3>
+<p>The bundle-format ZIP's <a href="/upstream/draft-tachyon-bundle-format.md#bundlevalidity">Bundle validity</a>
+rules apply to every bundle, whether it carries a stamp or refers to a stamp in
+another transaction. In summary:</p>
+<ul>
+<li>Bundle fields have canonical encodings and satisfy their type and range
+constraints. Each action's value commitment and authorization key are
+non-identity Pallas points. A bundle with no actions has zero value balance.</li>
+<li>Every action signature and the bundle's binding signature verify over the
+containing transaction's signature hash. The binding signature enforces
+consistency between the action value commitments and the declared value
+balance.</li>
+<li>Opaque payment-protocol payloads satisfy the
+<a href="/upstream/draft-tachyon-bundle-format.md#canonicalencodings">canonical encoding rules</a>, and
+their bytes are committed by the transaction's signature hash as described under
+<a href="/upstream/draft-tachyon-bundle-format.md#transactiondigestcontributions">Transaction digest contributions</a>.</li>
+</ul>
+<h3 id="per-stamp-checks"><a class="hanchor" href="#per-stamp-checks" aria-hidden="true" tabindex="-1">#</a>Per-stamp checks</h3>
+<p>These checks apply to each proof-bearing stamp, using all bundles it covers.
+The bundle-format ZIP's <a href="/upstream/draft-tachyon-bundle-format.md#blockvalidity">Block validity</a>
+section specifies block-scoped coverage and proof-verification procedures.
+The anchor, epoch-window, and accumulator rules below additionally depend on chain
+state.</p>
+<ul>
+<li>Each stamp's declared coverage matches the actions in its own bundle and all
+bundles referring to it. Those references resolve to a proof-bearing bundle in
+the same block, the covered action descriptors are distinct, and the stamp
+publishes exactly two tachygrams per covered action.</li>
+<li>Each stamp proof verifies against its anchor and the multiset commitments
+reconstructed from the covered action digests and published tachygrams.</li>
+<li>Each stamp anchor identifies an accepted end-of-block pool state in the
+epoch of the block being validated or the immediately preceding epoch.</li>
+<li>A stamp's tachygrams are distinct from one another, from those of every other
+stamp in the block, and from tachygrams published in earlier blocks of the
+current or immediately preceding epoch. This check treats note commitments,
+nullifiers, and padding identically.</li>
+<li>Each stamp advances the pool-state accumulator in transaction order, with
+epoch transitions incorporated as specified under
+<a href="#tachygramaccumulator">Tachygram accumulator</a>.</li>
+</ul>
+<h1 id="privacy-and-security-implications"><a class="hanchor" href="#privacy-and-security-implications" aria-hidden="true" tabindex="-1">#</a>Privacy and Security Implications</h1>
+<p>Confidential note transmission, recipient authentication, and note discovery are
+responsibilities of the chosen payment protocol. On-chain payloads are publicly
+visible, so the confidentiality of encrypted note data depends on that protocol's
+encryption scheme. Retrieval privacy is distinct: PIR can hide which records a
+recipient requests from a retrieval service, but does not conceal the published
+ciphertexts or, by itself, all network metadata.</p>
+<p>A valid shielded proof does not establish that the intended recipient has
+received or can recover the note opening. Privacy against network observers and
+leakage through payment metadata also depend on the higher-level payment
+protocol.<sup><a href="#user-content-fn-tachyon-payment-protocols" id="user-content-fnref-tachyon-payment-protocols-4" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<p>This ZIP does not prescribe P2P aggregation messages, covered-transaction discovery,
+or mempool and relay policy.</p>
+<p>The Tachyon shielded protocol is unopinionated about the payment protocols
+constructed on top of it. This ZIP does not prescribe payment-address formats,
+note encryption, incoming-note discovery, selective disclosure, or a retrieval
+mechanism.</p>
+<p>On-chain publication and off-chain retrieval are separate concerns. A payment
+protocol may publish encrypted notes on the ledger and retrieve them through
+off-chain services, or use out-of-band note transmission instead. This ZIP
+requires neither PIR nor a particular payment protocol; the resulting shielded
+transactions still satisfy Tachyon's consensus rules.<sup><a href="#user-content-fn-tachyon-payment-protocols" id="user-content-fnref-tachyon-payment-protocols-5" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>The Tachyon shielded protocol will be deployed with
+<a href="/upstream/draft-tachyon-nutachyon-upgrade.md">NuTachyon</a>.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference Implementation</h1>
+<p>The <a href="https://github.com/tachyon-zcash/tachyon">Tachyon repository</a> implements the
+shielded protocol in Rust, using the recursive proof-carrying data framework in
+the <a href="https://github.com/tachyon-zcash/ragu">Ragu repository</a>. Experimental
+full-node integration is provided by
+<a href="https://github.com/zakura-core/zakura/pull/795">Zakura PR #795</a>, with corresponding
+transaction-format, digest, value-accounting, and history-tree support in <a href="https://github.com/zakura-core/common/pull/178">zakura-core/common PR #178</a>.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — RFC 2119 and RFC 8174</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0225">
+<p><a href="/upstream/zip-0225.rst">ZIP 225: Version 5 Transaction Format</a> <a href="#user-content-fnref-zip-0225" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-secret-distribution">
+<p>Sean Bowe. <a href="https://seanbowe.com/blog/tachyaction-at-a-distance/">Tachyaction at a Distance</a>, May 15, 2025. <a href="#user-content-fnref-tachyon-secret-distribution" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-payment-protocols">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/book/src/revisit.md">The Tachyon Book: A Deep Dive on Tachyon — Decoupling Payment Protocol from Shielded Protocol</a> <a href="#user-content-fnref-tachyon-payment-protocols" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-tachyon-payment-protocols-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-tachyon-payment-protocols-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-tachyon-payment-protocols-4" data-footnote-backref="" aria-label="Back to reference 4-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-tachyon-payment-protocols-5" data-footnote-backref="" aria-label="Back to reference 4-5" class="data-footnote-backref">↩<sup>5</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon">
+<p>Zcash Protocol Specification, Tachyon protocol. TODO: Add the version and section references once the Tachyon specification is written. <a href="#user-content-fnref-protocol-tachyon" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0224">
+<p><a href="/upstream/zip-0224.rst">ZIP 224: Orchard Shielded Protocol</a> <a href="#user-content-fnref-zip-0224" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-pallasandvesta">
+<p><a href="/upstream/protocol/protocol.pdf#pallasandvesta">Zcash Protocol Specification: Pallas and Vesta</a> <a href="#user-content-fnref-protocol-pallasandvesta" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-ragu">
+<p><a href="https://tachyon.z.cash/ragu/">Ragu proving system</a> <a href="#user-content-fnref-ragu" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-ragu-2" data-footnote-backref="" aria-label="Back to reference 8-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-bootle16">
+<p>Jonathan Bootle, Andrea Cerulli, Pyrros Chaidos, Jens Groth, and Christophe Petit. <a href="https://eprint.iacr.org/2016/263">Efficient Zero-Knowledge Arguments for Arithmetic Circuits in the Discrete Log Setting</a>. Cryptology ePrint Archive, Paper 2016/263, 2016. <a href="#user-content-fnref-bootle16" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bclms21">
+<p>Benedikt Bünz, Alessandro Chiesa, William Lin, Pratyush Mishra, and Nicholas Spooner. <a href="https://eprint.iacr.org/2020/1618">Proof-Carrying Data without Succinct Arguments</a>. Cryptology ePrint Archive, Paper 2020/1618, 2021. <a href="#user-content-fnref-bclms21" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-tachygrams">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/book/src/tachygrams.md">The Tachyon Book: Tachygrams</a> <a href="#user-content-fnref-tachyon-tachygrams" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-tachyon-tachygrams-2" data-footnote-backref="" aria-label="Back to reference 11-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-tachyon-tachygrams-3" data-footnote-backref="" aria-label="Back to reference 11-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon-stamp-verification">
+<p>Zcash Protocol Specification, Tachyon stamp public inputs and proof verification. TODO: Add the version and section references once specified. <a href="#user-content-fnref-protocol-tachyon-stamp-verification" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-tachyon-stamp-verification-2" data-footnote-backref="" aria-label="Back to reference 12-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-tachyon-proof-tree">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/book/src/proof-tree.md">The Tachyon Book: Proof tree</a> <a href="#user-content-fnref-tachyon-proof-tree" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-tachyon-proof-tree-2" data-footnote-backref="" aria-label="Back to reference 13-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-tachyon-proof-tree-3" data-footnote-backref="" aria-label="Back to reference 13-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-tachyon-proof-tree-4" data-footnote-backref="" aria-label="Back to reference 13-4" class="data-footnote-backref">↩<sup>4</sup></a></p>
+</li>
+<li id="user-content-fn-tachyon-nullifiers">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/book/src/nullifiers.md">The Tachyon Book: Nullifiers</a> <a href="#user-content-fnref-tachyon-nullifiers" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-tachyon-nullifiers-2" data-footnote-backref="" aria-label="Back to reference 14-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon-epochs">
+<p>Zcash Protocol Specification, Tachyon epoch boundaries and cross-epoch validation rules. TODO: Add the version and section references once specified. <a href="#user-content-fnref-protocol-tachyon-epochs" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon-proof-tree">
+<p>Zcash Protocol Specification, Tachyon PCD step statements and composition rules. TODO: Add the version and section references once specified. <a href="#user-content-fnref-protocol-tachyon-proof-tree" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-valuecommit">
+<p><a href="/upstream/protocol/protocol.pdf#concretehomomorphiccommit">Zcash Protocol Specification: Homomorphic Pedersen commitments (Sapling and Orchard)</a> <a href="#user-content-fnref-protocol-valuecommit" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-authorization">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/book/src/authorization.md#value-balance">The Tachyon Book: Authorization — Value Balance</a> <a href="#user-content-fnref-tachyon-authorization" data-footnote-backref="" aria-label="Back to reference 18" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon-multisetcommit">
+<p>Zcash Protocol Specification, Tachyon multiset commitment construction. TODO: Add the version and section references once specified. <a href="#user-content-fnref-protocol-tachyon-multisetcommit" data-footnote-backref="" aria-label="Back to reference 19" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-multisetcommit">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/crates/tachyon/src/primitives/sets.rs">Tachyon reference implementation: Multiset commitments</a> <a href="#user-content-fnref-tachyon-multisetcommit" data-footnote-backref="" aria-label="Back to reference 20" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon-accumulator">
+<p>Zcash Protocol Specification, Tachygram accumulator and pool-state anchor updates. TODO: Add the version and section references once specified. <a href="#user-content-fnref-protocol-tachyon-accumulator" data-footnote-backref="" aria-label="Back to reference 21" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-action-authorization">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/book/src/authorization.md#per-action-signing">The Tachyon Book: Authorization — Per-action Signing</a> <a href="#user-content-fnref-tachyon-action-authorization" data-footnote-backref="" aria-label="Back to reference 22" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon-keys">
+<p>Zcash Protocol Specification, Tachyon key components and derivation. TODO: Add the version and section references once specified. <a href="#user-content-fnref-protocol-tachyon-keys" data-footnote-backref="" aria-label="Back to reference 23" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-keys">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/book/src/keys.md">The Tachyon Book: Key Hierarchy</a> <a href="#user-content-fnref-tachyon-keys" data-footnote-backref="" aria-label="Back to reference 24" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-key-derivation">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/crates/tachyon/src/keys/private.rs">Tachyon reference implementation: Key derivation</a> <a href="#user-content-fnref-tachyon-key-derivation" data-footnote-backref="" aria-label="Back to reference 25" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-notes">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/book/src/notes.md">The Tachyon Book: Notes</a> <a href="#user-content-fnref-tachyon-notes" data-footnote-backref="" aria-label="Back to reference 26" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-note-implementation">
+<p><a href="https://github.com/tachyon-zcash/tachyon/blob/9abdcec1a98f96d91e612b3a43f5a4140de989f0/crates/tachyon/src/note.rs">Tachyon reference implementation: Notes and note commitments</a> <a href="#user-content-fnref-tachyon-note-implementation" data-footnote-backref="" aria-label="Back to reference 27" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon-notecommit">
+<p>Zcash Protocol Specification, Tachyon note structure and commitment construction. TODO: Add the version and section references once specified. <a href="#user-content-fnref-protocol-tachyon-notecommit" data-footnote-backref="" aria-label="Back to reference 28" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-evolving-nullifiers">
+<p>Sean Bowe and Ian Miers. <a href="https://eprint.iacr.org/2025/2031">A Note on Notes: Towards Scalable Anonymous Payments via Evolving Nullifiers and Oblivious Synchronization</a>. Cryptology ePrint Archive, Paper 2025/2031, 2025. <a href="#user-content-fnref-evolving-nullifiers" data-footnote-backref="" aria-label="Back to reference 29" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon-nullifiers">
+<p>Zcash Protocol Specification, Tachyon nullifier derivation and proof constraints. TODO: Add the version and section references once specified. <a href="#user-content-fnref-protocol-tachyon-nullifiers" data-footnote-backref="" aria-label="Back to reference 30" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-tachyon-consensus">
+<p>Zcash Protocol Specification, Tachyon transaction and block consensus rules. TODO: Add the version and section references once specified. <a href="#user-content-fnref-protocol-tachyon-consensus" data-footnote-backref="" aria-label="Back to reference 31" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

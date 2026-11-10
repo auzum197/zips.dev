@@ -61,11 +61,27 @@ function parseHeader(source) {
     let i = 0;
     while (i < lines.length && lines[i].trim() === "")
         i++;
-    if (lines[i] !== undefined && lines[i].trim() === "::")
+    /* zcash/zips indents the metadata header (2-space in .rst, 4-space in
+     * .md, wrapped in a leading `::` literal block). Some third-party repos
+     * (e.g. tachyon-zcash/zips) wrap it in a fenced code block at zero
+     * indent instead. Parse that variant the same way; the body then starts
+     * after the closing fence. A document that does not open with a fence,
+     * or whose fence does not begin with a key, parses exactly as before. */
+    const fence = lines[i]?.match(/^(```+|~~~+)\s*$/);
+    let inFence = false;
+    if (fence) {
         i++;
-    while (i < lines.length && lines[i].trim() === "")
-        i++;
-    const keyRe = /^(\s+)([A-Za-z][A-Za-z0-9-]*):(?:\s(.*))?$/;
+        inFence = true;
+    }
+    else {
+        if (lines[i] !== undefined && lines[i].trim() === "::")
+            i++;
+        while (i < lines.length && lines[i].trim() === "")
+            i++;
+    }
+    const keyRe = inFence
+        ? /^(\s*)([A-Za-z][A-Za-z0-9-]*):(?:\s(.*))?$/
+        : /^(\s+)([A-Za-z][A-Za-z0-9-]*):(?:\s(.*))?$/;
     const first = lines[i]?.match(keyRe);
     if (!first)
         return { meta: null, body: source };
@@ -110,6 +126,8 @@ function parseHeader(source) {
         i++;
     }
     let body = lines.slice(i).join("\n").replace(/^\s*\n+/, "");
+    if (inFence && /^(```+|~~~+)\s*$/.test(lines[i] ?? ""))
+        body = lines.slice(i + 1).join("\n").replace(/^\s*\n+/, "");
     const meta = { ...scalars };
     for (const [k, v] of Object.entries(multi)) {
         meta[k] = v.length === 1 ? v[0] : v;
@@ -178,6 +196,36 @@ const loadYaml = (p) => yaml.load(fs.readFileSync(path.join(ROOT, "data", p), "u
 const upgradesYaml = loadYaml("upgrades.yaml");
 const implsYaml = loadYaml("implementations.yaml");
 const crossrefsYaml = loadYaml("crossrefs.yaml");
+/* Watched third-party PRs (data/sources.yaml), curated per-PR. Fail fast on
+   a malformed entry: a bad id would produce broken /external/<id>/ routes,
+   and a bad repo would fail later with a less obvious API error. */
+const watchedPulls = (loadYaml("sources.yaml").pulls ?? []).map((p) => {
+    if (!p || typeof p.id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(p.id))
+        throw new Error(`sync: sources.yaml entry needs an id matching [a-z0-9-]: ${JSON.stringify(p)}`);
+    if (typeof p.repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(p.repo))
+        throw new Error(`sync: sources.yaml id ${p.id} needs repo "owner/name"`);
+    if (!Number.isInteger(p.number) || p.number < 1)
+        throw new Error(`sync: sources.yaml ${p.repo} needs a positive integer "number"`);
+    if (typeof p.label !== "string" || p.label === "")
+        throw new Error(`sync: sources.yaml ${p.repo}#${p.number} needs a label`);
+    return p;
+});
+{
+    const seen = new Set();
+    const groupRepo = new Map();
+    for (const p of watchedPulls) {
+        const key = `${p.repo}#${p.number}`;
+        if (seen.has(key))
+            throw new Error(`sync: duplicate sources.yaml entry ${key}`);
+        seen.add(key);
+        const grouped = groupRepo.get(p.id);
+        if (grouped && grouped !== p.repo)
+            throw new Error(`sync: sources.yaml id ${p.id} groups different repos (${grouped}, ${p.repo})`);
+        groupRepo.set(p.id, p.repo);
+    }
+}
+if (watchedPulls.length > 0)
+    console.log(`sync: watching ${watchedPulls.length} external PR(s): ${watchedPulls.map((p) => `${p.repo}#${p.number}`).join(", ")}`);
 const crossrefFor = (slug) => crossrefsYaml.zips?.[slug] ?? crossrefsYaml.zips?.[String(Number((slug.match(/(\d+)/) || [])[1] || ""))] ?? null;
 function mathToHast(node) {
     const tex = String(node.value ?? "");
@@ -519,26 +567,37 @@ async function main() {
         }
         return [...hits];
     }
-    let prs = [];
-    let prError = null;
-    try {
+    /* ZIP/draft document paths a PR must touch to be worth previewing. */
+    const DOC_RE = /^(?:zips\/)?(zip-\d{4}|draft-[a-z0-9-]+)\.(md|rst)$/i;
+    const readJsonSafe = (p) => {
+        try {
+            return JSON.parse(fs.readFileSync(p, "utf8"));
+        }
+        catch {
+            return null;
+        }
+    };
+    /* Fetch the primary repo's open PRs and shape them into snapshot entries,
+     * mapped to ZIPs/drafts and matched against the Pull-Request header
+     * claims. */
+    async function fetchPrs(repo) {
         let page = 1;
         const all = [];
         for (; page <= 4; page++) {
-            const chunk = await gh(`https://api.github.com/repos/${REPO}/pulls?state=open&per_page=100&page=${page}`);
+            const chunk = await gh(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=100&page=${page}`);
             all.push(...chunk);
             if (chunk.length < 100)
                 break;
         }
-        console.log(`sync: fetched ${all.length} open PRs`);
         const canFetchFiles = Boolean(token);
         let filesFetched = 0;
+        const out = [];
         for (const pr of all) {
             let files = null;
             const needsFiles = !canFetchFiles ? filesFetched < 12 : true;
             if (needsFiles) {
                 try {
-                    files = await gh(`https://api.github.com/repos/${REPO}/pulls/${pr.number}/files?per_page=100`);
+                    files = await gh(`https://api.github.com/repos/${repo}/pulls/${pr.number}/files?per_page=100`);
                     filesFetched++;
                 }
                 catch {
@@ -547,7 +606,9 @@ async function main() {
             }
             const refs = mapPrToZips(pr, files);
             const small = !files || (files.length <= 20 && files.every((f) => (f.patch ?? "").length < 400000));
-            prs.push({
+            out.push({
+                repo,
+                source: null,
                 number: pr.number,
                 title: pr.title,
                 author: pr.user?.login ?? null,
@@ -572,9 +633,56 @@ async function main() {
                 preview: null,
             });
         }
-        prs.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+        out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+        return out;
+    }
+    /* Fetch one watched external PR (per-PR curation, no listing). Not mapped
+     * to ZIPs — it documents another repository's documents and is rendered
+     * in its own /external/<id>/<number>/ namespace. */
+    async function fetchWatchedPr(repo, number, source) {
+        const pr = await gh(`https://api.github.com/repos/${repo}/pulls/${number}`);
+        let files = null;
+        try {
+            files = await gh(`https://api.github.com/repos/${repo}/pulls/${number}/files?per_page=100`);
+        }
+        catch {
+            files = null;
+        }
+        const small = !files || (files.length <= 20 && files.every((f) => (f.patch ?? "").length < 400000));
+        return {
+            repo,
+            source: source.id,
+            number: pr.number,
+            title: pr.title,
+            author: pr.user?.login ?? null,
+            createdAt: pr.created_at,
+            updatedAt: pr.updated_at,
+            url: pr.html_url,
+            diffUrl: pr.diff_url,
+            headRef: pr.head?.ref ?? "",
+            headRepo: pr.head?.repo?.full_name ?? null,
+            headSha: pr.head?.sha ?? null,
+            additions: pr.additions ?? 0,
+            deletions: pr.deletions ?? 0,
+            changedFiles: pr.changed_files ?? 0,
+            bodyExcerpt: stripTags(String(pr.body ?? "")).slice(0, 300),
+            zipRefs: [],
+            draftRefs: [],
+            mapped: false,
+            claimed: false,
+            files: small && files ? files.map((f) => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch ?? null })) : [],
+            filesTruncated: !small,
+            previews: [],
+            preview: null,
+        };
+    }
+    let prs = [];
+    let prError = null;
+    try {
+        prs = await fetchPrs(REPO);
+        console.log(`sync: fetched ${prs.length} open PRs`);
         const mappedCount = prs.filter((p) => p.mapped).length;
-        console.log(`sync: mapped ${mappedCount}/${prs.length} PRs to ZIPs (files fetched for ${filesFetched})`);
+        console.log(`sync: mapped ${mappedCount}/${prs.length} PRs to ZIPs`);
     }
     catch (e) {
         prError = String(e.message ?? e);
@@ -592,18 +700,60 @@ async function main() {
         catch {
         }
     }
-    const DOC_RE = /^(?:zips\/)?(zip-\d{4}|draft-[a-z0-9-]+)\.(md|rst)$/i;
+    /* Watched external PRs, one fetch per configured entry. A failure reuses
+     * that PR's previous snapshot for 24h, mirroring the primary-repo cache
+     * behavior; group-level errors surface on the source's pages. */
+    const externalPrev = readJsonSafe(path.join(CONTENT, "external.json"));
+    const prevByKey = new Map((Array.isArray(externalPrev?.prs) ? externalPrev.prs : []).map((p) => [`${p.repo}#${p.number}`, p]));
+    const externalSources = [];
+    const externalPrs = [];
+    {
+        const groups = new Map();
+        const ageH = externalPrev?.syncedAt ? (Date.now() - new Date(externalPrev.syncedAt)) / 36e5 : Infinity;
+        for (const entry of watchedPulls) {
+            const key = `${entry.repo}#${entry.number}`;
+            let pr = null;
+            let error = null;
+            try {
+                pr = await fetchWatchedPr(entry.repo, entry.number, entry);
+                console.log(`sync: fetched ${key}`);
+            }
+            catch (e) {
+                error = String(e.message ?? e);
+                console.warn(`sync: ${key} fetch failed (${error})`);
+                const prev = prevByKey.get(key);
+                if (prev && ageH < 24) {
+                    pr = prev;
+                    console.warn(`sync: reusing cached snapshot for ${key}`);
+                }
+                else {
+                    console.warn(`sync: no usable cached snapshot for ${key} — skipping`);
+                }
+            }
+            if (pr)
+                externalPrs.push(pr);
+            if (!groups.has(entry.id))
+                groups.set(entry.id, { id: entry.id, repo: entry.repo, label: entry.label, note: entry.note ?? null, error });
+            else if (error)
+                groups.get(entry.id).error = error;
+        }
+        externalSources.push(...groups.values());
+    }
+    const externalDoc = { syncedAt, sources: externalSources, prs: externalPrs };
     const docSlug = (filename) => filename.replace(/^.*\//, "").replace(/\.(md|rst)$/i, "");
     let previews = 0;
     let previewPrs = 0;
-    for (const pr of prs) {
-        if (!pr.mapped && !pr.claimed)
+    for (const pr of [...prs, ...externalPrs]) {
+        // Primary PRs need a ZIP/draft mapping to be worth previewing;
+        // external-source PRs are always previewed (curated list, few).
+        if (!pr.source && !pr.mapped && !pr.claimed)
             continue;
+        const fileKey = pr.source ? `${pr.source}-${pr.number}` : String(pr.number);
         try {
             let docFiles = pr.files.filter((f) => DOC_RE.test(f.filename) && f.status !== "removed");
             let headSha = pr.headSha;
             if ((docFiles.length === 0 || !headSha) && (pr.files.length === 0 || !headSha)) {
-                const patchRes = await fetch(`https://github.com/${REPO}/pull/${pr.number}.patch`, {
+                const patchRes = await fetch(`https://github.com/${pr.repo}/pull/${pr.number}.patch`, {
                     headers: { "User-Agent": "zips.dev-sync" },
                     redirect: "follow",
                 });
@@ -649,6 +799,10 @@ async function main() {
                             raw = await rawRes.text();
                     }
                     if (raw === null) {
+                        // The vendor clone only knows the primary repo; an
+                        // external PR must be fetchable from raw.githubusercontent.com.
+                        if (pr.source)
+                            throw new Error("head content unavailable via raw.githubusercontent.com");
                         const sha = await fetchPullHead();
                         const show = spawnSync("git", ["-C", VENDOR, "show", `${sha}:${docFile.filename}`], {
                             encoding: "utf8",
@@ -666,7 +820,7 @@ async function main() {
                     const { meta: hdr, body } = parseHeader(raw);
                     const format = /\.md$/i.test(docFile.filename) ? "md" : "rst";
                     const slug = docSlug(docFile.filename);
-                    const html0 = format === "md" ? await renderMd(body) : renderRst(body, `pr-${pr.number}-${slug}`);
+                    const html0 = format === "md" ? await renderMd(body) : renderRst(body, `pr-${fileKey}-${slug}`);
                     if (html0 === null)
                         throw new Error("render failed");
                     const html = injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
@@ -678,7 +832,7 @@ async function main() {
                         headings: extractHeadings(html),
                         format,
                     });
-                    fs.writeFileSync(path.join(RENDERED, `pr-${pr.number}-${slug}.html`), html);
+                    fs.writeFileSync(path.join(RENDERED, `pr-${fileKey}-${slug}.html`), html);
                 }
                 catch (e) {
                     console.warn(`sync: preview failed for PR ${pr.number} ${docFile.filename}: ${String(e.message ?? e).slice(0, 100)}`);
@@ -718,6 +872,7 @@ async function main() {
     fs.writeFileSync(path.join(CONTENT, "zips.json"), JSON.stringify({ ...meta, zips }, null, 1));
     fs.writeFileSync(path.join(CONTENT, "meta.json"), JSON.stringify(meta, null, 2));
     fs.writeFileSync(path.join(CONTENT, "prs.json"), JSON.stringify({ ...meta, error: prError, prs }));
+    fs.writeFileSync(path.join(CONTENT, "external.json"), JSON.stringify(externalDoc));
     fs.writeFileSync(path.join(PUBLIC_API, "zips.json"), JSON.stringify({ ...meta, zips: zips.map(publicZip) }));
     for (const z of zips) {
         if (z.number === null)
@@ -734,6 +889,7 @@ async function main() {
         }));
     }
     fs.writeFileSync(path.join(PUBLIC_API, "prs.json"), JSON.stringify({ ...meta, error: prError, prs }));
+    fs.writeFileSync(path.join(PUBLIC_API, "external.json"), JSON.stringify(externalDoc));
     fs.writeFileSync(path.join(PUBLIC_API, "meta.json"), JSON.stringify(meta));
     fs.writeFileSync(path.join(PUBLIC_API, "upgrades.json"), JSON.stringify({ ...meta, upgrades: upgradesYaml.upgrades ?? [] }));
     console.log("sync: wrote content/ + public/api/ snapshots");

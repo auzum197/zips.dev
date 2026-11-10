@@ -1,0 +1,550 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", "MAY", and "RECOMMENDED" in this document are to be interpreted as described in BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> when, and only when, they appear in all capitals.</p>
+<p>The term "network upgrade" is to be interpreted as described in ZIP 200.<sup><a href="#user-content-fn-zip-0200" id="user-content-fnref-zip-0200" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>
+The terms "Testnet" and "Mainnet" are to be interpreted as described in § 3.12 ‘Mainnet and Testnet’.
+The character § is used when referring to sections of the Zcash Protocol Specification.<sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p><code>txid</code>, <code>auth_digest</code>, and the SIGHASH transaction hash are defined by ZIP 244 <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>; <code>wtxid = txid || auth_digest</code>, the 64-byte identifier used for transaction announcement and relay, by ZIP 239 <sup><a href="#user-content-fn-zip-0239" id="user-content-fnref-zip-0239" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.
+Value commitments, spend authorization signatures, and binding signatures are existing constructions (§ 5.4.8.3 ‘Homomorphic Pedersen commitments (Sapling and Orchard)’, § 4.15 ‘Spend Authorization Signature (Sapling and Orchard)’, and § 4.14 ‘Balance and Binding Signature (Orchard)’, respectively, in their Orchard instantiations); this ZIP applies them to Tachyon as specified below rather than redefining them.</p>
+<p>The following terms are defined by the
+<a href="/upstream/draft-tachyon-shielded-protocol.md">Tachyon Shielded Protocol</a> ZIP and summarized here:</p>
+<dl><dt>Tachygram</dt><dd>A Pallas base-field element representing a note commitment, a nullifier, or a
+padding value, as defined under
+<a href="/upstream/draft-tachyon-shielded-protocol.md#tachygrams">Tachygrams</a>.
+Its <code>byte[32]</code> wire representation is specified under
+<a href="#canonicalencodings">Canonical encodings</a>.</dd><dt>Anchor</dt><dd>A Poseidon hash-chain state referencing the <em>Tachyon pool</em> at a specific block.
+The chain advances at sub-block granularity, but consensus acknowledges only
+end-of-block states as anchors, as described in the Tachyon Shielded Protocol ZIP
+under <a href="/upstream/draft-tachyon-shielded-protocol.md#tachygramaccumulator">Tachygram accumulator</a>
+and <a href="/upstream/draft-tachyon-shielded-protocol.md#per-stampchecks">Per-stamp checks</a>.</dd><dt>Multiset commitment</dt><dd>As defined in <a href="/upstream/draft-tachyon-shielded-protocol.md#multisetcommitments">Multiset commitments</a>
+in the Tachyon Shielded Protocol ZIP. Its application to this format is
+described under <a href="#multisetcommitments">Multiset commitments</a> below.</dd><dt>Stamp</dt><dd>The proof-bearing protocol object defined under
+<a href="/upstream/draft-tachyon-shielded-protocol.md#stamp">Stamp</a> in the Tachyon Shielded Protocol ZIP.
+This ZIP defines two wire forms for a bundle's final section: a proof stamp
+carrying that object, or a pointer stamp referring to a covering transaction.</dd></dl>
+<p>The remaining terms are defined by this ZIP:</p>
+<dl><dt>Bundle</dt><dd>The Tachyon section of a transaction: actions, a value balance, action signatures, a binding signature, and a state-dependent stamp.</dd><dt>Bundle state</dt><dd>The three-valued wire discriminator <code>tachyonBundleState</code> selecting no bundle, a proof stamp, or a pointer stamp.</dd><dt>Action</dt><dd>The triple <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗌</mi><mi>𝗂</mi><mi>𝗀</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math>: a value commitment, a randomized verification key, and a signature over the transaction sighash.
+An action effects a spend or an output; both forms share this encoding, and consensus applies the same rules to each.</dd><dt>Action digest</dt><dd>The Poseidon digest of an action's <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> pair.</dd><dt>Descriptor digest</dt><dd>The BLAKE2b-256 digest of a sequence of action descriptors (see <a href="#actiondescriptordigests">Action descriptor digests</a>).</dd><dt>Proof stamp</dt><dd>A wire representation of a stamp, carrying a Ragu proof and supporting verification data: a digest of the covered actions, an anchor, and the stamp's tachygrams.
+The proof attests that every covered action satisfies the Tachyon action rules.</dd><dt>Pointer stamp</dt><dd>A wire form carrying <code>tachyonAggregateId</code>, the <code>wtxid</code> of a covering transaction, in place of a proof stamp.</dd><dt>Covering transaction</dt><dd>The proof-stamped transaction whose stamp covers a pointer-stamped transaction's actions, named by the pointer-stamped bundle's <code>tachyonAggregateId</code>.</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP is a living draft and does not prescribe whether the Tachyon bundle is
+deployed through ZIP 248's extensible transaction format<sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> or incorporated
+directly into a new transaction format. Its encoding and integration details may
+be revised as ZIP 248 and other related draft ZIPs evolve.</p>
+<p>This ZIP specifies the consensus wire format of the Tachyon bundle: a three-state discriminator byte, a bundle body carrying actions, a value balance, and signatures, and a stamp carrying either a proof (with the public data needed to verify it) or a pointer to a covering transaction.
+It defines the canonical field encodings and sequence orders, the action and descriptor digests, and the use of the shielded protocol's multiset commitments in bundle verification.
+It further defines the bundle's transaction-digest inputs, the consensus rules scoped to a single bundle, and the block-scoped rules that validate a block's bundles together.
+It defines the transaction representation of the
+<a href="/upstream/draft-tachyon-shielded-protocol.md"><em>Tachyon pool</em></a>, just as ZIP 225 <sup><a href="#user-content-fn-zip-0225" id="user-content-fnref-zip-0225" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>
+defines the v5 transaction fields for the <a href="/upstream/zip-0224.rst">Orchard shielded protocol</a>.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>To improve scalability, the <a href="/upstream/draft-tachyon-shielded-protocol.md">Tachyon shielded protocol</a> introduces support for <a href="/upstream/draft-tachyon-shielded-protocol.md#prooftree">proof aggregation</a>: the <a href="/upstream/draft-tachyon-shielded-protocol.md#stamp">stamps</a> of many transactions merge into one covering stamp, and covered transactions appear in a block with their stamp stripped and replaced by a <a href="#pointerstamp">pointer</a>.
+The transaction format must therefore allow a stamp to be removed without changing the transaction's identity and without invalidating any signature.
+This forces the effecting/authorizing split down into the wire layout: the bundle's contribution to the signed data is confined to the body and is identical across bundle states, while the strippable part is isolated in the stamp.</p>
+<p>A single format serves every transaction role: one proof-stamped form whether the proof covers only the bundle's own actions or other transactions' (through aggregation) as well, and a covered transaction is the same body under a pointer stamp.
+A pointer-stamped transaction retains the data needed for its signature and balance checks; proof coverage is checked using the covering transaction and the other bundles in the block.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requirements</h1>
+<ul>
+<li>A transaction's <code>txid</code> contribution is invariant across stamping, merging, stripping, and re-stamping.</li>
+<li>Proof-stamped and pointer-stamped forms carry identical effecting data; only the stamp differs.</li>
+<li>Every field a validator needs for signature and balance verification is present in both states.</li>
+<li>Encodings are canonical: each parsed bundle has exactly one serialization.</li>
+<li>The proof field has a fixed size, so parsing requires no untrusted length.</li>
+<li>Bundles with no actions are representable, under both stamp forms.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<p>This ZIP does not independently define:</p>
+<ul>
+<li>the multiset commitment construction, which is specified in the
+<a href="/upstream/draft-tachyon-shielded-protocol.md#multisetcommitments">Tachyon Shielded Protocol</a> ZIP;</li>
+<li>the proof statement, which is specified in the Tachyon Shielded Protocol ZIP
+under <a href="/upstream/draft-tachyon-shielded-protocol.md#stamp">Stamp</a> and
+<a href="/upstream/draft-tachyon-shielded-protocol.md#prooftree">Proof tree</a>;</li>
+<li>the tachygram accumulator, anchor semantics and validity rules, and cross-block
+duplicate-tachygram checks within the retained epoch window, which are specified
+in the Tachyon Shielded Protocol ZIP under
+<a href="/upstream/draft-tachyon-shielded-protocol.md#tachygramaccumulator">Tachygram accumulator</a>,
+<a href="/upstream/draft-tachyon-shielded-protocol.md#epochs">Epochs</a>, and
+<a href="/upstream/draft-tachyon-shielded-protocol.md#per-stampchecks">Per-stamp checks</a>;</li>
+<li>the complete transaction digest trees, digest leaf algorithms, or sighash
+algorithm. These use the ZIP 244 framework <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, with Tachyon-specific
+integration still to be specified as noted under
+<a href="#transactiondigestcontributions">Transaction digest contributions</a>;</li>
+<li>P2P aggregation messages, covered-transaction discovery, or mempool and relay policy;</li>
+<li>the position of the bundle section within the transaction encoding, which is specified by the transaction format of the activating network upgrade.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<p>The specification proceeds from the wire layout of the bundle body to the rules over its fields, then to the digest constructions and multiset commitment inputs those rules use, then to the two stamp forms.
+It closes with the canonical encodings of every field, the bundle's transaction-digest inputs, a consolidated summary of the bundle-scoped consensus rules, and the block-scoped rules that validate a block's bundles together.</p>
+<h2 id="placement-and-bundle-states"><a class="hanchor" href="#placement-and-bundle-states" aria-hidden="true" tabindex="-1">#</a>Placement and bundle states</h2>
+<p>The Tachyon bundle is a contiguous section of the transaction encoding, added by a Tachyon network upgrade.
+The first byte of the section, <code>tachyonBundleState</code>, selects the bundle state:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>value</th><th>state</th><th>bundle contents</th></tr></thead><tbody><tr><td><code>0b0000_0000</code></td><td>non-tachyon</td><td>no bundle</td></tr><tr><td><code>0b0000_0001</code></td><td>proof stamp</td><td>bundle with actions digest, anchor, tachygrams, proof</td></tr><tr><td><code>0b0000_0010</code></td><td>pointer stamp</td><td>bundle with covering transaction's wtxid</td></tr><tr><td><code>...</code></td><td><em>reserved</em></td><td><em>n/a</em></td></tr></tbody></table>
+<p>A parser MUST reject any other value of <code>tachyonBundleState</code>.
+When <code>tachyonBundleState</code> is <code>0x00</code>, the Tachyon section consists of the discriminator byte alone.</p>
+<p>The complete wire layout across the serialized states:</p>
+<h3 id="bundle-flag"><a class="hanchor" href="#bundle-flag" aria-hidden="true" tabindex="-1">#</a>Bundle Flag</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>1</td><td><code>tachyonBundleState</code></td><td><code>uint8</code></td><td><code>0x00</code>, <code>0x01</code>, or <code>0x02</code></td></tr></tbody></table>
+<h3 id="bundle-body-encoding"><a class="hanchor" href="#bundle-body-encoding" aria-hidden="true" tabindex="-1">#</a>Bundle body encoding</h3>
+<p>Present when <code>tachyonBundleState</code> is not <code>0x00</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>8</td><td><code>valueBalanceTachyon</code></td><td><code>int64</code></td><td>Net value of Tachyon actions</td></tr><tr><td>1 or 3</td><td><code>nActionsTachyon</code></td><td><code>compactSize</code></td><td>Number of Tachyon actions, 0 to 4095</td></tr><tr><td>64 * <code>nActionsTachyon</code></td><td><code>vActionsTachyon</code></td><td><code>byte[64][nActionsTachyon]</code></td><td>Action descriptor per action</td></tr><tr><td>64 * <code>nActionsTachyon</code></td><td><code>vActionSigsTachyon</code></td><td><code>byte[64][nActionsTachyon]</code></td><td>Authorizing signature per action</td></tr><tr><td>64</td><td><code>bindingSigTachyon</code></td><td><code>byte[64]</code></td><td>Binding signature for the bundle</td></tr><tr><td>1 or 3</td><td><code>nMemoTachyon</code></td><td><code>compactSize</code></td><td>Byte length of memo, 0 or more</td></tr><tr><td><code>nMemoTachyon</code></td><td><code>vMemoTachyon</code></td><td><code>byte[nMemoTachyon]</code></td><td>Opaque bytes</td></tr></tbody></table>
+<h3 id="proof-stamp-encoding"><a class="hanchor" href="#proof-stamp-encoding" aria-hidden="true" tabindex="-1">#</a>Proof stamp encoding</h3>
+<p>Present when <code>tachyonBundleState</code> is <code>0x01</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>32</td><td><code>hStampActionsTachyon</code></td><td><code>byte[32]</code></td><td>Digest of covered action descriptors</td></tr><tr><td>32</td><td><code>anchorTachyon</code></td><td><code>byte[32]</code></td><td>Pool state anchor</td></tr><tr><td>32</td><td><code>cTachygrams</code></td><td><code>byte[32]</code></td><td>Multiset commitment to tachygrams</td></tr><tr><td>1 or 3</td><td><code>nTachygrams</code></td><td><code>compactSize</code></td><td>Number of tachygrams, 2 to 8190</td></tr><tr><td>32 * <code>nTachygrams</code></td><td><code>vTachygrams</code></td><td><code>byte[32][nTachygrams]</code></td><td>Tachygrams</td></tr><tr><td><code>PROOF_SIZE</code></td><td><code>proofTachyon</code></td><td><code>byte[PROOF_SIZE]</code></td><td>Ragu proof</td></tr></tbody></table>
+<h3 id="pointer-stamp-encoding"><a class="hanchor" href="#pointer-stamp-encoding" aria-hidden="true" tabindex="-1">#</a>Pointer stamp encoding</h3>
+<p>Present when <code>tachyonBundleState</code> is <code>0x02</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Bytes</th><th>Name</th><th>Data Type</th><th>Description</th></tr></thead><tbody><tr><td>64</td><td><code>tachyonAggregateId</code></td><td><code>byte[64]</code></td><td>wtxid of a covering transaction</td></tr></tbody></table>
+<h2 id="bundle-body"><a class="hanchor" href="#bundle-body" aria-hidden="true" tabindex="-1">#</a>Bundle body</h2>
+<p>When <code>tachyonBundleState</code> is not <code>0x00</code>, the body follows the discriminator byte, laid out as in the wire layout above.</p>
+<p><code>valueBalanceTachyon</code> is a two's-complement signed 64-bit integer in little-endian byte order.
+<code>vActionsTachyon</code> is a sequence of <code>nActionsTachyon</code> action descriptors, each the 32-byte encoding of <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math> followed by the 32-byte encoding of <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>.
+<code>vActionSigsTachyon</code> is a sequence of <code>nActionsTachyon</code> 64-byte signatures; the <math><mi>i</mi></math>-th signature authorizes the <math><mi>i</mi></math>-th descriptor.
+Both sequences share the single count <code>nActionsTachyon</code>, so a count mismatch between descriptors and signatures is unrepresentable.
+The descriptor sequence's order is the transaction author's choice.
+The semantics of spends and outputs are described in the shielded-protocol ZIP's
+<a href="/upstream/draft-tachyon-shielded-protocol.md#prooftree">Proof tree</a> section.</p>
+<p><code>vMemoTachyon</code> is an opaque recipient-directed payload of <code>nMemoTachyon</code> bytes; <code>nMemoTachyon</code> of <math><mn>0</mn></math> encodes an absent payload.
+The memo contributes to <code>txid</code> and the sighash (<a href="#transactiondigestcontributions">Transaction digest contributions</a>) rather than to <code>auth_digest</code>, so it is identical across bundle states.</p>
+<h2 id="value-balance-and-the-binding-signature"><a class="hanchor" href="#value-balance-and-the-binding-signature" aria-hidden="true" tabindex="-1">#</a>Value balance and the binding signature</h2>
+<p><code>valueBalanceTachyon</code> is the bundle's net value, spends minus outputs. A positive
+balance releases value from the <em>Tachyon pool</em>; a negative balance transfers value
+into it.</p>
+<p>Tachyon reuses Orchard's value commitments<sup><a href="#user-content-fn-protocol-valuecommit" id="user-content-fnref-protocol-valuecommit" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup> and binding-key
+derivation and binding-signature construction,<sup><a href="#user-content-fn-protocol-orchardbalance" id="user-content-fnref-protocol-orchardbalance" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> applied
+to the bundle's action value commitments and <code>valueBalanceTachyon</code>.
+<code>bindingSigTachyon</code> MUST verify over the transaction sighash under the resulting
+binding validating key <math><mrow><mi>𝖻</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>, which is derived rather than serialized.</p>
+<h2 id="action-signatures"><a class="hanchor" href="#action-signatures" aria-hidden="true" tabindex="-1">#</a>Action signatures</h2>
+<p>Each action signature in <code>vActionSigsTachyon</code> MUST be a valid spend authorization signature (§ 4.15 ‘Spend Authorization Signature (Sapling and Orchard)’; RedPallas with the SpendAuth basepoint of § 5.4.7.1, for spends and outputs alike) over the transaction sighash under the corresponding action's <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>.
+All of a bundle's signatures sign the same transaction-level sighash. The
+Tachyon-specific inputs and pending integration with the ZIP 244 framework
+<sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> are described under
+<a href="#transactiondigestcontributions">Transaction digest contributions</a>.</p>
+<h2 id="action-digests"><a class="hanchor" href="#action-digests" aria-hidden="true" tabindex="-1">#</a>Action digests</h2>
+<p>Each action has an action digest, a Poseidon hash of its <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> pair.
+Let <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mi>x</mi></msub><mo separator="true">,</mo><msub><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mi>y</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> and <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mi>x</mi></msub><mo separator="true">,</mo><msub><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mi>y</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> be the affine Pallas coordinates of the action's decompressed <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math> and <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>.
+Then</p>
+<math display="block" class="tml-display" style="display:block math;"><mrow><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow><mo separator="true">,</mo><mtext> </mtext><msub><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mi>x</mi></msub><mo separator="true">,</mo><mtext> </mtext><msub><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mi>y</mi></msub><mo separator="true">,</mo><mtext> </mtext><msub><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mi>x</mi></msub><mo separator="true">,</mo><mtext> </mtext><msub><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mi>y</mi></msub><mo fence="true" symmetric="true" minsize="1.2em" maxsize="1.2em">)</mo></mrow></math>
+<p>where <math><mrow><mi>𝖽</mi><mi>𝗈</mi><mi>𝗆</mi></mrow></math> is the Pallas base field element whose integer value is the little-endian interpretation of the 16-byte ASCII string <code>Tachyon-ActionDg</code>.
+The Poseidon instance (width, rounds, round constants, and mode) is the instance fixed by the Ragu proof system.</p>
+<p>If an action's <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math> or <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math> is the identity point, it has no affine coordinates, the digest is undefined, and the transaction is invalid.</p>
+<h2 id="action-descriptor-digests"><a class="hanchor" href="#action-descriptor-digests" aria-hidden="true" tabindex="-1">#</a>Action descriptor digests</h2>
+<p>An action's descriptor is its 64-byte encoding in <code>vActionsTachyon</code>: the 32-byte encoding of <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math> followed by the 32-byte encoding of <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>.
+The descriptor digest of a sequence of actions is the BLAKE2b-256 hash, with personalization <code>Tachyon-Actions</code>, of the concatenation of their descriptors:</p>
+<math display="block" class="tml-display" style="display:block math;"><mrow><mtext>"Tachyon-Actions"</mtext><mo separator="true">,</mo><mtext> </mtext><msub><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mn>1</mn></msub><mi>‖</mi><msub><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mn>1</mn></msub><mi>‖</mi><mi>⋯</mi><mi>‖</mi><msub><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow><mi>n</mi></msub><mi>‖</mi><msub><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow><mi>n</mi></msub><mo fence="true" symmetric="true" minsize="1.2em" maxsize="1.2em">)</mo></mrow></math>
+<p>The digest of the empty sequence is the hash of the empty string under the same personalization.</p>
+<p>This construction is used for two distinct digests, over two distinct sequences:</p>
+<ul>
+<li><code>hActionsTachyon</code>, an input to the
+<a href="#transactiondigestcontributions">effecting digest contribution</a>, is computed over
+the bundle's own actions in their <code>vActionsTachyon</code> wire order.
+It is not carried on the wire.</li>
+<li><code>hStampActionsTachyon</code>, carried on the proof stamp (<a href="#proofstamp">Proof stamp</a>), is computed over every action a proof stamp covers, first sorted into ascending lexicographic order.
+Sorting makes it a function of the covered action multiset alone, independent of which transactions contributed it, or in what order a merge combined them.</li>
+</ul>
+<h2 id="multiset-commitments"><a class="hanchor" href="#multiset-commitments" aria-hidden="true" tabindex="-1">#</a>Multiset commitments</h2>
+<p>Multiset commitments MUST use the construction specified in the
+<a href="/upstream/draft-tachyon-shielded-protocol.md#multisetcommitments">Tachyon Shielded Protocol</a> ZIP.</p>
+<p>Each proof stamp binds two commitments: <code>cStampActionsTachyon</code>, over the action
+digests of every action it covers, and <code>cTachygrams</code>, over its published tachygrams.
+Validators reconstruct <code>cStampActionsTachyon</code> from the covered actions; it is not
+serialized. The bundle carries <code>cTachygrams</code>, which validators MUST check against
+the commitment reconstructed from <code>vTachygrams</code>, as specified under
+<a href="#blockvalidity">Block validity</a>.</p>
+<h2 id="proof-stamp"><a class="hanchor" href="#proof-stamp" aria-hidden="true" tabindex="-1">#</a>Proof stamp</h2>
+<p>When <code>tachyonBundleState</code> is <code>0x01</code>, the proof stamp follows the body, laid out as in the wire layout above.</p>
+<p><code>hStampActionsTachyon</code> is the descriptor digest (<a href="#actiondescriptordigests">Action descriptor digests</a>) over every action the stamp covers: the bundle's own actions together with the actions of every covered transaction.
+How a block's actions are checked against it is specified in <a href="#blockvalidity">Block validity</a>.</p>
+<p><code>anchorTachyon</code> references the pool state the proof is valid against; its semantics
+and the anchor-membership rule are specified in the Tachyon Shielded Protocol ZIP
+under <a href="/upstream/draft-tachyon-shielded-protocol.md#tachygramaccumulator">Tachygram accumulator</a>
+and <a href="/upstream/draft-tachyon-shielded-protocol.md#per-stampchecks">Per-stamp checks</a>.</p>
+<p><code>cTachygrams</code> is the multiset commitment (<a href="#multisetcommitments">Multiset commitments</a>) over the tachygrams the stamp publishes.
+It is carried rather than derived by the reader, so a validator MUST confirm it against <code>vTachygrams</code> (<a href="#blockvalidity">Block validity</a>).</p>
+<p><code>vTachygrams</code> publishes the stamp's tachygram multiset for data availability.
+Which tachygrams an action contributes is specified under
+<a href="/upstream/draft-tachyon-shielded-protocol.md#tachygrams">Tachygrams</a> in the shielded-protocol ZIP;
+this ZIP imposes no relation between <code>nTachygrams</code> and <code>nActionsTachyon</code>, and a stamp
+covering actions that are not the bundle's own carries their tachygrams too.
+The tachygrams within one proof stamp MUST be distinct; a transaction violating this rule is invalid.
+Block-level distinctness is a block-validity rule of this ZIP
+(<a href="#blockvalidity">Block validity</a>); cross-block distinctness within the retained
+epoch window is specified in the Tachyon Shielded Protocol ZIP under
+<a href="/upstream/draft-tachyon-shielded-protocol.md#epochs">Epochs</a> and
+<a href="/upstream/draft-tachyon-shielded-protocol.md#per-stampchecks">Per-stamp checks</a>.</p>
+<p><code>proofTachyon</code> is the Ragu proof.
+The statement it attests to, and the base rule that a stamp proof MUST verify
+against the Tachyon statement, are specified in the Tachyon Shielded Protocol ZIP
+under <a href="/upstream/draft-tachyon-shielded-protocol.md#stamp">Stamp</a>,
+<a href="/upstream/draft-tachyon-shielded-protocol.md#prooftree">Proof tree</a>, and
+<a href="/upstream/draft-tachyon-shielded-protocol.md#per-stampchecks">Per-stamp checks</a>; how that rule
+is applied to a block's stamps is specified in <a href="#blockvalidity">Block validity</a>.</p>
+<h2 id="pointer-stamp"><a class="hanchor" href="#pointer-stamp" aria-hidden="true" tabindex="-1">#</a>Pointer stamp</h2>
+<p>When <code>tachyonBundleState</code> is <code>0x02</code>, the pointer stamp follows the body, laid out as in the wire layout above.</p>
+<p><code>tachyonAggregateId</code> is the <code>wtxid</code> (ZIP 239 <sup><a href="#user-content-fn-zip-0239" id="user-content-fnref-zip-0239-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>) of a covering transaction.
+It MUST NOT be all zero; the rule applies to every pointer-stamped transaction, with or without actions.
+Which transaction it must identify within a block is specified in <a href="#blockvalidity">Block validity</a>.</p>
+<h2 id="canonical-encodings"><a class="hanchor" href="#canonical-encodings" aria-hidden="true" tabindex="-1">#</a>Canonical encodings</h2>
+<ul>
+<li>Every compactSize field MUST use the minimal encoding for its value (§ 7.1 ‘Transaction Encoding and Consensus’) and MUST NOT encode a value exceeding <code>0x02000000</code>.
+A parser MUST reject any other encoding.</li>
+<li><code>cv</code> and <code>rk</code> are 32-byte compressed encodings of Pallas points.
+A parser MUST reject an encoding that does not decode to a point.
+<code>rk</code> MUST decode as a RedPallas validating key (§ 5.4.7 ‘RedDSA, RedJubjub, and RedPallas’).
+The identity point decodes successfully; it is excluded by the rule in <a href="#actiondigests">Action digests</a>, not by the parser.</li>
+<li><code>anchorTachyon</code> and each tachygram are canonical little-endian encodings of Pallas base field elements; a parser MUST reject an encoding whose value is not less than the field modulus.</li>
+<li><code>vActionsTachyon</code> carries no ordering requirement: the descriptors may appear in any sequence the transaction author chooses.
+The signatures in <code>vActionSigsTachyon</code> follow their descriptors' positions regardless of that order.</li>
+<li>The tachygrams in <code>vTachygrams</code> MUST be in ascending lexicographic order of their 32-byte encodings; a parser MUST reject a stamp whose tachygrams are out of order.
+With the distinctness rule (<a href="#proofstamp">Proof stamp</a>) the sequence is strictly increasing.</li>
+<li><code>cTachygrams</code> is a 32-byte compressed Vesta point; a parser MUST reject an encoding that does not decode to a point.
+Whether it commits the stamp's <code>vTachygrams</code> is a block-validity property (<a href="#blockvalidity">Block validity</a>).</li>
+<li><code>vMemoTachyon</code> is an opaque byte string at parse time; this ZIP imposes no structure on its contents.</li>
+<li><code>hStampActionsTachyon</code> is an opaque 32-byte string at parse time; whether it matches the covered actions is a block-validity property (<a href="#blockvalidity">Block validity</a>).</li>
+<li>Signatures (<code>vActionSigsTachyon</code>, <code>bindingSigTachyon</code>) are opaque 64-byte strings at parse time; their validity is a verification-time property.</li>
+<li><code>proofTachyon</code> is exactly <code>PROOF_SIZE</code> bytes and MUST decode as a Ragu proof.
+The proof encoding is defined by the Ragu proof system.</li>
+</ul>
+<h2 id="transaction-digest-contributions"><a class="hanchor" href="#transaction-digest-contributions" aria-hidden="true" tabindex="-1">#</a>Transaction digest contributions</h2>
+<p>The bundle contributes one leaf to each of the transaction's two digest trees (ZIP 244 <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244-4" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>).
+This section specifies the bundle's digest inputs, not the complete algorithms.
+ZIP 244 defines the existing framework, but does not yet specify Tachyon's extension.</p>
+<p>TODO: Specify the Tachyon-specific digest leaf algorithms and personalizations,
+including <code>hMemoTachyon</code> and <code>stamp_digest</code>, and their integration into the
+activating transaction format's digest trees and sighash algorithm.</p>
+<p>The effecting contribution (to <code>txid</code> and the sighash) commits to <code>hActionsTachyon</code>, the descriptor digest over the bundle's own actions (<a href="#actiondescriptordigests">Action descriptor digests</a>), to <code>valueBalanceTachyon</code>, and to <code>hMemoTachyon</code>, the digest of <code>vMemoTachyon</code>.
+<code>hActionsTachyon</code> is distinct from <code>hStampActionsTachyon</code>, which may cover more actions than the bundle's own.
+The stamp is excluded, so the contribution is invariant across stamping, merging, stripping, and re-stamping.</p>
+<p>The authorizing contribution (to <code>auth_digest</code>) commits to <code>tachyonBundleState</code>, to
+the action and binding signatures, and to the stamp. The stamp contributes a
+64-byte <code>stamp_digest</code>: a digest of a proof stamp's covered-actions digest and
+remaining fields, or a pointer stamp's <code>tachyonAggregateId</code> directly.
+The state byte separates the two stamp forms, whose contributions share the 64-byte shape.</p>
+<p>A transaction with no Tachyon bundle contributes distinctly from a bundle with no actions: no bundle produces the empty preimage, while every bundle's effecting contribution contains its encoded balance and its authorizing contribution contains at least its binding signature and <code>stamp_digest</code>.</p>
+<h2 id="bundle-validity"><a class="hanchor" href="#bundle-validity" aria-hidden="true" tabindex="-1">#</a>Bundle validity</h2>
+<p>The rules owned by this ZIP, applying to a single transaction's bundle:</p>
+<ol>
+<li><code>tachyonBundleState</code> MUST be <code>0x00</code>, <code>0x01</code>, or <code>0x02</code>.</li>
+<li>Every compactSize MUST be minimally encoded and MUST NOT exceed <code>0x02000000</code>.</li>
+<li>Every point and field-element encoding MUST be canonical, and every sequence in canonical order, as specified in <a href="#canonicalencodings">Canonical encodings</a>.</li>
+<li>An action's <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math> and <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math> MUST NOT be the identity point.</li>
+<li>Every action signature MUST verify over the transaction sighash under its action's <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>.</li>
+<li><code>bindingSigTachyon</code> MUST verify over the transaction sighash under the derived <math><mrow><mi>𝖻</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>.</li>
+<li><code>valueBalanceTachyon</code> MUST be in the range <math><mrow><mo form="prefix" stretchy="false">−</mo><mrow><mrow><mi mathvariant="normal">M</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">A</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">X</mi><mspace></mspace></mrow><mi>_</mi><mrow><mi mathvariant="normal">M</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">O</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">N</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">E</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">Y</mi><mspace></mspace></mrow></mrow></mrow></math> to <math><mrow><mrow><mi mathvariant="normal">M</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">A</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">X</mi><mspace></mspace></mrow><mi>_</mi><mrow><mi mathvariant="normal">M</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">O</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">N</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">E</mi><mspace></mspace></mrow><mrow><mi mathvariant="normal">Y</mi><mspace></mspace></mrow></mrow></math> inclusive.</li>
+<li>A bundle with no actions MUST have <code>valueBalanceTachyon</code> equal to <math><mn>0</mn></math>.</li>
+<li>A proof stamp's <code>proofTachyon</code> MUST be exactly <code>PROOF_SIZE</code> bytes and a valid proof encoding.</li>
+<li>A proof stamp's tachygrams MUST be distinct.</li>
+<li>A pointer stamp's <code>tachyonAggregateId</code> MUST NOT be all zero.</li>
+</ol>
+<p>Rules outside the scope of this ZIP are enumerated in <a href="#non-requirements">Non-requirements</a>.</p>
+<h2 id="block-validity"><a class="hanchor" href="#block-validity" aria-hidden="true" tabindex="-1">#</a>Block validity</h2>
+<p>The rules owned by this ZIP that constrain a block's Tachyon bundles together.
+A validator enforces them fail-fast, in this order:</p>
+<ol>
+<li><strong>Tachygram uniqueness.</strong> All tachygrams in a block MUST be distinct.
+The block's tachygrams are the multiset union of the <code>vTachygrams</code> of every proof stamp, and a single scan enforces this rule and the per-bundle distinctness of <a href="#bundlevalidity">Bundle validity</a> rule 10 together; reject on any duplicate.
+Reuse across blocks within the retained epoch window is governed by the
+Tachyon Shielded Protocol ZIP's
+<a href="/upstream/draft-tachyon-shielded-protocol.md#per-stampchecks">Per-stamp checks</a>.</li>
+<li><strong>Proof coverage.</strong> Every pointer-stamped transaction MUST bear a <code>tachyonAggregateId</code> identifying a proof-stamped transaction in the same block; reject if absent or not proof-stamped.
+A pointer-stamped transaction with no actions satisfies this rule against any proof-stamped transaction in the block: it contributes no action descriptors to rule 3, so consensus attaches no further meaning to its reference.</li>
+<li><strong>Covered-actions digest.</strong> The descriptors collected across a proof stamp and every transaction it covers MUST be distinct, and the stamp's <code>hStampActionsTachyon</code> MUST match their descriptor digest.
+For each proof stamp, collect the descriptors of the bundle's own actions together with those of every pointer-stamped transaction naming it, sort them, and compute the descriptor digest (<a href="#actiondescriptordigests">Action descriptor digests</a>); reject on any repeated descriptor, and on mismatch with the carried <code>hStampActionsTachyon</code>.
+The check is a sort and one BLAKE2b-256 hash, with no curve arithmetic.</li>
+<li><strong>Tachygram commitment.</strong> Every proof stamp's carried <code>cTachygrams</code> MUST commit that stamp's <code>vTachygrams</code>.
+Form the multiset commitment over the stamp's tachygrams (<a href="#multisetcommitments">Multiset commitments</a>) and reject on mismatch with the carried point.
+The check is curve arithmetic, so it follows the cheaper descriptor checks of rule 3.</li>
+<li><strong>Proof verification.</strong> Every proof stamp MUST verify.
+The validator reassembles the stamp PCD from <code>proofTachyon</code>, <code>anchorTachyon</code>, the <code>cTachygrams</code> confirmed by rule 4, and <code>cStampActionsTachyon</code> formed over the confirmed action set's digests (<a href="#actiondigests">Action digests</a>, <a href="#multisetcommitments">Multiset commitments</a>); reject if any proof fails.
+The base requirement that a proof verifies the Tachyon statement is specified
+in the Tachyon Shielded Protocol ZIP's
+<a href="/upstream/draft-tachyon-shielded-protocol.md#per-stampchecks">Per-stamp checks</a>; this rule
+applies it per stamp within a block.</li>
+</ol>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>This subsection is non-normative.</p>
+<h2 id="the-stamp-is-excluded-from-the-txid-contribution"><a class="hanchor" href="#the-stamp-is-excluded-from-the-txid-contribution" aria-hidden="true" tabindex="-1">#</a>The stamp is excluded from the txid contribution</h2>
+<p>The effecting contribution excludes the stamp, so stamping, merging, stripping, and re-stamping preserve a transaction's logical identity.
+This allows proof aggregation without changing the transaction its author signed:
+a pointer-stamped transaction retains the same effecting data and signatures.</p>
+<h2 id="zero-action-balance"><a class="hanchor" href="#zero-action-balance" aria-hidden="true" tabindex="-1">#</a>Zero-action balance</h2>
+<p>The v5 analogue omits <code>valueBalanceOrchard</code> when the action count is zero and defines its value as zero in that case.
+Tachyon gates field presence on the bundle state, not the action count: the non-tachyon state omits the field, while a present bundle always encodes <code>valueBalanceTachyon</code>.
+A present bundle with no actions therefore still carries the field, so the zero balance is stated as an explicit rule.</p>
+<h2 id="identity-points-are-invalid"><a class="hanchor" href="#identity-points-are-invalid" aria-hidden="true" tabindex="-1">#</a>Identity points are invalid</h2>
+<p>The action digest hashes affine coordinates, which the identity point lacks.
+Excluding it also rejects a degenerate verification key and a degenerate value commitment.</p>
+<h2 id="hstampactionstachyon-is-sorted-for-reconstruction-agreement"><a class="hanchor" href="#hstampactionstachyon-is-sorted-for-reconstruction-agreement" aria-hidden="true" tabindex="-1">#</a><code>hStampActionsTachyon</code> is sorted for reconstruction agreement</h2>
+<p><code>hStampActionsTachyon</code> can cover many transactions' actions, combined by whatever merge tree an aggregator chose.
+Sorting before hashing makes it a function of the covered multiset alone, so any party reconstructs the same digest regardless of merge history.
+The multiset commitments (<a href="#multisetcommitments">Multiset commitments</a>) get this order-independence for free, as polynomial multiplication.</p>
+<h2 id="covered-actions-are-required-to-be-distinct"><a class="hanchor" href="#covered-actions-are-required-to-be-distinct" aria-hidden="true" tabindex="-1">#</a>Covered actions are required to be distinct</h2>
+<p>Two identical descriptors carry an identical <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math>, so the same signature would authorize both if they sign the same transaction sighash.
+A descriptor digest can be computed over a collection containing duplicates, so digest agreement alone does not establish distinctness.
+<a href="#blockvalidity">Block validity</a> rule 3 therefore rejects repeated descriptors before digest comparison and proof verification.</p>
+<h2 id="vtachygrams-is-sorted-against-wtxid-malleability"><a class="hanchor" href="#vtachygrams-is-sorted-against-wtxid-malleability" aria-hidden="true" tabindex="-1">#</a><code>vTachygrams</code> is sorted against <code>wtxid</code> malleability</h2>
+<p>The stamp is authorizing data that no signature covers (<a href="#signaturessurvivestripping">Signatures survive stripping</a>), and the proof commits to <code>vTachygrams</code> order-independently, so only a canonical order pins its wire form.
+Without one, an observer could reorder <code>vTachygrams</code> to mint a distinct <code>wtxid</code> for byte-identical semantic content.
+Requiring sorted order gives it the one serialization that <code>vActionsTachyon</code> gets from its signature coverage instead.</p>
+<h2 id="a-flat-hash-not-an-algebraic-commitment-carries-the-covered-actions"><a class="hanchor" href="#a-flat-hash-not-an-algebraic-commitment-carries-the-covered-actions" aria-hidden="true" tabindex="-1">#</a>A flat hash, not an algebraic commitment, carries the covered actions</h2>
+<p>The carried field serves coverage identification and fail-fast confirmation.
+The proof binds the action set through <code>cStampActionsTachyon</code>, which validators reconstruct from the confirmed actions, so the carried field needs no algebraic structure: a flat hash commits the covered multiset just as well and reconstructs with no curve arithmetic.</p>
+<h2 id="deterministic-multiset-commitments"><a class="hanchor" href="#deterministic-multiset-commitments" aria-hidden="true" tabindex="-1">#</a>Deterministic multiset commitments</h2>
+<p>The committed multisets are public data, so a hiding commitment is unnecessary; determinism is what lets any party recompute a commitment from the data it covers.</p>
+<h2 id="fixed-size-proof"><a class="hanchor" href="#fixed-size-proof" aria-hidden="true" tabindex="-1">#</a>Fixed-size proof</h2>
+<p>This draft assumes a proof size independent of the number of covered actions.
+A constant-size proof field needs no length prefix.
+The whole stamp is not constant-size: its tachygram vector grows with the published multiset.</p>
+<h2 id="wtxid-not-txid-in-tachyonaggregateid"><a class="hanchor" href="#wtxid-not-txid-in-tachyonaggregateid" aria-hidden="true" tabindex="-1">#</a><code>wtxid</code>, not <code>txid</code>, in <code>tachyonAggregateId</code></h2>
+<p>A <code>txid</code> is ambiguous across the authorization forms that share it; the <code>wtxid</code> pins the physical covering transaction, stamp included, which is what the pointer-stamped transaction needs to reference.</p>
+<h2 id="nonzero-tachyonaggregateid"><a class="hanchor" href="#nonzero-tachyonaggregateid" aria-hidden="true" tabindex="-1">#</a>Nonzero <code>tachyonAggregateId</code></h2>
+<p>Every pointer-stamped bundle names a covering transaction, and the unassigned pointer state has no valid wire form.
+The all-zero value is reserved for an unassigned pointer and is invalid on the wire.</p>
+<h1 id="security-implications"><a class="hanchor" href="#security-implications" aria-hidden="true" tabindex="-1">#</a>Security Implications</h1>
+<p>This subsection is non-normative.</p>
+<h2 id="canonical-encodings-except-action-order"><a class="hanchor" href="#canonical-encodings-except-action-order" aria-hidden="true" tabindex="-1">#</a>Canonical encodings, except action order</h2>
+<p>The canonical-encoding rules restrict how field values and the tachygram sequence are serialized; they do not imply that a transaction has only one valid proof or set of signatures.
+Reordering distinct action descriptors changes <code>hActionsTachyon</code>, and therefore the sighash every signature covers, so existing signatures do not authorize the reordered transaction.
+Leaving action order to the author's choice is the same property Sapling and Orchard rely on for their own unordered spend, output, and action arrays.
+Authorization-form changes (re-stamping, stripping) produce distinct bundles by design and are reflected in <code>auth_digest</code> and <code>wtxid</code> (ZIP 239 <sup><a href="#user-content-fn-zip-0239" id="user-content-fnref-zip-0239-3" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>).</p>
+<h2 id="duplicate-actions-are-gated-after-parsing-not-by-the-parser"><a class="hanchor" href="#duplicate-actions-are-gated-after-parsing-not-by-the-parser" aria-hidden="true" tabindex="-1">#</a>Duplicate actions are gated after parsing, not by the parser</h2>
+<p>The parser enforces no distinctness over <code>vActionsTachyon</code>, so a bundle carrying a repeated action descriptor parses.
+Each descriptor's <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math> enters the binding sum, so action multiplicity is load-bearing and the parser cannot deduplicate without changing the asserted balance; the descriptor multiset is exactly what a stamp's proof commits to through <code>cStampActionsTachyon</code>.</p>
+<p><a href="#blockvalidity">Block validity</a> rule 3 explicitly rejects repeated descriptors in a proof stamp's combined coverage before comparing the descriptor digest.
+This includes duplicates within one bundle and across bundles covered by the same stamp.
+The multiset commitment preserves repeated roots; it does not itself prohibit them.
+A parser must therefore preserve multiplicity rather than silently deduplicate the actions.</p>
+<p><code>vTachygrams</code> is the opposite case.
+Repeated tachygrams violate the explicit distinctness rule, which the parser enforces directly (<a href="#bundlevalidity">Bundle validity</a> rule 10).</p>
+<h2 id="balance-consistency-is-enforced-by-the-binding-property"><a class="hanchor" href="#balance-consistency-is-enforced-by-the-binding-property" aria-hidden="true" tabindex="-1">#</a>Balance consistency is enforced by the binding property</h2>
+<p>A valid binding signature establishes that <code>valueBalanceTachyon</code> equals the net value committed by the actions' <math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math>, by the same binding argument as Orchard (§ 4.14).</p>
+<h2 id="signatures-survive-stripping"><a class="hanchor" href="#signatures-survive-stripping" aria-hidden="true" tabindex="-1">#</a>Signatures survive stripping</h2>
+<p>All signatures cover the transaction sighash, which incorporates only effecting data.
+A miner stripping a proof stamp changes no signed data, so aggregation does not invalidate signatures.
+A signature authorizes only the sighash it signs; using an action in a transaction with different effecting data requires a new signature over that transaction's sighash.</p>
+<div class="note"></div>
+<p>Parse validity is not spend validity.
+A bundle that parses and whose signatures verify is not thereby valid to spend;
+the <a href="#blockvalidity">Block validity</a> rules and the shielded protocol's
+<a href="/upstream/draft-tachyon-shielded-protocol.md#consensusrules">Consensus rules</a> also apply.
+Implementers and auditors should not assume the rules in this ZIP alone establish those properties.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>This subsection is non-normative.</p>
+<h2 id="public-data"><a class="hanchor" href="#public-data" aria-hidden="true" tabindex="-1">#</a>Public data</h2>
+<p><math><mrow><mi>𝖼</mi><mi>𝗏</mi></mrow></math> is a hiding commitment to the action's value.
+The unlinkability of <math><mrow><mi>𝗋</mi><mi>𝗄</mi></mrow></math> and tachygrams depends on the shielded protocol,
+not on their wire encoding; see
+<a href="/upstream/draft-tachyon-shielded-protocol.md#keysandaddresses">Keys and addresses</a> and
+<a href="/upstream/draft-tachyon-shielded-protocol.md#tachygrams">Tachygrams</a>. Payload confidentiality
+and note discovery depend on the payment protocol, as discussed under
+<a href="/upstream/draft-tachyon-shielded-protocol.md#privacyandsecurityimplications">Privacy and Security Implications</a>.
+The action count, the value balance, and, on a proof-stamped bundle, the tachygram count are public, as is anything derivable from them.</p>
+<p>Aggregation does not hide in-block coverage: pointer stamps publicly name their
+covering transaction. For a bundle with no actions, this reference does not
+establish which stamp previously covered it (see <a href="#blockvalidity">Block validity</a>).</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This ZIP will be deployed with <a href="/upstream/draft-tachyon-nutachyon-upgrade.md">NuTachyon</a>.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p>The <code>zcash_tachyon</code> crate in the
+<a href="https://github.com/tachyon-zcash/tachyon">Tachyon repository</a> provides the bundle
+codec, commitment and digest calculations, and signature verification.
+Experimental transaction-format, value-accounting, and transaction-digest
+integration is provided by
+<a href="https://github.com/zakura-core/common/pull/178">zakura-core/common PR #178</a>.
+Experimental full-node integration, including bundle and block validation, is
+provided by <a href="https://github.com/zakura-core/zakura/pull/795">Zakura PR #795</a>.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Footnotes</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14: "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0200">
+<p><a href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a> <a href="#user-content-fnref-zip-0200" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0244">
+<p><a href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a> <a href="#user-content-fnref-zip-0244" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0244-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0244-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-0244-4" data-footnote-backref="" aria-label="Back to reference 4-4" class="data-footnote-backref">↩<sup>4</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0239">
+<p><a href="/upstream/zip-0239.rst">ZIP 239: Relay of Version 5 Transactions</a> <a href="#user-content-fnref-zip-0239" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0239-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0239-3" data-footnote-backref="" aria-label="Back to reference 5-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0248">
+<p><a href="/upstream/zip-0248.rst">ZIP 248: Extensible Transaction Format</a> <a href="#user-content-fnref-zip-0248" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0225">
+<p><a href="/upstream/zip-0225.rst">ZIP 225: Version 5 Transaction Format</a> <a href="#user-content-fnref-zip-0225" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-valuecommit">
+<p><a href="/upstream/protocol/protocol.pdf#concretehomomorphiccommit">Zcash Protocol Specification, Version v2026.7.0-202-gafa086 [NU6.2]. Section 5.4.8.3: Homomorphic Pedersen commitments (Sapling and Orchard)</a> <a href="#user-content-fnref-protocol-valuecommit" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-orchardbalance">
+<p><a href="/upstream/protocol/protocol.pdf#orchardbalance">Zcash Protocol Specification, Version v2026.7.0-202-gafa086 [NU6.2]. Section 4.14: Balance and Binding Signature (Orchard)</a> <a href="#user-content-fnref-protocol-orchardbalance" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>
