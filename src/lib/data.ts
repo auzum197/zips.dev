@@ -41,9 +41,10 @@ export function getPrs(): PrMeta[] {
 export function getPrByNumber(n: number): PrMeta | undefined {
     return getPrs().find((p) => p.number === n);
 }
-/** Base URL path for a PR overview page, namespaced per repository. */
+/** Base URL path for a PR overview page, namespaced per repository. No
+ *  trailing slash — callers append "/<slug>/" style suffixes. */
 export function prBaseHref(pr: PrMeta): string {
-    return pr.source ? `/external/${pr.source}/${pr.number}/` : `/prs/${pr.number}/`;
+    return pr.source ? `/external/${pr.source}/${pr.number}` : `/prs/${pr.number}`;
 }
 /** "zips/zip-0316.rst" → "zip-0316" */
 function previewSlug(filename: string): string {
