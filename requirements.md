@@ -30,7 +30,7 @@ A fast, reader-first site that renders all ZIPs **and** adds a meta layer: PRs a
 2. **ZIP page** — rendered content with metadata (number, title, status, authors, created, license, category); revision-scoped statuses (e.g. ZIP 214, ZIP 316); heading anchors; code highlighting; canonical source link at pinned commit.
 3. **Dual-format rendering** — markdown and reStructuredText sources (rst converted in the build pipeline).
 4. **Drafts** — section for unnumbered `draft-*` proposals.
-5. **PRs view** — open PRs to zcash/zips mapped to ZIP numbers where detectable; rendered diff plus rendered preview of proposed text; unmapped-PRs bucket.
+5. **PRs view** — open PRs to zcash/zips mapped to ZIP numbers where detectable; rendered diff plus rendered preview of proposed text; unmapped-PRs bucket. Individually curated third-party PRs (`data/sources.yaml`) are rendered in a separate `/external/` namespace with provenance badges; they never appear in the canonical ZIP set.
 6. **Implementation matrix** — curated ZIP × implementation grid (zebra, zcashd, ECC libraries, wallets), stored as YAML in this repo, editable via PR.
 7. **Upgrade timelines** — per-upgrade views (NU5, NU6, NU6.3, NU7…) showing included ZIPs and their draft/final status.
 8. **Cross-references** — related ZIPs, protocol spec sections, analogous BIPs (curated).

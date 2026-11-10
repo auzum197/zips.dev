@@ -36,7 +36,8 @@ function PrRow({ pr, existingZipNumbers, }: {
     existingZipNumbers: Set<number>;
 }) {
     const href = prPreviewHref(pr);
-    return (<li id={`pr-${pr.number}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle py-2.5 scroll-mt-18 [&:target]:bg-muted">
+    const key = `${pr.repo}-${pr.number}`;
+    return (<li id={`pr-${key}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle py-2.5 scroll-mt-18 [&:target]:bg-muted">
       <span className="shrink-0 font-mono text-xs text-faint tabular-nums">
         #{pr.number}
       </span>
@@ -58,6 +59,6 @@ export default function PrList({ prs, existingZipNumbers = [], }: {
         ? existingZipNumbers
         : new Set(existingZipNumbers);
     return (<ul className="border-t border-border-subtle text-sm">
-      {prs.map((pr) => (<PrRow key={pr.number} pr={pr} existingZipNumbers={existing}/>))}
+      {prs.map((pr) => (<PrRow key={`${pr.repo}-${pr.number}`} pr={pr} existingZipNumbers={existing}/>))}
     </ul>);
 }

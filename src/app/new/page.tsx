@@ -4,7 +4,7 @@ import PageHeader from "@/components/page-header";
 import { getNewProposals } from "@/lib/data";
 export const metadata: Metadata = {
     title: "New Proposals",
-    description: "Brand-new ZIPs and drafts introduced by open pull requests to zcash/zips — additions, not modifications.",
+    description: "Brand-new ZIPs and drafts introduced by open pull requests — additions, not modifications. Watched third-party proposals are badged.",
 };
 export default function NewPage() {
     const proposals = getNewProposals();
@@ -12,9 +12,12 @@ export default function NewPage() {
     const drafts = proposals.filter((p) => p.kind === "draft");
     return (<>
       <PageHeader title="New Proposals" intro={<>
-          Brand-new documents introduced by open PRs — additions to
-          zcash/zips, not modifications · {proposals.length} proposal
+          Brand-new documents introduced by open PRs — additions, not
+          modifications · {proposals.length} proposal
           {proposals.length === 1 ? "" : "s"}
+          {proposals.some((p) => p.pr.source) && (<>
+              {" "}· badged ones come from watched third-party repos
+            </>)}
         </>}/>
 
       <section className="mt-10">

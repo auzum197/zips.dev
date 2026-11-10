@@ -35,6 +35,8 @@ export function makeZip(overrides: Partial<ZipMeta> = {}): ZipMeta {
 
 export function makePr(overrides: Partial<PrMeta> = {}): PrMeta {
     return {
+        repo: "zcash/zips",
+        source: null,
         number: 800,
         title: "ZIP 321: clarify transaction encoding",
         author: "str4d",

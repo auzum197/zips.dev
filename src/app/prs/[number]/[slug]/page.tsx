@@ -16,7 +16,7 @@ export function generateStaticParams() {
         for (const pv of prPreviews(pr)) {
             // Skip pairs whose rendered HTML is missing so a stale snapshot
             // cannot fail the static export.
-            if (getPrPreviewHtml(pr.number, pv.slug) === null)
+            if (getPrPreviewHtml(pr, pv.slug) === null)
                 continue;
             out.push({ number: String(pr.number), slug: pv.slug });
         }
@@ -66,7 +66,7 @@ export default async function PrDocPage({ params, }: {
     const pv = pr ? prPreviews(pr).find((p) => p.slug === slug) : undefined;
     if (!pr || !pv)
         notFound();
-    const html = getPrPreviewHtml(pr.number, pv.slug);
+    const html = getPrPreviewHtml(pr, pv.slug);
     if (!html)
         notFound();
     const meta = getMeta();

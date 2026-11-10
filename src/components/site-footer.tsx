@@ -23,6 +23,8 @@ export default function SiteFooter({ meta }: {
           ·{" "}
           <a className="underline underline-offset-2" href="/api/prs.json"><code className="font-mono text-xs">/api/prs.json</code></a>{" "}
           ·{" "}
+          <a className="underline underline-offset-2" href="/api/external.json"><code className="font-mono text-xs">/api/external.json</code></a>{" "}
+          ·{" "}
           <a className="underline underline-offset-2" href="/api/meta.json"><code className="font-mono text-xs">/api/meta.json</code></a>
         </p>
       </div>

@@ -57,6 +57,10 @@ export interface NewProposal {
     kind: "zip" | "draft";
 }
 export interface PrMeta {
+    /** GitHub repo the PR targets: "zcash/zips" for primary, else the watched source. */
+    repo: string;
+    /** sources.yaml id when this PR is watched externally, else null. */
+    source: string | null;
     number: number;
     title: string;
     author: string | null;
@@ -81,6 +85,19 @@ export interface PrMeta {
     previews: PrPreview[];
     /** First element of `previews`; kept for backward compatibility of the public API. */
     preview: PrPreview | null;
+}
+/** A watched third-party PR group from data/sources.yaml (snapshot copy carries sync-time error). */
+export interface ExternalSource {
+    id: string;
+    repo: string;
+    label: string;
+    note?: string | null;
+    error?: string | null;
+}
+export interface ExternalSnapshot {
+    syncedAt: string;
+    sources: ExternalSource[];
+    prs: PrMeta[];
 }
 export interface Upgrade {
     id: string;

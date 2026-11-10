@@ -18,10 +18,11 @@ vendor/zips (shallow clone)          data/*.yaml (curated)
   pagefind --site out  ──▶  out/pagefind/ (client-side full-text search)
 ```
 
-- **Parsing** — ZIP metadata headers are indentation-based `Key: Value` blocks (2-space indent in `.rst`, 4-space in `.md`, wrapped in a leading `::` literal block for rst). `scripts/sync.mjs` handles both plus multi-line values (`Owners`, `Credits`, `Original-Authors`).
+- **Parsing** — ZIP metadata headers are indentation-based `Key: Value` blocks (2-space indent in `.rst`, 4-space in `.md`, wrapped in a leading `::` literal block for rst). Some third-party repos instead wrap the header in a fenced code block at zero indent — handled too. `scripts/sync.mjs` handles all variants plus multi-line values (`Owners`, `Credits`, `Original-Authors`).
 - **Rendering** — markdown via `remark` + GFM + Shiki (dual light/dark themes); RST via `docutils` (`scripts/rst2fragment.py`, class-based Pygments, section ids moved onto headings for the ToC). rst is the *dominant* format upstream (100 of 125 ZIPs).
 - **PRs** — fetched from the GitHub API at sync time only (never per-visitor), mapped to ZIPs by: explicit `Pull-Request:` header claims (strongest), title/body/branch heuristics, and changed-file paths. Inline diffs are cached where the changed-file set is small. Set `GITHUB_TOKEN` for full coverage (60 req/hr unauthenticated caps file fetching).
-- **Curated layer** — `data/upgrades.yaml`, `data/implementations.yaml`, `data/crossrefs.yaml`. Best-effort seeds; fix via PR.
+- **External sources** — watched third-party PRs are curated per-PR in `data/sources.yaml` (e.g. `tachyon-zcash/zips#5` for the NuTachyon draft ZIPs). Each pinned PR is fetched and rendered through the same pipeline but namespaced under `/external/<id>/<number>/` with explicit provenance; nothing outside the pinned entries is tracked, and they never mix into the canonical ZIP set, the drafts index, or the primary `/prs/` listing.
+- **Curated layer** — `data/upgrades.yaml`, `data/implementations.yaml`, `data/crossrefs.yaml`, `data/sources.yaml`. Best-effort seeds; fix via PR.
 - **Search** — Pagefind indexes only ZIP/draft bodies (`data-pagefind-body`), post-build, fully static.
 
 ## Development
