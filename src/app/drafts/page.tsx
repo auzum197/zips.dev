@@ -37,13 +37,15 @@ export default function DraftsPage() {
             pr: PrMeta;
             pv: PrPreview;
         }) => (<li key={`${pr.repo}-${pr.number}-${pv.slug}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle py-2.5">
-                <Badge variant="secondary" title={`Watched third-party proposal from ${pr.repo}`}>
-                  {sourceLabel(pr.source)}
-                </Badge>
                 <a href={`/external/${pr.source}/${pr.number}/${pv.slug}/`} className="min-w-0 flex-1 basis-64 font-medium text-foreground transition-colors hover:text-accent">
                   {pv.title}
                 </a>
-                <StatusBadge status={pv.status}/>
+                <span className="flex shrink-0 items-baseline gap-x-1.5">
+                  <StatusBadge status={pv.status}/>
+                  <Badge variant="secondary" title={`Watched third-party proposal from ${pr.repo}`}>
+                    {sourceLabel(pr.source)}
+                  </Badge>
+                </span>
                 <span className="shrink-0 whitespace-nowrap font-mono text-[0.8125rem] text-muted-foreground">
                   {pv.slug.replace(/^draft-/, "")}
                 </span>
