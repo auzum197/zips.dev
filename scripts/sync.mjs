@@ -41,6 +41,14 @@ function decodeEntities(s) {
 function stripTags(s) {
     return decodeEntities(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
+const readJsonSafe = (p) => {
+    try {
+        return JSON.parse(fs.readFileSync(p, "utf8"));
+    }
+    catch {
+        return null;
+    }
+};
 /* A ZIP header "Status:" is either a plain status ("Final"), one revision
    ("[Revision 1] Final"), or a list of per-revision statuses
    ("[Revision 0: Canopy, Revision 1: NU6] Final, [Revision 2: NU7] Proposed").
@@ -451,10 +459,31 @@ function preflightRst() {
  *  fail to render; they are then published as error stubs linking upstream. */
 const ALLOW_RENDER_FAILURES = process.env.SYNC_ALLOW_RENDER_FAILURES === "1";
 async function main() {
-    preflightRst();
+    /* Render cache, keyed by input identity: canonical documents by git blob
+     * sha, PR previews by (repo, head sha, file). Warm runs skip the renderer
+     * for everything unchanged — typically all but a handful of files. Bump
+     * RENDER_CACHE_VERSION whenever the render pipeline itself changes. */
+    const RENDER_CACHE_VERSION = 1;
+    const renderCachePath = path.join(CONTENT, "render-cache.json");
+    const prevRenderCache = readJsonSafe(renderCachePath);
+    const prevDocsCache = prevRenderCache?.version === RENDER_CACHE_VERSION ? prevRenderCache.docs ?? {} : {};
+    const prevPreviewCache = prevRenderCache?.version === RENDER_CACHE_VERSION ? prevRenderCache.previews ?? {} : {};
+    const docsCache = {};
+    const previewCache = {};
+    const tree = {};
+    for (const line of git(["ls-tree", "-r", "HEAD", "--", "zips"]).split("\n")) {
+        const entry = line.match(/^[^ ]+ blob ([0-9a-f]{40})\t(.+)$/);
+        if (entry)
+            tree[entry[2]] = entry[1];
+    }
+    const shaFor = (filename) => tree[`zips/${filename}`] ?? git(["hash-object", path.join(ZIPS_DIR, filename)]);
+    // The rst subprocess is only needed for documents that will actually render.
+    if (files.some((f) => /\.rst$/i.test(f) && (prevDocsCache[f]?.sha !== shaFor(f) || !prevDocsCache[f]?.rendered)))
+        preflightRst();
     const zips = [];
     const failures = [];
     const renderedHtml = new Map();
+    let docsCacheHits = 0;
     for (const filename of files) {
         const slug = filename.replace(/\.(md|rst)$/i, "");
         const format = /\.md$/i.test(filename) ? "md" : "rst";
@@ -463,10 +492,28 @@ async function main() {
         const numberMatch = String(hdr?.zip ?? "").match(/^\d+$/);
         const number = numberMatch ? parseInt(String(hdr.zip), 10) : null;
         const { status, revision } = normalizeStatus(hdr?.status, "Unknown");
-        const html0 = await (format === "md" ? renderMd(body) : Promise.resolve(renderRst(body, slug)));
-        const html = html0 === null ? `<p class="render-error">This document could not be rendered (RST conversion failed). <a href="https://github.com/${REPO}/blob/${commit}/zips/${filename}">Read the source on GitHub.</a></p>` : injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
-        if (html0 === null)
-            failures.push(filename);
+        const sha = shaFor(filename);
+        docsCache[filename] = { sha };
+        const htmlPath = path.join(RENDERED, `${slug}.html`);
+        const cached = prevDocsCache[filename];
+        let html;
+        let renderedOk;
+        if (cached && cached.sha === sha && cached.rendered && fs.existsSync(htmlPath)) {
+            html = fs.readFileSync(htmlPath, "utf8");
+            renderedOk = true;
+            docsCacheHits++;
+        }
+        else {
+            const html0 = await (format === "md" ? renderMd(body) : Promise.resolve(renderRst(body, slug)));
+            html = html0 === null ? `<p class="render-error">This document could not be rendered (RST conversion failed). <a href="https://github.com/${REPO}/blob/${commit}/zips/${filename}">Read the source on GitHub.</a></p>` : injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
+            renderedOk = html0 !== null;
+            if (html0 === null)
+                failures.push(filename);
+            // Only re-rendered documents are written back; cache hits keep
+            // the file already on disk.
+            renderedHtml.set(slug, html);
+        }
+        docsCache[filename].rendered = renderedOk;
         const pullRequests = []
             .concat(Array.isArray(hdr?.pull_request) ? hdr.pull_request : hdr?.pull_request ? [hdr.pull_request] : [])
             .map((s) => {
@@ -496,7 +543,7 @@ async function main() {
             upstreamUrl: `${COMMIT_BASE}/blob/${commit}/zips/${filename}`,
             headings: extractHeadings(html),
             wordCount: wordCount(html),
-            rendered: html0 !== null,
+            rendered: renderedOk,
         });
         renderedHtml.set(slug, html);
     }
@@ -507,7 +554,7 @@ async function main() {
             return a.number - b.number;
         return a.slug.localeCompare(b.slug);
     });
-    console.log(`sync: parsed ${zips.length} documents (${zips.filter((z) => z.kind === "zip").length} ZIPs, ${zips.filter((z) => z.kind === "draft").length} drafts), ${failures.length} render failures`);
+    console.log(`sync: parsed ${zips.length} documents (${zips.filter((z) => z.kind === "zip").length} ZIPs, ${zips.filter((z) => z.kind === "draft").length} drafts), ${failures.length} render failures, ${docsCacheHits} reused from render cache`);
     if (failures.length) {
         console.warn(`sync: failed: ${failures.join(", ")}`);
         if (!ALLOW_RENDER_FAILURES)
@@ -569,14 +616,6 @@ async function main() {
     }
     /* ZIP/draft document paths a PR must touch to be worth previewing. */
     const DOC_RE = /^(?:zips\/)?(zip-\d{4}|draft-[a-z0-9-]+)\.(md|rst)$/i;
-    const readJsonSafe = (p) => {
-        try {
-            return JSON.parse(fs.readFileSync(p, "utf8"));
-        }
-        catch {
-            return null;
-        }
-    };
     /* Fetch the primary repo's open PRs and shape them into snapshot entries,
      * mapped to ZIPs/drafts and matched against the Pull-Request header
      * claims. */
@@ -743,6 +782,9 @@ async function main() {
     const docSlug = (filename) => filename.replace(/^.*\//, "").replace(/\.(md|rst)$/i, "");
     let previews = 0;
     let previewPrs = 0;
+    /* Phase 1 — resolve which documents each previewable PR changes, and from
+     * where. Sequential and cheap: a handful of API/patch/git calls per PR. */
+    const previewJobs = [];
     for (const pr of [...prs, ...externalPrs]) {
         // Primary PRs need a ZIP/draft mapping to be worth previewing;
         // external-source PRs are always previewed (curated list, few).
@@ -778,79 +820,123 @@ async function main() {
             if (docFiles.length === 0)
                 continue;
             let pullHeadSha = null;
-            const fetchPullHead = async () => {
-                if (pullHeadSha)
-                    return pullHeadSha;
-                const fr = spawnSync("git", ["-C", VENDOR, "fetch", "--depth", "1", "origin", `pull/${pr.number}/head`], {
-                    encoding: "utf8",
-                });
-                if (fr.status !== 0)
-                    throw new Error(`git fetch failed: ${fr.stderr.slice(0, 80)}`);
-                pullHeadSha = spawnSync("git", ["-C", VENDOR, "rev-parse", "FETCH_HEAD"], { encoding: "utf8" }).stdout.trim();
-                return pullHeadSha;
-            };
-            const rendered = [];
-            for (const docFile of docFiles) {
-                try {
-                    let raw = null;
-                    if (pr.headRepo && headSha) {
-                        const rawRes = await fetch(`https://raw.githubusercontent.com/${pr.headRepo}/${headSha}/${docFile.filename}`, { headers: { "User-Agent": "zips.dev-sync" } });
-                        if (rawRes.ok)
-                            raw = await rawRes.text();
-                    }
-                    if (raw === null) {
-                        // The vendor clone only knows the primary repo; an
-                        // external PR must be fetchable from raw.githubusercontent.com.
-                        if (pr.source)
-                            throw new Error("head content unavailable via raw.githubusercontent.com");
-                        const sha = await fetchPullHead();
-                        const show = spawnSync("git", ["-C", VENDOR, "show", `${sha}:${docFile.filename}`], {
-                            encoding: "utf8",
-                            maxBuffer: 8 * 1024 * 1024,
-                        });
-                        if (show.status !== 0)
-                            throw new Error(`git show failed: ${show.stderr.slice(0, 80)}`);
-                        raw = show.stdout;
-                        headSha = sha;
-                    }
-                    if (!raw)
-                        throw new Error("file content unavailable");
-                    if (raw.length > 1500000)
-                        throw new Error("too large");
-                    const { meta: hdr, body } = parseHeader(raw);
-                    const format = /\.md$/i.test(docFile.filename) ? "md" : "rst";
-                    const slug = docSlug(docFile.filename);
-                    const html0 = format === "md" ? await renderMd(body) : renderRst(body, `pr-${fileKey}-${slug}`);
-                    if (html0 === null)
-                        throw new Error("render failed");
-                    const html = injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
-                    rendered.push({
-                        filename: docFile.filename,
-                        slug,
-                        title: (hdr?.title ?? pr.title).trim(),
-                        status: normalizeStatus(hdr?.status, "Draft").status,
-                        headings: extractHeadings(html),
-                        format,
+            const state = {
+                headSha,
+                // The vendor clone only knows the primary repo; an external PR
+                // must be fetchable from raw.githubusercontent.com instead.
+                getPullHead: async () => {
+                    if (pullHeadSha)
+                        return pullHeadSha;
+                    const fr = spawnSync("git", ["-C", VENDOR, "fetch", "--depth", "1", "origin", `pull/${pr.number}/head`], {
+                        encoding: "utf8",
                     });
-                    fs.writeFileSync(path.join(RENDERED, `pr-${fileKey}-${slug}.html`), html);
-                }
-                catch (e) {
-                    console.warn(`sync: preview failed for PR ${pr.number} ${docFile.filename}: ${String(e.message ?? e).slice(0, 100)}`);
-                }
-            }
-            if (rendered.length === 0)
-                continue;
-            pr.previews = rendered;
-            pr.preview = rendered[0] ?? null;
-            pr.headSha = headSha;
-            previews += rendered.length;
-            previewPrs++;
+                    if (fr.status !== 0)
+                        throw new Error(`git fetch failed: ${fr.stderr.slice(0, 80)}`);
+                    pullHeadSha = spawnSync("git", ["-C", VENDOR, "rev-parse", "FETCH_HEAD"], { encoding: "utf8" }).stdout.trim();
+                    return pullHeadSha;
+                },
+            };
+            for (const docFile of docFiles)
+                previewJobs.push({ idx: previewJobs.length, pr, fileKey, docFile, state });
         }
         catch (e) {
             console.warn(`sync: preview failed for PR ${pr.number}: ${String(e.message ?? e).slice(0, 100)}`);
         }
     }
-    console.log(`sync: rendered ${previews} previews for ${previewPrs} PRs`);
+    /* Phase 2 — fetch and render preview documents in parallel, skipping any
+     * whose (repo, head sha, file) identity already has rendered HTML. */
+    let previewCacheHits = 0;
+    const renderPreviewJob = async (job) => {
+        const { pr, fileKey, docFile, state } = job;
+        const slug = docSlug(docFile.filename);
+        const format = /\.md$/i.test(docFile.filename) ? "md" : "rst";
+        const cacheKey = `${pr.repo}:${state.headSha ?? "nocommit"}:${docFile.filename}`;
+        const htmlPath = path.join(RENDERED, `pr-${fileKey}-${slug}.html`);
+        const cached = prevPreviewCache[cacheKey];
+        if (cached && fs.existsSync(htmlPath)) {
+            const html = fs.readFileSync(htmlPath, "utf8");
+            // Carry the entry forward so the cache keeps only live keys.
+            previewCache[cacheKey] = cached;
+            previewCacheHits++;
+            return {
+                filename: docFile.filename,
+                slug,
+                title: cached.title,
+                status: cached.status,
+                headings: extractHeadings(html),
+                format,
+            };
+        }
+        let raw = null;
+        if (pr.headRepo && state.headSha) {
+            const rawRes = await fetch(`https://raw.githubusercontent.com/${pr.headRepo}/${state.headSha}/${docFile.filename}`, { headers: { "User-Agent": "zips.dev-sync" } });
+            if (rawRes.ok)
+                raw = await rawRes.text();
+        }
+        if (raw === null) {
+            if (pr.source)
+                throw new Error("head content unavailable via raw.githubusercontent.com");
+            const sha = await state.getPullHead();
+            const show = spawnSync("git", ["-C", VENDOR, "show", `${sha}:${docFile.filename}`], {
+                encoding: "utf8",
+                maxBuffer: 8 * 1024 * 1024,
+            });
+            if (show.status !== 0)
+                throw new Error(`git show failed: ${show.stderr.slice(0, 80)}`);
+            raw = show.stdout;
+            state.headSha = sha;
+        }
+        if (!raw)
+            throw new Error("file content unavailable");
+        if (raw.length > 1500000)
+            throw new Error("too large");
+        const { meta: hdr, body } = parseHeader(raw);
+        const html0 = format === "md" ? await renderMd(body) : renderRst(body, `pr-${fileKey}-${slug}`);
+        if (html0 === null)
+            throw new Error("render failed");
+        const html = injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
+        const entry = {
+            filename: docFile.filename,
+            slug,
+            title: (hdr?.title ?? pr.title).trim(),
+            status: normalizeStatus(hdr?.status, "Draft").status,
+            headings: extractHeadings(html),
+            format,
+        };
+        fs.writeFileSync(htmlPath, html);
+        previewCache[cacheKey] = { title: entry.title, status: entry.status };
+        return entry;
+    };
+    const results = new Array(previewJobs.length);
+    let nextJob = 0;
+    const CONCURRENCY = 8;
+    const renderWorker = async () => {
+        while (nextJob < previewJobs.length) {
+            const job = previewJobs[nextJob++];
+            results[job.idx] = await renderPreviewJob(job).catch((e) => {
+                console.warn(`sync: preview failed for PR ${job.pr.number} ${job.docFile.filename}: ${String(e.message ?? e).slice(0, 100)}`);
+                return null;
+            });
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, previewJobs.length) }, renderWorker));
+    const byPr = new Map();
+    for (const job of previewJobs) {
+        const entry = results[job.idx];
+        if (!entry)
+            continue;
+        const acc = byPr.get(job.pr) ?? { rendered: [], state: job.state };
+        acc.rendered.push(entry);
+        byPr.set(job.pr, acc);
+    }
+    for (const [pr, { rendered, state }] of byPr) {
+        pr.previews = rendered;
+        pr.preview = rendered[0] ?? null;
+        pr.headSha = state.headSha;
+        previews += rendered.length;
+        previewPrs++;
+    }
+    console.log(`sync: rendered ${previews} previews for ${previewPrs} PRs (${previewCacheHits} reused, ${previewJobs.length - previewCacheHits} rendered, concurrency ${Math.min(CONCURRENCY, previewJobs.length)})`);
     // Retire the single-document pr-<number>.html outputs. Skipped when the PR
     // snapshot was reused from cache, so a stale snapshot keeps readable files.
     if (!prError) {
@@ -873,6 +959,7 @@ async function main() {
     fs.writeFileSync(path.join(CONTENT, "meta.json"), JSON.stringify(meta, null, 2));
     fs.writeFileSync(path.join(CONTENT, "prs.json"), JSON.stringify({ ...meta, error: prError, prs }));
     fs.writeFileSync(path.join(CONTENT, "external.json"), JSON.stringify(externalDoc));
+    fs.writeFileSync(renderCachePath, JSON.stringify({ version: RENDER_CACHE_VERSION, docs: docsCache, previews: previewCache }));
     fs.writeFileSync(path.join(PUBLIC_API, "zips.json"), JSON.stringify({ ...meta, zips: zips.map(publicZip) }));
     for (const z of zips) {
         if (z.number === null)

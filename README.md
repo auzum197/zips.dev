@@ -23,6 +23,7 @@ vendor/zips (shallow clone)          data/*.yaml (curated)
 - **PRs** — fetched from the GitHub API at sync time only (never per-visitor), mapped to ZIPs by: explicit `Pull-Request:` header claims (strongest), title/body/branch heuristics, and changed-file paths. Inline diffs are cached where the changed-file set is small. Set `GITHUB_TOKEN` for full coverage (60 req/hr unauthenticated caps file fetching).
 - **External sources** — watched third-party PRs are curated per-PR in `data/sources.yaml` (e.g. `tachyon-zcash/zips#5` for the NuTachyon draft ZIPs). Each pinned PR is fetched and rendered through the same pipeline but namespaced under `/external/<id>/<number>/` with explicit provenance; nothing outside the pinned entries is tracked, and they never mix into the canonical ZIP set, the drafts index, or the primary `/prs/` listing.
 - **Curated layer** — `data/upgrades.yaml`, `data/implementations.yaml`, `data/crossrefs.yaml`, `data/sources.yaml`. Best-effort seeds; fix via PR.
+- **Render cache** — `content/render-cache.json` keys rendered HTML by input identity (git blob sha for canonical docs; repo + head sha + file for PR previews), so a warm sync re-renders only what actually changed. Bump `RENDER_CACHE_VERSION` in `scripts/sync.mjs` when changing the render pipeline.
 - **Search** — Pagefind indexes only ZIP/draft bodies (`data-pagefind-body`), post-build, fully static.
 
 ## Development
