@@ -1,11 +1,14 @@
+import { ogMetadata } from "@/lib/og";
 import type { Metadata } from "next";
 import ProposalList from "@/components/proposal-list";
 import PageHeader from "@/components/page-header";
 import { getNewProposals } from "@/lib/data";
-export const metadata: Metadata = {
+export const metadata: Metadata = ogMetadata({
     title: "New Proposals",
     description: "Brand-new ZIPs and drafts introduced by open pull requests — additions, not modifications. Watched third-party proposals are badged.",
-};
+    path: "/new/",
+    card: "new",
+});
 export default function NewPage() {
     const proposals = getNewProposals();
     const zips = proposals.filter((p) => p.kind === "zip");

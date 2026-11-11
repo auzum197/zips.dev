@@ -1,13 +1,16 @@
+import { ogMetadata } from "@/lib/og";
 import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import PrList from "@/components/pr-list";
 import { getExternalPrs, getExternalSources } from "@/lib/data";
 import type { PrMeta } from "@/lib/types";
-export const metadata: Metadata = {
+export const metadata: Metadata = ogMetadata({
     title: "External Drafts",
     description: "Watched third-party proposal repositories, rendered in their own namespace with explicit provenance.",
-};
+    path: "/external/",
+    card: "external",
+});
 function byUpdatedDesc(a: PrMeta, b: PrMeta): number {
     return b.updatedAt.localeCompare(a.updatedAt);
 }

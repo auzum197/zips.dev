@@ -529,6 +529,7 @@ async function main() {
             filename,
             format,
             title: (hdr?.title ?? slug).trim(),
+            abstract: (hdr?.abstract ?? "").replace(/\s+/g, " ").trim(),
             status,
             revision,
             owners: parseAuthors(hdr?.owners),

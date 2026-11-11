@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Link previews · zipreader</title>
+    <!-- a local check of the link previews, not part of the site. Run
+         pnpm og:preview. It reads each route's head the way a crawler does,
+         checks the tags against src/lib/og.ts, and lays the cards out as the
+         main platforms do. Images load from this server instead of the
+         public origin. -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0e0e0e;
+        --text: #e7e7e7;
+        --text-2: #d0d0d0;
+        --text-3: #bdbdbd;
+        --text-4: #8a8a8a;
+        --well: rgba(255, 255, 255, 0.06);
+        --card: rgba(255, 255, 255, 0.045);
+        --line: rgba(255, 255, 255, 0.1);
+        --accent: #86d5ff;
+        --mono: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-padding-top: 4.5rem;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 15px/1.5 system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .label {
+        font: 500 0.72rem/1.3 var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-4);
+      }
+
+      /* the bar: title, totals, and a link to each section */
+      .top {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: rgba(14, 14, 14, 0.82);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .top div,
+      main {
+        max-width: 78rem;
+        margin: 0 auto;
+        padding: 0 1.5rem;
+      }
+
+      .top div {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        height: 3.5rem;
+      }
+
+      .top h1 {
+        margin: 0;
+        font-size: 1rem;
+        letter-spacing: -0.01em;
+      }
+
+      .top nav {
+        display: flex;
+        gap: 1.1rem;
+        margin-left: auto;
+      }
+
+      .top nav a {
+        text-decoration: none;
+      }
+
+      .top nav a:hover {
+        color: var(--text);
+      }
+
+      .total {
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+        background: var(--well);
+        font: 500 0.78rem/1 var(--mono);
+      }
+
+      .total.bad {
+        background: var(--text);
+        color: var(--bg);
+      }
+
+      section {
+        padding: 3rem 0 0;
+      }
+
+      h2 {
+        margin: 0 0 0.3rem;
+        font-size: 1.3rem;
+        letter-spacing: -0.02em;
+      }
+
+      /* images: one card per route */
+      .images {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
+        gap: 1.25rem;
+      }
+
+      .images figure {
+        margin: 0;
+      }
+
+      .images figcaption {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .images img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1200 / 630;
+        border-radius: 12px;
+        box-shadow: 0 0 0 1px var(--line);
+      }
+
+      .absent {
+        aspect-ratio: 1200 / 630;
+        display: flex;
+        align-items: center;
+        padding: 1.5rem;
+        border: 1px dashed var(--line);
+        border-radius: 12px;
+        color: var(--text-4);
+        font: 400 0.85rem/1.5 var(--mono);
+      }
+
+      /* checks: one row per check, one column per route */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font: 400 0.82rem/1.4 var(--mono);
+      }
+
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.45rem 0.75rem;
+      }
+
+      .checks thead th {
+        position: sticky;
+        top: 3.5rem;
+        background: var(--bg);
+        border-bottom: 1px solid var(--line);
+      }
+
+      /* many routes: the table scrolls sideways, the check names stay put */
+      .table-scroll {
+        overflow-x: auto;
+        margin-top: 0.5rem;
+      }
+
+      .checks thead th:first-child,
+      .checks tbody th {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        background: var(--bg);
+      }
+
+      .checks tbody th {
+        font-weight: 400;
+        color: var(--text-2);
+        width: 18rem;
+      }
+
+      .checks tr.group th {
+        padding-top: 1.2rem;
+      }
+
+      .checks td {
+        white-space: nowrap;
+      }
+
+      .ok::before {
+        content: "✓ ";
+      }
+
+      td .ok {
+        display: inline-block;
+        width: 1.4rem;
+      }
+
+      .no {
+        background: var(--text);
+        color: var(--bg);
+        border-radius: 4px;
+        padding: 0 0.3rem;
+      }
+
+      .no::before {
+        content: "✕ ";
+      }
+
+      .value {
+        color: var(--text-4);
+      }
+
+      /* platforms: one route at a time, every platform for it */
+      .switch {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        padding: 3px;
+        margin-bottom: 1.5rem;
+        border-radius: 999px;
+        background: var(--well);
+      }
+
+      .switch button {
+        appearance: none;
+        border: 0;
+        border-radius: 999px;
+        padding: 0.35rem 0.95rem;
+        background: none;
+        color: var(--text-3);
+        font: 500 0.88rem/1.2 system-ui, sans-serif;
+        cursor: pointer;
+      }
+
+      .switch button[aria-pressed="true"] {
+        background: rgba(255, 255, 255, 0.16);
+        color: var(--text);
+      }
+
+      .platforms {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+        gap: 2rem 1.5rem;
+        align-items: start;
+      }
+
+      .platforms figure {
+        margin: 0;
+      }
+
+      .platforms figcaption {
+        margin-bottom: 0.6rem;
+      }
+
+      .platforms img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1200 / 630;
+        object-fit: cover;
+      }
+
+      .clamp {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+      }
+
+      .x {
+        position: relative;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+      }
+
+      .x span {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.77);
+        font-size: 13px;
+      }
+
+      .unfurl {
+        border-left: 4px solid var(--accent);
+        padding: 0.2rem 0 0.2rem 0.8rem;
+      }
+
+      .unfurl.discord {
+        border-radius: 4px;
+        background: var(--card);
+        padding: 0.8rem 1rem 1rem;
+      }
+
+      .unfurl .site {
+        font-size: 12px;
+        color: var(--text-4);
+      }
+
+      .unfurl .title {
+        margin: 0.15rem 0;
+        font-weight: 650;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
+      .unfurl .desc {
+        margin: 0 0 0.6rem;
+        color: var(--text-3);
+        font-size: 14px;
+      }
+
+      .unfurl img {
+        border-radius: 6px;
+      }
+
+      .stacked {
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--card);
+        border: 1px solid var(--line);
+      }
+
+      .stacked div {
+        padding: 0.7rem 0.9rem 0.8rem;
+      }
+
+      .stacked .domain {
+        font-size: 12px;
+        color: var(--text-4);
+      }
+
+      .stacked.imessage {
+        border-radius: 18px;
+      }
+
+      .stacked b {
+        display: block;
+        font-weight: 650;
+      }
+
+      /* tags: one folded table per route */
+      details {
+        border-top: 1px solid var(--line);
+      }
+
+      details:last-child {
+        border-bottom: 1px solid var(--line);
+      }
+
+      summary {
+        display: flex;
+        gap: 1rem;
+        align-items: baseline;
+        padding: 0.8rem 0;
+        cursor: pointer;
+      }
+
+      summary b {
+        font-weight: 600;
+      }
+
+      .tags th {
+        width: 15rem;
+        color: var(--text-3);
+        font-weight: 500;
+      }
+
+      .tags td {
+        overflow-wrap: anywhere;
+      }
+
+      .tags tr + tr > * {
+        border-top: 1px solid var(--line);
+      }
+
+      footer {
+        height: 4rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <h1>Link previews</h1>
+        <span class="total" id="total">Checking…</span>
+        <nav>
+          <a class="label" href="#images">Images</a>
+          <a class="label" href="#checks">Checks</a>
+          <a class="label" href="#platforms">Platforms</a>
+          <a class="label" href="#tags">Tags</a>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section id="images">
+        <h2>Images</h2>
+        <div class="images" id="image-grid"></div>
+      </section>
+
+      <section id="checks">
+        <h2>Checks</h2>
+        <div class="table-scroll">
+          <table class="checks" id="check-table"></table>
+        </div>
+      </section>
+
+      <section id="platforms">
+        <h2>Platforms</h2>
+        <div class="switch" id="switch" role="group" aria-label="Route"></div>
+        <div class="platforms" id="platform-grid"></div>
+      </section>
+
+      <section id="tags">
+        <h2>Tags</h2>
+        <div id="tag-list"></div>
+      </section>
+      <footer></footer>
+    </main>
+    <script type="module">
+      // sample routes: every section plus real examples of each dynamic page
+      // shape, derived from the synced /api data the same way the build is.
+      // The longest-titled zip and draft are picked on purpose: they
+      // stress-test the og:title length check.
+      const ORIGIN = "https://zipreader.org";
+      const STATIC_ROUTES = [
+        "/",
+        "/prs/",
+        "/drafts/",
+        "/upgrades/",
+        "/external/",
+        "/matrix/",
+        "/new/",
+        "/search/",
+      ];
+
+      async function sampleRoutes() {
+        const get = (p) => fetch(p).then((r) => r.json()).catch(() => null);
+        const [zipsDoc, prsDoc, extDoc, upgDoc] = await Promise.all([
+          get("/api/zips.json"),
+          get("/api/prs.json"),
+          get("/api/external.json"),
+          get("/api/upgrades.json"),
+        ]);
+        const routes = [...STATIC_ROUTES];
+        const zips = zipsDoc?.zips ?? [];
+        const numbered = zips.filter((z) => z.kind === "zip" && z.number !== null);
+        if (numbered.length) {
+          routes.push(`/zip/${numbered[0].number}/`);
+          const md = numbered.find((z) => z.format === "md");
+          if (md) routes.push(`/zip/${md.number}/`);
+          const longest = [...numbered].sort((a, b) => b.title.length - a.title.length)[0];
+          routes.push(`/zip/${longest.number}/`);
+        }
+        for (const pr of (prsDoc?.prs ?? []).slice(-2)) routes.push(`/prs/${pr.number}/`);
+        const drafts = zips.filter((z) => z.kind === "draft");
+        if (drafts.length) {
+          routes.push(`/drafts/${drafts[0].slug}/`);
+          const longest = [...drafts].sort((a, b) => b.title.length - a.title.length)[0];
+          if (longest.slug !== drafts[0].slug) routes.push(`/drafts/${longest.slug}/`);
+        }
+        const upgrades = upgDoc?.upgrades ?? (Array.isArray(upgDoc) ? upgDoc : []);
+        if (upgrades.length) {
+          routes.push(`/upgrades/${upgrades[0].id}/`);
+          routes.push(`/upgrades/${upgrades[upgrades.length - 1].id}/`);
+        }
+        const source = extDoc?.sources?.[0];
+        if (source) {
+          routes.push(`/external/${source.id}/`);
+          const extPr = (extDoc?.prs ?? []).find((p) => p.source === source.id);
+          if (extPr) routes.push(`/external/${source.id}/${extPr.number}/`);
+        }
+        return [...new Set(routes)];
+      }
+
+      const ROUTES = await sampleRoutes();
+
+      const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+      const local = (url) => (url ? `${location.origin}${new URL(url).pathname}` : "");
+      const trim = (url) => String(url ?? "").replace(/\/+$/, "") || "/";
+      const size = (src) =>
+        new Promise((done) => {
+          const img = new Image();
+          img.onload = () => done([img.naturalWidth, img.naturalHeight]);
+          img.onerror = () => done(null);
+          img.src = src;
+        });
+
+      // [group, label, test]. A test returns [passed, value to show].
+      const set = (k) => (r) => [Boolean(r.tags[k]), ""];
+      const CHECKS = [
+        ["Page", "<title>", (r) => [Boolean(r.tags["<title>"]), r.tags["<title>"]?.length + " chars"]],
+        ["Page", "description", (r) => [(r.tags.description ?? "").length > 0 && r.tags.description.length <= 160, (r.tags.description ?? "").length + " / 160"]],
+        ["Page", "canonical matches the route", (r) => [!r.tags.canonical || trim(r.tags.canonical) === trim(r.tags["og:url"]), ""]],
+        ["Open Graph", "og:title", (r) => [(r.tags["og:title"] ?? "").length > 0 && r.tags["og:title"].length <= 70, (r.tags["og:title"] ?? "").length + " / 70"]],
+        ["Open Graph", "og:description", (r) => [(r.tags["og:description"] ?? "").length > 0 && r.tags["og:description"].length <= 200, (r.tags["og:description"] ?? "").length + " / 200"]],
+        ["Open Graph", "og:url is this route", (r) => [trim(r.tags["og:url"]) === trim(`${ORIGIN}${r.path}`), ""]],
+        ["Open Graph", "og:type", set("og:type")],
+        ["Open Graph", "og:site_name", set("og:site_name")],
+        ["Image", "og:image is absolute https", (r) => [/^https:\/\//.test(r.tags["og:image"] ?? ""), ""]],
+        ["Image", "image loads", (r) => [r.dims !== null, ""]],
+        ["Image", "image is 1200×630", (r) => [r.dims?.[0] === 1200 && r.dims?.[1] === 630, r.dims ? r.dims.join("×") : "none"]],
+        ["Image", "width and height tags match", (r) => [r.dims !== null && +r.tags["og:image:width"] === r.dims[0] && +r.tags["og:image:height"] === r.dims[1], ""]],
+        ["Image", "og:image:alt", set("og:image:alt")],
+        ["X", "twitter:card is summary_large_image", (r) => [r.tags["twitter:card"] === "summary_large_image", ""]],
+        ["X", "twitter:title", set("twitter:title")],
+        ["X", "twitter:description", set("twitter:description")],
+        ["X", "twitter:image is og:image", (r) => [Boolean(r.tags["twitter:image"]) && trim(r.tags["twitter:image"]) === trim(r.tags["og:image"]), ""]],
+      ];
+
+      async function read(path) {
+        const res = await fetch(path, { headers: { accept: "text/html" } });
+        const html = await res.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const tags = {};
+        for (const el of doc.querySelectorAll("meta[property], meta[name]")) {
+          tags[el.getAttribute("property") ?? el.getAttribute("name")] = el.getAttribute("content");
+        }
+        tags["<title>"] = doc.title;
+        tags.canonical = doc.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? "";
+        const image = local(tags["og:image"]);
+        // a real page always answers 200 with og:title; a 404/500 shell here
+        // means the route isn't in this checkout (usually /api data newer
+        // than content/ — run pnpm sync)
+        const r = { path, tags, image, missing: res.status >= 400 || !tags["og:title"], host: tags["og:url"] ? new URL(tags["og:url"]).host : "", dims: image ? await size(image) : null };
+        r.results = CHECKS.map(([, , test]) => test(r));
+        r.passed = !r.missing && r.results.every(([ok]) => ok);
+        return r;
+      }
+
+      const routes = await Promise.all(ROUTES.map(read));
+      const checked = routes.filter((r) => !r.missing);
+      const missing = routes.filter((r) => r.missing);
+      // bust browser image cache when the drawn cards change
+      const ver = await fetch("/og/version.txt")
+          .then((r) => r.text())
+          .then((t) => t.trim())
+          .catch(() => "0");
+      const imgSrc = (r) => `${r.image}?v=${ver}`;
+      const failed = checked.reduce((n, r) => n + r.results.filter(([ok]) => !ok).length, 0);
+      const all = checked.length * CHECKS.length;
+      const total = document.getElementById("total");
+      total.textContent = failed ? `${failed} of ${all} checks fail` : `${all} of ${all} checks pass`;
+      total.classList.toggle("bad", failed > 0);
+
+      const verdict = (ok, word = true) => `<span class="${ok ? "ok" : "no"}">${word ? (ok ? "pass" : "fail") : ""}</span>`;
+
+      document.getElementById("image-grid").innerHTML =
+        checked
+          .map(
+            (r) => `
+          <figure>
+            <figcaption><span class="label">${esc(r.path)}</span><span class="label">${verdict(r.passed)}</span></figcaption>
+            <img src="${imgSrc(r)}" alt="${esc(r.tags["og:image:alt"])}" />
+          </figure>`,
+          )
+          .join("") +
+        missing
+          .map(
+            (r) => `
+          <figure>
+            <figcaption><span class="label">${esc(r.path)}</span><span class="label">not in this checkout</span></figcaption>
+            <div class="absent">404 — the route 404s here, usually because the /api data is newer than the checkout. Run pnpm sync.</div>
+          </figure>`,
+          )
+          .join("");
+
+      let group = "";
+      document.getElementById("check-table").innerHTML = `
+        <thead><tr><th class="label">Check</th>${checked.map((r) => `<th class="label">${esc(r.path)}</th>`).join("")}</tr></thead>
+        <tbody>${CHECKS.map(([g, label], i) => {
+          const head = g === group ? "" : `<tr class="group"><th class="label" colspan="${checked.length + 1}">${esc(g)}</th></tr>`;
+          group = g;
+          return `${head}<tr><th>${esc(label)}</th>${checked
+            .map((r) => {
+              const [ok, value] = r.results[i];
+              return `<td>${verdict(ok, !ok)}${value ? ` <span class="value">${esc(value)}</span>` : ""}</td>`;
+            })
+            .join("")}</tr>`;
+        }).join("")}</tbody>`;
+
+      const platforms = (r) => {
+        const t = (k) => esc(r.tags[k]);
+        return `
+          <figure>
+            <figcaption class="label">X</figcaption>
+            <div class="x"><img src="${imgSrc(r)}" alt="" /><span>${esc(r.host)}</span></div>
+          </figure>
+          <figure>
+            <figcaption class="label">Slack</figcaption>
+            <div class="unfurl">
+              <div class="site"><b>${t("og:site_name")}</b></div>
+              <p class="title">${t("og:title")}</p>
+              <p class="desc">${t("og:description")}</p>
+              <img src="${imgSrc(r)}" alt="" />
+            </div>
+          </figure>
+          <figure>
+            <figcaption class="label">Discord</figcaption>
+            <div class="unfurl discord">
+              <div class="site">${t("og:site_name")}</div>
+              <p class="title">${t("og:title")}</p>
+              <p class="desc">${t("og:description")}</p>
+              <img src="${imgSrc(r)}" alt="" />
+            </div>
+          </figure>
+          <figure>
+            <figcaption class="label">LinkedIn and Facebook</figcaption>
+            <div class="stacked">
+              <img src="${imgSrc(r)}" alt="" />
+              <div><span class="domain">${esc(r.host.toUpperCase())}</span><b class="clamp">${t("og:title")}</b></div>
+            </div>
+          </figure>
+          <figure>
+            <figcaption class="label">iMessage</figcaption>
+            <div class="stacked imessage">
+              <img src="${imgSrc(r)}" alt="" />
+              <div><b class="clamp">${t("og:title")}</b><span class="domain">${esc(r.host)}</span></div>
+            </div>
+          </figure>`;
+      };
+
+      const switcher = document.getElementById("switch");
+      const grid = document.getElementById("platform-grid");
+      const show = (i) => {
+        grid.innerHTML = platforms(checked[i]);
+        for (const [j, b] of [...switcher.children].entries()) b.setAttribute("aria-pressed", String(i === j));
+      };
+      switcher.innerHTML = checked.map((r) => `<button type="button">${esc(r.path)}</button>`).join("");
+      [...switcher.children].forEach((b, i) => b.addEventListener("click", () => show(i)));
+      if (checked.length) show(0);
+
+      document.getElementById("tag-list").innerHTML = checked
+        .map(
+          (r) => `
+          <details>
+            <summary><b>${esc(r.path)}</b><span class="label">${Object.keys(r.tags).length} tags · ${verdict(r.passed)}</span></summary>
+            <table class="tags">${Object.entries(r.tags)
+              .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`)
+              .join("")}</table>
+          </details>`,
+        )
+        .join("");
+    </script>
+  </body>
+</html>

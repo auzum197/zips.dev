@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogMetadata } from "@/lib/og";
 import { notFound } from "next/navigation";
 import { getCrossrefs, getDrafts, getMeta, getZipBySlug, getZipHtml, prsForDraft, } from "@/lib/data";
 import { statusGroup } from "@/lib/types";
@@ -22,7 +23,7 @@ export async function generateMetadata({ params, }: {
     const zip = getZipBySlug(slug);
     if (!zip || zip.kind !== "draft")
         return {};
-    return { title: zip.title };
+    return ogMetadata({ title: zip.title, path: `/drafts/${slug}/`, card: zip.slug });
 }
 const badgesRow = "inline-flex flex-wrap items-center gap-1.5 [&>span]:whitespace-normal";
 export default async function Page({ params, }: {

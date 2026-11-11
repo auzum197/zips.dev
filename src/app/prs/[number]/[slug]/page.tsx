@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogMetadata } from "@/lib/og";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getMeta, getPrByNumber, getPrPreviewHtml, getPrs, getZipByNumber, getZipBySlug, prPreviews, } from "@/lib/data";
@@ -34,7 +35,7 @@ export async function generateMetadata({ params, }: {
     const pv = pr ? prPreviews(pr).find((p) => p.slug === slug) : undefined;
     if (!pr || !pv)
         return {};
-    return { title: `PR ${pr.number}: ${pv.title}` };
+    return ogMetadata({ title: `PR ${pr.number}: ${pv.title}`, path: `/prs/${number}/${slug}/`, card: `pr-${number}` });
 }
 function docBase(slug: string): {
     href: string;
