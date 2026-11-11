@@ -26,7 +26,7 @@ const opener = platform() === "darwin" ? "open" : "xdg-open";
 spawn(opener, [url], { stdio: "ignore" }).unref();
 console.log(`link previews: ${url}`);
 
-for (const sig of ["SIGINT", "SIGTERM"]) {
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.on(sig, () => {
         dev.kill(sig);
         process.exit(0);

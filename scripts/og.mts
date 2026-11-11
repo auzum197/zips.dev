@@ -4,9 +4,10 @@
 //
 // Pure node: satori draws the card, resvg rasterizes it. Runs at deploy time
 // as part of `pnpm build`; nothing lands in git.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
 
@@ -17,9 +18,14 @@ mkdirSync(ogDir, { recursive: true });
 const W = 1200;
 const H = 630;
 
-const fontFile = (pkg, weight) =>
+const fontFile = (pkg: string, weight: number): Buffer =>
     readFileSync(join(root, "node_modules", "@fontsource", pkg, "files", `${pkg}-latin-${weight}-normal.woff`));
-const fonts = [
+const fonts: Array<{
+    name: string;
+    data: Buffer;
+    weight: 400 | 500 | 600;
+    style: "normal";
+}> = [
     { name: "Plex Sans", data: fontFile("ibm-plex-sans", 400), weight: 400, style: "normal" },
     { name: "Plex Sans", data: fontFile("ibm-plex-sans", 600), weight: 600, style: "normal" },
     { name: "Plex Mono", data: fontFile("ibm-plex-mono", 500), weight: 500, style: "normal" },
@@ -27,15 +33,26 @@ const fonts = [
 ];
 
 // satori takes an element tree, not HTML
-const el = (type, style, children) => ({ type, props: { style, children } });
+const el = (type: string, style: CSSProperties, children?: ReactNode): ReactElement => ({
+    type,
+    props: { style, children },
+    key: null,
+});
 
 // paper tooth: feTurbulence rasterized once, shared by every card
 const grainSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncR type="linear" slope="1.9" intercept="-0.45"/><feFuncG type="linear" slope="1.9" intercept="-0.45"/><feFuncB type="linear" slope="1.9" intercept="-0.45"/></feComponentTransfer></filter><rect width="${W}" height="${H}" filter="url(#n)"/></svg>`;
 const grain = `url(data:image/png;base64,${Buffer.from(new Resvg(grainSvg).render().asPng()).toString("base64")})`;
 
-const layer = (backgroundImage) => el("div", { position: "absolute", top: 0, left: 0, width: W, height: H, backgroundImage });
+const layer = (backgroundImage: string): ReactElement =>
+    el("div", { position: "absolute", top: 0, left: 0, width: W, height: H, backgroundImage });
 
-const card = ({ tag, title, line }) =>
+interface CardCopy {
+    tag: string;
+    title: string;
+    line: string;
+}
+
+const card = ({ tag, title, line }: CardCopy): ReactElement =>
     el("div", { width: W, height: H, display: "flex", flexDirection: "column", padding: "64px 72px", backgroundColor: "#f6f8fa", overflow: "hidden" }, [
         // a glass sheet on a lit desk: specular band sweeping diagonally, key
         // light upper left, brand bounce lower right, shade at the bottom edge
@@ -59,7 +76,7 @@ const card = ({ tag, title, line }) =>
 // card copy hygiene: collapse whitespace, turn dash separators into commas,
 // strip markdown artifacts (links, headings, emphasis, LaTeX escapes).
 // Upstream prose arrives messy.
-const clean = (s) => (s ?? "")
+const clean = (s: string): string => (s ?? "")
     .replace(/\s+/g, " ")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/(^|\s)#{1,6}\s+/g, "$1")
@@ -71,25 +88,36 @@ const clean = (s) => (s ?? "")
 
 // one fixed headline size means long titles cut off at the same point on
 // every card; cutting at a word boundary reads better than a mid-word clamp
-const fit = (text, max = 40) => {
+const fit = (text: string, max = 40): string => {
     if (!text || text.length <= max + 4) return text;
     const cut = text.slice(0, max);
     return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 20)).trimEnd()}…`;
 };
 
-const readJson = (rel) => JSON.parse(readFileSync(join(root, rel), "utf8"));
-const { zips = [] } = readJson("public/api/zips.json");
-const prs = readJson("public/api/prs.json");
-const upgrades = readJson("public/api/upgrades.json").upgrades ?? [];
-const external = readJson("public/api/external.json");
+const readJson = <T,>(rel: string): T => JSON.parse(readFileSync(join(root, rel), "utf8")) as T;
+
+interface ZipEntry {
+    slug: string;
+    number: number | null;
+    displayNumber: string;
+    kind: "zip" | "draft";
+    title: string;
+    abstract: string;
+    category: string;
+    status: string;
+}
+const { zips = [] } = readJson<{ zips?: ZipEntry[] }>("public/api/zips.json");
+const prs = readJson<{ prs?: Array<{ number: number; title: string; author: string | null; bodyExcerpt: string }> | null }>("public/api/prs.json");
+const upgrades = readJson<{ upgrades?: Array<{ id: string; name: string; summary?: string }> }>("public/api/upgrades.json").upgrades ?? [];
+const external = readJson<{ sources?: Array<{ id: string; label: string; note?: string | null }> }>("public/api/external.json");
 
 // until the next sync lands abstracts in zips.json, the rendered documents
 // carry them: first paragraph after the Abstract heading
-const renderedAbstract = (slug) => {
+const renderedAbstract = (slug: string): string => {
     try {
         const html = readFileSync(join(root, "content", "rendered", `${slug}.html`), "utf8");
         const heading = /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/g;
-        let m;
+        let m: RegExpExecArray | null;
         let from = -1;
         while ((m = heading.exec(html))) {
             const text = m[1].replace(/<[^>]+>/g, "").replace(/#/g, "").trim();
@@ -112,14 +140,17 @@ const renderedAbstract = (slug) => {
     }
 };
 
-const sectionCards = JSON.parse(readFileSync(join(root, "scripts", "og-cards.json"), "utf8")).map((c) => ({
+const sectionCards = readJson<Array<{ slug: string; headline: string; line: string }>>(join("scripts", "og-cards.json")).map((c) => ({
     name: c.slug,
     tag: "",
     title: c.headline,
     line: c.line,
 }));
 
-const cards = [
+interface NamedCard extends CardCopy {
+    name: string;
+}
+const cards: NamedCard[] = [
     ...sectionCards,
     ...zips
         .filter((z) => z.number !== null && z.kind === "zip")

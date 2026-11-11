@@ -16,6 +16,21 @@ import temml from "temml";
 import { fromHtml } from "hast-util-from-html";
 import { visit } from "unist-util-visit";
 import yaml from "js-yaml";
+import type { ElementContent, Root as HastRoot } from "hast";
+import type {
+    Paragraph,
+    PhrasingContent,
+    Root as MdastRoot,
+    RootContent as MdastContent,
+} from "mdast";
+import type { Transformer } from "unified";
+
+/** Metadata header values: a scalar or a repeated key collected into a list. */
+type MetaValue = string | string[];
+type Meta = Record<string, MetaValue>;
+
+const errMessage = (e: unknown): string => String((e as { message?: unknown }).message ?? e);
+
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const VENDOR = path.join(ROOT, "vendor", "zips");
 const ZIPS_DIR = path.join(VENDOR, "zips");
@@ -28,8 +43,8 @@ const COMMIT_BASE = `https://github.com/${REPO}`;
 for (const d of [CONTENT, RENDERED, PUBLIC_API, path.join(PUBLIC_API, "zips"), UPSTREAM_ASSETS]) {
     fs.mkdirSync(d, { recursive: true });
 }
-const git = (args) => spawnSync("git", ["-C", VENDOR, ...args], { encoding: "utf8" }).stdout.trim();
-function decodeEntities(s) {
+const git = (args: string[]): string => spawnSync("git", ["-C", VENDOR, ...args], { encoding: "utf8" }).stdout.trim();
+function decodeEntities(s: string): string {
     return s
         .replace(/&amp;/g, "&")
         .replace(/&lt;/g, "<")
@@ -38,12 +53,12 @@ function decodeEntities(s) {
         .replace(/&#39;/g, "'")
         .replace(/&nbsp;/g, " ");
 }
-function stripTags(s) {
+function stripTags(s: string): string {
     return decodeEntities(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
-const readJsonSafe = (p) => {
+const readJsonSafe = <T,>(p: string): T | null => {
     try {
-        return JSON.parse(fs.readFileSync(p, "utf8"));
+        return JSON.parse(fs.readFileSync(p, "utf8")) as T;
     }
     catch {
         return null;
@@ -55,7 +70,7 @@ const readJsonSafe = (p) => {
    Unwrap only the one-revision form. Keep a list verbatim, so the site can
    show one badge per entry (src/lib/zip-status.ts). `revision` is the highest
    revision the header names, or null if it names none. */
-function normalizeStatus(raw, fallback) {
+function normalizeStatus(raw: MetaValue | undefined, fallback: string): { status: string; revision: number | null } {
     const text = String(raw ?? "").trim();
     if (!text)
         return { status: fallback, revision: null };
@@ -64,7 +79,7 @@ function normalizeStatus(raw, fallback) {
     const single = text.match(/^\[Revision\s+\d+\]\s*([^[\],]+)$/i);
     return { status: single ? single[1].trim() : text, revision };
 }
-function parseHeader(source) {
+function parseHeader(source: string): { meta: Meta | null; body: string } {
     const lines = source.replace(/\r\n/g, "\n").split("\n");
     let i = 0;
     while (i < lines.length && lines[i].trim() === "")
@@ -94,9 +109,9 @@ function parseHeader(source) {
     if (!first)
         return { meta: null, body: source };
     const baseIndent = first[1].length;
-    const scalars = {};
-    const lists = {};
-    const multi = {};
+    const scalars: Record<string, string> = {};
+    const lists: Record<string, string[]> = {};
+    const multi: Record<string, string[]> = {};
     while (i < lines.length) {
         const line = lines[i];
         if (line.trim() === "") {
@@ -136,19 +151,27 @@ function parseHeader(source) {
     let body = lines.slice(i).join("\n").replace(/^\s*\n+/, "");
     if (inFence && /^(```+|~~~+)\s*$/.test(lines[i] ?? ""))
         body = lines.slice(i + 1).join("\n").replace(/^\s*\n+/, "");
-    const meta = { ...scalars };
+    const meta: Meta = { ...scalars };
     for (const [k, v] of Object.entries(multi)) {
         meta[k] = v.length === 1 ? v[0] : v;
     }
     return { meta, body };
 }
-function parseAuthors(v) {
+function parseAuthors(v: MetaValue | undefined): string[] {
     if (!v)
         return [];
     return (Array.isArray(v) ? v : String(v).split(/\n/)).map((s) => s.trim()).filter(Boolean);
 }
-function extractHeadings(html) {
-    const out = [];
+/** The scalar value of a metadata field (the first of a repeated key). */
+const one = (v: MetaValue | undefined): string => (Array.isArray(v) ? v[0] ?? "" : v ?? "");
+
+interface Heading {
+    level: number;
+    id: string;
+    text: string;
+}
+function extractHeadings(html: string): Heading[] {
+    const out: Heading[] = [];
     const clean = html.replace(/<a class="hanchor"[\s\S]*?<\/a>/g, "");
     const re = /<h([1-4])((?:[^>"]|"[^"]*")*)\bid="([^"]+)"([^>]*)>([\s\S]*?)<\/h\1>/g;
     let m;
@@ -157,7 +180,7 @@ function extractHeadings(html) {
     }
     return out;
 }
-function wrapMath(html) {
+function wrapMath(html: string): string {
     const parts = html.split(/(<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>)/gi);
     return parts
         .map((part, i) => {
@@ -171,10 +194,10 @@ function wrapMath(html) {
     })
         .join("");
 }
-function injectHeadingAnchors(html) {
+function injectHeadingAnchors(html: string): string {
     return html.replace(/<h([1-4])((?:[^>"]|"[^"]*")*\bid="([^"]+)"(?:[^>"]|"[^"]*")*)>/g, (full, level, attrs, id) => `<h${level}${attrs}><a class="hanchor" href="#${id}" aria-hidden="true" tabindex="-1">#</a>`);
 }
-function rewriteLinks(html, assets) {
+function rewriteLinks(html: string, assets: Set<string>): string {
     return (html
         .replace(/(src|href)="(?!https?:|#|\/|mailto:)([^"]+)"/g, '$1="/upstream/$2"')
         .replace(/"(?:\/upstream\/)?[^"]*?\/?([^\/"']+)\.png"/gi, (full, base) => {
@@ -192,7 +215,7 @@ function rewriteLinks(html, assets) {
         return `href="/${clean}/"`;
     }));
 }
-function wordCount(html) {
+function wordCount(html: string): number {
     const text = stripTags(html);
     return text ? text.split(/\s+/).length : 0;
 }
@@ -200,27 +223,47 @@ const commit = git(["rev-parse", "HEAD"]);
 const commitShort = commit.slice(0, 10);
 const syncedAt = new Date().toISOString();
 console.log(`sync: upstream ${REPO} @ ${commitShort}`);
-const loadYaml = (p) => yaml.load(fs.readFileSync(path.join(ROOT, "data", p), "utf8")) ?? {};
-const upgradesYaml = loadYaml("upgrades.yaml");
-const implsYaml = loadYaml("implementations.yaml");
-const crossrefsYaml = loadYaml("crossrefs.yaml");
+interface UpgradesFile {
+    upgrades?: Array<{ id: string; zips?: number[] }>;
+}
+interface ImplementationsFile {
+    implementations?: Array<{ name: string; zips?: number[] }>;
+}
+interface CrossrefsFile {
+    zips?: Record<string, unknown>;
+}
+interface SourcesFile {
+    pulls?: unknown[];
+}
+interface WatchedPull {
+    id: string;
+    repo: string;
+    number: number;
+    label: string;
+    note?: string;
+}
+const loadYaml = <T,>(p: string): T => (yaml.load(fs.readFileSync(path.join(ROOT, "data", p), "utf8")) as T | null) ?? ({} as T);
+const upgradesYaml = loadYaml<UpgradesFile>("upgrades.yaml");
+const implsYaml = loadYaml<ImplementationsFile>("implementations.yaml");
+const crossrefsYaml = loadYaml<CrossrefsFile>("crossrefs.yaml");
 /* Watched third-party PRs (data/sources.yaml), curated per-PR. Fail fast on
    a malformed entry: a bad id would produce broken /external/<id>/ routes,
    and a bad repo would fail later with a less obvious API error. */
-const watchedPulls = (loadYaml("sources.yaml").pulls ?? []).map((p) => {
+const watchedPulls: WatchedPull[] = (loadYaml<SourcesFile>("sources.yaml").pulls ?? []).map((raw) => {
+    const p = raw as Partial<WatchedPull> | null;
     if (!p || typeof p.id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(p.id))
-        throw new Error(`sync: sources.yaml entry needs an id matching [a-z0-9-]: ${JSON.stringify(p)}`);
+        throw new Error(`sync: sources.yaml entry needs an id matching [a-z0-9-]: ${JSON.stringify(raw)}`);
     if (typeof p.repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(p.repo))
         throw new Error(`sync: sources.yaml id ${p.id} needs repo "owner/name"`);
-    if (!Number.isInteger(p.number) || p.number < 1)
-        throw new Error(`sync: sources.yaml ${p.repo} needs a positive integer "number"`);
+    if (!Number.isInteger(p.number) || typeof p.number !== "number" || p.number < 1)
+        throw new Error(`sync: sources.yaml id ${p.id} needs a positive integer "number"`);
     if (typeof p.label !== "string" || p.label === "")
         throw new Error(`sync: sources.yaml ${p.repo}#${p.number} needs a label`);
-    return p;
+    return p as WatchedPull;
 });
 {
-    const seen = new Set();
-    const groupRepo = new Map();
+    const seen = new Set<string>();
+    const groupRepo = new Map<string, string>();
     for (const p of watchedPulls) {
         const key = `${p.repo}#${p.number}`;
         if (seen.has(key))
@@ -234,13 +277,13 @@ const watchedPulls = (loadYaml("sources.yaml").pulls ?? []).map((p) => {
 }
 if (watchedPulls.length > 0)
     console.log(`sync: watching ${watchedPulls.length} external PR(s): ${watchedPulls.map((p) => `${p.repo}#${p.number}`).join(", ")}`);
-const crossrefFor = (slug) => crossrefsYaml.zips?.[slug] ?? crossrefsYaml.zips?.[String(Number((slug.match(/(\d+)/) || [])[1] || ""))] ?? null;
-function mathToHast(node) {
+const crossrefFor = (slug: string): unknown => crossrefsYaml.zips?.[slug] ?? crossrefsYaml.zips?.[String(Number((slug.match(/(\d+)/) ?? [])[1] ?? ""))] ?? null;
+function mathToHast(node: { type: string; value?: unknown }): ElementContent {
     const tex = String(node.value ?? "");
     try {
         return fromHtml(temml.renderToString(tex, { displayMode: node.type === "math" }), {
             fragment: true,
-        }).children[0];
+        }).children[0] as ElementContent;
     }
     catch {
         return {
@@ -251,7 +294,7 @@ function mathToHast(node) {
         };
     }
 }
-function rehypeHeadingAnchorLabels() {
+function rehypeHeadingAnchorLabels(): Transformer<HastRoot> {
     return (tree) => {
         visit(tree, "element", (node) => {
             if (!/^h[1-6]$/.test(node.tagName))
@@ -267,7 +310,7 @@ function rehypeHeadingAnchorLabels() {
         });
     };
 }
-function splitTightDeflist(node) {
+function splitTightDeflist(node: Paragraph): [MdastContent, MdastContent] | null {
     for (let ci = 0; ci < node.children.length; ci++) {
         const child = node.children[ci];
         if (child.type !== "text")
@@ -276,30 +319,32 @@ function splitTightDeflist(node) {
         if (!m)
             continue;
         const before = child.value.slice(0, m.index);
-        const after = child.value.slice(m.index + 1).replace(/^:\s+/, "");
+        const after = child.value.slice((m.index ?? 0) + 1).replace(/^:\s+/, "");
         if (ci === 0 && !before.trim())
             continue;
-        const term = {
+        const termChildren: PhrasingContent[] = [
+            ...node.children.slice(0, ci),
+            { type: "text", value: before.replace(/\n$/, "") },
+        ];
+        const descChildren: PhrasingContent[] = [
+            { type: "text", value: after },
+            ...node.children.slice(ci + 1),
+        ];
+        const term: MdastContent = {
             type: "definitionTerm",
-            children: [
-                ...node.children.slice(0, ci),
-                { type: "text", value: before.replace(/\n$/, "") },
-            ].filter((c) => c.type !== "text" || c.value !== ""),
+            children: termChildren.filter((c) => c.type !== "text" || c.value !== ""),
         };
-        const desc = {
+        const desc: MdastContent = {
             type: "definitionDescription",
-            children: [
-                { type: "text", value: after },
-                ...node.children.slice(ci + 1),
-            ],
+            children: descChildren,
         };
         return [term, desc];
     }
     return null;
 }
-function remarkZipDeflists() {
+function remarkZipDeflists(): Transformer<MdastRoot> {
     return (tree) => {
-        const out = [];
+        const out: MdastContent[] = [];
         for (const node of tree.children) {
             const first = node.type === "paragraph" ? node.children[0] : null;
             if (first?.type === "text" &&
@@ -307,7 +352,8 @@ function remarkZipDeflists() {
                 out.length > 0 &&
                 out[out.length - 1].type === "paragraph") {
                 first.value = first.value.replace(/^:\s+/, "");
-                out.push({ type: "definitionTerm", children: out.pop().children }, { type: "definitionDescription", children: node.children });
+                // Reaching here implies `node` is the paragraph that owns `first`.
+                out.push({ type: "definitionTerm", children: (out.pop() as Paragraph).children }, { type: "definitionDescription", children: (node as Paragraph).children });
                 continue;
             }
             if (node.type === "paragraph") {
@@ -319,7 +365,7 @@ function remarkZipDeflists() {
             }
             out.push(node);
         }
-        const wrapped = [];
+        const wrapped: MdastContent[] = [];
         for (const node of out) {
             const isDef = node.type === "definitionTerm" || node.type === "definitionDescription";
             const last = wrapped[wrapped.length - 1];
@@ -371,13 +417,13 @@ const mdProcessor = unified()
     defaultColor: false,
 })
     .use(rehypeStringify);
-async function renderMd(body) {
+async function renderMd(body: string): Promise<string> {
     const file = await mdProcessor.process(normalizeMathFences(body));
     return String(file);
 }
-function normalizeMathFences(md) {
+function normalizeMathFences(md: string): string {
     const lines = md.split("\n");
-    const out = [];
+    const out: string[] = [];
     let inCode = false;
     let inMath = false;
     for (const line of lines) {
@@ -414,14 +460,14 @@ function normalizeMathFences(md) {
     return out.join("\n");
 }
 const MATHISH = /^[a-z0-9]$|^[a-z0-9]\s*[-+*/=<>]\s*[a-z0-9]$/i;
-function preprocessRstMath(body) {
+function preprocessRstMath(body: string): string {
     return body.replace(/\$([^$\n]{1,120}?)\$/g, (full, inner) => {
         if (!/[\^_\\{}]/.test(inner) && !MATHISH.test(inner))
             return full;
         return ":math:`" + inner + "`";
     });
 }
-function renderRst(body, slug) {
+function renderRst(body: string, slug: string): string | null {
     const res = spawnSync("python3", [path.join(ROOT, "scripts", "rst2fragment.py")], {
         input: preprocessRstMath(body),
         encoding: "utf8",
@@ -438,7 +484,7 @@ const files = fs
     .filter((f) => /\.(md|rst)$/i.test(f))
     .filter((f) => !/^zip-(template|guide)/i.test(f))
     .sort();
-const assetNames = new Set();
+const assetNames = new Set<string>();
 for (const f of fs.readdirSync(ZIPS_DIR)) {
     if (!/\.(md|rst)$/i.test(f)) {
         fs.copyFileSync(path.join(ZIPS_DIR, f), path.join(UPSTREAM_ASSETS, f));
@@ -448,7 +494,7 @@ for (const f of fs.readdirSync(ZIPS_DIR)) {
 /** Fail fast when the RST renderer is unusable, before anything is written.
  *  Without this, a machine without docutils turns every RST ZIP into an error
  *  stub and overwrites the committed snapshots. */
-function preflightRst() {
+function preflightRst(): void {
     const res = spawnSync("python3", ["-c", "import docutils, sys; print(docutils.__version__)"], { encoding: "utf8" });
     if (res.status !== 0) {
         throw new Error(`sync: the RST renderer is unavailable (python3 with docutils is required; run \`pip install docutils\`). ${(res.stderr || res.error?.message || "").trim().slice(0, 200)}`);
@@ -458,46 +504,158 @@ function preflightRst() {
 /** Set SYNC_ALLOW_RENDER_FAILURES=1 to keep going when individual documents
  *  fail to render; they are then published as error stubs linking upstream. */
 const ALLOW_RENDER_FAILURES = process.env.SYNC_ALLOW_RENDER_FAILURES === "1";
-async function main() {
+
+interface ZipDoc {
+    slug: string;
+    number: number | null;
+    displayNumber: string;
+    kind: "zip" | "draft";
+    filename: string;
+    format: "md" | "rst";
+    title: string;
+    abstract: string;
+    status: string;
+    revision: number | null;
+    owners: string[];
+    credits: string[];
+    originalAuthors: string[];
+    category: string;
+    created: string | null;
+    license: string;
+    discussionsTo: string | null;
+    pullRequests: string[];
+    upstreamPath: string;
+    upstreamUrl: string;
+    headings: Heading[];
+    wordCount: number;
+    rendered: boolean;
+}
+interface PreviewFile {
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch: string | null;
+}
+interface PreviewEntry {
+    filename: string;
+    slug: string;
+    title: string;
+    status: string;
+    headings: Heading[];
+    format: "md" | "rst";
+}
+interface PrEntry {
+    repo: string;
+    source: string | null;
+    number: number;
+    title: string;
+    author: string | null;
+    createdAt: string;
+    updatedAt: string;
+    url: string;
+    diffUrl: string;
+    headRef: string;
+    headRepo: string | null;
+    headSha: string | null;
+    additions: number;
+    deletions: number;
+    changedFiles: number;
+    bodyExcerpt: string;
+    zipRefs: number[];
+    draftRefs: string[];
+    mapped: boolean;
+    claimed: boolean;
+    files: PreviewFile[];
+    filesTruncated: boolean;
+    previews: PreviewEntry[];
+    preview: PreviewEntry | null;
+}
+interface GithubPull {
+    number: number;
+    title: string;
+    body?: string | null;
+    user?: { login?: string } | null;
+    created_at: string;
+    updated_at: string;
+    html_url: string;
+    diff_url: string;
+    head?: { ref?: string; sha?: string; repo?: { full_name?: string } | null };
+    additions?: number;
+    deletions?: number;
+    changed_files?: number;
+}
+interface GithubFile {
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch?: string | null;
+}
+interface PreviewState {
+    headSha: string | null;
+    getPullHead: () => Promise<string>;
+}
+interface PreviewJob {
+    idx: number;
+    pr: PrEntry;
+    fileKey: string;
+    docFile: PreviewFile;
+    state: PreviewState;
+}
+interface ExternalSource {
+    id: string;
+    repo: string;
+    label: string;
+    note: string | null;
+    error: string | null;
+}
+
+async function main(): Promise<void> {
     /* Render cache, keyed by input identity: canonical documents by git blob
      * sha, PR previews by (repo, head sha, file). Warm runs skip the renderer
      * for everything unchanged — typically all but a handful of files. Bump
      * RENDER_CACHE_VERSION whenever the render pipeline itself changes. */
     const RENDER_CACHE_VERSION = 1;
     const renderCachePath = path.join(CONTENT, "render-cache.json");
-    const prevRenderCache = readJsonSafe(renderCachePath);
-    const prevDocsCache = prevRenderCache?.version === RENDER_CACHE_VERSION ? prevRenderCache.docs ?? {} : {};
-    const prevPreviewCache = prevRenderCache?.version === RENDER_CACHE_VERSION ? prevRenderCache.previews ?? {} : {};
-    const docsCache = {};
-    const previewCache = {};
-    const tree = {};
+    interface RenderCache {
+        version: number;
+        docs: Record<string, { sha: string; rendered?: boolean }>;
+        previews: Record<string, { title: string; status: string }>;
+    }
+    const prevRenderCache = readJsonSafe<RenderCache>(renderCachePath);
+    const prevDocsCache: RenderCache["docs"] = prevRenderCache?.version === RENDER_CACHE_VERSION ? prevRenderCache.docs ?? {} : {};
+    const prevPreviewCache: RenderCache["previews"] = prevRenderCache?.version === RENDER_CACHE_VERSION ? prevRenderCache.previews ?? {} : {};
+    const docsCache: RenderCache["docs"] = {};
+    const previewCache: RenderCache["previews"] = {};
+    const tree: Record<string, string> = {};
     for (const line of git(["ls-tree", "-r", "HEAD", "--", "zips"]).split("\n")) {
         const entry = line.match(/^[^ ]+ blob ([0-9a-f]{40})\t(.+)$/);
         if (entry)
             tree[entry[2]] = entry[1];
     }
-    const shaFor = (filename) => tree[`zips/${filename}`] ?? git(["hash-object", path.join(ZIPS_DIR, filename)]);
+    const shaFor = (filename: string): string => tree[`zips/${filename}`] ?? git(["hash-object", path.join(ZIPS_DIR, filename)]);
     // The rst subprocess is only needed for documents that will actually render.
     if (files.some((f) => /\.rst$/i.test(f) && (prevDocsCache[f]?.sha !== shaFor(f) || !prevDocsCache[f]?.rendered)))
         preflightRst();
-    const zips = [];
-    const failures = [];
-    const renderedHtml = new Map();
+    const zips: ZipDoc[] = [];
+    const failures: string[] = [];
+    const renderedHtml = new Map<string, string>();
     let docsCacheHits = 0;
     for (const filename of files) {
         const slug = filename.replace(/\.(md|rst)$/i, "");
-        const format = /\.md$/i.test(filename) ? "md" : "rst";
+        const format: "md" | "rst" = /\.md$/i.test(filename) ? "md" : "rst";
         const raw = fs.readFileSync(path.join(ZIPS_DIR, filename), "utf8");
         const { meta: hdr, body } = parseHeader(raw);
         const numberMatch = String(hdr?.zip ?? "").match(/^\d+$/);
-        const number = numberMatch ? parseInt(String(hdr.zip), 10) : null;
+        const number = numberMatch ? parseInt(numberMatch[0], 10) : null;
         const { status, revision } = normalizeStatus(hdr?.status, "Unknown");
         const sha = shaFor(filename);
         docsCache[filename] = { sha };
         const htmlPath = path.join(RENDERED, `${slug}.html`);
         const cached = prevDocsCache[filename];
-        let html;
-        let renderedOk;
+        let html: string;
+        let renderedOk: boolean;
         if (cached && cached.sha === sha && cached.rendered && fs.existsSync(htmlPath)) {
             html = fs.readFileSync(htmlPath, "utf8");
             renderedOk = true;
@@ -514,13 +672,13 @@ async function main() {
             renderedHtml.set(slug, html);
         }
         docsCache[filename].rendered = renderedOk;
-        const pullRequests = []
-            .concat(Array.isArray(hdr?.pull_request) ? hdr.pull_request : hdr?.pull_request ? [hdr.pull_request] : [])
+        const pullRequestRaw = hdr?.pull_request;
+        const pullRequests = (Array.isArray(pullRequestRaw) ? pullRequestRaw : pullRequestRaw ? [pullRequestRaw] : [])
             .map((s) => {
             const m = String(s).match(/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)/);
             return m ? `https://github.com/${REPO}/pull/${m[1]}` : null;
         })
-            .filter(Boolean);
+            .filter((u): u is string => Boolean(u));
         zips.push({
             slug,
             number,
@@ -528,16 +686,16 @@ async function main() {
             kind: number === null ? "draft" : "zip",
             filename,
             format,
-            title: (hdr?.title ?? slug).trim(),
-            abstract: (hdr?.abstract ?? "").replace(/\s+/g, " ").trim(),
+            title: one(hdr?.title ?? slug).trim(),
+            abstract: one(hdr?.abstract ?? "").replace(/\s+/g, " ").trim(),
             status,
             revision,
             owners: parseAuthors(hdr?.owners),
             credits: parseAuthors(hdr?.credits),
             originalAuthors: parseAuthors(hdr?.original_authors),
-            category: (hdr?.category ?? "Unknown").trim(),
-            created: /^\d{4}-\d{2}-\d{2}$/.test(String(hdr?.created ?? "")) ? hdr.created : null,
-            license: (hdr?.license ?? "Unknown").trim(),
+            category: one(hdr?.category ?? "Unknown").trim(),
+            created: /^\d{4}-\d{2}-\d{2}$/.test(String(hdr?.created ?? "")) ? one(hdr?.created) : null,
+            license: one(hdr?.license ?? "Unknown").trim(),
             discussionsTo: typeof hdr?.discussions_to === "string" ? hdr.discussions_to.replace(/[<>]/g, "").trim() : null,
             pullRequests,
             upstreamPath: `zips/${filename}`,
@@ -564,31 +722,31 @@ async function main() {
     for (const [slug, html] of renderedHtml)
         fs.writeFileSync(path.join(RENDERED, `${slug}.html`), html);
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
-    const ghHeaders = {
+    const ghHeaders: Record<string, string> = {
         Accept: "application/vnd.github+json",
         "User-Agent": "zips.dev-sync",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
-    async function gh(url) {
+    async function gh<T>(url: string): Promise<T> {
         const res = await fetch(url, { headers: ghHeaders });
         if (!res.ok)
             throw new Error(`${res.status} ${res.statusText} for ${url}`);
-        return res.json();
+        return res.json() as Promise<T>;
     }
-    const prClaimIndex = new Map();
+    const prClaimIndex = new Map<number, Array<number | string>>();
     for (const z of zips) {
         for (const url of z.pullRequests) {
             const n = Number(url.match(/pull\/(\d+)/)?.[1]);
             if (n) {
-                if (!prClaimIndex.has(n))
-                    prClaimIndex.set(n, []);
-                prClaimIndex.get(n).push(z.number ?? z.slug);
+                const refs = prClaimIndex.get(n) ?? [];
+                refs.push(z.number ?? z.slug);
+                prClaimIndex.set(n, refs);
             }
         }
     }
     const ZIP_NUM_RE = /zip[\s_.-]?#?\s?(?:0*)(\d{1,4})\b/i;
-    function mapPrToZips(pr, files) {
-        const hits = new Set();
+    function mapPrToZips(pr: GithubPull, files: GithubFile[] | null): Array<number | string> {
+        const hits = new Set<number | string>();
         for (const ref of prClaimIndex.get(pr.number) ?? [])
             hits.add(ref);
         const haystacks = [pr.title ?? "", pr.body ?? "", pr.head?.ref ?? ""];
@@ -620,24 +778,24 @@ async function main() {
     /* Fetch the primary repo's open PRs and shape them into snapshot entries,
      * mapped to ZIPs/drafts and matched against the Pull-Request header
      * claims. */
-    async function fetchPrs(repo) {
+    async function fetchPrs(repo: string): Promise<PrEntry[]> {
         let page = 1;
-        const all = [];
+        const all: GithubPull[] = [];
         for (; page <= 4; page++) {
-            const chunk = await gh(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=100&page=${page}`);
+            const chunk = await gh<GithubPull[]>(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=100&page=${page}`);
             all.push(...chunk);
             if (chunk.length < 100)
                 break;
         }
         const canFetchFiles = Boolean(token);
         let filesFetched = 0;
-        const out = [];
+        const out: PrEntry[] = [];
         for (const pr of all) {
-            let files = null;
+            let files: GithubFile[] | null = null;
             const needsFiles = !canFetchFiles ? filesFetched < 12 : true;
             if (needsFiles) {
                 try {
-                    files = await gh(`https://api.github.com/repos/${repo}/pulls/${pr.number}/files?per_page=100`);
+                    files = await gh<GithubFile[]>(`https://api.github.com/repos/${repo}/pulls/${pr.number}/files?per_page=100`);
                     filesFetched++;
                 }
                 catch {
@@ -663,8 +821,8 @@ async function main() {
                 deletions: pr.deletions ?? 0,
                 changedFiles: pr.changed_files ?? 0,
                 bodyExcerpt: stripTags(String(pr.body ?? "")).slice(0, 300),
-                zipRefs: refs.filter((r) => typeof r === "number"),
-                draftRefs: refs.filter((r) => typeof r === "string"),
+                zipRefs: refs.filter((r): r is number => typeof r === "number"),
+                draftRefs: refs.filter((r): r is string => typeof r === "string"),
                 mapped: refs.length > 0,
                 claimed: prClaimIndex.has(pr.number),
                 files: small && files ? files.map((f) => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch ?? null })) : [],
@@ -679,11 +837,11 @@ async function main() {
     /* Fetch one watched external PR (per-PR curation, no listing). Not mapped
      * to ZIPs — it documents another repository's documents and is rendered
      * in its own /external/<id>/<number>/ namespace. */
-    async function fetchWatchedPr(repo, number, source) {
-        const pr = await gh(`https://api.github.com/repos/${repo}/pulls/${number}`);
-        let files = null;
+    async function fetchWatchedPr(repo: string, number: number, source: WatchedPull): Promise<PrEntry> {
+        const pr = await gh<GithubPull>(`https://api.github.com/repos/${repo}/pulls/${number}`);
+        let files: GithubFile[] | null = null;
         try {
-            files = await gh(`https://api.github.com/repos/${repo}/pulls/${number}/files?per_page=100`);
+            files = await gh<GithubFile[]>(`https://api.github.com/repos/${repo}/pulls/${number}/files?per_page=100`);
         }
         catch {
             files = null;
@@ -716,8 +874,8 @@ async function main() {
             preview: null,
         };
     }
-    let prs = [];
-    let prError = null;
+    let prs: PrEntry[] = [];
+    let prError: string | null = null;
     try {
         prs = await fetchPrs(REPO);
         console.log(`sync: fetched ${prs.length} open PRs`);
@@ -725,12 +883,12 @@ async function main() {
         console.log(`sync: mapped ${mappedCount}/${prs.length} PRs to ZIPs`);
     }
     catch (e) {
-        prError = String(e.message ?? e);
+        prError = errMessage(e);
         console.warn(`sync: PR fetch failed (${prError})`);
         const prevPath = path.join(CONTENT, "prs.json");
         try {
-            const prev = JSON.parse(fs.readFileSync(prevPath, "utf8"));
-            const ageH = (Date.now() - new Date(prev.syncedAt)) / 36e5;
+            const prev = JSON.parse(fs.readFileSync(prevPath, "utf8")) as { syncedAt: string; error?: string | null; prs?: PrEntry[] };
+            const ageH = (Date.now() - new Date(prev.syncedAt).getTime()) / 36e5;
             if (!prev.error && Array.isArray(prev.prs) && ageH < 24) {
                 prs = prev.prs;
                 prError = null;
@@ -743,23 +901,28 @@ async function main() {
     /* Watched external PRs, one fetch per configured entry. A failure reuses
      * that PR's previous snapshot for 24h, mirroring the primary-repo cache
      * behavior; group-level errors surface on the source's pages. */
-    const externalPrev = readJsonSafe(path.join(CONTENT, "external.json"));
-    const prevByKey = new Map((Array.isArray(externalPrev?.prs) ? externalPrev.prs : []).map((p) => [`${p.repo}#${p.number}`, p]));
-    const externalSources = [];
-    const externalPrs = [];
+    interface ExternalSnapshot {
+        syncedAt?: string;
+        prs?: PrEntry[];
+    }
+    const externalPrev = readJsonSafe<ExternalSnapshot>(path.join(CONTENT, "external.json"));
+    const externalPrevPrs = externalPrev?.prs;
+    const prevByKey = new Map<string, PrEntry>((Array.isArray(externalPrevPrs) ? externalPrevPrs : []).map((p): [string, PrEntry] => [`${p.repo}#${p.number}`, p]));
+    const externalSources: ExternalSource[] = [];
+    const externalPrs: PrEntry[] = [];
     {
-        const groups = new Map();
-        const ageH = externalPrev?.syncedAt ? (Date.now() - new Date(externalPrev.syncedAt)) / 36e5 : Infinity;
+        const groups = new Map<string, ExternalSource>();
+        const ageH = externalPrev?.syncedAt ? (Date.now() - new Date(externalPrev.syncedAt).getTime()) / 36e5 : Infinity;
         for (const entry of watchedPulls) {
             const key = `${entry.repo}#${entry.number}`;
-            let pr = null;
-            let error = null;
+            let pr: PrEntry | null = null;
+            let error: string | null = null;
             try {
                 pr = await fetchWatchedPr(entry.repo, entry.number, entry);
                 console.log(`sync: fetched ${key}`);
             }
             catch (e) {
-                error = String(e.message ?? e);
+                error = errMessage(e);
                 console.warn(`sync: ${key} fetch failed (${error})`);
                 const prev = prevByKey.get(key);
                 if (prev && ageH < 24) {
@@ -774,18 +937,21 @@ async function main() {
                 externalPrs.push(pr);
             if (!groups.has(entry.id))
                 groups.set(entry.id, { id: entry.id, repo: entry.repo, label: entry.label, note: entry.note ?? null, error });
-            else if (error)
-                groups.get(entry.id).error = error;
+            else if (error) {
+                const group = groups.get(entry.id);
+                if (group)
+                    group.error = error;
+            }
         }
         externalSources.push(...groups.values());
     }
     const externalDoc = { syncedAt, sources: externalSources, prs: externalPrs };
-    const docSlug = (filename) => filename.replace(/^.*\//, "").replace(/\.(md|rst)$/i, "");
+    const docSlug = (filename: string): string => filename.replace(/^.*\//, "").replace(/\.(md|rst)$/i, "");
     let previews = 0;
     let previewPrs = 0;
     /* Phase 1 — resolve which documents each previewable PR changes, and from
      * where. Sequential and cheap: a handful of API/patch/git calls per PR. */
-    const previewJobs = [];
+    const previewJobs: PreviewJob[] = [];
     for (const pr of [...prs, ...externalPrs]) {
         // Primary PRs need a ZIP/draft mapping to be worth previewing;
         // external-source PRs are always previewed (curated list, few).
@@ -793,8 +959,8 @@ async function main() {
             continue;
         const fileKey = pr.source ? `${pr.source}-${pr.number}` : String(pr.number);
         try {
-            let docFiles = pr.files.filter((f) => DOC_RE.test(f.filename) && f.status !== "removed");
-            let headSha = pr.headSha;
+            let docFiles: PreviewFile[] = pr.files.filter((f) => DOC_RE.test(f.filename) && f.status !== "removed");
+            let headSha: string | null = pr.headSha;
             if ((docFiles.length === 0 || !headSha) && (pr.files.length === 0 || !headSha)) {
                 const patchRes = await fetch(`https://github.com/${pr.repo}/pull/${pr.number}.patch`, {
                     headers: { "User-Agent": "zips.dev-sync" },
@@ -811,7 +977,7 @@ async function main() {
                     const patchDocs = names.filter((f) => DOC_RE.test(f));
                     if (patchDocs.length > 0 && docFiles.length === 0) {
                         const sections = patchText.split(/^(?=diff --git )/m);
-                        const perFilePatch = (filename) => sections.find((s) => s.match(/^diff --git a\/\S+ b\/(\S+)$/m)?.[1] === filename) ?? patchText.slice(0, 400000);
+                        const perFilePatch = (filename: string): string => sections.find((s) => s.match(/^diff --git a\/\S+ b\/(\S+)$/m)?.[1] === filename) ?? patchText.slice(0, 400000);
                         docFiles = patchDocs.map((filename) => ({ filename, status: "modified", additions: 0, deletions: 0, patch: null }));
                         if (pr.files.length === 0)
                             pr.files = docFiles.map((f) => ({ ...f, patch: perFilePatch(f.filename).slice(0, 400000) }));
@@ -820,8 +986,8 @@ async function main() {
             }
             if (docFiles.length === 0)
                 continue;
-            let pullHeadSha = null;
-            const state = {
+            let pullHeadSha: string | null = null;
+            const state: PreviewState = {
                 headSha,
                 // The vendor clone only knows the primary repo; an external PR
                 // must be fetchable from raw.githubusercontent.com instead.
@@ -841,16 +1007,16 @@ async function main() {
                 previewJobs.push({ idx: previewJobs.length, pr, fileKey, docFile, state });
         }
         catch (e) {
-            console.warn(`sync: preview failed for PR ${pr.number}: ${String(e.message ?? e).slice(0, 100)}`);
+            console.warn(`sync: preview failed for PR ${pr.number}: ${errMessage(e).slice(0, 100)}`);
         }
     }
     /* Phase 2 — fetch and render preview documents in parallel, skipping any
      * whose (repo, head sha, file) identity already has rendered HTML. */
     let previewCacheHits = 0;
-    const renderPreviewJob = async (job) => {
+    const renderPreviewJob = async (job: PreviewJob): Promise<PreviewEntry> => {
         const { pr, fileKey, docFile, state } = job;
         const slug = docSlug(docFile.filename);
-        const format = /\.md$/i.test(docFile.filename) ? "md" : "rst";
+        const format: "md" | "rst" = /\.md$/i.test(docFile.filename) ? "md" : "rst";
         const cacheKey = `${pr.repo}:${state.headSha ?? "nocommit"}:${docFile.filename}`;
         const htmlPath = path.join(RENDERED, `pr-${fileKey}-${slug}.html`);
         const cached = prevPreviewCache[cacheKey];
@@ -868,7 +1034,7 @@ async function main() {
                 format,
             };
         }
-        let raw = null;
+        let raw: string | null = null;
         if (pr.headRepo && state.headSha) {
             const rawRes = await fetch(`https://raw.githubusercontent.com/${pr.headRepo}/${state.headSha}/${docFile.filename}`, { headers: { "User-Agent": "zips.dev-sync" } });
             if (rawRes.ok)
@@ -896,10 +1062,10 @@ async function main() {
         if (html0 === null)
             throw new Error("render failed");
         const html = injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
-        const entry = {
+        const entry: PreviewEntry = {
             filename: docFile.filename,
             slug,
-            title: (hdr?.title ?? pr.title).trim(),
+            title: one(hdr?.title ?? pr.title).trim(),
             status: normalizeStatus(hdr?.status, "Draft").status,
             headings: extractHeadings(html),
             format,
@@ -908,20 +1074,20 @@ async function main() {
         previewCache[cacheKey] = { title: entry.title, status: entry.status };
         return entry;
     };
-    const results = new Array(previewJobs.length);
+    const results: Array<PreviewEntry | null> = new Array(previewJobs.length);
     let nextJob = 0;
     const CONCURRENCY = 8;
-    const renderWorker = async () => {
+    const renderWorker = async (): Promise<void> => {
         while (nextJob < previewJobs.length) {
             const job = previewJobs[nextJob++];
             results[job.idx] = await renderPreviewJob(job).catch((e) => {
-                console.warn(`sync: preview failed for PR ${job.pr.number} ${job.docFile.filename}: ${String(e.message ?? e).slice(0, 100)}`);
+                console.warn(`sync: preview failed for PR ${job.pr.number} ${job.docFile.filename}: ${errMessage(e).slice(0, 100)}`);
                 return null;
             });
         }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, previewJobs.length) }, renderWorker));
-    const byPr = new Map();
+    const byPr = new Map<PrEntry, { rendered: PreviewEntry[]; state: PreviewState }>();
     for (const job of previewJobs) {
         const entry = results[job.idx];
         if (!entry)
@@ -951,7 +1117,7 @@ async function main() {
         if (removedLegacy)
             console.log(`sync: removed ${removedLegacy} legacy pr-<number>.html previews`);
     }
-    const publicZip = (z) => {
+    const publicZip = (z: ZipDoc): Omit<ZipDoc, "headings"> => {
         const { headings, ...rest } = z;
         return rest;
     };
@@ -963,16 +1129,17 @@ async function main() {
     fs.writeFileSync(renderCachePath, JSON.stringify({ version: RENDER_CACHE_VERSION, docs: docsCache, previews: previewCache }));
     fs.writeFileSync(path.join(PUBLIC_API, "zips.json"), JSON.stringify({ ...meta, zips: zips.map(publicZip) }));
     for (const z of zips) {
-        if (z.number === null)
+        const zipNumber = z.number;
+        if (zipNumber === null)
             continue;
-        fs.writeFileSync(path.join(PUBLIC_API, "zips", `${z.number}.json`), JSON.stringify({
+        fs.writeFileSync(path.join(PUBLIC_API, "zips", `${zipNumber}.json`), JSON.stringify({
             ...publicZip(z),
             crossReferences: crossrefFor(z.slug),
             implementations: implsYaml.implementations
-                ?.filter((impl) => impl.zips?.includes(z.number))
+                ?.filter((impl) => impl.zips?.includes(zipNumber))
                 .map((impl) => impl.name),
             upgrades: (upgradesYaml.upgrades ?? [])
-                .filter((u) => (u.zips ?? []).includes(z.number))
+                .filter((u) => (u.zips ?? []).includes(zipNumber))
                 .map((u) => u.id),
         }));
     }

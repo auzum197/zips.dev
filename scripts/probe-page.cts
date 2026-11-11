@@ -1,10 +1,11 @@
-const { chromium } = require("playwright-core");
+const { chromium } = require("playwright-core") as typeof import("playwright-core");
+
 const candidates = [
     "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
 ];
 (async () => {
-    let browser = null;
+    let browser: import("playwright-core").Browser | null = null;
     for (const exe of candidates) {
         try {
             browser = await chromium.launch({
