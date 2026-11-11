@@ -10,7 +10,7 @@ An unofficial, static web frontend for the [zcash/zips](https://github.com/zcash
 vendor/zips (shallow clone)          data/*.yaml (curated)
         │                                  │
         ▼                                  ▼
-  scripts/sync.mjs  ──── writes ───▶  content/*.json + content/rendered/*.html
+  scripts/sync.mts  ──── writes ───▶  content/*.json + content/rendered/*.html
         │                             public/api/*.json (machine-readable)
         ▼
   next build (SSG, output: "export")  ──▶  out/ (static site)
@@ -18,12 +18,12 @@ vendor/zips (shallow clone)          data/*.yaml (curated)
   pagefind --site out  ──▶  out/pagefind/ (client-side full-text search)
 ```
 
-- **Parsing** — ZIP metadata headers are indentation-based `Key: Value` blocks (2-space indent in `.rst`, 4-space in `.md`, wrapped in a leading `::` literal block for rst). Some third-party repos instead wrap the header in a fenced code block at zero indent — handled too. `scripts/sync.mjs` handles all variants plus multi-line values (`Owners`, `Credits`, `Original-Authors`).
+- **Parsing** — ZIP metadata headers are indentation-based `Key: Value` blocks (2-space indent in `.rst`, 4-space in `.md`, wrapped in a leading `::` literal block for rst). Some third-party repos instead wrap the header in a fenced code block at zero indent — handled too. `scripts/sync.mts` handles all variants plus multi-line values (`Owners`, `Credits`, `Original-Authors`).
 - **Rendering** — markdown via `remark` + GFM + Shiki (dual light/dark themes); RST via `docutils` (`scripts/rst2fragment.py`, class-based Pygments, section ids moved onto headings for the ToC). rst is the *dominant* format upstream (100 of 125 ZIPs).
 - **PRs** — fetched from the GitHub API at sync time only (never per-visitor), mapped to ZIPs by: explicit `Pull-Request:` header claims (strongest), title/body/branch heuristics, and changed-file paths. Inline diffs are cached where the changed-file set is small. Set `GITHUB_TOKEN` for full coverage (60 req/hr unauthenticated caps file fetching).
 - **External sources** — watched third-party PRs are curated per-PR in `data/sources.yaml` (e.g. `tachyon-zcash/zips#5` for the NuTachyon draft ZIPs). Each pinned PR is fetched and rendered through the same pipeline but namespaced under `/external/<id>/<number>/` with explicit provenance; nothing outside the pinned entries is tracked, and they never mix into the canonical ZIP set, the drafts index, or the primary `/prs/` listing.
 - **Curated layer** — `data/upgrades.yaml`, `data/implementations.yaml`, `data/crossrefs.yaml`, `data/sources.yaml`. Best-effort seeds; fix via PR.
-- **Render cache** — `content/render-cache.json` keys rendered HTML by input identity (git blob sha for canonical docs; repo + head sha + file for PR previews), so a warm sync re-renders only what actually changed. Bump `RENDER_CACHE_VERSION` in `scripts/sync.mjs` when changing the render pipeline.
+- **Render cache** — `content/render-cache.json` keys rendered HTML by input identity (git blob sha for canonical docs; repo + head sha + file for PR previews), so a warm sync re-renders only what actually changed. Bump `RENDER_CACHE_VERSION` in `scripts/sync.mts` when changing the render pipeline.
 - **Search** — Pagefind indexes only ZIP/draft bodies (`data-pagefind-body`), post-build, fully static.
 
 ## Development
@@ -43,7 +43,7 @@ Every component has its own story file next to it (`src/components/*.stories.tsx
 
 Every route ships its own title, description, canonical URL, Open Graph tags and X card tags. Section pages come from `ogMetadata()` in `src/lib/og.ts` over the copy in `scripts/og-cards.json`; dynamic pages (each ZIP, draft, PR, upgrade, external source) pass a doc-card slug, so a shared link carries a card with that page's real title.
 
-Card images are 1200×630 PNGs generated at deploy time — never committed. `scripts/og.mjs` draws them with satori + resvg (pure node, no browser): one per section, plus one per page of the stable corpus — every ZIP, draft, upgrade, external source, and currently-open PR, with its actual title — plus the apple-touch-icon. PR previews share their PR's card. `pnpm build` runs it after the sync; run `pnpm og` to draw them standalone:
+Card images are 1200×630 PNGs generated at deploy time — never committed. `scripts/og.mts` draws them with satori + resvg (pure node, no browser): one per section, plus one per page of the stable corpus — every ZIP, draft, upgrade, external source, and currently-open PR, with its actual title — plus the apple-touch-icon. PR previews share their PR's card. `pnpm build` runs it after the sync; run `pnpm og` to draw them standalone:
 
 ```sh
 pnpm og

@@ -1,4 +1,5 @@
-const { chromium } = require("playwright-core");
+const { chromium } = require("playwright-core") as typeof import("playwright-core");
+
 const exe = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser";
 (async () => {
     const url = process.argv[2];
