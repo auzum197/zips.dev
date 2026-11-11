@@ -1,83 +1,88 @@
-// Draws the link-preview images: one 1200x630 PNG per route card in
-// scripts/og-cards.json into public/og/, plus public/apple-touch-icon.png.
-// Run after a change to the cards or the template: pnpm og. The images are
-// checked in; og:preview then checks them the way the platforms do.
-import { createHash } from "node:crypto";
-import { createServer } from "node:http";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, normalize, resolve } from "node:path";
+// Renders the link-preview cards: one 1200x630 PNG per section plus one per
+// page of the stable corpus (every zip, draft, upgrade, external source,
+// currently-open PR — with its real title), plus the apple-touch-icon.
+//
+// Pure node: satori draws the card, resvg rasterizes it. Runs at deploy time
+// as part of `pnpm build`; nothing lands in git.
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
+import satori from "satori";
+import { Resvg } from "@resvg/resvg-js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const fontsDir = join(root, "public", "og-fonts");
 const ogDir = join(root, "public", "og");
-const port = 4173;
-
-const cards = JSON.parse(readFileSync(join(root, "scripts", "og-cards.json"), "utf8"));
-
-// og.html loads the woff2 files over http; the site itself bundles them with
-// @fontsource, so the copies are only for the draw and stay untracked.
-mkdirSync(fontsDir, { recursive: true });
 mkdirSync(ogDir, { recursive: true });
+
+const W = 1200;
+const H = 630;
+
+const fontFile = (pkg, weight) =>
+    readFileSync(join(root, "node_modules", "@fontsource", pkg, "files", `${pkg}-latin-${weight}-normal.woff`));
 const fonts = [
-    ["ibm-plex-sans", "400", "plex-sans-400.woff2"],
-    ["ibm-plex-sans", "600", "plex-sans-600.woff2"],
-    ["ibm-plex-mono", "500", "plex-mono-500.woff2"],
-    ["ibm-plex-serif", "600", "plex-serif-600.woff2"],
+    { name: "Plex Sans", data: fontFile("ibm-plex-sans", 400), weight: 400, style: "normal" },
+    { name: "Plex Sans", data: fontFile("ibm-plex-sans", 600), weight: 600, style: "normal" },
+    { name: "Plex Mono", data: fontFile("ibm-plex-mono", 500), weight: 500, style: "normal" },
+    { name: "Plex Serif", data: fontFile("ibm-plex-serif", 600), weight: 600, style: "normal" },
 ];
-for (const [pkg, weight, name] of fonts) {
-    copyFileSync(
-        join(root, "node_modules", "@fontsource", pkg, "files", `${pkg}-latin-${weight}-normal.woff2`),
-        join(fontsDir, name),
-    );
-}
 
-const mime = { ".html": "text/html", ".json": "application/json", ".woff2": "font/woff2", ".svg": "image/svg+xml" };
-const server = createServer((req, res) => {
-    const path = normalize(decodeURIComponent(new URL(req.url, "http://x").pathname));
-    const file = join(root, path === "/" ? "scripts/og.html" : path);
-    try {
-        const body = readFileSync(file);
-        res.writeHead(200, { "content-type": mime[extname(file)] ?? "application/octet-stream" });
-        res.end(body);
-    } catch {
-        res.writeHead(404);
-        res.end("nope");
-    }
-});
-await new Promise((done) => server.listen(port, "127.0.0.1", done));
+// satori takes an element tree, not HTML
+const el = (type, style, children) => ({ type, props: { style, children } });
 
-// shot.cjs drives the local Brave; fall back to the usual Chromium installs.
-const exe =
-    process.env.OG_BROWSER ??
-    [
-        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    ].find((p) => existsSync(p));
+// paper tooth: feTurbulence rasterized once, shared by every card
+const grainSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncR type="linear" slope="1.9" intercept="-0.45"/><feFuncG type="linear" slope="1.9" intercept="-0.45"/><feFuncB type="linear" slope="1.9" intercept="-0.45"/></feComponentTransfer></filter><rect width="${W}" height="${H}" filter="url(#n)"/></svg>`;
+const grain = `url(data:image/png;base64,${Buffer.from(new Resvg(grainSvg).render().asPng()).toString("base64")})`;
 
-const browser = await chromium.launch(exe ? { executablePath: exe, headless: true } : { headless: true });
-const page = await browser.newPage({
-    viewport: { width: 1200, height: 630 },
-    deviceScaleFactor: 1,
-});
+const layer = (backgroundImage) => el("div", { position: "absolute", top: 0, left: 0, width: W, height: H, backgroundImage });
 
-for (const m of cards) {
-    await page.goto(`http://127.0.0.1:${port}/scripts/og.html?page=${m.slug}`, { waitUntil: "networkidle" });
-    await page.waitForFunction("window.ready === true");
-    await page.locator(".card").screenshot({ path: join(ogDir, `${m.slug}.png`) });
-    console.log("drew", `public/og/${m.slug}.png`);
-}
+const card = ({ tag, title, line }) =>
+    el("div", { width: W, height: H, display: "flex", flexDirection: "column", padding: "64px 72px", backgroundColor: "#f6f8fa", overflow: "hidden" }, [
+        // a glass sheet on a lit desk: specular band sweeping diagonally, key
+        // light upper left, brand bounce lower right, shade at the bottom edge
+        layer("linear-gradient(112deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.6) 45%, rgba(255, 255, 255, 0.12) 57%, rgba(255, 255, 255, 0) 70%)"),
+        layer("radial-gradient(1100px 700px at 144px -63px, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 60%)"),
+        layer("radial-gradient(900px 620px at 1104px 680px, rgba(0, 80, 193, 0.1), rgba(0, 80, 193, 0) 60%)"),
+        layer("linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 35%, rgba(13, 17, 23, 0.05) 100%)"),
+        el("div", { position: "absolute", top: 0, left: 0, width: W, height: H, backgroundImage: grain }),
+        el("header", { position: "relative", display: "flex", alignItems: "center", gap: 24 }, [
+            el("div", { width: 64, height: 64, borderRadius: 14, backgroundColor: "#0d1117", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "2px 2px 2px rgba(13, 17, 23, 0.14), 5px 10px 20px rgba(13, 17, 23, 0.1)" }, el("div", { color: "#4493f8", fontFamily: "Plex Mono", fontWeight: 500, fontSize: 34, lineHeight: 1 }, "z")),
+            el("div", { fontFamily: "Plex Mono", fontWeight: 500, fontSize: 30, lineHeight: 1, color: "#1f2328" }, "zipreader"),
+        ]),
+        el("section", { position: "relative", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", maxWidth: 930 }, [
+            el("div", { width: 56, height: 5, marginBottom: 28, borderRadius: 3, backgroundColor: "#0050c1" }),
+            ...(tag ? [el("div", { marginBottom: 24, fontFamily: "Plex Mono", fontWeight: 500, fontSize: 27, lineHeight: 1, color: "#0050c1" }, tag)] : []),
+            el("h1", { margin: 0, fontFamily: "Plex Serif", fontWeight: 600, fontSize: 92, lineHeight: 1.08, letterSpacing: "-0.025em", color: "#1f2328" }, title),
+            ...(line ? [el("p", { margin: "32px 0 0", maxWidth: 780, fontFamily: "Plex Sans", fontWeight: 400, fontSize: 31, lineHeight: 1.4, color: "#586069" }, line)] : []),
+        ]),
+    ]);
 
-// doc cards: one per real page, with its actual title. Only the stable
-// corpus gets one — every zip, draft, upgrade and external source. PRs are
-// too numerous and churn every sync, so they share the section card.
+// card copy hygiene: collapse whitespace, turn dash separators into commas,
+// strip markdown artifacts (links, headings, emphasis, LaTeX escapes).
+// Upstream prose arrives messy.
+const clean = (s) => (s ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(^|\s)#{1,6}\s+/g, "$1")
+    .replace(/\\/g, "")
+    .replace(/\s*[—–]\s*/g, ", ")
+    .replace(/ - /g, ", ")
+    .replace(/[*_`]/g, "")
+    .trim();
+
+// one fixed headline size means long titles cut off at the same point on
+// every card; cutting at a word boundary reads better than a mid-word clamp
+const fit = (text, max = 40) => {
+    if (!text || text.length <= max + 4) return text;
+    const cut = text.slice(0, max);
+    return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 20)).trimEnd()}…`;
+};
+
 const readJson = (rel) => JSON.parse(readFileSync(join(root, rel), "utf8"));
 const { zips = [] } = readJson("public/api/zips.json");
 const prs = readJson("public/api/prs.json");
 const upgrades = readJson("public/api/upgrades.json").upgrades ?? [];
 const external = readJson("public/api/external.json");
+
 // until the next sync lands abstracts in zips.json, the rendered documents
 // carry them: first paragraph after the Abstract heading
 const renderedAbstract = (slug) => {
@@ -107,7 +112,15 @@ const renderedAbstract = (slug) => {
     }
 };
 
-const docs = [
+const sectionCards = JSON.parse(readFileSync(join(root, "scripts", "og-cards.json"), "utf8")).map((c) => ({
+    name: c.slug,
+    tag: "",
+    title: c.headline,
+    line: c.line,
+}));
+
+const cards = [
+    ...sectionCards,
     ...zips
         .filter((z) => z.number !== null && z.kind === "zip")
         .map((z) => ({ name: z.slug, tag: `ZIP ${z.displayNumber ?? z.number}`, title: z.title, line: z.abstract || renderedAbstract(z.slug) || z.category || z.status || "" })),
@@ -119,66 +132,25 @@ const docs = [
     ...(external?.sources ?? []).map((s) => ({ name: `external-${s.id}`, tag: "", title: s.label, line: s.note ?? "" })),
 ];
 
-// card copy hygiene: collapse whitespace, turn dash separators into commas,
-// strip markdown artifacts (links, headings, emphasis, LaTeX escapes).
-// Upstream prose arrives messy.
-const clean = (s) => (s ?? "")
-    .replace(/\s+/g, " ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/(^|\s)#{1,6}\s+/g, "$1")
-    .replace(/\\/g, "")
-    .replace(/\s*[—–]\s*/g, ", ")
-    .replace(/ - /g, ", ")
-    .replace(/[*_`]/g, "")
-    .trim();
-
-// one fixed headline size means long titles cut off at the same point on
-// every card; cutting at a word boundary reads better than a mid-word clamp
-const fit = (text, max = 40) => {
-    if (!text || text.length <= max + 4) return text;
-    const cut = text.slice(0, max);
-    return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 20)).trimEnd()}…`;
-};
-for (const d of docs) {
-    d.tag = clean(d.tag);
-    d.title = fit(clean(d.title));
-    d.line = clean(d.line);
+for (const c of cards) {
+    c.tag = clean(c.tag);
+    c.title = fit(clean(c.title), 36);
+    c.line = fit(clean(c.line), 92);
 }
 
-const manifestPath = join(ogDir, "manifest.json");
-const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, "utf8")) : {};
-// the template's own content is part of every key, so a design change
-// redraws all cards, not just those whose copy changed
-const template = readFileSync(join(root, "scripts", "og.html"), "utf8");
-const hash = createHash("sha1");
-for (const d of docs) {
-    const key = hash.copy().update(template).update(`${d.tag}|${d.title}|${d.line}`).digest("hex").slice(0, 12);
-    if (manifest[d.name] === key) continue;
-    const query = new URLSearchParams({ tag: d.tag, title: d.title, line: d.line }).toString();
-    await page.goto(`http://127.0.0.1:${port}/scripts/og.html?page=doc&${query}`, { waitUntil: "networkidle" });
-    await page.waitForFunction("window.ready === true");
-    await page.locator(".card").screenshot({ path: join(ogDir, `${d.name}.png`) });
-    manifest[d.name] = key;
-    console.log("drew", `public/og/${d.name}.png`);
+for (const c of cards) {
+    const svg = await satori(card(c), { width: W, height: H, fonts });
+    writeFileSync(join(ogDir, `${c.name}.png`), new Resvg(svg, { fitTo: { mode: "width", value: W } }).render().asPng());
 }
-writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+console.log("drew", `${cards.length} cards -> public/og/`);
 
-// drop cards for pages that no longer exist (closed PRs, removed drafts)
-const docPattern = /^(zip-\d+|draft-|pr-\d+|upgrade-|external-)/;
-for (const file of readdirSync(ogDir)) {
-    if (file.endsWith(".png") && docPattern.test(file) && !manifest[file.replace(".png", "")]) {
-        rmSync(join(ogDir, file));
-        console.log("removed stale", `public/og/${file}`);
-    }
-}
-
-// the touch icon: the app icon rasterized at 180x180
-const icon = readFileSync(join(root, "src", "app", "icon.svg"));
-await page.setContent(
-    `<body style="margin:0"><img style="display:block" width="180" height="180" src="data:image/svg+xml;base64,${icon.toString("base64")}"></body>`,
+// the touch icon: the app icon, drawn like the cards and rasterized
+const iconSvg = await satori(
+    el("div", { width: 180, height: 180, borderRadius: 39, backgroundColor: "#0d1117", display: "flex", alignItems: "center", justifyContent: "center" }, el("div", { color: "#4493f8", fontFamily: "Plex Mono", fontWeight: 500, fontSize: 96, lineHeight: 1 }, "z")),
+    { width: 180, height: 180, fonts },
 );
-await page.locator("img").screenshot({ path: join(root, "public", "apple-touch-icon.png") });
-console.log("drew", "public/apple-touch-icon.png");
+writeFileSync(join(root, "public", "apple-touch-icon.png"), new Resvg(iconSvg, { fitTo: { mode: "width", value: 180 } }).render().asPng());
+console.log("drew public/apple-touch-icon.png");
 
-await browser.close();
-server.close();
+// the preview page cache-busts card images with this
+writeFileSync(join(ogDir, "version.txt"), String(Date.now()));

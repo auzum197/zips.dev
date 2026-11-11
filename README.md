@@ -43,7 +43,7 @@ Every component has its own story file next to it (`src/components/*.stories.tsx
 
 Every route ships its own title, description, canonical URL, Open Graph tags and X card tags. Section pages come from `ogMetadata()` in `src/lib/og.ts` over the copy in `scripts/og-cards.json`; dynamic pages (each ZIP, draft, PR, upgrade, external source) pass a doc-card slug, so a shared link carries a card with that page's real title.
 
-The card images are 1200×630 PNGs in `public/og/`, drawn from `scripts/og.html` with the app icon as `public/apple-touch-icon.png`, and checked in. `pnpm og` draws a card per section plus one per page of the stable corpus — every ZIP, draft, upgrade, external source, and currently-open PR, with its actual title — keyed by a manifest so only changed titles redraw; cards for pages that disappear (closed PRs) are removed. PR previews share their PR's card. After a sync that changes titles, run:
+Card images are 1200×630 PNGs generated at deploy time — never committed. `scripts/og.mjs` draws them with satori + resvg (pure node, no browser): one per section, plus one per page of the stable corpus — every ZIP, draft, upgrade, external source, and currently-open PR, with its actual title — plus the apple-touch-icon. PR previews share their PR's card. `pnpm build` runs it after the sync; run `pnpm og` to draw them standalone:
 
 ```sh
 pnpm og
