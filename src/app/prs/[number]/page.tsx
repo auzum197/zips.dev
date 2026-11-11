@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogMetadata } from "@/lib/og";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { diffToHtml } from "@/lib/diff";
@@ -22,7 +23,7 @@ export async function generateMetadata({ params, }: {
     const pr = getPrByNumber(Number(number));
     if (!pr)
         return {};
-    return { title: `PR ${pr.number}: ${pr.title}` };
+    return ogMetadata({ title: `PR ${pr.number}: ${pr.title}`, path: `/prs/${number}/`, card: `pr-${number}` });
 }
 function docBase(slug: string): {
     href: string;

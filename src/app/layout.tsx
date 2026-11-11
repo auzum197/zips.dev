@@ -12,12 +12,33 @@ import SiteFooter from "@/components/site-footer";
 import ScrollReset from "@/components/scroll-reset";
 import HeaderAutohide from "@/components/header-autohide";
 import { getMeta } from "@/lib/data";
+import { OG_CARDS, ORIGIN, SITE, ogImage } from "@/lib/og";
 export const metadata: Metadata = {
+    metadataBase: new URL(ORIGIN),
     title: {
-        default: "zipreader",
-        template: "%s · zipreader",
+        default: SITE,
+        template: `%s · ${SITE}`,
     },
     description: "Unofficial explorer for Zcash Improvement Proposals: rendered ZIPs, open PRs, implementations, and network upgrade timelines.",
+    openGraph: {
+        url: "/",
+        siteName: SITE,
+        type: "website",
+        locale: "en_US",
+        // routes override this with their section card; dynamic routes and
+        // anything without its own metadata fall back to the home card.
+        images: [
+            {
+                url: ogImage(),
+                width: 1200,
+                height: 630,
+                alt: OG_CARDS[0].alt,
+            },
+        ],
+    },
+    twitter: {
+        card: "summary_large_image",
+    },
 };
 const themeInit = `try{var t=localStorage.getItem("zd-theme");var d=t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches);var c=document.documentElement.classList;d?c.add("dark"):c.add("light");}catch(e){}`;
 export default function RootLayout({ children }: {

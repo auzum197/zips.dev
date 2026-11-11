@@ -39,6 +39,24 @@ pnpm storybook   # component workbench at http://localhost:6006
 
 Every component has its own story file next to it (`src/components/*.stories.tsx`, `src/components/ui/*.stories.tsx`). Mock data lives in `src/lib/fixtures.ts`.
 
+## Link previews
+
+Every route ships its own title, description, canonical URL, Open Graph tags and X card tags. Section pages come from `ogMetadata()` in `src/lib/og.ts` over the copy in `scripts/og-cards.json`; dynamic pages (each ZIP, draft, PR, upgrade, external source) pass a doc-card slug, so a shared link carries a card with that page's real title.
+
+The card images are 1200×630 PNGs in `public/og/`, drawn from `scripts/og.html` with the app icon as `public/apple-touch-icon.png`, and checked in. `pnpm og` draws a card per section plus one per page of the stable corpus — every ZIP, draft, upgrade, external source, and currently-open PR, with its actual title — keyed by a manifest so only changed titles redraw; cards for pages that disappear (closed PRs) are removed. PR previews share their PR's card. After a sync that changes titles, run:
+
+```sh
+pnpm og
+```
+
+To see the cards before a deploy, run:
+
+```sh
+pnpm og:preview
+```
+
+It starts the dev server and opens `/og-preview.html`, which fetches each sample route as a crawler does and shows four sections: the images, a table of checks with a column per route, the card as X, Slack, Discord, LinkedIn, Facebook and iMessage lay it out for a chosen route, and the raw tags. Once the site is live, the platforms' own tools show the real result: the Facebook Sharing Debugger, the LinkedIn Post Inspector, and a draft post on X.
+
 pnpm is the package manager of record: `"packageManager"` pins the version (Corepack-compatible), `pnpm-lock.yaml` is committed, CI installs with `--frozen-lockfile`.
 
 Upstream is vendored read-only in `vendor/zips/` (shallow clone). Re-run `npm run sync` to refresh; the pinned commit lands in `content/meta.json` and the site footer.

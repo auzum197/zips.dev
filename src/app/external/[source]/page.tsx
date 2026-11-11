@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogMetadata } from "@/lib/og";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/page-header";
 import PrList from "@/components/pr-list";
@@ -16,10 +17,12 @@ export async function generateMetadata({ params, }: {
     const s = getExternalSource(source);
     if (!s)
         return {};
-    return {
-        title: `${s.label} — External Drafts`,
+    return ogMetadata({
+        title: `${s.label} external drafts`,
         description: s.note ?? undefined,
-    };
+        path: `/external/${source}/`,
+        card: `external-${source}`,
+    });
 }
 export default async function ExternalSourcePage({ params, }: {
     params: Promise<{

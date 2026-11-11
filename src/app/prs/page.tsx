@@ -1,13 +1,16 @@
+import { ogMetadata } from "@/lib/og";
 import type { Metadata } from "next";
 import Link from "next/link";
 import PrList from "@/components/pr-list";
 import PageHeader from "@/components/page-header";
 import { getPrError, getPrs, getZipByNumber } from "@/lib/data";
 import type { PrMeta } from "@/lib/types";
-export const metadata: Metadata = {
+export const metadata: Metadata = ogMetadata({
     title: "Pull Requests",
     description: "Open pull requests to zcash/zips, mapped to the ZIPs and drafts they touch.",
-};
+    path: "/prs/",
+    card: "prs",
+});
 function byUpdatedDesc(a: PrMeta, b: PrMeta): number {
     return b.updatedAt.localeCompare(a.updatedAt);
 }

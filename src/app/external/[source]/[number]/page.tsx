@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogMetadata } from "@/lib/og";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { diffToHtml } from "@/lib/diff";
@@ -32,7 +33,11 @@ export async function generateMetadata({ params, }: {
     if (!pr)
         return {};
     const s = getExternalSource(source);
-    return { title: `${s?.label ?? source} PR ${pr.number}: ${pr.title}` };
+    return ogMetadata({
+        title: `${s?.label ?? source} PR ${pr.number}: ${pr.title}`,
+        path: `/external/${source}/${number}/`,
+        card: `external-${source}`,
+    });
 }
 function PreviewRow({ pr, pv }: {
     pr: PrMeta;

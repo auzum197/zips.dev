@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogMetadata } from "@/lib/og";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getExternalPr, getExternalPrsForSource, getExternalSource, getExternalSources, getPrPreviewHtml, prPreviews, } from "@/lib/data";
@@ -39,7 +40,11 @@ export async function generateMetadata({ params, }: {
     if (!pr || !pv)
         return {};
     const s = getExternalSource(source);
-    return { title: `${s?.label ?? source} PR ${pr.number}: ${pv.title}` };
+    return ogMetadata({
+        title: `${s?.label ?? source} PR ${pr.number}: ${pv.title}`,
+        path: `/external/${source}/${number}/${slug}/`,
+        card: `external-${source}`,
+    });
 }
 export default async function ExternalPrDocPage({ params, }: {
     params: Promise<{

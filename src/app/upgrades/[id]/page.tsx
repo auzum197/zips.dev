@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogMetadata } from "@/lib/og";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import StatusBadge from "@/components/status-badge";
@@ -26,10 +27,14 @@ export async function generateMetadata({ params, }: {
     const u = getUpgrade(id);
     if (!u)
         return { title: "Not Found" };
-    return {
-        title: `${u.name} (${u.code})`,
+    // "Overwinter (NU1)" reads well; "NU7 (NU7)" does not
+    const name = u.name.toUpperCase() === u.code.toUpperCase() ? u.name : `${u.name} (${u.code})`;
+    return ogMetadata({
+        title: name,
         description: u.summary,
-    };
+        path: `/upgrades/${id}/`,
+        card: `upgrade-${id}`,
+    });
 }
 function zipOrUndefined(n: number): ZipMeta | undefined {
     return getZipByNumber(n);

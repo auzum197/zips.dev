@@ -1,3 +1,4 @@
+import { ogMetadata } from "@/lib/og";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -7,9 +8,12 @@ import StatusBadge from "@/components/status-badge";
 import { dateSlice } from "@/lib/date";
 import { getDrafts, getExternalPrs, getExternalSource, getExternalSources, prPreviews, } from "@/lib/data";
 import type { PrMeta, PrPreview } from "@/lib/types";
-export const metadata: Metadata = {
+export const metadata: Metadata = ogMetadata({
     title: "Drafts",
-};
+    description: "Draft ZIPs introduced by open pull requests, rendered before they merge.",
+    path: "/drafts/",
+    card: "drafts",
+});
 export default function DraftsPage() {
     const drafts = [...getDrafts()].sort((a, b) => a.slug.localeCompare(b.slug));
     const sourceLabel = (id: string | null) => (id ? getExternalSource(id)?.label : undefined);

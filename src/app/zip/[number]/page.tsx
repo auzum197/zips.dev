@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ogMetadata } from "@/lib/og";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCrossrefs, getMeta, getNumberedZips, getZipByNumber, getZipBySlug, getZipHtml, prsForZip, upgradeNameForZip, } from "@/lib/data";
@@ -26,7 +27,7 @@ export async function generateMetadata({ params, }: {
     const zip = /^\d+$/.test(number) ? getZipByNumber(Number(number)) : undefined;
     if (!zip)
         return {};
-    return { title: `ZIP ${zip.number}: ${zip.title}` };
+    return ogMetadata({ title: `ZIP ${zip.number}: ${zip.title}`, path: `/zip/${number}/`, card: zip.slug });
 }
 const badgesRow = "inline-flex flex-wrap items-center gap-1.5 [&>span]:whitespace-normal";
 export default async function Page({ params, }: {
