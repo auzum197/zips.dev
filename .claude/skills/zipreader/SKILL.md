@@ -1,5 +1,5 @@
 ---
-name: zipreader-api
+name: zipreader
 description: Query the zipreader JSON API (zipreader.org) for Zcash Improvement Proposals. Use when asked about a ZIP by number or title, a ZIP's status, owners or category, draft ZIPs, open pull requests to zcash/zips, what a PR changes or proposes, watched third-party proposals (Tachyon), what is new in zcash/zips, or Zcash network upgrades (Sapling, NU5, NU6, NU7).
 ---
 
