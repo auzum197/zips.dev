@@ -2,6 +2,11 @@
 // page of the stable corpus (every zip, draft, upgrade, external source,
 // currently-open PR — with its real title), plus the apple-touch-icon.
 //
+// The card is the zipreader project card of auzum197.com, full bleed: the
+// index of ZIP numbers in their status colours fading out from the top right,
+// a vignette from the bottom left, the page's title and line over it. A page
+// that is about specific ZIPs lights those numbers and dims the rest.
+//
 // Pure node: satori draws the card, resvg rasterizes it. Runs at deploy time
 // as part of `pnpm build`; nothing lands in git.
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
@@ -23,13 +28,14 @@ const fontFile = (pkg: string, weight: number): Buffer =>
 const fonts: Array<{
     name: string;
     data: Buffer;
-    weight: 400 | 500 | 600;
+    weight: 400 | 500 | 700;
     style: "normal";
 }> = [
-    { name: "Plex Sans", data: fontFile("ibm-plex-sans", 400), weight: 400, style: "normal" },
-    { name: "Plex Sans", data: fontFile("ibm-plex-sans", 600), weight: 600, style: "normal" },
+    { name: "Geist", data: fontFile("geist-sans", 400), weight: 400, style: "normal" },
+    { name: "Geist Mono", data: fontFile("geist-mono", 400), weight: 400, style: "normal" },
+    { name: "Geist Mono", data: fontFile("geist-mono", 700), weight: 700, style: "normal" },
+    // the touch icon only
     { name: "Plex Mono", data: fontFile("ibm-plex-mono", 500), weight: 500, style: "normal" },
-    { name: "Plex Serif", data: fontFile("ibm-plex-serif", 600), weight: 600, style: "normal" },
 ];
 
 // satori takes an element tree, not HTML
@@ -39,39 +45,90 @@ const el = (type: string, style: CSSProperties, children?: ReactNode): ReactElem
     key: null,
 });
 
-// paper tooth: feTurbulence rasterized once, shared by every card
-const grainSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncR type="linear" slope="1.9" intercept="-0.45"/><feFuncG type="linear" slope="1.9" intercept="-0.45"/><feFuncB type="linear" slope="1.9" intercept="-0.45"/></feComponentTransfer></filter><rect width="${W}" height="${H}" filter="url(#n)"/></svg>`;
-const grain = `url(data:image/png;base64,${Buffer.from(new Resvg(grainSvg).render().asPng()).toString("base64")})`;
+const readJson = <T,>(rel: string): T => JSON.parse(readFileSync(join(root, rel), "utf8")) as T;
 
-const layer = (backgroundImage: string): ReactElement =>
-    el("div", { position: "absolute", top: 0, left: 0, width: W, height: H, backgroundImage });
+interface ZipEntry {
+    slug: string;
+    number: number | null;
+    displayNumber: string;
+    kind: "zip" | "draft";
+    title: string;
+    abstract: string;
+    category: string;
+    status: string;
+}
+const { zips = [] } = readJson<{ zips?: ZipEntry[] }>("public/api/zips.json");
+
+// the palette of auzum197.com, in hex because satori does not read oklch
+const INK = "#ebe7da";
+const SURFACE = "#0c0c0b";
+// zipreader's dark-theme status colours
+const STATUS_COLOR: Record<string, string> = {
+    Final: "#6de77e",
+    Active: "#86d5ff",
+    Proposed: "#e8baff",
+    Draft: "#fbc24b",
+    Reserved: "#6e6e6e",
+    Obsolete: "#ffbab2",
+    Withdrawn: "#ffbab2",
+};
+// a multi-revision status ("[Revision 0] Active, [Revision 1] ...") takes its first word
+const statusColor = (status: string): string =>
+    STATUS_COLOR[(status ?? "").match(/Final|Active|Proposed|Draft|Reserved|Obsolete|Withdrawn/)?.[0] ?? ""] ?? "#6e6e6e";
+
+// the index: every numbered ZIP, 12 to a row, right-aligned in its cell.
+// Each number's opacity follows an elliptical falloff from the top-right
+// corner (full to 38% of the way, gone by 76%), which is the card's CSS mask
+// worked out per number.
+const COLS = 12;
+const GRID = { top: 44, left: 48, width: W - 96, size: 31, pitch: 41 };
+const CELL = GRID.width / COLS;
+const index = zips
+    .filter((z): z is ZipEntry & { number: number } => z.number !== null && z.kind === "zip")
+    .sort((a, b) => a.number - b.number)
+    .map((z, i, all) => {
+        const col = i % COLS;
+        const row = Math.floor(i / COLS);
+        const height = Math.ceil(all.length / COLS) * GRID.pitch - (GRID.pitch - GRID.size);
+        const r = Math.hypot((GRID.width - ((col + 1) * CELL - 27)) / GRID.width, (row * GRID.pitch + GRID.size / 2) / height);
+        return {
+            number: z.number,
+            color: statusColor(z.status),
+            left: GRID.left + col * CELL,
+            top: GRID.top + row * GRID.pitch,
+            fade: Math.min(1, Math.max(0, (0.76 - r) / 0.38)),
+        };
+    })
+    .filter((n) => n.fade > 0.01);
 
 interface CardCopy {
-    tag: string;
     title: string;
     line: string;
+    // the ZIPs this page is about; empty leaves the whole index in colour
+    lit: number[];
 }
 
-const card = ({ tag, title, line }: CardCopy): ReactElement =>
-    el("div", { width: W, height: H, display: "flex", flexDirection: "column", padding: "64px 72px", backgroundColor: "#f6f8fa", overflow: "hidden" }, [
-        // a glass sheet on a lit desk: specular band sweeping diagonally, key
-        // light upper left, brand bounce lower right, shade at the bottom edge
-        layer("linear-gradient(112deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.6) 45%, rgba(255, 255, 255, 0.12) 57%, rgba(255, 255, 255, 0) 70%)"),
-        layer("radial-gradient(1100px 700px at 144px -63px, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 60%)"),
-        layer("radial-gradient(900px 620px at 1104px 680px, rgba(0, 80, 193, 0.1), rgba(0, 80, 193, 0) 60%)"),
-        layer("linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 35%, rgba(13, 17, 23, 0.05) 100%)"),
-        el("div", { position: "absolute", top: 0, left: 0, width: W, height: H, backgroundImage: grain }),
-        el("header", { position: "relative", display: "flex", alignItems: "center", gap: 24 }, [
-            el("div", { width: 64, height: 64, borderRadius: 14, backgroundColor: "#0d1117", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "2px 2px 2px rgba(13, 17, 23, 0.14), 5px 10px 20px rgba(13, 17, 23, 0.1)" }, el("div", { color: "#4493f8", fontFamily: "Plex Mono", fontWeight: 500, fontSize: 34, lineHeight: 1 }, "z")),
-            el("div", { fontFamily: "Plex Mono", fontWeight: 500, fontSize: 30, lineHeight: 1, color: "#1f2328" }, "zipreader"),
-        ]),
-        el("section", { position: "relative", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", maxWidth: 930 }, [
-            el("div", { width: 56, height: 5, marginBottom: 28, borderRadius: 3, backgroundColor: "#0050c1" }),
-            ...(tag ? [el("div", { marginBottom: 24, fontFamily: "Plex Mono", fontWeight: 500, fontSize: 27, lineHeight: 1, color: "#0050c1" }, tag)] : []),
-            el("h1", { margin: 0, fontFamily: "Plex Serif", fontWeight: 600, fontSize: 92, lineHeight: 1.08, letterSpacing: "-0.025em", color: "#1f2328" }, title),
-            ...(line ? [el("p", { margin: "32px 0 0", maxWidth: 780, fontFamily: "Plex Sans", fontWeight: 400, fontSize: 31, lineHeight: 1.4, color: "#586069" }, line)] : []),
+const card = ({ title, line, lit }: CardCopy): ReactElement => {
+    // a spotlight only counts if the number is in the visible part of the index
+    const spot = index.some((n) => lit.includes(n.number));
+    return el("div", { width: W, height: H, display: "flex", backgroundColor: SURFACE, overflow: "hidden" }, [
+        ...index.map((n) => {
+            const on = spot && lit.includes(n.number);
+            return el("div", {
+                position: "absolute", top: n.top, left: n.left, width: CELL, display: "flex", justifyContent: "flex-end",
+                fontFamily: "Geist Mono", fontWeight: on ? 700 : 400, fontSize: GRID.size, lineHeight: 1,
+                color: n.color, opacity: n.fade * (on ? 1 : spot ? 0.32 : 0.95),
+                ...(on ? { textShadow: `0 0 10px ${n.color}47` } : {}),
+            }, String(n.number));
+        }),
+        // the vignette of the site's cards: dark from the bottom left, under the copy
+        el("div", { position: "absolute", top: 0, left: 0, width: W, height: H, backgroundImage: "radial-gradient(1440px 945px at 0px 630px, #080808 0%, rgba(8, 8, 8, 0.88) 28%, rgba(8, 8, 8, 0.45) 48%, rgba(8, 8, 8, 0) 68%)" }),
+        el("section", { position: "absolute", left: 72, bottom: 68, width: 940, display: "flex", flexDirection: "column" }, [
+            el("h1", { margin: 0, fontFamily: "Geist", fontWeight: 400, fontSize: 66, lineHeight: 1.06, letterSpacing: "-0.015em", color: INK, lineClamp: 2 }, title),
+            ...(line ? [el("p", { margin: "22px 0 0", maxWidth: 900, fontFamily: "Geist Mono", fontWeight: 400, fontSize: 27, lineHeight: 1.35, color: "rgba(235, 231, 218, 0.72)", lineClamp: 2 }, line)] : []),
         ]),
     ]);
+};
 
 // card copy hygiene: collapse whitespace, turn dash separators into commas,
 // strip markdown artifacts (links, headings, emphasis, LaTeX escapes).
@@ -94,21 +151,8 @@ const fit = (text: string, max = 40): string => {
     return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 20)).trimEnd()}…`;
 };
 
-const readJson = <T,>(rel: string): T => JSON.parse(readFileSync(join(root, rel), "utf8")) as T;
-
-interface ZipEntry {
-    slug: string;
-    number: number | null;
-    displayNumber: string;
-    kind: "zip" | "draft";
-    title: string;
-    abstract: string;
-    category: string;
-    status: string;
-}
-const { zips = [] } = readJson<{ zips?: ZipEntry[] }>("public/api/zips.json");
-const prs = readJson<{ prs?: Array<{ number: number; title: string; author: string | null; bodyExcerpt: string }> | null }>("public/api/prs.json");
-const upgrades = readJson<{ upgrades?: Array<{ id: string; name: string; summary?: string }> }>("public/api/upgrades.json").upgrades ?? [];
+const prs = readJson<{ prs?: Array<{ number: number; title: string; author: string | null; bodyExcerpt: string; zipRefs?: number[] }> | null }>("public/api/prs.json");
+const upgrades = readJson<{ upgrades?: Array<{ id: string; name: string; summary?: string; zips?: number[] }> }>("public/api/upgrades.json").upgrades ?? [];
 const external = readJson<{ sources?: Array<{ id: string; label: string; note?: string | null }> }>("public/api/external.json");
 
 // until the next sync lands abstracts in zips.json, the rendered documents
@@ -142,9 +186,9 @@ const renderedAbstract = (slug: string): string => {
 
 const sectionCards = readJson<Array<{ slug: string; headline: string; line: string }>>(join("scripts", "og-cards.json")).map((c) => ({
     name: c.slug,
-    tag: "",
     title: c.headline,
     line: c.line,
+    lit: [] as number[],
 }));
 
 interface NamedCard extends CardCopy {
@@ -154,18 +198,17 @@ const cards: NamedCard[] = [
     ...sectionCards,
     ...zips
         .filter((z) => z.number !== null && z.kind === "zip")
-        .map((z) => ({ name: z.slug, tag: `ZIP ${z.displayNumber ?? z.number}`, title: z.title, line: z.abstract || renderedAbstract(z.slug) || z.category || z.status || "" })),
+        .map((z) => ({ name: z.slug, title: z.title, line: z.abstract || renderedAbstract(z.slug) || z.category || z.status || "", lit: [z.number as number] })),
     ...zips
         .filter((z) => z.kind === "draft")
-        .map((z) => ({ name: z.slug, tag: "Draft", title: z.title, line: z.abstract || renderedAbstract(z.slug) || z.category || "" })),
-    ...(prs?.prs ?? []).map((p) => ({ name: `pr-${p.number}`, tag: "Pull request", title: p.title, line: p.bodyExcerpt || `by ${p.author}` })),
-    ...upgrades.map((u) => ({ name: `upgrade-${u.id}`, tag: "Upgrade", title: u.name, line: u.summary ?? "" })),
-    ...(external?.sources ?? []).map((s) => ({ name: `external-${s.id}`, tag: "", title: s.label, line: s.note ?? "" })),
+        .map((z) => ({ name: z.slug, title: z.title, line: z.abstract || renderedAbstract(z.slug) || z.category || "", lit: [] })),
+    ...(prs?.prs ?? []).map((p) => ({ name: `pr-${p.number}`, title: p.title, line: p.bodyExcerpt || `by ${p.author}`, lit: p.zipRefs ?? [] })),
+    ...upgrades.map((u) => ({ name: `upgrade-${u.id}`, title: u.name, line: u.summary ?? "", lit: u.zips ?? [] })),
+    ...(external?.sources ?? []).map((s) => ({ name: `external-${s.id}`, title: s.label, line: s.note ?? "", lit: [] })),
 ];
 
 for (const c of cards) {
-    c.tag = clean(c.tag);
-    c.title = fit(clean(c.title), 36);
+    c.title = fit(clean(c.title), 52);
     c.line = fit(clean(c.line), 92);
 }
 
