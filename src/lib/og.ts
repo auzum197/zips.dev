@@ -10,7 +10,7 @@ export const ORIGIN = "https://zipreader.org";
 export type OgCard = (typeof cards)[number];
 export const OG_CARDS = cards as OgCard[];
 
-// 1200x630 PNGs in public/og/, drawn from scripts/og.html by `pnpm og`.
+// 1200x630 PNGs in public/og/, drawn by scripts/og.mts on `pnpm og`.
 // Section slugs come from og-cards.json; doc cards carry the page's real
 // title and are drawn from the synced /api data. Anything without a card of
 // its own falls back to the home card set here and in the root layout.
@@ -46,7 +46,7 @@ export function ogMetadata(opts: {
         url: ogImage(slug),
         width: 1200,
         height: 630,
-        alt: known?.alt ?? `${opts.title}, in serif type on a grained paper card.`,
+        alt: known?.alt ?? `${opts.title}, over a grid of ZIP numbers coloured by status.`,
     };
     const openGraph: NonNullable<Metadata["openGraph"]> = {
         url: `${ORIGIN}${opts.path}`,
