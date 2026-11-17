@@ -12,6 +12,7 @@
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { deflateSync } from "node:zlib";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
@@ -108,11 +109,13 @@ interface CardCopy {
     lit: number[];
 }
 
-const card = ({ title, line, lit }: CardCopy): ReactElement => {
+// The card is drawn as two layers, and the vignette goes between them in
+// compose() below: the index under it, the copy over it.
+const indexLayer = ({ lit }: CardCopy): ReactElement => {
     // a spotlight only counts if the number is in the visible part of the index
     const spot = index.some((n) => lit.includes(n.number));
-    return el("div", { width: W, height: H, display: "flex", backgroundColor: SURFACE, overflow: "hidden" }, [
-        ...index.map((n) => {
+    return el("div", { width: W, height: H, display: "flex", backgroundColor: SURFACE, overflow: "hidden" },
+        index.map((n) => {
             const on = spot && lit.includes(n.number);
             return el("div", {
                 position: "absolute", top: n.top, left: n.left, width: CELL, display: "flex", justifyContent: "flex-end",
@@ -120,13 +123,89 @@ const card = ({ title, line, lit }: CardCopy): ReactElement => {
                 color: n.color, opacity: n.fade * (on ? 1 : spot ? 0.32 : 0.95),
                 ...(on ? { textShadow: `0 0 10px ${n.color}47` } : {}),
             }, String(n.number));
-        }),
-        // the vignette of the site's cards: dark from the bottom left, under the copy
-        el("div", { position: "absolute", top: 0, left: 0, width: W, height: H, backgroundImage: "radial-gradient(1440px 945px at 0px 630px, #080808 0%, rgba(8, 8, 8, 0.88) 28%, rgba(8, 8, 8, 0.45) 48%, rgba(8, 8, 8, 0) 68%)" }),
+        }));
+};
+const copyLayer = ({ title, line }: CardCopy): ReactElement =>
+    el("div", { width: W, height: H, display: "flex" }, [
         el("section", { position: "absolute", left: 72, bottom: 68, width: 940, display: "flex", flexDirection: "column" }, [
             el("h1", { margin: 0, fontFamily: "Geist", fontWeight: 400, fontSize: 66, lineHeight: 1.06, letterSpacing: "-0.015em", color: INK, lineClamp: 2 }, title),
             ...(line ? [el("p", { margin: "22px 0 0", maxWidth: 900, fontFamily: "Geist Mono", fontWeight: 400, fontSize: 27, lineHeight: 1.35, color: "rgba(235, 231, 218, 0.72)", lineClamp: 2 }, line)] : []),
         ]),
+    ]);
+
+// The vignette of the site's cards: dark from the bottom left, under the copy.
+// In CSS: radial-gradient(1440px 945px at 0px 630px, #080808 0%,
+// rgba(8,8,8,.88) 28%, rgba(8,8,8,.45) 48%, rgba(8,8,8,0) 68%).
+//
+// It is worked out here, per pixel, and not left to the rasterizer: it crosses
+// the card on four grey levels (#080808 to #0c0c0b), and at 8 bits those show
+// as rings. Here the blend stays fractional and is dithered down to 8 bits, so
+// the steps break up into noise too fine to see.
+const VIGNETTE = { rx: 1440, ry: 945, level: 8, stops: [[0, 1], [0.28, 0.88], [0.48, 0.45], [0.68, 0]] };
+const vignetteAlpha = new Float32Array(W * H);
+// one threshold per pixel, in [0, 1): interleaved gradient noise. It is fixed,
+// so a card renders to the same bytes every time.
+const threshold = new Float32Array(W * H);
+for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+        const t = Math.hypot((x + 0.5) / VIGNETTE.rx, (H - y - 0.5) / VIGNETTE.ry);
+        const i = VIGNETTE.stops.findIndex(([stop]) => t < stop);
+        if (i > 0) {
+            const [t0, a0] = VIGNETTE.stops[i - 1], [t1, a1] = VIGNETTE.stops[i];
+            vignetteAlpha[y * W + x] = a0 + ((a1 - a0) * (t - t0)) / (t1 - t0);
+        }
+        threshold[y * W + x] = (52.9829189 * ((0.06711056 * x + 0.00583715 * y) % 1)) % 1;
+    }
+}
+
+const rasterize = async (layer: ReactElement): Promise<Buffer> =>
+    new Resvg(await satori(layer, { width: W, height: H, fonts }), { fitTo: { mode: "width", value: W } }).render().pixels;
+
+// index, then vignette, then copy; returns RGB rows
+const compose = (under: Buffer, over: Buffer): Buffer => {
+    const out = Buffer.alloc(W * H * 3);
+    for (let p = 0; p < W * H; p++) {
+        const a = vignetteAlpha[p];
+        const cover = over[p * 4 + 3] / 255;
+        for (let ch = 0; ch < 3; ch++) {
+            const dimmed = under[p * 4 + ch] * (1 - a) + VIGNETTE.level * a;
+            // resvg hands out premultiplied pixels
+            const v = over[p * 4 + ch] + dimmed * (1 - cover);
+            out[p * 3 + ch] = Math.min(255, Math.floor(v + threshold[p]));
+        }
+    }
+    return out;
+};
+
+// a minimal PNG writer for 8-bit RGB
+const CRC = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+});
+const chunk = (type: string, data: Buffer): Buffer => {
+    const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+    let c = 0xffffffff;
+    for (const b of body) c = CRC[(c ^ b) & 0xff] ^ (c >>> 8);
+    const frame = Buffer.alloc(body.length + 8);
+    frame.writeUInt32BE(data.length, 0);
+    body.copy(frame, 4);
+    frame.writeUInt32BE((c ^ 0xffffffff) >>> 0, body.length + 4);
+    return frame;
+};
+const png = (rgb: Buffer): Buffer => {
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(W, 0);
+    header.writeUInt32BE(H, 4);
+    header.set([8, 2, 0, 0, 0], 8);
+    // every row leads with its filter byte: 0, none
+    const rows = Buffer.alloc((W * 3 + 1) * H);
+    for (let y = 0; y < H; y++) rgb.copy(rows, y * (W * 3 + 1) + 1, y * W * 3, (y + 1) * W * 3);
+    return Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk("IHDR", header),
+        chunk("IDAT", deflateSync(rows, { level: 9 })),
+        chunk("IEND", Buffer.alloc(0)),
     ]);
 };
 
@@ -213,8 +292,7 @@ for (const c of cards) {
 }
 
 for (const c of cards) {
-    const svg = await satori(card(c), { width: W, height: H, fonts });
-    writeFileSync(join(ogDir, `${c.name}.png`), new Resvg(svg, { fitTo: { mode: "width", value: W } }).render().asPng());
+    writeFileSync(join(ogDir, `${c.name}.png`), png(compose(await rasterize(indexLayer(c)), await rasterize(copyLayer(c)))));
 }
 console.log("drew", `${cards.length} cards -> public/og/`);
 
