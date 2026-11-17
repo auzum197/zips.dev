@@ -218,11 +218,8 @@ for (const c of cards) {
 }
 console.log("drew", `${cards.length} cards -> public/og/`);
 
-// the touch icon: the app icon, drawn like the cards and rasterized
-const iconSvg = await satori(
-    el("div", { width: 180, height: 180, borderRadius: 39, backgroundColor: "#0d1117", display: "flex", alignItems: "center", justifyContent: "center" }, el("div", { color: "#4493f8", fontFamily: "Plex Mono", fontWeight: 500, fontSize: 96, lineHeight: 1 }, "z")),
-    { width: 180, height: 180, fonts },
-);
+// the touch icon: the app icon, rasterized
+const iconSvg = readFileSync(join(root, "src", "app", "icon.svg"), "utf8");
 writeFileSync(join(root, "public", "apple-touch-icon.png"), new Resvg(iconSvg, { fitTo: { mode: "width", value: 180 } }).render().asPng());
 console.log("drew public/apple-touch-icon.png");
 
