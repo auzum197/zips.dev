@@ -7,7 +7,9 @@ const links = [
     { href: "/new/", label: "New" },
     { href: "/prs/", label: "PRs" },
     { href: "/external/", label: "External" },
-    { href: "/matrix/", label: "Matrix" },
+    // Shown but not reachable: the implementation data is out of date. The
+    // page at /matrix/ still exists for links that are already published.
+    { href: "/matrix/", label: "Adoption", disabled: true },
     { href: "/upgrades/", label: "Upgrades" },
     { href: "/search/", label: "Search" },
 ];
@@ -18,7 +20,9 @@ export default function SiteNav() {
           zip<span className="text-accent">reader</span>
         </Link>
         <nav aria-label="Main" className="zen-dim order-last -mx-2.5 flex w-[calc(100%+1.25rem)] gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[48rem]:order-none min-[48rem]:mx-0 min-[48rem]:ml-2 min-[48rem]:w-auto">
-          {links.map((l) => (<Link key={l.href} href={l.href} className="rounded-md px-2.5 py-1.5 text-sm text-muted-foreground whitespace-nowrap min-[48rem]:py-1 hover:bg-muted hover:text-foreground hover:no-underline">
+          {links.map((l) => "disabled" in l && l.disabled ? (<span key={l.href} aria-disabled="true" className="cursor-not-allowed rounded-md px-2.5 py-1.5 text-sm text-faint/70 whitespace-nowrap min-[48rem]:py-1">
+              {l.label}
+            </span>) : (<Link key={l.href} href={l.href} className="rounded-md px-2.5 py-1.5 text-sm text-muted-foreground whitespace-nowrap min-[48rem]:py-1 hover:bg-muted hover:text-foreground hover:no-underline">
               {l.label}
             </Link>))}
         </nav>
