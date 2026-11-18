@@ -1,0 +1,317 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminology</h1>
+<p>The key words &quot;MUST&quot;, &quot;MUST NOT&quot;, &quot;SHOULD&quot;, and &quot;MAY&quot; in this document are to be
+interpreted as described in BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> when, and only when, they appear in all
+capitals.</p>
+<p>The term &quot;network upgrade&quot; in this document is to be interpreted as described in ZIP 200.
+<a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a></p>
+<p>&quot;Legacy protocol&quot; means the P2P network protocol specified in ZIP 204. <a class="brackets" href="#zip-0204" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>
+<span class="docutils literal">uint8</span>, <span class="docutils literal">uint32</span>, and CompactSize are as defined there.</p>
+<p>The <em>tree roots</em> of a block are its Sapling, Orchard, and Ironwood note commitment tree
+roots, that is, the roots of those trees after the block's note commitments are appended.
+<a class="brackets" href="#protocol" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> <a class="brackets" href="#zip-0229" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a></p>
+</section>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Abstract</h1>
+<p>This ZIP adds a service bit and two messages, <span class="docutils literal">gettreeroots</span> and <span class="docutils literal">treeroots</span>, to the
+legacy protocol. With them a node obtains the tree roots of a range of blocks from a peer.
+The node does not trust the peer: it checks each block's roots against the commitments in
+the headers of that block and its successor. A node syncing from checkpoints can then
+maintain its chain history tree without computing the Sapling, Orchard, and Ironwood note
+commitment trees.</p>
+</section>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivation</h1>
+<p>A node needs every block's tree roots. They are committed to by the chain history tree
+<a class="brackets" href="#zip-0221" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, and are the anchors that later spends reference. Computing them requires
+updating the note commitment trees, which is most of the cost of committing blocks with
+many shielded outputs. During checkpoint sync, the node needs the trees only for their
+roots.</p>
+<p>The roots are small and are authenticated by block headers, so any peer can supply them.
+The draft version 2 P2P protocol has a <span class="docutils literal"><span class="pre">get-tree-roots</span></span> request for this purpose.
+<a class="brackets" href="#p2p-v2" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> This ZIP specifies the equivalent for the legacy protocol.</p>
+</section>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Privacy Implications</h1>
+<p>Requests reveal the heights a node is syncing, as <span class="docutils literal">getheaders</span> and <span class="docutils literal">getdata</span> already
+do.</p>
+</section>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>Non-requirements</h1>
+<p>This ZIP does not provide note commitment tree frontiers, Sprout roots, or historical tree
+states. A node that uses supplied roots instead of updating its trees cannot update them
+again until it obtains authenticated frontiers by other means, which this ZIP does not
+specify.</p>
+</section>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Specification</h1>
+<h2 id="service-bit"><a class="hanchor" href="#service-bit" aria-hidden="true" tabindex="-1">#</a>Service bit</h2>
+<p><span class="docutils literal">NODE_TREE_ROOTS</span> (bit 3) in the <span class="docutils literal">services</span> field of a <span class="docutils literal">version</span> message signals that
+the node answers <span class="docutils literal">gettreeroots</span>. A node MUST NOT send <span class="docutils literal">gettreeroots</span> to a peer that did
+not set this bit in its <span class="docutils literal">version</span> message.</p>
+</section>
+<h2 id="gettreeroots"><a class="hanchor" href="#gettreeroots" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">gettreeroots</span></h2>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">gettreeroots</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">start_height</span></p></td>
+<td><p>Height of the first block (<span class="docutils literal">uint32</span>).</p></td>
+</tr>
+<tr><td><p>32</p></td>
+<td><p><span class="docutils literal">final_hash</span></p></td>
+<td><p>Hash of the last block in the range.</p></td>
+</tr>
+<tr><td><p>4</p></td>
+<td><p><span class="docutils literal">count</span></p></td>
+<td><p>Number of blocks, from 1 to 4000 (<span class="docutils literal">uint32</span>).</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Requests the tree roots of the blocks at heights <span class="docutils literal">start_height</span> to <span class="docutils literal">end</span>, where
+<span class="docutils literal">end = start_height + count - 1</span>, computed without wrapping. <span class="docutils literal">final_hash</span> is in the
+internal byte order used for <span class="docutils literal">hashPrevBlock</span>. <a class="brackets" href="#protocol-blockheader" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a> A node MUST reject
+a <span class="docutils literal">gettreeroots</span> message whose <span class="docutils literal">count</span> is 0 or greater than 4000.</p>
+</section>
+<h2 id="treeroots"><a class="hanchor" href="#treeroots" aria-hidden="true" tabindex="-1">#</a><span class="docutils literal">treeroots</span></h2>
+<dl class="field-list">
+<dt>Command<span class="colon">:</span></dt>
+<dd><p><span class="docutils literal">treeroots</span></p>
+</dd>
+<dt>Direction<span class="colon">:</span></dt>
+<dd><p>Both</p>
+</dd>
+<dt>Payload<span class="colon">:</span></dt>
+<dd><table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>1</p></td>
+<td><p><span class="docutils literal">result</span></p></td>
+<td><p>0 for roots, 1 for a refusal (<span class="docutils literal">uint8</span>).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">n</span></p></td>
+<td><p>Number of entries, present only if <span class="docutils literal">result</span> is 0
+(CompactSize).</p></td>
+</tr>
+<tr><td><p>varies</p></td>
+<td><p><span class="docutils literal">entries</span></p></td>
+<td><p><span class="docutils literal">n</span> entries, present only if <span class="docutils literal">result</span> is 0.</p></td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>Each entry has the following format:</p>
+<blockquote>
+<table>
+<thead>
+<tr><th class="head"><p>Size</p></th>
+<th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>32</p></td>
+<td><p><span class="docutils literal">sapling_root</span></p></td>
+<td><p>Sapling note commitment tree root.</p></td>
+</tr>
+<tr><td><p>32</p></td>
+<td><p><span class="docutils literal">orchard_root</span></p></td>
+<td><p>Orchard note commitment tree root.</p></td>
+</tr>
+<tr><td><p>32</p></td>
+<td><p><span class="docutils literal">ironwood_root</span></p></td>
+<td><p>Ironwood note commitment tree root.</p></td>
+</tr>
+<tr><td><p>1</p></td>
+<td><p><span class="docutils literal">has_auth_data_root</span></p></td>
+<td><p>0 or 1 (<span class="docutils literal">uint8</span>).</p></td>
+</tr>
+<tr><td><p>0 or 32</p></td>
+<td><p><span class="docutils literal">auth_data_root</span></p></td>
+<td><p>Authorizing data root of the next block, present
+only if <span class="docutils literal">has_auth_data_root</span> is 1.</p></td>
+</tr>
+</tbody>
+</table>
+</blockquote>
+<p><span class="docutils literal">sapling_root</span>, <span class="docutils literal">orchard_root</span>, and <span class="docutils literal">ironwood_root</span> are encoded as <span class="docutils literal">anchorSapling</span>,
+<span class="docutils literal">anchorOrchard</span>, and <span class="docutils literal">anchorIronwood</span> respectively. <a class="brackets" href="#protocol-txnencoding" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>
+<a class="brackets" href="#zip-0229" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> <span class="docutils literal">auth_data_root</span> is a <span class="docutils literal">hashAuthDataRoot</span> value as defined in ZIP 244.
+<a class="brackets" href="#zip-0244" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a></p>
+<p>A node MUST reject a <span class="docutils literal">treeroots</span> message whose <span class="docutils literal">result</span> or <span class="docutils literal">has_auth_data_root</span> is
+neither 0 nor 1, whose <span class="docutils literal">n</span> is greater than 4000, or that contains a non-canonical root
+encoding.</p>
+</section>
+<h2 id="answering-requests"><a class="hanchor" href="#answering-requests" aria-hidden="true" tabindex="-1">#</a>Answering requests</h2>
+<p>A node that advertises <span class="docutils literal">NODE_TREE_ROOTS</span> SHOULD answer each <span class="docutils literal">gettreeroots</span> with a
+<span class="docutils literal">treeroots</span>, sending a refusal when it does not serve the request, for example because
+it is busy or lacks the data. It MUST NOT send more than one <span class="docutils literal">treeroots</span> per
+<span class="docutils literal">gettreeroots</span>, nor a <span class="docutils literal">treeroots</span> that was not requested.</p>
+<p>A node MUST NOT send entries unless its best chain has a block at height <span class="docutils literal">end</span> with hash
+<span class="docutils literal">final_hash</span>. Entry <span class="docutils literal">i</span>, for <span class="docutils literal">0 &lt;= i &lt; n</span> where <span class="docutils literal">1 &lt;= n &lt;= count</span>, MUST hold the
+tree roots of the block at height <span class="docutils literal">start_height + i</span> on that chain. <span class="docutils literal">auth_data_root</span>
+MUST be present if and only if the next block, at height <span class="docutils literal">start_height + i + 1</span>, is at
+or after NU5 activation; it is then that block's <span class="docutils literal">hashAuthDataRoot</span>.</p>
+<p>Computing <span class="docutils literal">auth_data_root</span> requires the next block's authorizing data, so a node SHOULD
+bound the block data it reads per request, sending fewer than <span class="docutils literal">count</span> entries if needed.</p>
+</section>
+<h2 id="sending-requests"><a class="hanchor" href="#sending-requests" aria-hidden="true" tabindex="-1">#</a>Sending requests</h2>
+<p>A node MUST NOT send <span class="docutils literal">gettreeroots</span> on a connection while an earlier <span class="docutils literal">gettreeroots</span> on
+that connection is unanswered. A node that stops waiting for an answer MUST NOT send
+another <span class="docutils literal">gettreeroots</span> on that connection, since a late answer cannot be matched to its
+request.</p>
+<p>A node MUST ignore a <span class="docutils literal">treeroots</span> received while no <span class="docutils literal">gettreeroots</span> is outstanding on that
+connection, MUST reject one with more than <span class="docutils literal">count</span> entries, and MUST treat one with no
+entries as a refusal.</p>
+</section>
+<h2 id="verifying-roots"><a class="hanchor" href="#verifying-roots" aria-hidden="true" tabindex="-1">#</a>Verifying roots</h2>
+<p>Before using the entry for the block <span class="docutils literal">B</span> at height <span class="docutils literal">h</span>, a node MUST have authenticated
+<span class="docutils literal">B</span> and the header at height <span class="docutils literal">h + 1</span> on its chain, for example by checkpoint
+verification, and MUST check that:</p>
+<ol class="arabic simple">
+<li><p>the root of each pool whose network upgrade (Sapling, NU5, or NU6.3 respectively) is
+not active at height <span class="docutils literal">h</span> is the root of its empty tree;</p></li>
+<li><p>if <span class="docutils literal">h</span> is at or after Sapling activation and before Heartwood activation,
+<span class="docutils literal">sapling_root</span> equals the <span class="docutils literal">hashFinalSaplingRoot</span> field of <span class="docutils literal">B</span>'s header;</p></li>
+<li><p>if <span class="docutils literal">h + 1</span> is at or after Heartwood activation, the header at height <span class="docutils literal">h + 1</span>
+commits to the <span class="docutils literal">hashChainHistoryRoot</span> of the chain history tree after appending
+<span class="docutils literal">B</span>, computed as specified in ZIP 221 and ZIP 258 with the supplied roots as <span class="docutils literal">B</span>'s
+tree roots, or to all zero bytes if that header's block activates Heartwood.
+<a class="brackets" href="#zip-0221" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> <a class="brackets" href="#zip-0258" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a> If that header's commitment is <span class="docutils literal">hashBlockCommitments</span>, the
+node MUST compute it with <span class="docutils literal">auth_data_root</span> as <span class="docutils literal">hashAuthDataRoot</span>, and MUST reject
+the entry if <span class="docutils literal">auth_data_root</span> is absent. <a class="brackets" href="#zip-0244" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a></p></li>
+</ol>
+<p>A node MUST NOT use an entry that fails these checks, and MAY disconnect the peer that
+sent it.</p>
+<p><span class="docutils literal">auth_data_root</span> does not authenticate the next block's transactions. A node MUST check
+that block's authorizing data root against a verified <span class="docutils literal">auth_data_root</span>; if they differ,
+the block is invalid, not the entry.</p>
+</section>
+</section>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Rationale</h1>
+<p>The final block hash anchors the requested range, including when the answer is a prefix.</p>
+<p>Refusals let a requester try another peer at once instead of waiting for a timeout.</p>
+<p>From NU5, a header commits to the history tree of the preceding blocks together with its
+own block's <span class="docutils literal">hashAuthDataRoot</span>. <a class="brackets" href="#zip-0244" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> Supplying that digest lets a node verify an
+entry without the next block's authorizing data, and tell an invalid entry from an invalid
+block.</p>
+<p>4000 entries with <span class="docutils literal">auth_data_root</span> take 516,004 bytes, within ZIP 204's 2 MiB message
+limit.</p>
+</section>
+<h1 id="security-considerations"><a class="hanchor" href="#security-considerations" aria-hidden="true" tabindex="-1">#</a>Security Considerations</h1>
+<p>The request does not anchor the successor at height <span class="docutils literal">end + 1</span>. A peer whose chain
+diverges there can supply an entry for height <span class="docutils literal">end</span> that fails check 3 and be penalized.</p>
+<p>Root authentication does not ensure availability. A node that has stopped updating its
+trees depends on peers serving roots until it obtains frontiers.</p>
+</section>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Deployment</h1>
+<p>This ZIP changes no consensus rules or existing messages. Bit 3 is also proposed for this
+capability by the version 2 draft <a class="brackets" href="#p2p-v2" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>; its allocation requires agreement with that
+draft and the ZIP Editors.</p>
+</section>
+<h1 id="test-vectors"><a class="hanchor" href="#test-vectors" aria-hidden="true" tabindex="-1">#</a>Test Vectors</h1>
+<p>Payloads only. Except for the empty-tree roots, hashes and roots are arbitrary bytes, not
+chain data.</p>
+<p>A request for 2 blocks from height 100000, with <span class="docutils literal">final_hash</span> bytes <span class="docutils literal">00</span> to <span class="docutils literal">1f</span>:</p>
+<pre class="literal-block">a0860100
+000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+02000000</pre>
+<p>A refusal:</p>
+<pre class="literal-block">01</pre>
+<p>One entry with the empty-tree roots and no <span class="docutils literal">auth_data_root</span> (99 bytes):</p>
+<pre class="literal-block">00 01
+fbc2f4300c01f0b7820d00e3347c8da4ee614674376cbc45359daa54f9b5493e
+ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f
+ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f
+00</pre>
+<p>One entry with roots of bytes <span class="docutils literal">01</span>, <span class="docutils literal">02</span>, and <span class="docutils literal">03</span>, and <span class="docutils literal">auth_data_root</span> bytes
+<span class="docutils literal">04</span> (131 bytes):</p>
+<pre class="literal-block">00 01
+0101010101010101010101010101010101010101010101010101010101010101
+0202020202020202020202020202020202020202020202020202020202020202
+0303030303030303030303030303030303030303030303030303030303030303
+01
+0404040404040404040404040404040404040404040404040404040404040404</pre>
+</section>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Reference implementation</h1>
+<p>Zebra PR #12427, commit <span class="docutils literal">69b1f48e6115e94942a5b11443b9344829b053ba</span>. <a class="brackets" href="#zebra-12427" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a></p>
+<p>This revision implements the wire format and root verification; connection-lifecycle
+conformance is incomplete.</p>
+</section>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>References</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — &quot;RFC 2119: Key words for use in RFCs to Indicate
+Requirement Levels&quot; and &quot;RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key
+Words&quot;</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0204" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0204.rst">ZIP 204: Zcash P2P Network Protocol</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0221" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-6">1</a>,<a role="doc-backlink" href="#footnote-reference-12">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0221.rst">ZIP 221: FlyClient - Consensus-Layer Changes</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0229" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-10">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0229.md">ZIP 229: Version 6 Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-11">1</a>,<a role="doc-backlink" href="#footnote-reference-14">2</a>,<a role="doc-backlink" href="#footnote-reference-15">3</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0258" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0258.md">ZIP 258: Deployment of the NU6.3 Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2026.8.0 [NU6.3] or later</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2026.8.0 [NU6.3] or
+later. Transaction Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-blockheader" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#blockheader">Zcash Protocol Specification, Version 2026.8.0 [NU6.3] or
+later. Block Header Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="p2p-v2" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-7">1</a>,<a role="doc-backlink" href="#footnote-reference-16">2</a>)</span>
+<p><a class="reference external" href="/upstream/draft-arya-jvff-p2p-quic-transport.md">Draft: Version 2 Zcash P2P Network Protocol</a></p>
+</aside>
+<aside class="footnote brackets" id="zebra-12427" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-17">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/ZcashFoundation/zebra/pull/12427">Zebra PR #12427: Fast checkpoint sync with peer-supplied note
+commitment tree roots</a></p>
+</aside>
+</aside>
+</section>
