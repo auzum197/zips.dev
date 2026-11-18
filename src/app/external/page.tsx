@@ -36,7 +36,6 @@ export default function ExternalIndexPage() {
                 {s.repo}
               </a>
             </h2>
-            {s.note && (<p className="mt-0.5 max-w-[72ch] text-sm text-muted-foreground">{s.note}</p>)}
             {s.error && (<p className="mt-2 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
                 Data unavailable this build — showing the last cached snapshot.
               </p>)}

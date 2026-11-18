@@ -39,7 +39,6 @@ export default async function ExternalSourcePage({ params, }: {
           {s.label}{" "}
           <span className="font-mono text-base font-normal text-faint">{s.repo}</span>
         </>}/>
-      {s.note && (<p className="mt-2 max-w-[72ch] text-sm text-muted-foreground">{s.note}</p>)}
       {s.error && (<p className="mt-4 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
           Data unavailable this build — showing the last cached snapshot.
         </p>)}
