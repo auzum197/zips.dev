@@ -8,5 +8,5 @@
 
 ## Interface copy
 
-- A page or section title stands alone: the content below it is the explanation. Counts, provenance, legends and caveats belong in that content, or are left out.
+- Titles stand alone. The page below does the explaining.
 - State what a thing is, in positive terms: "New documents added by open PRs".
