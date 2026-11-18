@@ -12,7 +12,7 @@ export const metadata: Metadata = ogMetadata({
 export default function UpgradesPage() {
     const upgrades = getUpgrades();
     return (<>
-      <PageHeader title="Network Upgrades" intro="Consensus changes deployed to the Zcash chain, and the ZIPs that specify them."/>
+      <PageHeader title="Network Upgrades"/>
       <UpgradeTimeline upgrades={upgrades}/>
     </>);
 }

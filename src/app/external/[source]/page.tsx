@@ -38,10 +38,7 @@ export default async function ExternalSourcePage({ params, }: {
       <PageHeader title={<>
           {s.label}{" "}
           <span className="font-mono text-base font-normal text-faint">{s.repo}</span>
-        </>} intro={<>Third-party proposal repository watched by this site · open PRs
-          cached at sync time · not part of the canonical zcash/zips ZIP
-          set.</>}/>
-      {s.note && (<p className="mt-2 max-w-[72ch] text-sm text-muted-foreground">{s.note}</p>)}
+        </>}/>
       {s.error && (<p className="mt-4 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
           Data unavailable this build — showing the last cached snapshot.
         </p>)}
