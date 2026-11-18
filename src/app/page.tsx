@@ -1,15 +1,13 @@
 import type { Metadata } from "next";
 import IndexFilters, { type IndexRow } from "@/components/index-filters";
 import PageHeader from "@/components/page-header";
-import { getDrafts, getMeta, getNumberedZips, getUpgrades } from "@/lib/data";
+import { getNumberedZips, getUpgrades } from "@/lib/data";
 import { statusGroup } from "@/lib/types";
 export const metadata: Metadata = {
     title: { absolute: "zipreader" },
 };
 export default function HomePage() {
     const zips = [...getNumberedZips()].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-    const drafts = getDrafts();
-    const meta = getMeta();
     const upgradeNames = new Map<number, string[]>();
     for (const u of getUpgrades()) {
         for (const n of u.zips) {
@@ -28,12 +26,8 @@ export default function HomePage() {
         upgrades: upgradeNames.get(z.number as number) ?? [],
     }));
     return (<>
-      <PageHeader title="ZIPs" intro={<>
-          {zips.length} numbered · {drafts.length} drafts ·{" "}
-          <a href={meta.commitUrl}>
-            zcash/zips@{meta.commitShort}
-          </a>
-        </>} introClassName=""/>
+      <PageHeader title="ZIPs"/>
+      <div className="mt-4"/>
       <IndexFilters rows={rows}/>
     </>);
 }

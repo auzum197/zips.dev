@@ -106,9 +106,7 @@ export default async function ExternalPrDocPage({ params, }: {
             </a>
           </div>
           <p className="mt-2 text-[0.8125rem] text-faint">
-            Unofficial preview — rendered from the head of {pr.repo}
-            #{pr.number}, a third-party proposal. Not part of the canonical
-            zcash/zips ZIP set.
+            Unofficial preview: rendered from the head of {pr.repo} #{pr.number}, a third-party proposal.
           </p>
           {hasToc && (<div className="min-[70rem]:hidden">
               <ZipToc headings={headings} floating/>

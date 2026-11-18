@@ -112,8 +112,7 @@ export default async function PrDocPage({ params, }: {
             </a>
           </div>
           <p className="mt-2 text-[0.8125rem] text-faint">
-            Unofficial preview — the proposed text below is rendered from the pull
-            request head and is not part of the canonical ZIP set.
+            Unofficial preview: the text below is rendered from the pull request head.
           </p>
           {hasToc && (<div className="min-[70rem]:hidden">
               <ZipToc headings={headings} floating/>

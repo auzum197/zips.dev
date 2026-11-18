@@ -26,15 +26,14 @@ export default function DraftsPage() {
         .filter(({ pv }) => !drafts.some((d) => d.slug === pv.slug))
         .sort((a, b) => b.pr.updatedAt.localeCompare(a.pr.updatedAt));
     return (<>
-      <PageHeader title="Drafts" intro={`Unnumbered proposals not yet assigned a ZIP number · ${drafts.length} in zcash/zips${externalDrafts.length > 0 ? ` · ${externalDrafts.length} watched elsewhere` : ""}.`}/>
+      <PageHeader title="Drafts"/>
 
       {externalDrafts.length > 0 && (<section className="mt-10">
           <h2 className="text-lg font-semibold tracking-tight">
             Watched third-party drafts
           </h2>
           <p className="mb-4 mt-0.5 text-sm text-muted-foreground">
-            Rendered from pinned pull requests to other repositories — not
-            part of the canonical zcash/zips draft set.
+            Rendered from pinned pull requests to other repositories.
           </p>
           <ul className="border-t border-border-subtle text-sm">
             {externalDrafts.map(({ pr, pv }: {
@@ -61,11 +60,7 @@ export default function DraftsPage() {
         </section>)}
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">In zcash/zips</h2>
-        <p className="mb-4 mt-0.5 text-sm text-muted-foreground">
-          {drafts.length} unnumbered proposal{drafts.length === 1 ? "" : "s"}{" "}
-          from the canonical repository.
-        </p>
+        <h2 className="mb-4 text-lg font-semibold tracking-tight">In zcash/zips</h2>
         <DraftsTable drafts={drafts}/>
       </section>
     </>);

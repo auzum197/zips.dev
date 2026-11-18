@@ -38,9 +38,6 @@ export default function ImplementationMatrix({ impls, zips, }: {
     return (<>
       <div className="mb-3 mt-6 flex flex-wrap items-baseline gap-x-5 gap-y-2">
         <MatrixFilter total={zips.length}/>
-        <p className="ml-auto text-xs text-muted-foreground">
-          {impls.length} implementations · {zips.length} ZIPs tracked
-        </p>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground" aria-label="Legend">

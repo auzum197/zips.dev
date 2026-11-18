@@ -119,20 +119,14 @@ export default async function ExternalPrOverviewPage({ params, }: {
             </a>
           </div>
           <p className="mt-2 text-[0.8125rem] text-faint">
-            Rendered from the pull request head of {pr.repo} — a third-party
-            repository. This text is not part of the canonical zcash/zips ZIP
-            set.
+            Rendered from the pull request head of {pr.repo}, a third-party repository.
           </p>
         </header>
 
         <section className="mt-2">
-          <h2 className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Changed documents
           </h2>
-          <p className="mb-3 mt-0.5 text-[0.8125rem] text-muted-foreground">
-            {previews.length} rendered preview{previews.length === 1 ? "" : "s"}{" "}
-            from the pull request head.
-          </p>
           <ul className="border-t border-border-subtle text-sm">
             {previews.map((pv) => (<PreviewRow key={pv.slug} pr={pr} pv={pv}/>))}
           </ul>

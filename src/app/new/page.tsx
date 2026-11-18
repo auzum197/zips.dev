@@ -5,7 +5,7 @@ import PageHeader from "@/components/page-header";
 import { getNewProposals } from "@/lib/data";
 export const metadata: Metadata = ogMetadata({
     title: "New Proposals",
-    description: "Brand-new ZIPs and drafts introduced by open pull requests — additions, not modifications. Watched third-party proposals are badged.",
+    description: "New ZIPs and drafts added by open pull requests. Watched third-party proposals have a badge.",
     path: "/new/",
     card: "new",
 });
@@ -14,21 +14,10 @@ export default function NewPage() {
     const zips = proposals.filter((p) => p.kind === "zip");
     const drafts = proposals.filter((p) => p.kind === "draft");
     return (<>
-      <PageHeader title="New Proposals" intro={<>
-          Brand-new documents introduced by open PRs — additions, not
-          modifications · {proposals.length} proposal
-          {proposals.length === 1 ? "" : "s"}
-          {proposals.some((p) => p.pr.source) && (<>
-              {" "}· badged ones come from watched third-party repos
-            </>)}
-        </>}/>
+      <PageHeader title="New Proposals" intro="New documents added by open PRs."/>
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">New ZIPs</h2>
-        <p className="mb-4 mt-0.5 text-sm text-muted-foreground">
-          {zips.length} numbered ZIP{zips.length === 1 ? "" : "s"} added in
-          open PRs.
-        </p>
+        <h2 className="mb-4 text-lg font-semibold tracking-tight">New ZIPs</h2>
         {zips.length > 0 ? (<ProposalList items={zips}/>) : (<p className="text-sm text-muted-foreground">
             No new numbered ZIPs in open PRs right now — new proposals usually
             start as drafts.
@@ -36,11 +25,7 @@ export default function NewPage() {
       </section>
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">New drafts</h2>
-        <p className="mb-4 mt-0.5 text-sm text-muted-foreground">
-          {drafts.length} draft{drafts.length === 1 ? "" : "s"} added in open
-          PRs.
-        </p>
+        <h2 className="mb-4 text-lg font-semibold tracking-tight">New drafts</h2>
         {drafts.length > 0 ? (<ProposalList items={drafts}/>) : (<p className="text-sm text-muted-foreground">
             No new drafts in open PRs right now.
           </p>)}

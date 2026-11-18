@@ -162,9 +162,7 @@ export default async function PrOverviewPage({ params, }: {
             Changed documents
           </h2>
           <p className="mb-3 mt-0.5 text-[0.8125rem] text-muted-foreground">
-            {previews.length} rendered preview{previews.length === 1 ? "" : "s"}{" "}
-            from the pull request head — unofficial text, not part of the
-            canonical ZIP set.
+            Unofficial previews, rendered from the pull request head.
           </p>
           <ul className="border-t border-border-subtle text-sm">
             {previews.map((pv) => (<PreviewRow key={pv.slug} pr={pr} pv={pv}/>))}
