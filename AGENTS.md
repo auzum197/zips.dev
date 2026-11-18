@@ -8,5 +8,5 @@
 
 ## Interface copy
 
-- Titles stand alone. The page below does the explaining.
+- Titles and subtitles have no clarifications. A necessary clarification goes in the text of the document; the others are left out.
 - State what a thing is, in positive terms: "New documents added by open PRs".
