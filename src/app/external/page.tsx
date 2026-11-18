@@ -18,7 +18,7 @@ export default function ExternalIndexPage() {
     const sources = getExternalSources();
     const prs = getExternalPrs();
     return (<>
-      <PageHeader title="External drafts" intro="Open PRs to watched third-party proposal repositories, cached at sync time."/>
+      <PageHeader title="External drafts"/>
 
       {sources.length === 0 && (<p className="mt-6 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
           No sources configured. Watched repos are curated in{" "}

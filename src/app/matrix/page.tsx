@@ -13,7 +13,7 @@ export default function MatrixPage() {
     const impls = getImplementations();
     const zips = getNumberedZips().sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
     return (<>
-      <PageHeader title="Implementation matrix" intro="ZIP × implementation support grid. ✓ means the implementation ships the ZIP. Community-curated — corrections via PR."/>
+      <PageHeader title="Implementation matrix"/>
       <ImplementationMatrix impls={impls} zips={zips}/>
     </>);
 }

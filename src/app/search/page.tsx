@@ -10,7 +10,7 @@ export const metadata: Metadata = ogMetadata({
 });
 export default function SearchPage() {
     return (<>
-      <PageHeader title="Search" intro="Full-text search across every ZIP, indexed at build time by Pagefind."/>
+      <PageHeader title="Search"/>
       <SearchBox />
     </>);
 }

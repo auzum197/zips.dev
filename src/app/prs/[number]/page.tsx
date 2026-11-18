@@ -158,12 +158,9 @@ export default async function PrOverviewPage({ params, }: {
         </header>
 
         <section className="mt-2">
-          <h2 className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Changed documents
           </h2>
-          <p className="mb-3 mt-0.5 text-[0.8125rem] text-muted-foreground">
-            Unofficial previews, rendered from the pull request head.
-          </p>
           <ul className="border-t border-border-subtle text-sm">
             {previews.map((pv) => (<PreviewRow key={pv.slug} pr={pr} pv={pv}/>))}
           </ul>

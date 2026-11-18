@@ -5,7 +5,7 @@ import PageHeader from "@/components/page-header";
 import { getNewProposals } from "@/lib/data";
 export const metadata: Metadata = ogMetadata({
     title: "New Proposals",
-    description: "New ZIPs and drafts added by open pull requests. Watched third-party proposals have a badge.",
+    description: "New ZIPs and drafts added by open pull requests.",
     path: "/new/",
     card: "new",
 });
@@ -14,7 +14,7 @@ export default function NewPage() {
     const zips = proposals.filter((p) => p.kind === "zip");
     const drafts = proposals.filter((p) => p.kind === "draft");
     return (<>
-      <PageHeader title="New Proposals" intro="New documents added by open PRs."/>
+      <PageHeader title="New Proposals"/>
 
       <section className="mt-10">
         <h2 className="mb-4 text-lg font-semibold tracking-tight">New ZIPs</h2>

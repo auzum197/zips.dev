@@ -29,12 +29,9 @@ export default function DraftsPage() {
       <PageHeader title="Drafts"/>
 
       {externalDrafts.length > 0 && (<section className="mt-10">
-          <h2 className="text-lg font-semibold tracking-tight">
+          <h2 className="mb-4 text-lg font-semibold tracking-tight">
             Watched third-party drafts
           </h2>
-          <p className="mb-4 mt-0.5 text-sm text-muted-foreground">
-            Rendered from pinned pull requests to other repositories.
-          </p>
           <ul className="border-t border-border-subtle text-sm">
             {externalDrafts.map(({ pr, pv }: {
             pr: PrMeta;

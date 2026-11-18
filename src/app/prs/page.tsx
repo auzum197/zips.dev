@@ -23,17 +23,14 @@ export default function PrsPage() {
         .flatMap((p) => p.zipRefs)
         .filter((n) => getZipByNumber(n) !== undefined));
     return (<>
-      <PageHeader title="Pull Requests" intro="Open PRs to zcash/zips, cached at sync time."/>
+      <PageHeader title="Pull Requests"/>
 
       {error && (<p className="mb-6 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
           PR data unavailable this build — showing the last cached snapshot.
         </p>)}
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">Mapped to ZIPs</h2>
-        <p className="mb-4 mt-0.5 text-sm text-muted-foreground">
-          PRs that reference a ZIP or draft in their title or body.
-        </p>
+        <h2 className="mb-4 text-lg font-semibold tracking-tight">Mapped to ZIPs</h2>
         <PrList prs={mapped} existingZipNumbers={existingZipNumbers}/>
       </section>
 
