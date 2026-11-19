@@ -53,6 +53,7 @@ const MAX_ROUNDS = 3;
  *  a second look must not be the same fast pass that wrote the text. */
 const REVIEW_MODEL = process.env.GLM_REVIEW_MODEL || MODEL;
 const REVIEW_THINKING = process.env.GLM_REVIEW_THINKING || "enabled";
+const REVIEW_EFFORT = process.env.GLM_REVIEW_EFFORT || "high";
 const REVIEW_BATCH_SEGMENTS = 10;
 const REVIEW_BATCH_CHARS = 3500;
 /** Review, correct, review again: at most this many reviews of one segment. */
@@ -363,23 +364,29 @@ function reviewPrompt(g: Glossary): string {
     return loadPrompt("reviewer-es.md", g);
 }
 
-type ModelCall = (system: string, payload: unknown, notes: string, opts?: { model: string; thinking: string }) => Promise<Record<string, any>>;
+interface ModelOptions {
+    model: string;
+    thinking: string;
+    effort?: string;
+}
+type ModelCall = (system: string, payload: unknown, notes: string, opts?: ModelOptions) => Promise<Record<string, any>>;
 /** The model behind the translator and the reviewer. The tests replace it
  *  with a scripted one; nothing else does. */
 let model: ModelCall = (system, payload, notes, opts) => callGlm(system, payload, notes, opts);
 export function setModel(fn: ModelCall): void {
     model = fn;
 }
-function callModel<T = string>(system: string, payload: unknown, notes: string, opts?: { model: string; thinking: string }): Promise<Record<string, T>> {
+function callModel<T = string>(system: string, payload: unknown, notes: string, opts?: ModelOptions): Promise<Record<string, T>> {
     return model(system, payload, notes, opts) as Promise<Record<string, T>>;
 }
 
-async function callGlm<T = string>(system: string, payload: unknown, notes: string, opts: { model: string; thinking: string } = { model: MODEL, thinking: THINKING }): Promise<Record<string, T>> {
+async function callGlm<T = string>(system: string, payload: unknown, notes: string, opts: ModelOptions = { model: MODEL, thinking: THINKING }): Promise<Record<string, T>> {
     const body = {
         model: opts.model,
         temperature: 0,
         response_format: { type: "json_object" },
         thinking: { type: opts.thinking },
+        ...(opts.thinking === "enabled" && opts.effort ? { reasoning_effort: opts.effort } : {}),
         messages: [
             { role: "system", content: system },
             { role: "user", content: (notes ? `${notes}\n\n` : "") + JSON.stringify(payload, null, 1) },
@@ -545,7 +552,7 @@ export async function reviewAll(system: string, doc: Doc, wanted: Map<string, Se
             };
             let reply: Record<string, { ok?: boolean; issue?: string; es?: string }> = {};
             try {
-                reply = await callModel(system, payload, "", { model: REVIEW_MODEL, thinking: REVIEW_THINKING });
+                reply = await callModel(system, payload, "", { model: REVIEW_MODEL, thinking: REVIEW_THINKING, effort: REVIEW_EFFORT });
             }
             catch (err) {
                 console.warn(`  review batch failed: ${(err as Error).message}`);
@@ -752,6 +759,7 @@ async function translateDoc(slug: string, glossary: Glossary, system: string, re
         title,
         headings: meta.headings.map((h) => ({ ...h, text: translatedHeadings.get(h.id) ?? h.text })),
         reviewModel: REVIEW_MODEL,
+        reviewEffort: REVIEW_EFFORT,
         stats: { segments: segments.length, fallback, reviewed: true, correctedByReview: changed, rejectedByReview: rejected },
         failures: [...failed.entries()].map(([source, reason]) => ({ source, reason })),
     }, null, 1));
@@ -781,7 +789,7 @@ async function main(): Promise<void> {
     const system = systemPrompt(glossary);
     const reviewSystem = reviewPrompt(glossary);
     // the glossary is sent with each request, so it is part of the identity too
-    const promptSha = sha(`${MODEL}\n${system}\n${REVIEW_MODEL}\n${reviewSystem}\n${JSON.stringify(glossary)}`).slice(0, 16);
+    const promptSha = sha(`${MODEL}\n${system}\n${REVIEW_MODEL}\n${REVIEW_EFFORT}\n${reviewSystem}\n${JSON.stringify(glossary)}`).slice(0, 16);
     for (const slug of slugs)
         await translateDoc(slug, glossary, system, reviewSystem, promptSha, force);
 }
