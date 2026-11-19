@@ -53,8 +53,6 @@ const MAX_ROUNDS = 3;
  *  a second look must not be the same fast pass that wrote the text. */
 const REVIEW_MODEL = process.env.GLM_REVIEW_MODEL || MODEL;
 const REVIEW_THINKING = process.env.GLM_REVIEW_THINKING || "enabled";
-/** How deep the reviewer reasons: "low", "high" or "max". GLM uses "max" when
- *  no level is sent, which is the slowest; "high" is the chosen level. */
 const REVIEW_EFFORT = process.env.GLM_REVIEW_EFFORT || "high";
 const REVIEW_BATCH_SEGMENTS = 10;
 const REVIEW_BATCH_CHARS = 3500;
@@ -388,7 +386,6 @@ async function callGlm<T = string>(system: string, payload: unknown, notes: stri
         temperature: 0,
         response_format: { type: "json_object" },
         thinking: { type: opts.thinking },
-        // the level applies only when thinking is on
         ...(opts.thinking === "enabled" && opts.effort ? { reasoning_effort: opts.effort } : {}),
         messages: [
             { role: "system", content: system },
