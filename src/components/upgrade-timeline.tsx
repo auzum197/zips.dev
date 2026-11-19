@@ -1,10 +1,14 @@
-import Link from "next/link";
+import Link from "@/i18n/link";
+import { useTranslations } from "next-intl";
+import { useLabels } from "@/i18n/labels";
 import { Badge } from "@/components/ui/badge";
 import { dateSlice } from "@/lib/date";
 import type { Upgrade } from "@/lib/types";
 function UpgItem({ u }: {
     u: Upgrade;
 }) {
+    const t = useTranslations("Upgrades");
+    const label = useLabels();
     const mainnet = dateSlice(u.mainnet);
     const proposed = u.status === "proposed";
     return (<li>
@@ -23,11 +27,11 @@ function UpgItem({ u }: {
           </span>)}
       </div>
       <p className="mt-1 max-w-[46rem] text-sm text-muted-foreground">
-        {u.summary}
+        {label.upgradeSummary(u.id, u.summary)}
       </p>
       <p className="mt-1 text-sm">
         <Link href={`/upgrades/${u.id}/`} className="text-muted-foreground underline underline-offset-2 hover:text-accent">
-          {u.zips.length} ZIP{u.zips.length === 1 ? "" : "s"} →
+          {t("zipCount", { count: u.zips.length })}
         </Link>
       </p>
     </li>);

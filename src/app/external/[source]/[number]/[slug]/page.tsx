@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ogMetadata } from "@/lib/og";
-import Link from "next/link";
+import { getTranslations } from "next-intl/server";
+import Link from "@/i18n/link";
 import { notFound } from "next/navigation";
 import { getExternalPr, getExternalPrsForSource, getExternalSource, getExternalSources, getPrPreviewHtml, prPreviews, } from "@/lib/data";
 import StatusBadge from "@/components/status-badge";
@@ -41,7 +42,7 @@ export async function generateMetadata({ params, }: {
         return {};
     const s = getExternalSource(source);
     return ogMetadata({
-        title: `${s?.label ?? source} PR ${pr.number}: ${pv.title}`,
+        title: (await getTranslations("External"))("prMetaTitle", { label: s?.label ?? source, number: pr.number, title: pv.title }),
         path: `/external/${source}/${number}/${slug}/`,
         card: `external-${source}`,
     });
@@ -63,6 +64,9 @@ export default async function ExternalPrDocPage({ params, }: {
     if (!html)
         notFound();
     const headings = pv.headings;
+    const t = await getTranslations("Pr");
+    const tc = await getTranslations("Common");
+    const te = await getTranslations("External");
     const hasToc = headings.length > 0;
     return (<div className="relative mx-auto max-w-[88rem] pt-6">
       {hasToc && <TocSidebar headings={headings}/>}
@@ -77,7 +81,7 @@ export default async function ExternalPrDocPage({ params, }: {
             </Badge>
             <Badge variant="accent">PR #{pr.number}</Badge>
             <span>
-              proposed changes in{" "}
+              {te("changesIn")}{" "}
               <Link href={`/external/${s.id}/${pr.number}/`} className="underline underline-offset-2">
                 {s.repo}#{pr.number}
               </Link>
@@ -89,7 +93,7 @@ export default async function ExternalPrDocPage({ params, }: {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted-foreground">
             <StatusBadge status={pv.status}/>
             <span>
-              by {pr.author ?? "unknown"} · updated {pr.updatedAt.slice(0, 10)}
+              {t("bylineShort", { author: pr.author ?? tc("unknown"), updated: pr.updatedAt.slice(0, 10) })}
             </span>
             <span className="text-faint">
               <code className="font-mono text-xs">{pv.filename}</code> @{" "}
@@ -102,11 +106,11 @@ export default async function ExternalPrDocPage({ params, }: {
               </a>
             </span>
             <a href={pr.url} className="underline underline-offset-2 hover:text-accent">
-              view on GitHub ↗
+              {tc("viewOnGithub")}
             </a>
           </div>
           <p className="mt-2 text-[0.8125rem] text-faint">
-            Unofficial preview: rendered from the head of {pr.repo} #{pr.number}, a third-party proposal.
+            {te("unofficial", { repo: pr.repo, number: pr.number })}
           </p>
           {hasToc && (<div className="min-[70rem]:hidden">
               <ZipToc headings={headings} floating/>

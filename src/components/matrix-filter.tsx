@@ -1,9 +1,12 @@
 "use client";
 import { useState, type FormEvent } from "react";
+import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
 export default function MatrixFilter({ total }: {
     total: number;
 }) {
+    const t = useTranslations("Matrix");
+    const tc = useTranslations("Common");
     const [count, setCount] = useState<number | null>(null);
     function onInput(e: FormEvent<HTMLInputElement>) {
         const q = e.currentTarget.value.trim().toLowerCase();
@@ -17,9 +20,9 @@ export default function MatrixFilter({ total }: {
         setCount(q === "" ? null : visible);
     }
     return (<>
-      <Input type="search" placeholder="Filter by number or title…" aria-label="Filter ZIPs by number or title" onInput={onInput} className="h-8 max-w-xs"/>
+      <Input type="search" placeholder={t("filterPlaceholder")} aria-label={t("filterLabel")} onInput={onInput} className="h-8 max-w-xs"/>
       {count !== null && (<span className="text-xs text-muted-foreground" role="status">
-          {count} of {total}
+          {tc("of", { count, total })}
         </span>)}
     </>);
 }

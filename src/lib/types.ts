@@ -27,6 +27,15 @@ export interface ZipMeta {
     wordCount: number;
     rendered: boolean;
 }
+/** A machine translation of a document's rendered HTML. */
+export interface ZipTranslation {
+    title: string;
+    headings: ZipHeading[];
+    html: string;
+    /** Model that made the translation, e.g. "glm-5.3". */
+    model: string;
+}
+export type { Locale } from "@/i18n/config";
 export interface UpstreamMeta {
     repo: string;
     commit: string;

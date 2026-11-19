@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 const EASE = "cubic-bezier(0.23, 1, 0.32, 1)";
 function glideArticle() {
-    const el = document.querySelector<HTMLElement>("main [data-pagefind-body]");
+    const el = document.querySelector<HTMLElement>("main article");
     if (!el || typeof el.animate !== "function")
         return;
     const before = el.getBoundingClientRect();
@@ -16,6 +17,7 @@ function glideArticle() {
     el.animate({ transform: [`translate(${dx}px, ${dy}px)`, "translate(0px, 0px)"] }, { duration: 350, easing: EASE });
 }
 export default function ZenToggle() {
+    const t = useTranslations("Nav");
     const [zen, setZen] = useState(false);
     useEffect(() => {
         try {
@@ -44,7 +46,7 @@ export default function ZenToggle() {
         }
         catch { }
     }
-    return (<Button type="button" variant="ghost" size="sm" onClick={toggle} aria-pressed={zen} title={zen ? "Exit zen mode" : "Zen mode: hide sidebars"} className="zen:pointer-events-auto zen:bg-background/70 aria-pressed:bg-muted aria-pressed:text-foreground">
-      Zen
+    return (<Button type="button" variant="ghost" size="sm" onClick={toggle} aria-pressed={zen} title={t(zen ? "zenExit" : "zenEnter")} className="zen:pointer-events-auto zen:bg-background/70 aria-pressed:bg-muted aria-pressed:text-foreground">
+      {t("zen")}
     </Button>);
 }

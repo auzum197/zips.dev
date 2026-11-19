@@ -1,32 +1,39 @@
-import Link from "next/link";
+"use client";
+import { useTranslations } from "next-intl";
+import Link from "@/i18n/link";
+import LangSwitch from "./lang-switch";
 import ThemeToggle from "./theme-toggle";
 import ZenToggle from "./zen-toggle";
 const links = [
-    { href: "/", label: "ZIPs" },
-    { href: "/drafts/", label: "Drafts" },
-    { href: "/new/", label: "New" },
-    { href: "/prs/", label: "PRs" },
-    { href: "/external/", label: "External" },
+    { href: "/", key: "zips" },
+    { href: "/drafts/", key: "drafts" },
+    { href: "/new/", key: "new" },
+    { href: "/prs/", key: "prs" },
+    { href: "/external/", key: "external" },
     // Shown but not reachable: the implementation data is out of date. The
     // page at /matrix/ still exists for links that are already published.
-    { href: "/matrix/", label: "Adoption", disabled: true },
-    { href: "/upgrades/", label: "Upgrades" },
-    { href: "/search/", label: "Search" },
-];
+    { href: "/matrix/", key: "matrix", disabled: true },
+    { href: "/upgrades/", key: "upgrades" },
+    { href: "/search/", key: "search" },
+] as const;
 export default function SiteNav() {
+    const t = useTranslations("Nav");
     return (<header id="site-header" className="z-40 shrink-0 border-b border-border-subtle bg-background zen:border-transparent zen:bg-transparent zen:pointer-events-none">
       <div className="mx-auto flex max-w-[88rem] flex-wrap items-center gap-x-2 gap-y-1 px-5 py-2 min-[48rem]:h-[3.25rem] min-[48rem]:flex-nowrap min-[48rem]:gap-y-0 min-[48rem]:py-0">
         <Link href="/" className="zen-dim font-mono text-base font-semibold tracking-tight hover:text-accent hover:no-underline">
           zip<span className="text-accent">reader</span>
         </Link>
-        <nav aria-label="Main" className="zen-dim order-last -mx-2.5 flex w-[calc(100%+1.25rem)] gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[48rem]:order-none min-[48rem]:mx-0 min-[48rem]:ml-2 min-[48rem]:w-auto">
+        <nav aria-label={t("main")} className="zen-dim order-last -mx-2.5 flex w-[calc(100%+1.25rem)] gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[48rem]:order-none min-[48rem]:mx-0 min-[48rem]:ml-2 min-[48rem]:w-auto">
           {links.map((l) => "disabled" in l && l.disabled ? (<span key={l.href} aria-disabled="true" className="cursor-not-allowed rounded-md px-2.5 py-1.5 text-sm text-faint/70 whitespace-nowrap min-[48rem]:py-1">
-              {l.label}
+              {t(l.key)}
             </span>) : (<Link key={l.href} href={l.href} className="rounded-md px-2.5 py-1.5 text-sm text-muted-foreground whitespace-nowrap min-[48rem]:py-1 hover:bg-muted hover:text-foreground hover:no-underline">
-              {l.label}
+              {t(l.key)}
             </Link>))}
         </nav>
         <div className="ml-auto flex items-center">
+          <div className="zen-dim mr-1.5 flex">
+            <LangSwitch />
+          </div>
           <div className="zen-dim">
             <ThemeToggle />
           </div>

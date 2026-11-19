@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import type { ZipHeading } from "@/lib/types";
 export default function ZipToc({ headings, floating = false }: {
@@ -7,6 +8,7 @@ export default function ZipToc({ headings, floating = false }: {
     /** Narrow viewports: a floating "Contents" pill that opens a bottom sheet (no active-heading tracking). */
     floating?: boolean;
 }) {
+    const t = useTranslations("Toc");
     const [activeId, setActiveId] = useState<string | null>(floating ? null : (headings[0]?.id ?? null));
     const sheetRef = useRef<HTMLDialogElement>(null);
     useEffect(() => {
@@ -49,7 +51,7 @@ export default function ZipToc({ headings, floating = false }: {
     }, [headings, floating]);
     if (headings.length === 0)
         return null;
-    const label = "Contents";
+    const label = t("contents");
     const labelClass = "text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
     const list = (<ul className={cn("m-0 list-none p-0", floating ? "" : "mt-2")}>
         {headings.map((h) => {
@@ -72,22 +74,22 @@ export default function ZipToc({ headings, floating = false }: {
           </svg>
           {label}
         </button>
-        <dialog ref={sheetRef} className="toc-sheet" aria-label="On this page" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+        <dialog ref={sheetRef} className="toc-sheet" aria-label={t("onThisPage")} onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
           <div className="flex shrink-0 items-center justify-between px-5 pt-4 pb-1">
             <p className={labelClass}>{label}</p>
-            <button type="button" onClick={close} aria-label="Close table of contents" className="-mr-2 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+            <button type="button" onClick={close} aria-label={t("close")} className="-mr-2 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" className="h-3.5 w-3.5" aria-hidden>
                 <path d="M4 4l8 8M12 4l-8 8"/>
               </svg>
             </button>
           </div>
-          <nav aria-label="On this page" className="min-h-0 overflow-y-auto px-5 pb-5 [overscroll-behavior:contain]" onClick={(e) => { if ((e.target as HTMLElement).closest("a")) close(); }}>
+          <nav data-toc aria-label={t("onThisPage")} className="min-h-0 overflow-y-auto px-5 pb-5 [overscroll-behavior:contain]" onClick={(e) => { if ((e.target as HTMLElement).closest("a")) close(); }}>
             {list}
           </nav>
         </dialog>
       </>);
     }
-    return (<nav aria-label="On this page">
+    return (<nav data-toc aria-label={t("onThisPage")}>
       <p className={cn("mb-2.5", labelClass)}>{label}</p>
       {list}
     </nav>);

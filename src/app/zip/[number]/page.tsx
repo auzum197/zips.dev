@@ -1,17 +1,9 @@
 import type { Metadata } from "next";
 import { ogMetadata } from "@/lib/og";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCrossrefs, getMeta, getNumberedZips, getZipByNumber, getZipBySlug, getZipHtml, prsForZip, upgradeNameForZip, } from "@/lib/data";
-import { statusGroup, type ZipMeta } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import MetaPanel from "@/components/meta-panel";
-import PageHeader from "@/components/page-header";
-import StatusBadge from "@/components/status-badge";
-import TocSidebar from "@/components/toc-sidebar";
-import ZipToc from "@/components/zip-toc";
-import { Badge } from "@/components/ui/badge";
-import { isRevisionList } from "@/lib/zip-status";
+import { getLocale } from "next-intl/server";
+import { getNumberedZips, getZipByNumber, localTitle } from "@/lib/data";
+import ZipPage from "@/components/zip-page";
 export const dynamicParams = false;
 export function generateStaticParams() {
     return getNumberedZips()
@@ -27,9 +19,8 @@ export async function generateMetadata({ params, }: {
     const zip = /^\d+$/.test(number) ? getZipByNumber(Number(number)) : undefined;
     if (!zip)
         return {};
-    return ogMetadata({ title: `ZIP ${zip.number}: ${zip.title}`, path: `/zip/${number}/`, card: zip.slug });
+    return ogMetadata({ title: `ZIP ${zip.number}: ${localTitle(zip, await getLocale())}`, path: `/zip/${number}/`, card: zip.slug });
 }
-const badgesRow = "inline-flex flex-wrap items-center gap-1.5 [&>span]:whitespace-normal";
 export default async function Page({ params, }: {
     params: Promise<{
         number: string;
@@ -39,29 +30,5 @@ export default async function Page({ params, }: {
     const zip = /^\d+$/.test(number) ? getZipByNumber(Number(number)) : undefined;
     if (!zip || zip.number === null)
         notFound();
-    const html = getZipHtml(zip.slug);
-    const zipNumber = zip.number;
-    const crossrefs = getCrossrefs(zip.slug);
-    const related = (crossrefs?.related ?? []).map(getZipBySlug);
-    return (<div className="relative mx-auto max-w-[88rem] pt-6">
-      <TocSidebar headings={zip.headings}/>
-
-      <article className="mx-auto max-w-[68ch] [--prose-measure:68ch]" data-pagefind-body>
-        <header className="mb-8 border-b border-border-subtle pb-4">
-          <h1 className="font-display mb-4 text-[clamp(1.75rem,3vw,2.35rem)] leading-[1.2] font-semibold tracking-[-0.02em] [text-wrap:pretty]">
-            ZIP {zipNumber} — {zip.title}
-          </h1>
-          <div className={cn("mt-2.5", badgesRow)}>
-            <StatusBadge status={zip.status} group={statusGroup(zip.status)}/>
-            {zip.revision !== null && !isRevisionList(zip.status) && <Badge variant="outline">r{zip.revision}</Badge>}
-          </div>
-          <div className="min-[70rem]:hidden" data-pagefind-ignore>
-            <ZipToc headings={zip.headings} floating/>
-          </div>
-        </header>
-        <div className="prose" dangerouslySetInnerHTML={{ __html: html }}/>
-      </article>
-
-      <MetaPanel zip={zip} prs={prsForZip(zipNumber)} upgrades={upgradeNameForZip(zipNumber)} crossrefs={crossrefs} related={related} commit={getMeta()}/>
-    </div>);
+    return <ZipPage zip={zip}/>;
 }

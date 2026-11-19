@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { ogMetadata } from "@/lib/og";
-import Link from "next/link";
+import { getTranslations } from "next-intl/server";
+import Link from "@/i18n/link";
 import { notFound } from "next/navigation";
 import { getMeta, getPrByNumber, getPrPreviewHtml, getPrs, getZipByNumber, getZipBySlug, prPreviews, } from "@/lib/data";
+import { labels } from "@/i18n/labels";
 import StatusBadge from "@/components/status-badge";
 import TocSidebar from "@/components/toc-sidebar";
 import ZipToc from "@/components/zip-toc";
@@ -35,7 +37,7 @@ export async function generateMetadata({ params, }: {
     const pv = pr ? prPreviews(pr).find((p) => p.slug === slug) : undefined;
     if (!pr || !pv)
         return {};
-    return ogMetadata({ title: `PR ${pr.number}: ${pv.title}`, path: `/prs/${number}/${slug}/`, card: `pr-${number}` });
+    return ogMetadata({ title: (await getTranslations("Pr"))("metaTitle", { number: pr.number, title: pv.title }), path: `/prs/${number}/${slug}/`, card: `pr-${number}` });
 }
 function docBase(slug: string): {
     href: string;
@@ -73,6 +75,8 @@ export default async function PrDocPage({ params, }: {
     const meta = getMeta();
     const base = docBase(pv.slug);
     const headings = pv.headings;
+    const t = await getTranslations("Pr");
+    const tc = await getTranslations("Common");
     const hasToc = headings.length > 0;
     return (<div className="relative mx-auto max-w-[88rem] pt-6">
       {hasToc && <TocSidebar headings={headings}/>}
@@ -82,11 +86,11 @@ export default async function PrDocPage({ params, }: {
           <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-muted-foreground">
             <Badge variant="accent">PR #{pr.number}</Badge>
             <span>
-              proposed changes to <Link href={`/prs/${pr.number}/`} className="underline underline-offset-2">PR {pr.number} overview</Link>
+              {t.rich("overviewLink", { number: pr.number, link: (chunks) => <Link href={`/prs/${pr.number}/`} className="underline underline-offset-2">{chunks}</Link> })}
             </span>
             {base && (<span>
                 <span className="mr-2">·</span>
-                <span>current version:</span>{" "}
+                <span>{t("currentVersion")}</span>{" "}
                 <Link href={base.href} className="underline underline-offset-2">
                   {base.label}
                 </Link>
@@ -96,23 +100,23 @@ export default async function PrDocPage({ params, }: {
             {pv.title}
           </h1>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted-foreground">
-            {base && pv.status === base.status ? (<StatusBadge status={base.status}/>) : (<Badge variant="warn">status → {pv.status}</Badge>)}
+            {base && pv.status === base.status ? (<StatusBadge status={base.status}/>) : (<Badge variant="warn">{tc("statusChange", { status: labels(await getTranslations("Data")).status(pv.status) })}</Badge>)}
             <span>
-              by {pr.author ?? "unknown"} · updated {pr.updatedAt.slice(0, 10)}
+              {t("bylineShort", { author: pr.author ?? tc("unknown"), updated: pr.updatedAt.slice(0, 10) })}
             </span>
             <span className="text-faint">
               <code className="font-mono text-xs">{pv.filename}</code> @{" "}
-              <code className="font-mono text-xs">{pr.headSha?.slice(0, 10)}</code> · upstream{" "}
+              <code className="font-mono text-xs">{pr.headSha?.slice(0, 10)}</code> · {t("upstream")}{" "}
               <a className="underline underline-offset-2" href={meta.commitUrl}>
                 {meta.commitShort}
               </a>
             </span>
             <a href={pr.url} className="underline underline-offset-2 hover:text-accent">
-              view on GitHub ↗
+              {tc("viewOnGithub")}
             </a>
           </div>
           <p className="mt-2 text-[0.8125rem] text-faint">
-            Unofficial preview: the text below is rendered from the pull request head.
+            {t("unofficial")}
           </p>
           {hasToc && (<div className="min-[70rem]:hidden">
               <ZipToc headings={headings} floating/>

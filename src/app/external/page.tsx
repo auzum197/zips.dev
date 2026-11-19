@@ -1,28 +1,29 @@
 import { ogMetadata } from "@/lib/og";
 import type { Metadata } from "next";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
+import Link from "@/i18n/link";
 import PageHeader from "@/components/page-header";
 import PrList from "@/components/pr-list";
 import { getExternalPrs, getExternalSources } from "@/lib/data";
 import type { PrMeta } from "@/lib/types";
-export const metadata: Metadata = ogMetadata({
-    title: "External Drafts",
-    description: "Watched third-party proposal repositories, rendered in their own namespace with explicit provenance.",
-    path: "/external/",
-    card: "external",
-});
+export async function generateMetadata(): Promise<Metadata> {
+    const t = await getTranslations("External");
+    return ogMetadata({ title: t("title"), description: t("description"), path: "/external/", card: "external" });
+}
 function byUpdatedDesc(a: PrMeta, b: PrMeta): number {
     return b.updatedAt.localeCompare(a.updatedAt);
 }
 export default function ExternalIndexPage() {
+    const t = useTranslations("External");
+    const tc = useTranslations("Common");
     const sources = getExternalSources();
     const prs = getExternalPrs();
     return (<>
-      <PageHeader title="External drafts"/>
+      <PageHeader title={t("heading")}/>
 
       {sources.length === 0 && (<p className="mt-6 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-          No sources configured. Watched repos are curated in{" "}
-          <code className="font-mono text-xs">data/sources.yaml</code>.
+          {t.rich("noSources", { code: (chunks) => <code className="font-mono text-xs">{chunks}</code> })}
         </p>)}
 
       {sources.map((s) => {
@@ -37,11 +38,11 @@ export default function ExternalIndexPage() {
               </a>
             </h2>
             {s.error && (<p className="mt-2 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
-                Data unavailable this build — showing the last cached snapshot.
+                {tc("dataUnavailable")}
               </p>)}
             <div className="mt-3">
               {list.length === 0
-                ? (<p className="text-sm text-muted-foreground">No open pull requests.</p>)
+                ? (<p className="text-sm text-muted-foreground">{tc("noOpenPrs")}</p>)
                 : <PrList prs={list}/>}
             </div>
           </section>);

@@ -8,6 +8,8 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 import "@fontsource/ibm-plex-serif/600.css";
 import "../src/app/globals.css";
+import { NextIntlClientProvider } from "next-intl";
+import en from "../messages/en.json";
 
 const preview: Preview = {
     parameters: {
@@ -28,6 +30,10 @@ const preview: Preview = {
         },
     },
     decorators: [
+        // Components read their text with next-intl; stories use English.
+        (Story) => (<NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
+            <Story />
+          </NextIntlClientProvider>),
         // Zen-toggle stories leave html.zen behind, which hides sidebars via
         // `zen:hidden`. Clear it before every render so stories don't bleed.
         (Story) => {
