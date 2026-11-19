@@ -1,3 +1,4 @@
+import { useLabels } from "@/i18n/labels";
 import { Badge } from "@/components/ui/badge";
 import { statusGroup, type ZipStatusGroup } from "@/lib/types";
 import { groupByStatus, parseStatus } from "@/lib/zip-status";
@@ -25,12 +26,13 @@ export default function StatusBadge({ status, group, }: {
     status: string;
     group?: ZipStatusGroup;
 }) {
+    const label = useLabels().status;
     const entries = parseStatus(status);
     if (entries.length === 1 && entries[0].revisions.length === 0)
-        return <Badge variant={VARIANTS[group ?? statusGroup(status)]}>{status}</Badge>;
+        return <Badge variant={VARIANTS[group ?? statusGroup(status)]}>{label(status)}</Badge>;
     return (<span className="inline-flex max-w-full flex-wrap items-center gap-1" title={status}>
       {groupByStatus(entries).map((g) => (<Badge key={g.status} variant={VARIANTS[statusGroup(g.status)]} className="flex-wrap gap-y-1 pr-1">
-          <span className="pr-0.5">{g.status}</span>
+          <span className="pr-0.5">{label(g.status)}</span>
           {g.revisions.map((r) => (<span key={r.number} className="whitespace-nowrap rounded-full bg-current/10 px-1.5">
               r{r.number}
               {r.upgrade && ` ${r.upgrade}`}

@@ -1,16 +1,17 @@
 import { ogMetadata } from "@/lib/og";
 import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import SearchBox from "@/components/search-box";
 import PageHeader from "@/components/page-header";
-export const metadata: Metadata = ogMetadata({
-    title: "Search",
-    description: "Explore every Zcash ZIP: full-text search across proposals, headers, and history.",
-    path: "/search/",
-    card: "search",
-});
+export async function generateMetadata(): Promise<Metadata> {
+    const t = await getTranslations("Search");
+    return ogMetadata({ title: t("title"), description: t("description"), path: "/search/", card: "search" });
+}
 export default function SearchPage() {
+    const t = useTranslations("Search");
     return (<>
-      <PageHeader title="Search"/>
+      <PageHeader title={t("title")}/>
       <SearchBox />
     </>);
 }

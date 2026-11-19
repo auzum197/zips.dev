@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
 export type PagefindResultData = {
     url: string;
@@ -54,6 +55,7 @@ function loadPagefind(): Promise<Pagefind> {
     return pagefindPromise;
 }
 export default function SearchBox() {
+    const t = useTranslations("Search");
     const [query, setQuery] = useState("");
     const [results, setResults] = useState<PagefindResultData[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -82,7 +84,7 @@ export default function SearchBox() {
             if (id !== reqId.current)
                 return;
             setResults([]);
-            setError("Search index not found — run the production build.");
+            setError(t("indexMissing"));
         }
         finally {
             if (id === reqId.current)
@@ -113,12 +115,12 @@ export default function SearchBox() {
     }
     return (<div className="mt-4 max-w-2xl">
       <form onSubmit={onSubmit} role="search">
-        <Input type="search" value={query} onChange={onChange} placeholder="Search ZIPs…" aria-label="Search ZIPs" autoFocus enterKeyHint="search" className="h-11 text-base"/>
+        <Input type="search" value={query} onChange={onChange} placeholder={t("placeholder")} aria-label={t("label")} autoFocus enterKeyHint="search" className="h-11 text-base"/>
       </form>
 
       {error && <p className="mt-4 text-sm text-warn">{error}</p>}
-      {!error && loading && (<p className="mt-4 text-sm text-muted-foreground">Searching…</p>)}
-      {!error && !loading && searched && results.length === 0 && (<p className="mt-4 text-sm text-muted-foreground">No results for “{query}”.</p>)}
+      {!error && loading && (<p className="mt-4 text-sm text-muted-foreground">{t("searching")}</p>)}
+      {!error && !loading && searched && results.length === 0 && (<p className="mt-4 text-sm text-muted-foreground">{t("noResults", { query })}</p>)}
 
       <ul className="mt-5 list-none divide-y divide-border-subtle p-0">
         {results.map((r) => (<li key={r.url} className="py-3">

@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import { ogMetadata } from "@/lib/og";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
+import Link from "@/i18n/link";
 import { notFound } from "next/navigation";
 import { diffToHtml } from "@/lib/diff";
 import { dateSlice } from "@/lib/date";
 import { getMeta, getPrByNumber, getPrs, getZipByNumber, getZipBySlug, prPreviews, } from "@/lib/data";
 import { type PrMeta, type PrPreview } from "@/lib/types";
+import { useLabels } from "@/i18n/labels";
 import StatusBadge from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 export const dynamicParams = false;
@@ -23,7 +26,7 @@ export async function generateMetadata({ params, }: {
     const pr = getPrByNumber(Number(number));
     if (!pr)
         return {};
-    return ogMetadata({ title: `PR ${pr.number}: ${pr.title}`, path: `/prs/${number}/`, card: `pr-${number}` });
+    return ogMetadata({ title: (await getTranslations("Pr"))("metaTitle", { number: pr.number, title: pr.title }), path: `/prs/${number}/`, card: `pr-${number}` });
 }
 function docBase(slug: string): {
     href: string;
@@ -44,18 +47,21 @@ function docBase(slug: string): {
             }
         : null;
 }
-function previewBadge({ pv, base }: {
+function PreviewBadge({ pv, base }: {
     pv: PrPreview;
     base: ReturnType<typeof docBase>;
 }) {
+    const t = useTranslations("Common");
+    const label = useLabels();
     if (base && pv.status === base.status)
         return <StatusBadge status={base.status}/>;
-    return <Badge variant="warn">status → {pv.status}</Badge>;
+    return <Badge variant="warn">{t("statusChange", { status: label.status(pv.status) })}</Badge>;
 }
 function PreviewRow({ pr, pv }: {
     pr: PrMeta;
     pv: PrPreview;
 }) {
+    const tc = useTranslations("Common");
     const file = pr.files.find((f) => f.filename === pv.filename);
     const base = docBase(pv.slug);
     const isZip = /^zip-/.test(pv.slug);
@@ -63,10 +69,10 @@ function PreviewRow({ pr, pv }: {
       <span className="shrink-0 font-mono text-xs text-accent">
         {isZip ? `ZIP ${Number(pv.slug.slice(4))}` : pv.slug}
       </span>
-      <a href={`/prs/${pr.number}/${pv.slug}/`} title="Rendered preview of the proposed text" className="min-w-0 flex-1 basis-64 leading-snug transition-colors hover:text-accent">
+      <Link href={`/prs/${pr.number}/${pv.slug}/`} title={tc("preview")} className="min-w-0 flex-1 basis-64 leading-snug transition-colors hover:text-accent">
         {pv.title}
-      </a>
-      {previewBadge({ pv, base })}
+      </Link>
+      <PreviewBadge pv={pv} base={base}/>
       <span className="shrink-0 font-mono text-xs text-faint uppercase">
         {pv.format}
       </span>
@@ -90,6 +96,8 @@ export default async function PrOverviewPage({ params, }: {
         notFound();
     const meta = getMeta();
     const diffableFiles = pr.files.filter((f) => f.patch);
+    const t = await getTranslations("Pr");
+    const tc = await getTranslations("Common");
     // Split refs into documents that already have a page (link them) and
     // documents this PR introduces (no page yet, so plain text).
     const refs = [
@@ -114,7 +122,7 @@ export default async function PrOverviewPage({ params, }: {
           <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-muted-foreground">
             <Badge variant="accent">PR #{pr.number}</Badge>
             {existingRefs.length > 0 && (<>
-                <span>proposed changes to</span>
+                <span>{t("changesTo")}</span>
                 {existingRefs.map((r, i) => (<span key={r.key}>
                     {i > 0 && sep}
                     <Link href={r.href} className="underline underline-offset-2">
@@ -123,7 +131,7 @@ export default async function PrOverviewPage({ params, }: {
                   </span>))}
               </>)}
             {newRefs.length > 0 && (<>
-                <span>proposes new</span>
+                <span>{t("proposesNew")}</span>
                 {newRefs.map((r, i) => (<span key={r.key}>
                     {i > 0 && sep}
                     <span className="text-faint">{r.label}</span>
@@ -135,31 +143,30 @@ export default async function PrOverviewPage({ params, }: {
           </h1>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted-foreground">
             <span>
-              by {pr.author ?? "unknown"} · created {dateSlice(pr.createdAt) ?? "—"} ·
-              updated {dateSlice(pr.updatedAt) ?? "—"}
+              {t("byline", { author: pr.author ?? tc("unknown"), created: dateSlice(pr.createdAt) ?? "—", updated: dateSlice(pr.updatedAt) ?? "—" })}
             </span>
             <span className="text-faint">
-              {pr.changedFiles} file{pr.changedFiles === 1 ? "" : "s"} ·{" "}
+              {t("files", { count: pr.changedFiles })} ·{" "}
               <span className="text-success">+{pr.additions}</span>{" "}
               <span className="text-destructive">−{pr.deletions}</span>
               {pr.headSha && (<>
                   {" "}
-                  · head <code className="font-mono text-xs">{pr.headSha.slice(0, 10)}</code>
+                  · {t("head")} <code className="font-mono text-xs">{pr.headSha.slice(0, 10)}</code>
                 </>)}{" "}
-              · upstream{" "}
+              · {t("upstream")}{" "}
               <a className="underline underline-offset-2" href={meta.commitUrl}>
                 {meta.commitShort}
               </a>
             </span>
             <a href={pr.url} className="underline underline-offset-2 hover:text-accent">
-              view on GitHub ↗
+              {tc("viewOnGithub")}
             </a>
           </div>
         </header>
 
         <section className="mt-2">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Changed documents
+            {t("changedDocs")}
           </h2>
           <ul className="border-t border-border-subtle text-sm">
             {previews.map((pv) => (<PreviewRow key={pv.slug} pr={pr} pv={pv}/>))}
@@ -168,14 +175,10 @@ export default async function PrOverviewPage({ params, }: {
 
         {(diffableFiles.length > 0 || pr.files.length > 0) && (<section className="mt-12 border-t border-border-subtle pt-6">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              Changes
+              {t("changes")}
             </h2>
             {pr.filesTruncated && (<p className="mb-3 text-[0.8125rem] text-warn">
-                Full diff not cached —{" "}
-                <a href={`${pr.url}/files`} className="underline underline-offset-2">
-                  view all {pr.changedFiles} changed files on GitHub
-                </a>
-                .
+                {t.rich("diffTruncated", { count: pr.changedFiles, link: (chunks) => <a href={`${pr.url}/files`} className="underline underline-offset-2">{chunks}</a> })}
               </p>)}
             {pr.files.map((f) => (<details key={f.filename} className="mb-3">
                 <summary className="cursor-pointer text-[0.8125rem] text-accent">
@@ -188,11 +191,7 @@ export default async function PrOverviewPage({ params, }: {
                 {f.patch ? (<div className="mt-2 overflow-x-auto rounded-md border border-border-subtle bg-code py-2 font-mono text-xs">
                     <div dangerouslySetInnerHTML={{ __html: diffToHtml(f.patch) }}/>
                   </div>) : (<p className="mt-2 text-[0.8125rem] text-muted-foreground">
-                    Diff not cached —{" "}
-                    <a href={`${pr.url}/files`} className="underline underline-offset-2">
-                      view on GitHub
-                    </a>
-                    .
+                    {t.rich("diffMissing", { link: (chunks) => <a href={`${pr.url}/files`} className="underline underline-offset-2">{chunks}</a> })}
                   </p>)}
               </details>))}
           </section>)}

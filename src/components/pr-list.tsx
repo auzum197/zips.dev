@@ -1,4 +1,5 @@
-import Link from "next/link";
+import Link from "@/i18n/link";
+import { useTranslations } from "next-intl";
 import { dateSlice } from "@/lib/date";
 import { getZipByNumber, getZipBySlug, prPreviewHref } from "@/lib/data";
 import type { PrMeta } from "@/lib/types";
@@ -35,19 +36,20 @@ function PrRow({ pr, existingZipNumbers, }: {
     pr: PrMeta;
     existingZipNumbers: Set<number>;
 }) {
+    const t = useTranslations("Common");
     const href = prPreviewHref(pr);
     const key = `${pr.repo}-${pr.number}`;
     return (<li id={`pr-${key}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle py-2.5 scroll-mt-18 [&:target]:bg-muted">
       <span className="shrink-0 font-mono text-xs text-faint tabular-nums">
         #{pr.number}
       </span>
-      <a href={href ?? pr.url} title={href ? "Rendered preview of the proposed text" : undefined} className="min-w-0 flex-1 basis-64 leading-snug transition-colors hover:text-accent">
+      <Link href={href ?? pr.url} title={href ? t("preview") : undefined} className="min-w-0 flex-1 basis-64 leading-snug transition-colors hover:text-accent">
         {pr.title}
-      </a>
-      {pr.claimed && (<span className="shrink-0 font-mono text-xs text-purple">claimed</span>)}
+      </Link>
+      {pr.claimed && (<span className="shrink-0 font-mono text-xs text-purple">{t("claimed")}</span>)}
       <PrRefs pr={pr} existingZipNumbers={existingZipNumbers}/>
       <span className="shrink-0 whitespace-nowrap text-xs text-faint max-sm:hidden">
-        {pr.author ?? "unknown"} · {dateSlice(pr.updatedAt) ?? "—"}
+        {pr.author ?? t("unknown")} · {dateSlice(pr.updatedAt) ?? "—"}
       </span>
     </li>);
 }

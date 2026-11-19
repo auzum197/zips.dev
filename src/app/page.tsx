@@ -1,12 +1,17 @@
 import type { Metadata } from "next";
+import { useLocale, useTranslations } from "next-intl";
+import { LOCALES, localizeHref } from "@/i18n/config";
 import IndexFilters, { type IndexRow } from "@/components/index-filters";
 import PageHeader from "@/components/page-header";
-import { getNumberedZips, getUpgrades } from "@/lib/data";
+import { getNumberedZips, getUpgrades, localTitle } from "@/lib/data";
 import { statusGroup } from "@/lib/types";
 export const metadata: Metadata = {
     title: { absolute: "zipreader" },
+    alternates: { canonical: "/", languages: Object.fromEntries(LOCALES.map((l) => [l.id, localizeHref("/", l.id)])) },
 };
 export default function HomePage() {
+    const t = useTranslations("Home");
+    const locale = useLocale();
     const zips = [...getNumberedZips()].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
     const upgradeNames = new Map<number, string[]>();
     for (const u of getUpgrades()) {
@@ -18,7 +23,7 @@ export default function HomePage() {
     }
     const rows: IndexRow[] = zips.map((z) => ({
         number: z.number as number,
-        title: z.title,
+        title: localTitle(z, locale),
         status: z.status,
         group: statusGroup(z.status),
         category: z.category,
@@ -26,7 +31,7 @@ export default function HomePage() {
         upgrades: upgradeNames.get(z.number as number) ?? [],
     }));
     return (<>
-      <PageHeader title="ZIPs"/>
+      <PageHeader title={t("title")}/>
       <div className="mt-4"/>
       <IndexFilters rows={rows}/>
     </>);

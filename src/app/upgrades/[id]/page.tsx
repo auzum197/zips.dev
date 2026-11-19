@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { ogMetadata } from "@/lib/og";
-import Link from "next/link";
+import { getTranslations } from "next-intl/server";
+import Link from "@/i18n/link";
 import { notFound } from "next/navigation";
+import { labels } from "@/i18n/labels";
 import StatusBadge from "@/components/status-badge";
 import DateRow from "@/components/date-row";
 import UpgradeZipTable from "@/components/upgrade-zip-table";
@@ -26,12 +28,12 @@ export async function generateMetadata({ params, }: {
     const { id } = await params;
     const u = getUpgrade(id);
     if (!u)
-        return { title: "Not Found" };
+        return { title: (await getTranslations("Upgrades"))("notFound") };
     // "Overwinter (NU1)" reads well; "NU7 (NU7)" does not
     const name = u.name.toUpperCase() === u.code.toUpperCase() ? u.name : `${u.name} (${u.code})`;
     return ogMetadata({
         title: name,
-        description: u.summary,
+        description: labels(await getTranslations("Data")).upgradeSummary(u.id, u.summary),
         path: `/upgrades/${id}/`,
         card: `upgrade-${id}`,
     });
@@ -54,6 +56,7 @@ export default async function UpgradePage({ params, }: {
     const deployed = zips.filter((z) => z.title.startsWith("Deployment of"));
     const mainnet = dateSlice(u.mainnet);
     const testnet = dateSlice(u.testnet);
+    const t = await getTranslations("Upgrades");
     return (<>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <h1 className="font-display text-2xl font-semibold tracking-tight">
@@ -65,14 +68,14 @@ export default async function UpgradePage({ params, }: {
         {u.status === "proposed" && <StatusBadge status={u.status}/>}
       </div>
       <p className="mb-4 mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
-        <DateRow label="Mainnet:" value={mainnet}/>
-        <DateRow label="Testnet:" value={testnet}/>
+        <DateRow label={t("mainnet")} value={mainnet}/>
+        <DateRow label={t("testnet")} value={testnet}/>
       </p>
-      <p className="mb-8 max-w-[52rem] text-muted-foreground">{u.summary}</p>
+      <p className="mb-8 max-w-[52rem] text-muted-foreground">{labels(await getTranslations("Data")).upgradeSummary(u.id, u.summary)}</p>
 
       {deployed.length > 0 && (<section className="mb-8">
           <h2 className="mb-3 text-base font-semibold tracking-tight">
-            Deployment
+            {t("deployment")}
           </h2>
           <Card className="flex w-fit flex-wrap gap-2 p-3">
             {deployed.map((z) => (<Link key={z.slug} href={`/zip/${z.number}/`}>
@@ -83,14 +86,14 @@ export default async function UpgradePage({ params, }: {
 
       <section className="mb-8">
         <h2 className="mb-3 text-base font-semibold tracking-tight">
-          Included ZIPs <span className="font-normal text-faint">({zips.length})</span>
+          {t("included")} <span className="font-normal text-faint">({zips.length})</span>
         </h2>
         <UpgradeZipTable zips={zips}/>
       </section>
 
       <p className="text-sm">
         <Link href="/upgrades/" className="hover:text-accent">
-          ← All network upgrades
+          {t("all")}
         </Link>
       </p>
     </>);

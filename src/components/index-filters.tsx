@@ -1,6 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/i18n/link";
+import { useTranslations } from "next-intl";
+import { useLabels } from "@/i18n/labels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import StatusBadge from "@/components/status-badge";
@@ -25,19 +27,13 @@ const GROUP_ORDER = [
     "obsolete",
     "other",
 ] as const;
-const GROUP_LABELS: Record<string, string> = {
-    final: "Final",
-    proposed: "Proposed",
-    draft: "Draft",
-    reserved: "Reserved",
-    active: "Active",
-    withdrawn: "Withdrawn",
-    obsolete: "Obsolete",
-    other: "Other",
-};
 export default function IndexFilters({ rows }: {
     rows: IndexRow[];
 }) {
+    const t = useTranslations("Home");
+    const th = useTranslations("Table");
+    const tc = useTranslations("Common");
+    const label = useLabels();
     const [query, setQuery] = useState("");
     const [status, setStatus] = useState<string | null>(null);
     const [category, setCategory] = useState("all");
@@ -63,7 +59,7 @@ export default function IndexFilters({ rows }: {
                 return false;
             if (upgrade !== "all" && !r.upgrades.includes(upgrade))
                 return false;
-            if (q !== "" && !`${r.number} ${r.title} ${r.category}`.toLowerCase().includes(q)) {
+            if (q !== "" && !`${r.number} ${r.title} ${r.category} ${label.category(r.category)}`.toLowerCase().includes(q)) {
                 return false;
             }
             return true;
@@ -78,15 +74,15 @@ export default function IndexFilters({ rows }: {
     }
     return (<div className="mb-8">
       <div className="mb-3 flex flex-wrap gap-2">
-        <Input type="search" placeholder="Filter by number, title, or category…" aria-label="Filter ZIPs" className="min-w-0 max-w-sm flex-1 basis-64" value={query} onChange={(e) => setQuery(e.target.value)}/>
-        <select aria-label="Filter by category" className="h-9 max-w-56 rounded-md border border-input bg-transparent px-3 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option value="all">All categories</option>
+        <Input type="search" placeholder={t("filterPlaceholder")} aria-label={t("filterLabel")} className="min-w-0 max-w-sm flex-1 basis-64" value={query} onChange={(e) => setQuery(e.target.value)}/>
+        <select aria-label={t("byCategory")} className="h-9 max-w-56 rounded-md border border-input bg-transparent px-3 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="all">{t("allCategories")}</option>
           {categories.map((c) => (<option key={c} value={c}>
-              {c}
+              {label.category(c)}
             </option>))}
         </select>
-        <select aria-label="Filter by network upgrade" className="h-9 max-w-56 rounded-md border border-input bg-transparent px-3 text-sm" value={upgrade} onChange={(e) => setUpgrade(e.target.value)}>
-          <option value="all">All upgrades</option>
+        <select aria-label={t("byUpgrade")} className="h-9 max-w-56 rounded-md border border-input bg-transparent px-3 text-sm" value={upgrade} onChange={(e) => setUpgrade(e.target.value)}>
+          <option value="all">{t("allUpgrades")}</option>
           {upgrades.map((u) => (<option key={u} value={u}>
               {u}
             </option>))}
@@ -95,25 +91,25 @@ export default function IndexFilters({ rows }: {
 
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         {groups.map((g) => (<Button key={g} type="button" variant={status === g ? "default" : "outline"} size="sm" className="rounded-full font-mono" aria-pressed={status === g} onClick={() => setStatus(status === g ? null : g)}>
-            {GROUP_LABELS[g] ?? g}
+            {t(`group.${g}`)}
           </Button>))}
         {active && (<Button type="button" variant="ghost" size="sm" className="text-destructive underline underline-offset-2" onClick={reset}>
-            Reset
+            {t("reset")}
           </Button>)}
         <span className="ml-auto font-mono text-xs text-faint">
-          {filtered.length} of {rows.length}
+          {tc("of", { count: filtered.length, total: rows.length })}
         </span>
       </div>
 
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead scope="col">ZIP</TableHead>
-            <TableHead scope="col">Title</TableHead>
-            <TableHead scope="col">Status</TableHead>
-            <TableHead scope="col">Category</TableHead>
-            <TableHead scope="col">Created</TableHead>
-            <TableHead scope="col">Upgrades</TableHead>
+            <TableHead scope="col">{th("zip")}</TableHead>
+            <TableHead scope="col">{th("title")}</TableHead>
+            <TableHead scope="col">{th("status")}</TableHead>
+            <TableHead scope="col">{th("category")}</TableHead>
+            <TableHead scope="col">{th("created")}</TableHead>
+            <TableHead scope="col">{th("upgrades")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -129,7 +125,7 @@ export default function IndexFilters({ rows }: {
               <TableCell>
                 <StatusBadge status={r.status} group={r.group as ZipStatusGroup}/>
               </TableCell>
-              <TableCell>{r.category}</TableCell>
+              <TableCell>{label.category(r.category)}</TableCell>
               <TableCell className="whitespace-nowrap font-mono text-muted-foreground">
                 {r.year ?? "—"}
               </TableCell>
@@ -141,7 +137,7 @@ export default function IndexFilters({ rows }: {
             </TableRow>))}
           {filtered.length === 0 && (<TableRow>
               <TableCell colSpan={6} className="py-5 text-muted-foreground">
-                No ZIPs match the current filters.
+                {t("empty")}
               </TableCell>
             </TableRow>)}
         </TableBody>

@@ -1,31 +1,29 @@
+"use client";
+import { useTranslations } from "next-intl";
 import type { UpstreamMeta } from "@/lib/types";
+const API = ["/api/zips.json", "/api/prs.json", "/api/external.json", "/api/meta.json"];
 export default function SiteFooter({ meta }: {
     meta: UpstreamMeta;
 }) {
-    const synced = new Date(meta.syncedAt);
+    const t = useTranslations("Footer");
+    const link = "underline underline-offset-2";
     return (<footer className="zen-dim border-t border-border-subtle pb-8 pt-5 text-[0.8125rem] text-muted-foreground">
       <div className="mx-auto max-w-[88rem] px-5">
         <p>
-          Unofficial — not affiliated with the Zcash creators or the ZIP editors.
-          Content{" "}
-          <a className="underline underline-offset-2" href={meta.commitUrl}>
-            pinned to upstream <code className="font-mono text-xs text-faint">{meta.commitShort}</code>
-          </a>{" "}
-          (synced {synced.toISOString().slice(0, 10)}). Canonical source:{" "}
-          <a className="underline underline-offset-2" href="https://github.com/zcash/zips">
-            github.com/zcash/zips
-          </a>
-          . Normative versions live there.
+          {t.rich("disclaimer", {
+            sha: meta.commitShort,
+            date: new Date(meta.syncedAt).toISOString().slice(0, 10),
+            commit: (chunks) => <a className={link} href={meta.commitUrl}>{chunks}</a>,
+            code: (chunks) => <code className="font-mono text-xs text-faint">{chunks}</code>,
+            repo: (chunks) => <a className={link} href="https://github.com/zcash/zips">{chunks}</a>,
+        })}
         </p>
         <p className="mt-1.5 text-faint">
-          Machine-readable metadata:{" "}
-          <a className="underline underline-offset-2" href="/api/zips.json"><code className="font-mono text-xs">/api/zips.json</code></a>{" "}
-          ·{" "}
-          <a className="underline underline-offset-2" href="/api/prs.json"><code className="font-mono text-xs">/api/prs.json</code></a>{" "}
-          ·{" "}
-          <a className="underline underline-offset-2" href="/api/external.json"><code className="font-mono text-xs">/api/external.json</code></a>{" "}
-          ·{" "}
-          <a className="underline underline-offset-2" href="/api/meta.json"><code className="font-mono text-xs">/api/meta.json</code></a>
+          {t("machine")}{" "}
+          {API.map((href, i) => (<span key={href}>
+              {i > 0 && " · "}
+              <a className={link} href={href}><code className="font-mono text-xs">{href}</code></a>
+            </span>))}
         </p>
       </div>
     </footer>);

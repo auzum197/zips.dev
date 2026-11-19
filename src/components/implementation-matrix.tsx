@@ -1,4 +1,7 @@
-import Link from "next/link";
+import Link from "@/i18n/link";
+import { useLocale, useTranslations } from "next-intl";
+import { localTitle } from "@/lib/data";
+import { useLabels } from "@/i18n/labels";
 import MatrixFilter from "@/components/matrix-filter";
 import { Badge } from "@/components/ui/badge";
 import type { Implementation, ZipMeta } from "@/lib/types";
@@ -34,27 +37,30 @@ export default function ImplementationMatrix({ impls, zips, }: {
     impls: Implementation[];
     zips: ZipMeta[];
 }) {
+    const t = useTranslations("Matrix");
+    const locale = useLocale();
+    const label = useLabels();
     const levels = [...new Set(impls.map((i) => i.level))];
     return (<>
       <div className="mb-3 mt-6 flex flex-wrap items-baseline gap-x-5 gap-y-2">
         <MatrixFilter total={zips.length}/>
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground" aria-label="Legend">
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground" aria-label={t("legend")}>
         {levels.map((l) => (<Badge key={l} variant={variant(l)}>
-            {l}
+            {t.has(`level.${l}`) ? t(`level.${l}`) : l}
           </Badge>))}
         <span className="inline-flex items-center gap-1">
           <span className="font-semibold text-success" aria-hidden="true">
             ✓
           </span>
-          supported
+          {t("supported")}
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="text-faint" aria-hidden="true">
             ·
           </span>
-          not tracked
+          {t("notTracked")}
         </span>
       </div>
 
@@ -65,7 +71,7 @@ export default function ImplementationMatrix({ impls, zips, }: {
               <th scope="col" className="sticky left-0 top-0 z-30 border-b border-border bg-background px-2.5 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-faint after:absolute after:right-0 after:top-0 after:h-full after:w-px after:bg-border-subtle">
                 ZIP
               </th>
-              {impls.map((impl) => (<th scope="col" key={impl.name} title={impl.notes} className="sticky top-0 z-20 border-b border-border bg-background px-2.5 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-faint">
+              {impls.map((impl) => (<th scope="col" key={impl.name} title={label.implNotes(impl.name, impl.notes)} className="sticky top-0 z-20 border-b border-border bg-background px-2.5 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-faint">
                   <span className={`mr-1.5 inline-block size-2 rounded-full align-middle ${bg(impl.level)}`} aria-hidden="true"/>
                   <a href={impl.url} rel="noopener noreferrer" className="text-xs normal-case tracking-normal text-muted-foreground hover:text-accent">
                     {impl.label}
@@ -74,21 +80,21 @@ export default function ImplementationMatrix({ impls, zips, }: {
             </tr>
           </thead>
           <tbody>
-            {zips.map((zip) => (<tr key={zip.slug} data-q={`${zip.displayNumber} ${zip.title}`.toLowerCase()}>
+            {zips.map((zip) => (<tr key={zip.slug} data-q={`${zip.displayNumber} ${zip.title} ${localTitle(zip, locale)}`.toLowerCase()}>
                 <th scope="row" className="sticky left-0 z-10 min-w-[24rem] border-b border-border-subtle bg-background px-2.5 py-1.5 text-left font-normal after:absolute after:right-0 after:top-0 after:h-full after:w-px after:bg-border-subtle">
                   <Link href={`/zip/${zip.number}/`} className="group flex items-baseline gap-2 hover:no-underline">
                     <span className="shrink-0 font-mono text-xs text-muted-foreground">
                       {zip.displayNumber}
                     </span>
                     <span className="max-w-[22rem] truncate text-muted-foreground group-hover:text-accent">
-                      {zip.title}
+                      {localTitle(zip, locale)}
                     </span>
                   </Link>
                 </th>
-                {impls.map((impl) => (<td key={impl.name} className="min-w-16 border-b border-border-subtle px-2.5 py-1.5 text-center" title={`${impl.label}${impl.zips.includes(zip.number ?? -1) ? ": supported" : ""}`}>
-                    {impl.zips.includes(zip.number ?? -1) ? (<span className={`font-semibold ${text(impl.level)}`} aria-label="supported">
+                {impls.map((impl) => (<td key={impl.name} className="min-w-16 border-b border-border-subtle px-2.5 py-1.5 text-center" title={impl.zips.includes(zip.number ?? -1) ? t("cellSupported", { label: impl.label }) : impl.label}>
+                    {impl.zips.includes(zip.number ?? -1) ? (<span className={`font-semibold ${text(impl.level)}`} aria-label={t("supported")}>
                         ✓
-                      </span>) : (<span className="text-faint" aria-label="not tracked">
+                      </span>) : (<span className="text-faint" aria-label={t("notTracked")}>
                         ·
                       </span>)}
                   </td>))}
@@ -97,16 +103,16 @@ export default function ImplementationMatrix({ impls, zips, }: {
         </table>
       </div>
 
-      <section className="mt-8 text-xs text-muted-foreground" aria-label="Implementation notes">
+      <section className="mt-8 text-xs text-muted-foreground" aria-label={t("notesLabel")}>
         <h2 className="mb-2 text-[0.6875rem] font-semibold uppercase tracking-wide text-faint">
-          Notes
+          {t("notes")}
         </h2>
         <ul className="space-y-1">
           {impls.map((impl) => (<li key={impl.name}>
               <a href={impl.url} rel="noopener noreferrer" className="hover:text-accent hover:underline">
                 {impl.label}
               </a>{" "}
-              — {impl.notes}
+              — {label.implNotes(impl.name, impl.notes)}
             </li>))}
         </ul>
       </section>

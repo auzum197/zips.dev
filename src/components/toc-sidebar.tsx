@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import ZipToc from "@/components/zip-toc";
 import type { ZipHeading } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -5,8 +6,9 @@ export default function TocSidebar({ headings, className, }: {
     headings: ZipHeading[];
     className?: string;
 }) {
+    const t = useTranslations("Toc");
     return (<aside className={cn("group/ztoc absolute left-0 top-6 bottom-0 hidden w-64 min-[70rem]:block", className)}>
-      <button type="button" aria-label="Show table of contents" className="sticky top-6 z-10 hidden h-8 w-8 items-center justify-center rounded-md border border-border-subtle text-muted-foreground zen:pointer-events-auto zen:grid zen:bg-background/70 zen:transition-opacity zen:duration-[600ms] zen:delay-250 zen:hover:text-foreground zen:group-hover/ztoc:pointer-events-none zen:group-hover/ztoc:opacity-0 zen:group-hover/ztoc:delay-0 zen:group-hover/ztoc:duration-[400ms]">
+      <button type="button" aria-label={t("show")} className="sticky top-6 z-10 hidden h-8 w-8 items-center justify-center rounded-md border border-border-subtle text-muted-foreground zen:pointer-events-auto zen:grid zen:bg-background/70 zen:transition-opacity zen:duration-[600ms] zen:delay-250 zen:hover:text-foreground zen:group-hover/ztoc:pointer-events-none zen:group-hover/ztoc:opacity-0 zen:group-hover/ztoc:delay-0 zen:group-hover/ztoc:duration-[400ms]">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
           <path d="M9 6h11"/>
           <path d="M9 12h11"/>

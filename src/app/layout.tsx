@@ -12,6 +12,9 @@ import SiteFooter from "@/components/site-footer";
 import ScrollReset from "@/components/scroll-reset";
 import HeaderAutohide from "@/components/header-autohide";
 import { getMeta } from "@/lib/data";
+import I18nProvider from "@/i18n/provider";
+import en from "../../messages/en.json";
+import es from "../../messages/es.json";
 import { OG_CARDS, ORIGIN, SITE, ogImage } from "@/lib/og";
 export const metadata: Metadata = {
     metadataBase: new URL(ORIGIN),
@@ -49,13 +52,17 @@ export default function RootLayout({ children }: {
         <script dangerouslySetInnerHTML={{ __html: themeInit }}/>
       </head>
       <body className="flex h-full flex-col">
-        <SiteNav />
-        <div id="scroll-root" className="min-h-0 flex-1 overflow-y-auto">
-          <ScrollReset />
-          <HeaderAutohide />
-          <main className="mx-auto w-full max-w-[88rem] px-5 pb-12">{children}</main>
-          <SiteFooter meta={getMeta()}/>
-        </div>
+        {/* One layout for all languages: the header stays mounted on a language
+            change. Client components read their text from this provider. */}
+        <I18nProvider messages={{ en, es }}>
+          <SiteNav />
+          <div id="scroll-root" className="min-h-0 flex-1 overflow-y-auto">
+            <ScrollReset />
+            <HeaderAutohide />
+            <main className="mx-auto w-full max-w-[88rem] px-5 pb-12">{children}</main>
+            <SiteFooter meta={getMeta()}/>
+          </div>
+        </I18nProvider>
       </body>
     </html>);
 }

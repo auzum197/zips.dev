@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 export default function ThemeToggle() {
+    const t = useTranslations("Nav");
     const [theme, setTheme] = useState<"light" | "dark" | null>(null);
     useEffect(() => {
         setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
@@ -17,7 +19,7 @@ export default function ThemeToggle() {
         }
         catch { }
     }
-    return (<Button variant="ghost" size="icon" onClick={toggle} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+    return (<Button variant="ghost" size="icon" onClick={toggle} aria-label={t(theme === "dark" ? "toLight" : "toDark")} title={t(theme === "dark" ? "toLight" : "toDark")}>
       {theme === "dark" ? "☼" : "☾"}
     </Button>);
 }

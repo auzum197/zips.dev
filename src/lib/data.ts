@@ -1,6 +1,8 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
+import type { ZipHeading, ZipTranslation } from "./types";
 import type { Crossrefs, ExternalSnapshot, ExternalSource, Implementation, NewProposal, PrMeta, PrPreview, Upgrade, UpstreamMeta, ZipMeta, } from "./types";
 const CONTENT = path.join(process.cwd(), "content");
 const DATA = path.join(process.cwd(), "data");
@@ -29,6 +31,40 @@ export function getZipByNumber(n: number): ZipMeta | undefined {
 }
 export function getZipHtml(slug: string): string {
     return fs.readFileSync(path.join(CONTENT, "rendered", `${slug}.html`), "utf8");
+}
+/**
+ * Spanish translation of a document, written by `pnpm translate` into
+ * content/rendered-es/. Returns null when there is none, or when the English
+ * source changed after it was made: a stale translation is not published.
+ */
+const translations = new Map<string, ZipTranslation | null>();
+export function getZipTranslation(slug: string): ZipTranslation | null {
+    if (!translations.has(slug))
+        translations.set(slug, readZipTranslation(slug));
+    return translations.get(slug) ?? null;
+}
+/** A document's title in a language: the translated one when there is a
+ *  current translation, else the original. */
+export function localTitle(zip: ZipMeta, locale: string): string {
+    return locale === "es" ? (getZipTranslation(zip.slug)?.title ?? zip.title) : zip.title;
+}
+function readZipTranslation(slug: string): ZipTranslation | null {
+    const dir = path.join(CONTENT, "rendered-es");
+    const metaPath = path.join(dir, `${slug}.json`);
+    const htmlPath = path.join(dir, `${slug}.html`);
+    const zip = getZipBySlug(slug);
+    if (!zip || !fs.existsSync(metaPath) || !fs.existsSync(htmlPath))
+        return null;
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
+        sourceSha: string;
+        model: string;
+        title: string;
+        headings: ZipHeading[];
+    };
+    const sourceSha = crypto.createHash("sha256").update(`${getZipHtml(slug)}\n${zip.title}`).digest("hex");
+    if (meta.sourceSha !== sourceSha)
+        return null;
+    return { title: meta.title, headings: meta.headings, model: meta.model, html: fs.readFileSync(htmlPath, "utf8") };
 }
 export function getPrs(): PrMeta[] {
     // Only the primary repo: external-source PRs live in external.json and

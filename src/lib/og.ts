@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import cards from "../../scripts/og-cards.json";
+import { LOCALES, localizeHref } from "@/i18n/config";
 
 // what the site says about itself to a link preview. The og:preview page
 // (public/og-preview.html, run with `pnpm og:preview`) reads each route's
@@ -60,7 +61,11 @@ export function ogMetadata(opts: {
     };
     const meta: Metadata = {
         title: opts.title,
-        alternates: { canonical: opts.path },
+        alternates: {
+            canonical: opts.path,
+            // every page exists in every language (src/i18n/config.ts)
+            languages: Object.fromEntries(LOCALES.map((l) => [l.id, localizeHref(opts.path, l.id)])),
+        },
         openGraph,
         twitter,
     };
