@@ -1,0 +1,822 @@
+{
+ "segments": {
+  "FlyClient - Consensus-Layer Changes": "FlyClient - Cambios en la capa de consenso",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"NO DEBE (MUST NOT)\", \"DEBERÍA (SHOULD)\" y \"PUEDE (MAY)\" en este documento deben interpretarse como se describe en el BCP 14 <x1/> cuando, y solo cuando, aparecen en mayúsculas.",
+  "The terms \"consensus branch\", \"epoch\", and \"network upgrade\" in this document are to be interpreted as described in ZIP 200. <x1/>": "Los términos \"rama de consenso\", \"época\" y \"actualización de red\" en este documento se deben interpretar como se describe en el ZIP 200. <x1/>",
+  "<g1>Light client</g1>": "<g1>Cliente ligero</g1>",
+  "A client that is not a full participant in the network of Zcash peers. It can send and receive payments, but does not store or validate a copy of the block chain.": "Un cliente que no es un participante completo en la red de pares de Zcash. Puede enviar y recibir pagos, pero no almacena ni valida una copia del block chain.",
+  "<g1>High probability</g1>": "<g1>Alta probabilidad</g1>",
+  "An event occurs with high probability if it occurs with probability <x1/>, where <x2/> is a security parameter.": "Un evento ocurre con alta probabilidad si ocurre con probabilidad <x1/>, donde <x2/> es un parámetro de seguridad.",
+  "<g1>Negligible probability</g1>": "<g1>Probabilidad insignificante</g1>",
+  "An event occurs with negligible probability if it occurs with probability <x1/>, where <x2/> is the security parameter.": "Un evento ocurre con probabilidad insignificante si ocurre con probabilidad <x1/>, donde <x2/> es el parámetro de seguridad.",
+  "<g1>Merkle mountain range (MMR)</g1>": "<g1>Rango de montañas Merkle (MMR)</g1>",
+  "A Merkle mountain range (MMR) is a binary hash tree that allows for efficient appends of new leaves without changing the value of existing nodes.": "Un rango de montañas Merkle (MMR) es un árbol binario de hash que permite añadir eficientemente nuevas hojas sin cambiar el valor de los nodos existentes.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This ZIP specifies modifications to the Zcash block header semantics and consensus rules in order to support the probabilistic verification FlyClient protocol <x1/>. The <x2/> commitment in the block header is replaced with a commitment to the root of a Merkle Mountain Range (MMR), that in turn commits to various features of the chain's history, including the Sapling commitment tree.": "Este ZIP especifica modificaciones a la semántica del encabezado de bloque de Zcash y a las reglas de consenso con el fin de admitir el protocolo probabilístico de verificación FlyClient <x1/>. El compromiso <x2/> del encabezado de bloque se reemplaza por un compromiso a la raíz de un rango de montañas Merkle (MMR), que a su vez se compromete con diversas características de la historia de la cadena, incluido el árbol de compromisos de Sapling.",
+  "<x1/>Background": "<x1/>Antecedentes",
+  "An MMR is a Merkle tree which allows for efficient appends, proofs, and verifications. Informally, appending data to an MMR consists of creating a new leaf and then iteratively merging neighboring subtrees with the same size. This takes at most <x1/> operations and only requires knowledge of the previous subtree roots, of which there are fewer than <x2/>.": "Un MMR es un árbol de Merkle que permite añadidos, pruebas y verificaciones eficientes. De manera informal, añadir datos a un MMR consiste en crear una nueva hoja y luego fusionar iterativamente los subárboles vecinos del mismo tamaño. Esto toma como máximo <x1/> operaciones y solo requiere conocimiento de las raíces de los subárboles anteriores, de las cuales hay menos de <x2/>.",
+  "(example adapted from <x1/>) To illustrate this, consider a list of 11 leaves. We first construct the biggest perfect binary subtrees possible by joining any balanced sibling trees that are the same size. We do this starting from the left to the right, adding a parent as soon as 2 children exist. This leaves us with three subtrees (\"mountains\") of altitudes 3, 1, and 0:": "(ejemplo adaptado de <x1/>) Para ilustrar esto, considere una lista de 11 hojas. Primero construimos los subárboles binarios perfectos más grandes posibles uniendo cualquier par de árboles hermanos equilibrados que sean del mismo tamaño. Hacemos esto comenzando de izquierda a derecha, añadiendo un padre tan pronto como existan 2 hijos. Esto nos deja con tres subárboles (\"montañas\") de altitudes 3, 1 y 0:",
+  "Note that the first leftmost peak is always the highest. We can number this structure in the order by which nodes would be created, if the leaves were inserted from left to right:": "Nótese que el primer pico más a la izquierda siempre es el más alto. Podemos numerar esta estructura en el orden en que los nodos se crearían, si las hojas se insertaran de izquierda a derecha:",
+  "and represent this numbering in a flat list:": "y representar esta numeración en una lista plana:",
+  "Position": "Posición",
+  "Altitude": "Altitud",
+  "Let <x1/> be the altitude of a given node. We can easily jump to the node's right sibling (if it has one) by adding <x2/> to its position, and its left child (if it has one) by subtracting <x3/>. This allows us to efficiently find the subtree roots (\"peaks\") of the mountains.": "Sea <x1/> la altitud de un nodo dado. Podemos saltar fácilmente al hermano derecho del nodo (si tiene uno) sumando <x2/> a su posición, y a su hijo izquierdo (si tiene uno) restando <x3/>. Esto nos permite encontrar de manera eficiente las raíces de los subárboles (\"picos\") de las montañas.",
+  "Once we have the positions of the mountain peaks, we \"bag\" them using the following algorithm:": "Una vez que tenemos las posiciones de los picos de las montañas, los \"empaquetamos\" usando el siguiente algoritmo:",
+  "Generate a node connecting the 2 left-most peaks, forming a new peak.": "Generar un nodo que conecte los 2 picos más a la izquierda, formando un nuevo pico.",
+  "Repeat 1. until we have a single peak.": "Repetir 1. hasta tener un único pico.",
+  "Note that the extra nodes generated during the bagging process do not follow the above rules for jumping between nodes.": "Nótese que los nodos adicionales generados durante el proceso de empaquetado no siguen las reglas anteriores para saltar entre nodos.",
+  "MMR trees allow for efficient incremental set update operations (push, pop, prune). In addition, MMR update operations and Merkle proofs for recent additions to the leaf set are more efficient than other incremental Merkle tree implementations (e.g. Bitcoin's padded leafset, sparse Merkle trees, and Zcash's incremental note commitment trees).": "Los árboles MMR permiten operaciones eficientes de actualización incremental de conjuntos (push, pop, prune). Además, las operaciones de actualización de MMR y las pruebas de Merkle para adiciones recientes al conjunto de hojas son más eficientes que otras implementaciones incrementales de árboles de Merkle (p. ej., el conjunto de hojas con relleno de Bitcoin, los árboles de Merkle dispersos y los árboles incrementales de compromisos de notas de Zcash).",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "MMR proofs are used in the FlyClient protocol <x1/>, to reduce the proof size needed for light clients to verify:": "Las pruebas MMR se usan en el protocolo FlyClient <x1/> para reducir el tamaño de prueba necesario para que los clientes ligeros verifiquen:",
+  "the validity of a block chain received from a full node, and": "la validez de una block chain recibida de un nodo completo, y",
+  "the inclusion of a block <x1/> in that chain, and": "la inclusión de un bloque <x1/> en esa cadena, y",
+  "certain metadata of any block or range of blocks in that chain.": "ciertos metadatos de cualquier bloque o rango de bloques en esa cadena.",
+  "The protocol requires that an MMR that commits to the inclusion of all blocks since the preceding network upgrade <x1/> is formed for each block <x2/>. The root <x3/> of the MMR MUST be included in the header of <x4/>.": "El protocolo requiere que se forme un MMR que se compromete a la inclusión de todos los bloques desde la actualización de red anterior <x1/> para cada bloque <x2/>. La raíz <x3/> del MMR DEBE (MUST) incluirse en el encabezado de <x4/>.",
+  "(<x1/> is the activation height of the preceding network upgrade.)": "(<x1/> es la altura de activación de la actualización de red anterior.)",
+  "FlyClient reduces the number of block headers needed for light client verification of a valid chain, from linear (as in the current reference protocol) to logarithmic in block chain length. This verification is correct with high probability. It also allows creation of subtree proofs, so light clients need only check blocks later than the most recently verified block index. Following that, verification of a transaction inclusion within that block follows the usual reference protocol <x1/>.": "FlyClient reduce la cantidad de encabezados de bloque necesarios para la verificación por clientes ligeros de una cadena válida, de lineal (como en el protocolo de referencia actual) a logarítmica en la longitud de la block chain. Esta verificación es correcta con alta probabilidad. También permite la creación de pruebas de subárbol, de modo que los clientes ligeros solo necesitan verificar bloques posteriores al índice del bloque verificado más recientemente. A continuación, la verificación de la inclusión de una transacción en ese bloque sigue el protocolo de referencia habitual <x1/>.",
+  "A smaller proof size could enable the verification of Zcash SPV Proofs in block-chain protocols such as Ethereum, enabling efficient cross-chain communication and pegs. It also reduces bandwidth and storage requirements for resource-limited clients like mobile or IoT devices.": "Un tamaño de prueba menor podría habilitar la verificación de pruebas SPV de Zcash en protocolos de block chain como Ethereum, lo que permitiría comunicación y anclajes (pegs) eficientes entre cadenas. También reduce los requisitos de ancho de banda y almacenamiento para clientes con recursos limitados, como dispositivos móviles o de IoT.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "For a block <x1/> at height <x2/> in a given block chain, define the \"preceding network upgrade height\" <x3/> of <x4/> to be the last network upgrade activation height in the chain that is less than <x5/>. (For this definition, block height <x6/> is considered to be the height of a network upgrade activation. The preceding network upgrade height of the genesis block is undefined.)": "Para un bloque <x1/> a la altura <x2/> en una block chain dada, defínase la \"altura de la actualización de red anterior\" <x3/> de <x4/> como la última altura de activación de una actualización de red en la cadena que sea menor que <x5/>. (Para esta definición, la altura de bloque <x6/> se considera la altura de activación de una actualización de red. La altura de la actualización de red anterior del bloque génesis queda indefinida.)",
+  "The leaves of the MMR at block <x1/> are hash commitments to the header data and metadata of each previous block <x2/>, where <x3/> is defined as above. We extend the standard MMR to allow metadata to propagate upwards through the tree by either summing the metadata of both children, or inheriting the metadata of a specific child as necessary. This allows us to create efficient proofs of selected properties of a range of blocks without transmitting the entire range of blocks or headers.": "Las hojas del MMR en el bloque <x1/> son compromisos de hash de los datos de encabezado y los metadatos de cada bloque anterior <x2/>, donde <x3/> se define como arriba. Extendemos el MMR estándar para permitir que los metadatos se propaguen hacia arriba a través del árbol, ya sea sumando los metadatos de ambos hijos o heredando los metadatos de un hijo específico según sea necesario. Esto nos permite crear pruebas eficientes de propiedades seleccionadas de un rango de bloques sin transmitir el rango completo de bloques o encabezados.",
+  "<x1/>Tree Node specification": "<x1/>Especificación de los nodos del árbol",
+  "Unless otherwise noted, all hashes use BLAKE2b-256 with the personalization field set to <x1/>. <x2/> is the 4-byte little-endian encoding of the consensus branch ID for the epoch of the blocks that the tree covers. <x3/> That is, each node in the tree commits to the consensus branch that produced it. At the activation block of a network upgrade after Heartwood, the tree covers the blocks of the previous epoch, so the root commitment in that block's header is hashed with the consensus branch ID of the previous epoch.": "Salvo que se indique lo contrario, todos los hash usan BLAKE2b-256 con el campo de personalización establecido en <x1/>. <x2/> es la codificación de 4 bytes en little-endian del ID de la rama de consenso para la época de los bloques que cubre el árbol. <x3/> Es decir, cada nodo del árbol se compromete a la rama de consenso que lo produjo. En el bloque de activación de una actualización de red posterior a Heartwood, el árbol cubre los bloques de la época anterior, por lo que el compromiso de raíz en el encabezado de ese bloque se calcula con un hash usando el ID de la rama de consenso de la época anterior.",
+  "Each MMR node is defined as follows:": "Cada nodo del MMR se define como sigue:",
+  "Leaf node": "Nodo hoja",
+  "The consensus-defined block hash for the corresponding block.": "El hash de bloque definido por consenso para el bloque correspondiente.",
+  "This hash is encoded in internal byte order, and does NOT use the BLAKE2b-256 personalization string described above.": "Este hash se codifica en orden de bytes interno y NO (NOT) usa la cadena de personalización de BLAKE2b-256 descrita arriba.",
+  "For clarity, in a given consensus branch, the <x1/> field of leaf <x2/> is <g3>precisely equal</g3> to the <x4/> field in the header of the block at height <x5/>, where <x6/> is the network upgrade activation height of that consensus branch.": "Para mayor claridad, en una rama de consenso dada, el campo <x1/> de la hoja <x2/> es <g3>exactamente igual</g3> al campo <x4/> en el encabezado del bloque a la altura <x5/>, donde <x6/> es la altura de activación de la actualización de red de esa rama de consenso.",
+  "Internal or root node": "Nodo interno o raíz",
+  "Both child nodes are serialized.": "Ambos nodos hijos se serializan.",
+  "<x1/> is the BLAKE2b-256 hash of <x2/>.": "<x1/> es el hash BLAKE2b-256 de <x2/>.",
+  "For clarity, this digest uses the BLAKE2b-256 personalization string described above.": "Para mayor claridad, este resumen usa la cadena de personalización de BLAKE2b-256 descrita arriba.",
+  "Serialized as <x1/>.": "Serializado como <x1/>.",
+  "The header's timestamp.": "La marca de tiempo del encabezado.",
+  "Inherited from the left child.": "Heredado del hijo izquierdo.",
+  "Serialized as <x1/> (<x2/>).": "Serializado como <x1/> (<x2/>).",
+  "Note that a <x1/> time value would overflow on 2106-02-07, but this field (and <x2/> below) can only hold values that occur in the <x3/> field of a block header, which is also of type <x4/>.": "Nótese que un valor de tiempo <x1/> desbordaría el 2106-02-07, pero este campo (y <x2/> abajo) solo puede contener valores que aparecen en el campo <x3/> de un encabezado de bloque, que también es de tipo <x4/>.",
+  "Inherited from the right child.": "Heredado del hijo derecho.",
+  "Note that due to timestamp consensus rules, <x1/> may be smaller than <x2/> in some subtrees. This may occur within subtrees smaller than <x3/> blocks.": "Nótese que, debido a las reglas de consenso sobre marcas de tiempo, <x1/> puede ser menor que <x2/> en algunos subárboles. Esto puede ocurrir dentro de subárboles de menos de <x3/> bloques.",
+  "The header's <x1/> field.": "El campo <x1/> del encabezado.",
+  "Calculated as <x1/>, as implemented in Sapling.": "Calculado como <x1/>, tal como se implementó en Sapling.",
+  "The protocol-defined work of the block: <x1/>. <x2/>": "El trabajo definido por el protocolo del bloque: <x1/>. <x2/>",
+  "The sum of the <x1/> fields of both children.": "La suma de los campos <x1/> de ambos hijos.",
+  "Computations modulo <x1/> are fine here; cumulative chain work is similarly assumed elsewhere in the Zcash ecosystem to be at most <x2/> (as inherited from Bitcoin). The computed work factors are, on average, equal to the computational efforts involved in the creation of the corresponding blocks, and an aggregate effort of <x3/> or more is infeasible in practice.": "Los cálculos módulo <x1/> son válidos aquí; en otras partes del ecosistema de Zcash se asume de forma similar que el trabajo acumulado de la cadena es a lo sumo <x2/> (como se heredó de Bitcoin). Los factores de trabajo calculados son, en promedio, iguales a los esfuerzos computacionales involucrados en la creación de los bloques correspondientes, y un esfuerzo agregado de <x3/> o más es inviable en la práctica.",
+  "The height of the block.": "La altura del bloque.",
+  "The number of transactions in the leaf block where either of <x1/> or <x2/> is non-empty.": "El número de transacciones del bloque hoja en el que <x1/> o <x2/> es no vacío.",
+  "The sum of the <x1/> field of both children.": "La suma del campo <x1/> de ambos hijos.",
+  "[NU5 onward] <x1/>": "[Desde NU5] <x1/>",
+  "Calculated as the note commitment root of the final Orchard treestate (similar to <x1/> in Sapling).": "Calculado como la raíz de compromisos de notas del estado final del árbol de Orchard (similar a <x1/> en Sapling).",
+  "The number of transactions in the leaf block where <x1/> is non-empty.": "El número de transacciones del bloque hoja en el que <x1/> es no vacío.",
+  "The fields marked \"[NU5 onward]\" are omitted before NU5 activation <x1/>.": "Los campos marcados \"[Desde NU5]\" se omiten antes de la activación de NU5 <x1/>.",
+  "Each node, when serialized, is between 147 and 171 bytes long (between 212 and 244 bytes after NU5 activation). The canonical serialized representation of a node is used whenever creating child commitments for future nodes. Other than the metadata commitments, the MMR tree's construction is standard.": "Cada nodo, cuando se serializa, tiene entre 147 y 171 bytes de longitud (entre 212 y 244 bytes después de la activación de NU5). La representación serializada canónica de un nodo se utiliza siempre que se crean compromisos de hijos para nodos futuros. Aparte de los compromisos de metadatos, la construcción del árbol MMR es estándar.",
+  "Once the MMR has been generated, we produce <x1/>, which we define as the BLAKE2b-256 digest of the serialization of the root node.": "Una vez que se ha generado el MMR, producimos <x1/>, que definimos como el resumen BLAKE2b-256 de la serialización del nodo raíz.",
+  "<x1/>Tree nodes and hashing (pseudocode)": "<x1/>Nodos del árbol y hash (pseudocódigo)",
+  "<x1/>Incremental push and pop (pseudocode)": "<x1/>Inserción y eliminación incrementales (pseudocódigo)",
+  "With each new block <x1/>, we append a new MMR leaf node corresponding to block <x2/>. The <x3/> operation is detailed below in pseudocode (adapted from <x4/>):": "Con cada nuevo bloque <x1/>, añadimos un nuevo nodo hoja del MMR correspondiente al bloque <x2/>. La operación <x3/> se detalla a continuación en pseudocódigo (adaptada de <x4/>):",
+  "In case of a block reorg, we have to delete the latest (i.e. rightmost) MMR leaf nodes, up to the reorg length. This operation is <x1/> where <x2/> is the number of leaves in the right subtree of the MMR root.": "En caso de una reorganización de bloques, debemos eliminar los nodos hoja del MMR más recientes (es decir, los más a la derecha), hasta la longitud de la reorganización. Esta operación es <x1/>, donde <x2/> es el número de hojas en el subárbol derecho de la raíz del MMR.",
+  "<x1/>Block header semantics and consensus rules": "<x1/>Semántica de los encabezados de bloque y reglas de consenso",
+  "The following specification is accurate before NU5 activation. See <x1/> for header field changes in NU5.": "La siguiente especificación es precisa antes de la activación de NU5. Véase <x1/> para los cambios en los campos del encabezado en NU5.",
+  "The <x1/> block header field (which was named <x2/> prior to the Sapling network upgrade) is renamed to <x3/>, to reflect its usage by light clients. (In NU5, this field is renamed again to <x4/> as specified in <x5/>.)": "El campo <x1/> del encabezado de bloque (que se llamaba <x2/> antes de la actualización de red de Sapling) se renombra a <x3/>, para reflejar su uso por parte de clientes ligeros. (En NU5, este campo se renombra de nuevo a <x4/>, como se especifica en <x5/>.)",
+  "Prior to activation of the network upgrade that deploys this ZIP, this existing consensus rule on block headers (adjusted for the renamed field) is enforced: <x1/>": "Antes de la activación de la actualización de red que despliega este ZIP, se aplica esta regla de consenso existente sobre los encabezados de bloque (ajustada por el campo renombrado): <x1/>",
+  "[Sapling onward] <x1/> MUST be <x2/> where <x3/> is the root of the Sapling note commitment tree for the final Sapling tree state of this block.": "[Desde Sapling] <x1/> DEBE (MUST) ser <x2/>, donde <x3/> es la raíz del árbol de compromisos de notas de Sapling para el estado final del árbol de Sapling de este bloque.",
+  "In the block that activates this ZIP, <x1/> MUST be set to all zero bytes. This MUST NOT be interpreted as a root hash.": "En el bloque que activa este ZIP, <x1/> DEBE (MUST) establecerse en bytes todos en cero. Esto NO DEBE (MUST NOT) interpretarse como un hash raíz.",
+  "In subsequent blocks, <x1/> MUST be set to the value of <x2/> as specified above.": "En los bloques posteriores, <x1/> DEBE (MUST) establecerse en el valor de <x2/> como se especifica anteriormente.",
+  "The block header byte format and version are not altered by this ZIP.": "El formato de bytes y la versión del encabezado de bloque no son alterados por este ZIP.",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "<x1/>Tree nodes": "<x1/>Nodos del árbol",
+  "Nodes in the commitment tree are canonical and immutable. They are cheap to generate, as (with the exception of <x1/> and <x2/>) all metadata is already generated during block construction and/or checked during block validation. Nodes are relatively compact in memory. As of the original publication of this ZIP, approximately 140,000 blocks had elapsed since Sapling activation. Assuming a 164-byte commitment to each of these, we would have generated approximately 24 MB of additional storage cost for the set of leaf nodes (and an additional ~24 MB for storage of intermediate nodes).": "Los nodos del árbol de compromisos son canónicos e inmutables. Son baratos de generar, ya que (con excepción de <x1/> y <x2/>) todos los metadatos ya se generan durante la construcción del bloque y/o se verifican durante la validación del bloque. Los nodos son relativamente compactos en memoria. Para la publicación original de este ZIP, habían transcurrido aproximadamente 140,000 bloques desde la activación de Sapling. Asumiendo un compromiso de 164 bytes para cada uno de ellos, habríamos generado aproximadamente 24 MB de costo adicional de almacenamiento para el conjunto de nodos hoja (y ~24 MB adicionales para el almacenamiento de nodos intermedios).",
+  "<x1/> forms the structure of the commitment tree. Other metadata commitments were chosen to serve specific purposes. Originally variable-length commitments were placed last, so that most metadata in a node could be directly indexed. We considered using fixed-length commitments here, but opted for variable-length, in order to marginally reduce the memory requirements for managing and updating the commitment trees.": "<x1/> forma la estructura del árbol de compromisos. Otros compromisos de metadatos fueron elegidos para servir propósitos específicos. Originalmente los compromisos de longitud variable se colocaron al final, de modo que la mayoría de los metadatos en un nodo pudiera indexarse directamente. Consideramos usar compromisos de longitud fija aquí, pero optamos por longitud variable, con el fin de reducir marginalmente los requisitos de memoria para gestionar y actualizar los árboles de compromisos.",
+  "Orchard fields are placed last, in order to avoid complicating existing uses of the other fields.": "Los campos de Orchard se colocan al final, para no complicar los usos existentes de los demás campos.",
+  "In leaf nodes, some information is repeated. We chose to do this so that leaf nodes could be treated identically to internal and root nodes for all algorithms and (de)serializers. Leaf nodes are easily identifiable, as they will show proof of work in the <x1/> field (which commits to the block hash for leaf nodes), and their block range (calculated as <x2/> - (<x3/> - 1)) will be precisely 1.": "En los nodos hoja, se repite cierta información. Elegimos hacer esto para que los nodos hoja pudieran tratarse de manera idéntica a los nodos internos y a los nodos raíz para todos los algoritmos y (des)serializadores. Los nodos hoja son fácilmente identificables, ya que mostrarán prueba de trabajo en el campo <x1/> (que compromete el hash del bloque en el caso de los nodos hoja), y su rango de bloques (calculado como <x2/> - (<x3/> - 1)) será exactamente 1.",
+  "Personalized BLAKE2b-256 was selected to match existing Zcash conventions. Adding the consensus branch ID to the hash personalization string ensures that valid nodes from one consensus branch cannot be used to make false statements about parallel consensus branches.": "Se seleccionó BLAKE2b-256 personalizado para coincidir con las convenciones existentes de Zcash. Añadir el ID de la rama de consenso a la cadena de personalización del hash garantiza que los nodos válidos de una rama de consenso no puedan usarse para hacer afirmaciones falsas sobre ramas de consenso paralelas.",
+  "<x1/>FlyClient Requirements and Recommendations": "<x1/>Requisitos y recomendaciones de FlyClient",
+  "These commitments enable FlyClient in the variable-difficulty model. Specifically, they allow light clients to reason about application of the difficulty adjustment algorithm over a range of blocks. They were chosen via discussion with an author of the FlyClient paper.": "Estos compromisos habilitan FlyClient en el modelo de dificultad variable. En concreto, permiten a los clientes ligeros razonar sobre la aplicación del algoritmo de ajuste de dificultad a lo largo de un rango de bloques. Fueron elegidos mediante discusión con un autor del artículo de FlyClient.",
+  "<x1/>Non-FlyClient Commitments": "<x1/>Compromisos no FlyClient",
+  "Additional metadata commitments were chosen primarily to improve light client security guarantees. We specified commitments where we could see an obvious security benefit, but there may be other useful metadata that we missed. We're interested in feedback and suggestions from the implementers of the current light client.": "Los compromisos de metadatos adicionales fueron elegidos principalmente para mejorar las garantías de seguridad de los clientes ligeros. Especificamos compromisos donde podíamos ver un beneficio de seguridad obvio, pero puede haber otros metadatos útiles que pasamos por alto. Estamos interesados en comentarios y sugerencias de los implementadores del cliente ligero actual.",
+  "We considered adding a commitment to the nullifier vector at each block. We would appreciate comments from light client teams on the utility of this commitment, as well as the proper serialization and commitment format for the nullifier vector, for possible inclusion in a future upgrade.": "Consideramos añadir un compromiso al vector de nullifiers en cada bloque. Agradeceríamos comentarios de los equipos de clientes ligeros sobre la utilidad de este compromiso, así como sobre la serialización y el formato de compromiso adecuados para el vector de nullifiers, para su posible inclusión en una actualización futura.",
+  "Committing to the earliest Sapling root of a range of blocks allows light clients to check the consistency of treestate transitions over a range of blocks, without recalculating the root from genesis.": "Comprometerse a la raíz de Sapling más temprana de un rango de bloques permite a los clientes ligeros verificar la consistencia de las transiciones de estado del árbol a lo largo de un rango de bloques, sin recalcular la raíz desde el génesis.",
+  "This commitment serves the same purpose as <x1/> in current Sapling semantics.": "Este compromiso sirve al mismo propósito que <x1/> en la semántica actual de Sapling.",
+  "However, because the MMR tree commits to blocks <x1/>, the latest commitment will describe the final treestate of the previous block, rather than the current block.": "Sin embargo, como el árbol MMR se compromete a los bloques <x1/>, el compromiso más reciente describirá el estado final del árbol del bloque anterior, en lugar del bloque actual.",
+  "Concretely: block 500 currently commits to the final treestate of block 500 in its header. With this ZIP, block 500 will commit to all roots up to block 499, but not the final root of block 500.": "En concreto: actualmente el bloque 500 se compromete al estado final del árbol del bloque 500 en su encabezado. Con este ZIP, el bloque 500 se comprometerá a todas las raíces hasta el bloque 499, pero no a la raíz final del bloque 500.",
+  "We feel this is an acceptable tradeoff. Using the most recent treestate as a transaction anchor is already unsafe in reorgs. Clients should never use the most recent treestate to generate transactions, so it is acceptable to delay commitment by one block.": "Consideramos que este es un compromiso aceptable. Usar el estado del árbol más reciente como ancla de transacción ya es inseguro en reorganizaciones. Los clientes nunca deberían usar el estado del árbol más reciente para generar transacciones, por lo que es aceptable retrasar el compromiso un bloque.",
+  "By committing to the number of Sapling transactions in blocks (and ranges of blocks), a light client may reliably learn whether a malicious server is witholding any Sapling transactions.": "Al comprometerse al número de transacciones de Sapling en los bloques (y en rangos de bloques), un cliente ligero puede saber de forma confiable si un servidor malicioso está reteniendo transacciones de Sapling.",
+  "In addition, this commitment allows light clients to avoid syncing header ranges that do not contain Sapling transactions. As the primary cost of a light client is transmission of Equihash solution information in block headers, this optimization would significantly decrease the bandwidth requirements of light clients.": "Además, este compromiso permite a los clientes ligeros evitar sincronizar rangos de encabezados que no contengan transacciones de Sapling. Como el costo principal de un cliente ligero es la transmisión de información de la solución de Equihash en los encabezados de los bloques, esta optimización disminuiría significativamente los requisitos de ancho de banda de los clientes ligeros.",
+  "An earlier draft of this ZIP committed to the number of shielded transactions, counting both Sprout and Sapling. This commitment would not have been useful to light clients that only support Sapling addresses; they would not be able to distinguish between Sapling transactions being maliciously withheld, and Sprout transactions not being requested.": "Un borrador anterior de este ZIP se comprometía al número de transacciones blindadas, contando tanto Sprout como Sapling. Este compromiso no habría sido útil para clientes ligeros que solo admiten direcciones de Sapling; no podrían distinguir entre transacciones de Sapling retenidas maliciosamente y transacciones de Sprout no solicitadas.",
+  "A commitment to the number of Sprout transactions in blocks was not included, because Sprout addresses are effectively deprecated at this point, and will not be supported by any light clients.": "No se incluyó un compromiso al número de transacciones de Sprout en los bloques, porque las direcciones de Sprout están efectivamente obsoletas en este punto, y no serán admitidas por ningún cliente ligero.",
+  "If a future network upgrade introduced a new shielded pool, a new commitment to that pool's transactions would be added, to similarly enable future light clients that do not support Sapling addresses.": "Si una actualización de red futura introdujera un nuevo pool blindado, se añadiría un nuevo compromiso a las transacciones de ese pool, para permitir de manera similar a futuros clientes ligeros que no admitan direcciones de Sapling.",
+  "<x1/>, <x2/>, and <x3/>": "<x1/>, <x2/> y <x3/>",
+  "These are included with the same rationale as for Sapling.": "Estos se incluyen con la misma justificación que para Sapling.",
+  "<x1/>Header Format Change": "<x1/>Cambio de formato del encabezado",
+  "The primary goal of the original authors was to minimize header changes; in particular, they preferred not to introduce changes that could affect mining hardware or embedded software. Altering the block header format would require changes throughout the ecosystem, so we decided against adding <x1/> to the header as a new field.": "El objetivo principal de los autores originales era minimizar los cambios en el encabezado; en particular, preferían no introducir cambios que pudieran afectar al hardware de minería o al software embebido. Alterar el formato del encabezado de bloque requeriría cambios en todo el ecosistema, por lo que decidimos no añadir <x1/> al encabezado como un campo nuevo.",
+  "ZIP 301 states that \"[Miner client software] SHOULD alert the user upon receiving jobs containing block header versions they do not know about or support, and MUST ignore such jobs.\" <x1/> As the only formally defined block header version is 4, any header version change requires changes to miner client software in order for miners to handle new jobs from mining pools. We therefore do not alter the block version for this semantic change. This does not make block headers ambiguous to interpret, because blocks commit to their block height inside their coinbase transaction, <x2/> and they are never handled in a standalone context (unlike transactions, which exist in the mempool outside of blocks).": "El ZIP 301 establece que \"[el software cliente del minero] DEBERÍA (SHOULD) alertar al usuario al recibir trabajos que contengan versiones de encabezado de bloque que no conozca o no admita, y DEBE (MUST) ignorar tales trabajos.\" <x1/> Como la única versión de encabezado de bloque definida formalmente es la 4, cualquier cambio de versión del encabezado requiere cambios en el software cliente del minero para que los mineros puedan manejar nuevos trabajos de los pools de minería. Por lo tanto, no alteramos la versión de bloque para este cambio semántico. Esto no hace que los encabezados de bloque sean ambiguos de interpretar, porque los bloques se comprometen a su altura de bloque dentro de su transacción coinbase, <x2/> y nunca se manejan en un contexto aislado (a diferencia de las transacciones, que existen en el mempool fuera de los bloques).",
+  "Replacing <x1/> with <x2/> does introduce the theoretical possibility of an attack where a miner constructs a Sapling commitment tree update that results in the same 32-byte value as the MMR root. We don't consider this a realistic attack, both because the adversary would need to find a preimage over 32 layers of Pedersen hash, and because light clients already need to update their code to include the consensus branch ID for the Heartwood network upgrade, and can simultaneously make changes to not rely on the value of this header field being the Sapling tree root.": "Reemplazar <x1/> por <x2/> sí introduce la posibilidad teórica de un ataque en el que un minero construye una actualización del árbol de compromisos de Sapling que resulta en el mismo valor de 32 bytes que la raíz del MMR. No consideramos que este sea un ataque realista, tanto porque el adversario tendría que encontrar una preimagen sobre 32 capas de hash de Pedersen, como porque los clientes ligeros ya necesitan actualizar su código para incluir el identificador de rama de consenso para la actualización de red Heartwood, y pueden simultáneamente hacer cambios para no depender de que el valor de este campo del encabezado sea la raíz del árbol de Sapling.",
+  "We also considered putting <x1/> in the <x2/> field as it commits to the entire chain history, but quickly realized it would require massive refactoring of the existing code base and would negatively impact performance. Reorgs in particular are fragile, performance-critical, and rely on backwards iteration over the chain history. If a chain were to be designed from scratch there may be some efficient implementation that would join these commitments, but it is clearly not appropriate for Zcash as it exists.": "También consideramos poner <x1/> en el campo <x2/> ya que se compromete a toda la historia de la cadena, pero rápidamente nos dimos cuenta de que requeriría una refactorización masiva de la base de código existente y afectaría negativamente el rendimiento. Las reorganizaciones en particular son frágiles, críticas para el rendimiento, y dependen de la iteración hacia atrás sobre la historia de la cadena. Si una cadena fuera diseñada desde cero, podría existir alguna implementación eficiente que uniera estos compromisos, pero claramente no es apropiado para Zcash tal como existe.",
+  "The calculation of <x1/> is not well-defined for the genesis block, since then <x2/> and there is no block <x3/>. Also, in the case of chains that activate this ZIP after genesis (including Zcash Mainnet and Testnet), the <x4/> of the activation block would commit to the whole previous epoch if a special case were not made. It would be impractical to calculate this commitment all at once, and so we specify that <x5/> is set to all zero bytes for that block instead. The hash of the final Sapling note commitment tree root for the activation block will not be encoded in that block, but will be committed to one block later in the <x6/> field of the MMR root commitment.": "El cálculo de <x1/> no está bien definido para el bloque génesis, ya que entonces <x2/> y no existe el bloque <x3/>. Además, en el caso de las cadenas que activan este ZIP después del génesis (incluidas Zcash Mainnet y Testnet), el <x4/> del bloque de activación se comprometería a toda la época anterior si no se hiciera un caso especial. Sería impráctico calcular este compromiso todo de una vez, por lo que especificamos que <x5/> se establece a todos los bytes cero para ese bloque. El hash de la raíz final del árbol de compromisos de notas de Sapling para el bloque de activación no se codificará en ese bloque, sino que se comprometerá un bloque más adelante en el campo <x6/> del compromiso de la raíz del MMR.",
+  "<x1/>Security and Privacy Considerations": "<x1/>Consideraciones de seguridad y privacidad",
+  "This ZIP imposes an additional validation cost on new blocks. While this validation cost is small, it may exacerbate any existing DoS opportunities, particularly during abnormal events like long reorgs. Fortunately, these costs are logarithmic in the number of delete and append operations. In the worst case scenario, a well-resourced attacker could maintain 2 chains of approximately equal length, and alternate which chain they extend. This would result in repeated reorgs of increasing length.": "Este ZIP impone un costo de validación adicional sobre los bloques nuevos. Aunque este costo de validación es pequeño, puede exacerbar cualquier oportunidad de DoS existente, particularmente durante eventos anormales como reorganizaciones largas. Afortunadamente, estos costos son logarítmicos en el número de operaciones de eliminación y adición. En el peor escenario, un atacante con abundantes recursos podría mantener 2 cadenas de longitud aproximadamente igual, y alternar cuál cadena extiende. Esto resultaría en reorganizaciones repetidas de longitud creciente.",
+  "Given the performance of BLAKE2b, we expect this validation cost to be negligible. However, it seems prudent to benchmark potential MMR implementations during the implementation process. Should the validation cost be higher than expected, there are several potential mitigations, e.g. holding recently seen nodes in memory after a reorg.": "Dado el rendimiento de BLAKE2b, esperamos que este costo de validación sea insignificante. Sin embargo, parece prudente evaluar el rendimiento de posibles implementaciones de MMR durante el proceso de implementación. Si el costo de validación fuera mayor de lo esperado, existen varias mitigaciones potenciales, p. ej. mantener en memoria los nodos vistos recientemente después de una reorganización.",
+  "Generally, header commitments have no impact on privacy. However, FlyClient has additional security and privacy implications. Because FlyClient is a motivating factor for this ZIP, it seems prudent to include a brief overview. A more in-depth security analysis of FlyClient should be performed before designing a FlyClient-based light client ecosystem for Zcash.": "En general, los compromisos de encabezado no tienen impacto en la privacidad. Sin embargo, FlyClient tiene implicaciones adicionales de seguridad y privacidad. Como FlyClient es un factor motivador de este ZIP, parece prudente incluir un breve panorama. Un análisis de seguridad más profundo de FlyClient debería realizarse antes de diseñar un ecosistema de clientes ligeros basado en FlyClient para Zcash.",
+  "FlyClient, like all light clients, requires a connection to a light client server. That server may collect information about client requests, and may use that information to attempt to deanonymize clients. However, because FlyClient proofs are non-interactive and publicly verifiable, they could be shared among many light clients after the initial server interaction.": "FlyClient, como todos los clientes ligeros, requiere una conexión a un servidor de clientes ligeros. Ese servidor puede recopilar información sobre las solicitudes de los clientes, y puede usar esa información para intentar desanonimizar clientes. Sin embargo, como las pruebas de FlyClient son no interactivas y verificables públicamente, podrían compartirse entre muchos clientes ligeros después de la interacción inicial con el servidor.",
+  "FlyClient proofs are probabilistic. When properly constructed, there is negligible probability that a dishonest chain commitment will be accepted by the verifier. The security analysis assumes adversary mining power is bounded by a known fraction of combined mining power of honest nodes, and cannot drop or tamper with messages between client and full nodes. It also assumes the client is connected to at least one full node and knows the genesis block.": "Las pruebas de FlyClient son probabilísticas. Cuando se construyen correctamente, hay una probabilidad insignificante de que un compromiso de cadena deshonesto sea aceptado por el verificador. El análisis de seguridad asume que el poder de minado del adversario está acotado por una fracción conocida del poder de minado combinado de los nodos honestos, y que no puede descartar ni alterar los mensajes entre el cliente y los nodos completos. También asume que el cliente está conectado al menos a un nodo completo y conoce el bloque génesis.",
+  "In addition, <x1/> only analyses these security properties in chain models with slowly adjusting difficulty, such as Bitcoin. That paper leaves their analysis in chains with rapidly adjusting difficulty –such as Zcash or Ethereum– as an open problem, and states that the FlyClient protocol provides only heuristic security guarantees in that case. However, as mentioned in <g2>FlyClient Requirements and Recommendations</g2>, additional commitments allowing light clients to reason about application of the difficulty adjustment algorithm were added in discussion with an author of the FlyClient paper. The use of these fields has not been analysed in the academic security literature. It would be possible to update them in a future network upgrade if further security analysis were to find any deficiencies.": "Además, <x1/> solo analiza estas propiedades de seguridad en modelos de cadena con dificultad de ajuste lento, como Bitcoin. Ese trabajo deja su análisis en cadenas con dificultad de ajuste rápido —como Zcash o Ethereum— como un problema abierto, y establece que el protocolo FlyClient proporciona solo garantías de seguridad heurísticas en ese caso. Sin embargo, como se menciona en <g2>Requisitos y recomendaciones de FlyClient</g2>, se añadieron compromisos adicionales que permiten a los clientes ligeros razonar sobre la aplicación del algoritmo de ajuste de dificultad, en discusión con un autor del trabajo de FlyClient. El uso de estos campos no ha sido analizado en la literatura académica de seguridad. Sería posible actualizarlos en una futura actualización de red si un análisis de seguridad posterior encontrara alguna deficiencia.",
+  "<x1/>Deployment": "<x1/>Despliegue",
+  "On the Zcash Mainnet and Testnet, this proposal will be deployed with the Heartwood network upgrade. <x1/>": "En la Mainnet y la Testnet de Zcash, esta propuesta se desplegará con la actualización de red Heartwood. <x1/>",
+  "Additional fields are added on activation of the NU5 network upgrade <x1/>, to support the new Orchard shielded protocol.": "Se añaden campos adicionales con la activación de la actualización de red NU5 <x1/>, para dar soporte al nuevo protocolo blindado Orchard.",
+  "<x1/>Additional Reading": "<x1/>Lecturas adicionales",
+  "<g1>Flyclient enabled geth fork by FlyClient authors</g1>": "<g1>Fork de geth con FlyClient habilitado, por los autores de FlyClient</g1>",
+  "<g1>Draft ECIP-1055: Succinct PoW Using Merkle Mountain Ranges</g1>": "<g1>Borrador de ECIP-1055: Succinct PoW Using Merkle Mountain Ranges</g1>",
+  "<g1>Grin project MMR implementation in Rust</g1>": "<g1>Implementación de MMR del proyecto Grin en Rust</g1>",
+  "<g1>Tari Project MMR implementation in Rust</g1>": "<g1>Implementación de MMR del proyecto Tari en Rust</g1>",
+  "<g1>Beam Project MMR implementation in C++</g1>": "<g1>Implementación de MMR del proyecto Beam en C++</g1>",
+  "<g1>Mimblewimble MMR docs</g1>": "<g1>Documentación de MMR de Mimblewimble</g1>",
+  "<g1>MMR Python implementation</g1>": "<g1>Implementación de MMR en Python</g1>",
+  "<g1>Tari MMR documentation</g1>": "<g1>Documentación de MMR de Tari</g1>",
+  "<g1>opentimestamps-server Merkle Mountain Range documentation</g1>": "<g1>Documentación de Merkle Mountain Range de opentimestamps-server</g1>",
+  "<x1/>References": "<x1/>Referencias"
+ },
+ "reviews": {
+  "FlyClient - Consensus-Layer Changes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The terms \"consensus branch\", \"epoch\", and \"network upgrade\" in this document are to be interpreted as described in ZIP 200. <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Light client</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A client that is not a full participant in the network of Zcash peers. It can send and receive payments, but does not store or validate a copy of the block chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>High probability</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "An event occurs with high probability if it occurs with probability <x1/>, where <x2/> is a security parameter.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Negligible probability</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "An event occurs with negligible probability if it occurs with probability <x1/>, where <x2/> is the security parameter.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Merkle mountain range (MMR)</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A Merkle mountain range (MMR) is a binary hash tree that allows for efficient appends of new leaves without changing the value of existing nodes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP specifies modifications to the Zcash block header semantics and consensus rules in order to support the probabilistic verification FlyClient protocol <x1/>. The <x2/> commitment in the block header is replaced with a commitment to the root of a Merkle Mountain Range (MMR), that in turn commits to various features of the chain's history, including the Sapling commitment tree.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Background": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "An MMR is a Merkle tree which allows for efficient appends, proofs, and verifications. Informally, appending data to an MMR consists of creating a new leaf and then iteratively merging neighboring subtrees with the same size. This takes at most <x1/> operations and only requires knowledge of the previous subtree roots, of which there are fewer than <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "(example adapted from <x1/>) To illustrate this, consider a list of 11 leaves. We first construct the biggest perfect binary subtrees possible by joining any balanced sibling trees that are the same size. We do this starting from the left to the right, adding a parent as soon as 2 children exist. This leaves us with three subtrees (\"mountains\") of altitudes 3, 1, and 0:": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "Grammar: \"cualquier árbol hermanos\" lacks agreement and \"más grandes posible\" should agree in the plural."
+   ],
+   "first": "(ejemplo adaptado de <x1/>) Para ilustrar esto, considere una lista de 11 hojas. Primero construimos los subárboles binarios perfectos más grandes posible uniendo cualquier árbol hermanos equilibrados que sean del mismo tamaño. Hacemos esto comenzando de izquierda a derecha, añadiendo un padre tan pronto como existan 2 hijos. Esto nos deja con tres subárboles (\"montañas\") de altitudes 3, 1 y 0:"
+  },
+  "Note that the first leftmost peak is always the highest. We can number this structure in the order by which nodes would be created, if the leaves were inserted from left to right:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "and represent this numbering in a flat list:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Position": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Altitude": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let <x1/> be the altitude of a given node. We can easily jump to the node's right sibling (if it has one) by adding <x2/> to its position, and its left child (if it has one) by subtracting <x3/>. This allows us to efficiently find the subtree roots (\"peaks\") of the mountains.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Once we have the positions of the mountain peaks, we \"bag\" them using the following algorithm:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Generate a node connecting the 2 left-most peaks, forming a new peak.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Repeat 1. until we have a single peak.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Note that the extra nodes generated during the bagging process do not follow the above rules for jumping between nodes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "MMR trees allow for efficient incremental set update operations (push, pop, prune). In addition, MMR update operations and Merkle proofs for recent additions to the leaf set are more efficient than other incremental Merkle tree implementations (e.g. Bitcoin's padded leafset, sparse Merkle trees, and Zcash's incremental note commitment trees).": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"Merkle\" is misspelled as \"Mercle\"."
+   ],
+   "first": "Los árboles MMR permiten operaciones eficientes de actualización incremental de conjuntos (push, pop, prune). Además, las operaciones de actualización de MMR y las pruebas de Merkle para adiciones recientes al conjunto de hojas son más eficientes que otras implementaciones incrementales de árboles de Merkle (p. ej., el conjunto de hojas con relleno de Bitcoin, los árboles de Mercle dispersos y los árboles incrementales de compromisos de notas de Zcash)."
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "MMR proofs are used in the FlyClient protocol <x1/>, to reduce the proof size needed for light clients to verify:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "the validity of a block chain received from a full node, and": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "the inclusion of a block <x1/> in that chain, and": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "certain metadata of any block or range of blocks in that chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The protocol requires that an MMR that commits to the inclusion of all blocks since the preceding network upgrade <x1/> is formed for each block <x2/>. The root <x3/> of the MMR MUST be included in the header of <x4/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "(<x1/> is the activation height of the preceding network upgrade.)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "FlyClient reduces the number of block headers needed for light client verification of a valid chain, from linear (as in the current reference protocol) to logarithmic in block chain length. This verification is correct with high probability. It also allows creation of subtree proofs, so light clients need only check blocks later than the most recently verified block index. Following that, verification of a transaction inclusion within that block follows the usual reference protocol <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A smaller proof size could enable the verification of Zcash SPV Proofs in block-chain protocols such as Ethereum, enabling efficient cross-chain communication and pegs. It also reduces bandwidth and storage requirements for resource-limited clients like mobile or IoT devices.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For a block <x1/> at height <x2/> in a given block chain, define the \"preceding network upgrade height\" <x3/> of <x4/> to be the last network upgrade activation height in the chain that is less than <x5/>. (For this definition, block height <x6/> is considered to be the height of a network upgrade activation. The preceding network upgrade height of the genesis block is undefined.)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The leaves of the MMR at block <x1/> are hash commitments to the header data and metadata of each previous block <x2/>, where <x3/> is defined as above. We extend the standard MMR to allow metadata to propagate upwards through the tree by either summing the metadata of both children, or inheriting the metadata of a specific child as necessary. This allows us to create efficient proofs of selected properties of a range of blocks without transmitting the entire range of blocks or headers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Tree Node specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Unless otherwise noted, all hashes use BLAKE2b-256 with the personalization field set to <x1/>. <x2/> is the 4-byte little-endian encoding of the consensus branch ID for the epoch of the blocks that the tree covers. <x3/> That is, each node in the tree commits to the consensus branch that produced it. At the activation block of a network upgrade after Heartwood, the tree covers the blocks of the previous epoch, so the root commitment in that block's header is hashed with the consensus branch ID of the previous epoch.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each MMR node is defined as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Leaf node": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The consensus-defined block hash for the corresponding block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This hash is encoded in internal byte order, and does NOT use the BLAKE2b-256 personalization string described above.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For clarity, in a given consensus branch, the <x1/> field of leaf <x2/> is <g3>precisely equal</g3> to the <x4/> field in the header of the block at height <x5/>, where <x6/> is the network upgrade activation height of that consensus branch.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Internal or root node": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Both child nodes are serialized.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is the BLAKE2b-256 hash of <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For clarity, this digest uses the BLAKE2b-256 personalization string described above.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Serialized as <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The header's timestamp.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Inherited from the left child.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Serialized as <x1/> (<x2/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Note that a <x1/> time value would overflow on 2106-02-07, but this field (and <x2/> below) can only hold values that occur in the <x3/> field of a block header, which is also of type <x4/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Inherited from the right child.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Note that due to timestamp consensus rules, <x1/> may be smaller than <x2/> in some subtrees. This may occur within subtrees smaller than <x3/> blocks.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The header's <x1/> field.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Calculated as <x1/>, as implemented in Sapling.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The protocol-defined work of the block: <x1/>. <x2/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The sum of the <x1/> fields of both children.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Computations modulo <x1/> are fine here; cumulative chain work is similarly assumed elsewhere in the Zcash ecosystem to be at most <x2/> (as inherited from Bitcoin). The computed work factors are, on average, equal to the computational efforts involved in the creation of the corresponding blocks, and an aggregate effort of <x3/> or more is infeasible in practice.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The height of the block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The number of transactions in the leaf block where either of <x1/> or <x2/> is non-empty.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The sum of the <x1/> field of both children.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "[NU5 onward] <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Calculated as the note commitment root of the final Orchard treestate (similar to <x1/> in Sapling).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The number of transactions in the leaf block where <x1/> is non-empty.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The fields marked \"[NU5 onward]\" are omitted before NU5 activation <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each node, when serialized, is between 147 and 171 bytes long (between 212 and 244 bytes after NU5 activation). The canonical serialized representation of a node is used whenever creating child commitments for future nodes. Other than the metadata commitments, the MMR tree's construction is standard.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Once the MMR has been generated, we produce <x1/>, which we define as the BLAKE2b-256 digest of the serialization of the root node.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"digest\" is left in English although it is not a glossary keep term."
+   ],
+   "first": "Una vez que se ha generado el MMR, producimos <x1/>, que definimos como el digest BLAKE2b-256 de la serialización del nodo raíz."
+  },
+  "<x1/>Tree nodes and hashing (pseudocode)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Incremental push and pop (pseudocode)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "With each new block <x1/>, we append a new MMR leaf node corresponding to block <x2/>. The <x3/> operation is detailed below in pseudocode (adapted from <x4/>):": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In case of a block reorg, we have to delete the latest (i.e. rightmost) MMR leaf nodes, up to the reorg length. This operation is <x1/> where <x2/> is the number of leaves in the right subtree of the MMR root.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Block header semantics and consensus rules": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The following specification is accurate before NU5 activation. See <x1/> for header field changes in NU5.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <x1/> block header field (which was named <x2/> prior to the Sapling network upgrade) is renamed to <x3/>, to reflect its usage by light clients. (In NU5, this field is renamed again to <x4/> as specified in <x5/>.)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Prior to activation of the network upgrade that deploys this ZIP, this existing consensus rule on block headers (adjusted for the renamed field) is enforced: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "[Sapling onward] <x1/> MUST be <x2/> where <x3/> is the root of the Sapling note commitment tree for the final Sapling tree state of this block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the block that activates this ZIP, <x1/> MUST be set to all zero bytes. This MUST NOT be interpreted as a root hash.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In subsequent blocks, <x1/> MUST be set to the value of <x2/> as specified above.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The block header byte format and version are not altered by this ZIP.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Tree nodes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Nodes in the commitment tree are canonical and immutable. They are cheap to generate, as (with the exception of <x1/> and <x2/>) all metadata is already generated during block construction and/or checked during block validation. Nodes are relatively compact in memory. As of the original publication of this ZIP, approximately 140,000 blocks had elapsed since Sapling activation. Assuming a 164-byte commitment to each of these, we would have generated approximately 24 MB of additional storage cost for the set of leaf nodes (and an additional ~24 MB for storage of intermediate nodes).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> forms the structure of the commitment tree. Other metadata commitments were chosen to serve specific purposes. Originally variable-length commitments were placed last, so that most metadata in a node could be directly indexed. We considered using fixed-length commitments here, but opted for variable-length, in order to marginally reduce the memory requirements for managing and updating the commitment trees.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard fields are placed last, in order to avoid complicating existing uses of the other fields.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In leaf nodes, some information is repeated. We chose to do this so that leaf nodes could be treated identically to internal and root nodes for all algorithms and (de)serializers. Leaf nodes are easily identifiable, as they will show proof of work in the <x1/> field (which commits to the block hash for leaf nodes), and their block range (calculated as <x2/> - (<x3/> - 1)) will be precisely 1.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Personalized BLAKE2b-256 was selected to match existing Zcash conventions. Adding the consensus branch ID to the hash personalization string ensures that valid nodes from one consensus branch cannot be used to make false statements about parallel consensus branches.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>FlyClient Requirements and Recommendations": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "These commitments enable FlyClient in the variable-difficulty model. Specifically, they allow light clients to reason about application of the difficulty adjustment algorithm over a range of blocks. They were chosen via discussion with an author of the FlyClient paper.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Non-FlyClient Commitments": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Additional metadata commitments were chosen primarily to improve light client security guarantees. We specified commitments where we could see an obvious security benefit, but there may be other useful metadata that we missed. We're interested in feedback and suggestions from the implementers of the current light client.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We considered adding a commitment to the nullifier vector at each block. We would appreciate comments from light client teams on the utility of this commitment, as well as the proper serialization and commitment format for the nullifier vector, for possible inclusion in a future upgrade.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Committing to the earliest Sapling root of a range of blocks allows light clients to check the consistency of treestate transitions over a range of blocks, without recalculating the root from genesis.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This commitment serves the same purpose as <x1/> in current Sapling semantics.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "However, because the MMR tree commits to blocks <x1/>, the latest commitment will describe the final treestate of the previous block, rather than the current block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Concretely: block 500 currently commits to the final treestate of block 500 in its header. With this ZIP, block 500 will commit to all roots up to block 499, but not the final root of block 500.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We feel this is an acceptable tradeoff. Using the most recent treestate as a transaction anchor is already unsafe in reorgs. Clients should never use the most recent treestate to generate transactions, so it is acceptable to delay commitment by one block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "By committing to the number of Sapling transactions in blocks (and ranges of blocks), a light client may reliably learn whether a malicious server is witholding any Sapling transactions.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In addition, this commitment allows light clients to avoid syncing header ranges that do not contain Sapling transactions. As the primary cost of a light client is transmission of Equihash solution information in block headers, this optimization would significantly decrease the bandwidth requirements of light clients.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "An earlier draft of this ZIP committed to the number of shielded transactions, counting both Sprout and Sapling. This commitment would not have been useful to light clients that only support Sapling addresses; they would not be able to distinguish between Sapling transactions being maliciously withheld, and Sprout transactions not being requested.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A commitment to the number of Sprout transactions in blocks was not included, because Sprout addresses are effectively deprecated at this point, and will not be supported by any light clients.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If a future network upgrade introduced a new shielded pool, a new commitment to that pool's transactions would be added, to similarly enable future light clients that do not support Sapling addresses.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>, <x2/>, and <x3/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "These are included with the same rationale as for Sapling.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Header Format Change": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The primary goal of the original authors was to minimize header changes; in particular, they preferred not to introduce changes that could affect mining hardware or embedded software. Altering the block header format would require changes throughout the ecosystem, so we decided against adding <x1/> to the header as a new field.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "ZIP 301 states that \"[Miner client software] SHOULD alert the user upon receiving jobs containing block header versions they do not know about or support, and MUST ignore such jobs.\" <x1/> As the only formally defined block header version is 4, any header version change requires changes to miner client software in order for miners to handle new jobs from mining pools. We therefore do not alter the block version for this semantic change. This does not make block headers ambiguous to interpret, because blocks commit to their block height inside their coinbase transaction, <x2/> and they are never handled in a standalone context (unlike transactions, which exist in the mempool outside of blocks).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Replacing <x1/> with <x2/> does introduce the theoretical possibility of an attack where a miner constructs a Sapling commitment tree update that results in the same 32-byte value as the MMR root. We don't consider this a realistic attack, both because the adversary would need to find a preimage over 32 layers of Pedersen hash, and because light clients already need to update their code to include the consensus branch ID for the Heartwood network upgrade, and can simultaneously make changes to not rely on the value of this header field being the Sapling tree root.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We also considered putting <x1/> in the <x2/> field as it commits to the entire chain history, but quickly realized it would require massive refactoring of the existing code base and would negatively impact performance. Reorgs in particular are fragile, performance-critical, and rely on backwards iteration over the chain history. If a chain were to be designed from scratch there may be some efficient implementation that would join these commitments, but it is clearly not appropriate for Zcash as it exists.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The calculation of <x1/> is not well-defined for the genesis block, since then <x2/> and there is no block <x3/>. Also, in the case of chains that activate this ZIP after genesis (including Zcash Mainnet and Testnet), the <x4/> of the activation block would commit to the whole previous epoch if a special case were not made. It would be impractical to calculate this commitment all at once, and so we specify that <x5/> is set to all zero bytes for that block instead. The hash of the final Sapling note commitment tree root for the activation block will not be encoded in that block, but will be committed to one block later in the <x6/> field of the MMR root commitment.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "Grammar error: the article is missing in 'a todos bytes cero'."
+   ],
+   "first": "El cálculo de <x1/> no está bien definido para el bloque génesis, ya que entonces <x2/> y no existe el bloque <x3/>. Además, en el caso de las cadenas que activan este ZIP después del génesis (incluidas Zcash Mainnet y Testnet), el <x4/> del bloque de activación se comprometería a toda la época anterior si no se hiciera un caso especial. Sería impráctico calcular este compromiso todo de una vez, por lo que especificamos que <x5/> se establece a todos bytes cero para ese bloque. El hash de la raíz final del árbol de compromisos de notas de Sapling para el bloque de activación no se codificará en ese bloque, sino que se comprometerá un bloque más adelante en el campo <x6/> del compromiso de la raíz del MMR."
+  },
+  "<x1/>Security and Privacy Considerations": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP imposes an additional validation cost on new blocks. While this validation cost is small, it may exacerbate any existing DoS opportunities, particularly during abnormal events like long reorgs. Fortunately, these costs are logarithmic in the number of delete and append operations. In the worst case scenario, a well-resourced attacker could maintain 2 chains of approximately equal length, and alternate which chain they extend. This would result in repeated reorgs of increasing length.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Given the performance of BLAKE2b, we expect this validation cost to be negligible. However, it seems prudent to benchmark potential MMR implementations during the implementation process. Should the validation cost be higher than expected, there are several potential mitigations, e.g. holding recently seen nodes in memory after a reorg.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Generally, header commitments have no impact on privacy. However, FlyClient has additional security and privacy implications. Because FlyClient is a motivating factor for this ZIP, it seems prudent to include a brief overview. A more in-depth security analysis of FlyClient should be performed before designing a FlyClient-based light client ecosystem for Zcash.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "FlyClient, like all light clients, requires a connection to a light client server. That server may collect information about client requests, and may use that information to attempt to deanonymize clients. However, because FlyClient proofs are non-interactive and publicly verifiable, they could be shared among many light clients after the initial server interaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "FlyClient proofs are probabilistic. When properly constructed, there is negligible probability that a dishonest chain commitment will be accepted by the verifier. The security analysis assumes adversary mining power is bounded by a known fraction of combined mining power of honest nodes, and cannot drop or tamper with messages between client and full nodes. It also assumes the client is connected to at least one full node and knows the genesis block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In addition, <x1/> only analyses these security properties in chain models with slowly adjusting difficulty, such as Bitcoin. That paper leaves their analysis in chains with rapidly adjusting difficulty –such as Zcash or Ethereum– as an open problem, and states that the FlyClient protocol provides only heuristic security guarantees in that case. However, as mentioned in <g2>FlyClient Requirements and Recommendations</g2>, additional commitments allowing light clients to reason about application of the difficulty adjustment algorithm were added in discussion with an author of the FlyClient paper. The use of these fields has not been analysed in the academic security literature. It would be possible to update them in a future network upgrade if further security analysis were to find any deficiencies.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Deployment": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "On the Zcash Mainnet and Testnet, this proposal will be deployed with the Heartwood network upgrade. <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Additional fields are added on activation of the NU5 network upgrade <x1/>, to support the new Orchard shielded protocol.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Additional Reading": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Flyclient enabled geth fork by FlyClient authors</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Draft ECIP-1055: Succinct PoW Using Merkle Mountain Ranges</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Grin project MMR implementation in Rust</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Tari Project MMR implementation in Rust</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Beam Project MMR implementation in C++</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Mimblewimble MMR docs</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>MMR Python implementation</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Tari MMR documentation</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>opentimestamps-server Merkle Mountain Range documentation</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  }
+ }
+}

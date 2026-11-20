@@ -51,9 +51,9 @@ const usage = { calls: 0, completion: 0, reasoning: 0 };
 const BATCH_SEGMENTS = 20;
 const BATCH_CHARS = 5000;
 const MAX_ROUNDS = 3;
-/** The reviewer. The same model by default, but with its reasoning pass on:
- *  a second look must not be the same fast pass that wrote the text. */
-const REVIEW_MODEL = process.env.GLM_REVIEW_MODEL || MODEL;
+/** The reviewer: a different model from the translator, with its reasoning
+ *  pass on. */
+const REVIEW_MODEL = process.env.GLM_REVIEW_MODEL || "glm-5.3-flash";
 const REVIEW_THINKING = process.env.GLM_REVIEW_THINKING || "enabled";
 const REVIEW_EFFORT = process.env.GLM_REVIEW_EFFORT || "high";
 const REVIEW_BATCH_SEGMENTS = 10;
@@ -515,6 +515,8 @@ export interface Review {
     first?: string;
     /** Each problem the reviewer reported, in order. */
     issues: string[];
+    /** The model that reviewed it. Absent in reviews made before this was recorded (glm-5.3). */
+    model?: string;
 }
 
 function batchesOf(items: string[], maxSegments: number, maxChars: number, size: (s: string) => number): string[][] {
@@ -568,6 +570,7 @@ export async function reviewAll(system: string, doc: Doc, wanted: Map<string, Se
                     return;
                 }
                 review.rounds++;
+                review.model = REVIEW_MODEL;
                 if (verdict.ok === true) {
                     review.passed = true;
                     return;
@@ -827,7 +830,7 @@ async function translateDoc(entry: Entry, glossary: Glossary, system: string, re
         model: MODEL,
         title,
         headings: meta.headings.map((h) => ({ ...h, text: translatedHeadings.get(h.id) ?? h.text })),
-        reviewModel: REVIEW_MODEL,
+        reviewModels: [...new Set(kept.map((k) => reviews[k]?.model ?? "glm-5.3"))].sort(),
         reviewEffort: REVIEW_EFFORT,
         stats: { segments: segments.length, fallback, reviewed: true, correctedByReview: changed, rejectedByReview: rejected },
         failures: [...failed.entries()].map(([source, reason]) => ({ source, reason })),

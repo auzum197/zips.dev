@@ -1,0 +1,133 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)", "PUEDE (MAY)" y "RECOMENDADO (RECOMMENDED)" en este documento deben interpretarse como se describe en BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p><strong>Cliente ligero:</strong> Una billetera de Zcash que no almacena ni valida una copia completa del block chain, y que en su lugar depende de un servidor de bloques compactos para los datos de bloque.</p>
+<p><strong>Servidor de bloques compactos:</strong> Un servidor que implementa el protocolo gRPC de lightwalletd <sup><a href="#user-content-fn-zip-0307" id="user-content-fnref-zip-0307" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>, o una implementación compatible como Zaino, que sirve bloques compactos y RPC relacionados con transacciones a clientes ligeros.</p>
+<p><strong>Intermediario de envío:</strong> Cualquier servidor al que una billetera envía una transacción recién construida para su difusión, incluido entre otros un servidor de bloques compactos.</p>
+<p><strong>Fase stem / fase fluff / par stem de Dandelion++:</strong> Según se define en draft-zodl-dandelion (PR <a href="https://github.com/zcash/zips/pull/1379">#1379</a>). <sup><a href="#user-content-fn-draft-zodl-dandelion" id="user-content-fnref-draft-zodl-dandelion" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p><strong>Correlación entre IP y transacción:</strong> La capacidad de un observador de red de determinar qué dirección IP originó una transacción dada observando cuándo y dónde apareció por primera vez la transacción en la red P2P.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP especifica cómo las billeteras de clientes ligeros de Zcash PUEDEN (MAY) enviar transacciones recién construidas directamente a un par que sea nodo completo a través de la red P2P de Zcash — usando la retransmisión en fase stem de Dandelion++ definida en draft-zodl-dandelion (PR <a href="https://github.com/zcash/zips/pull/1379">#1379</a>) <sup><a href="#user-content-fn-draft-zodl-dandelion" id="user-content-fnref-draft-zodl-dandelion-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> — en lugar de hacerlo a través de un servidor de bloques compactos, continuando a la vez con el uso exclusivo de servidores de bloques compactos para la sincronización de la cadena.</p>
+<p>Bajo la arquitectura actual, el intermediario de envío de una billetera (un servidor de bloques compactos como lightwalletd o Zaino) conoce tanto la dirección IP de la billetera como la transacción que esta envía en el mismo instante, lo que permite a un observador pasivo correlacionar el origen de la transacción con la identidad de red. Este ZIP elimina esa correlación en la ruta de envío.</p>
+<p>No se requieren cambios en las reglas de consenso. Este ZIP cubre el <strong>lado de la billetera</strong> (a veces llamado "Componente A"); el comportamiento de retransmisión del nodo completo del que depende se especifica en draft-zodl-dandelion (PR <a href="https://github.com/zcash/zips/pull/1379">#1379</a>) (Componente B). <sup><a href="#user-content-fn-draft-zodl-dandelion" id="user-content-fnref-draft-zodl-dandelion-3" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>El ZIP 307 <sup><a href="#user-content-fn-zip-0307" id="user-content-fnref-zip-0307-2" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> define una arquitectura de cliente ligero en la que un servidor de bloques compactos media entre la billetera y la red P2P. Esto es apropiado para la sincronización de bloques: una billetera bien diseñada obtiene rangos completos de bloques, por lo que el servidor sabe poco sobre cuáles notas son de la billetera.</p>
+<p>El envío de transacciones es diferente. Cuando una billetera llama al RPC gRPC <code>SendTransaction</code>, el servidor de bloques compactos recibe:</p>
+<ol>
+<li>la dirección IP de la billetera,</li>
+<li>la transacción serializada exacta, y</li>
+<li>la marca de tiempo del envío.</li>
+</ol>
+<p>Eso es suficiente para vincular una transacción a una identidad de red. En el caso de las transacciones blindadas, los datos en la cadena no revelan nada sobre el emisor; sin embargo, el canal de envío filtra exactamente la información que el blindaje está diseñado para proteger.</p>
+<p>Las mitigaciones existentes imponen costos:</p>
+<ul>
+<li><strong>Tor</strong> — Zashi admite Tor <sup><a href="#user-content-fn-zashi-tor" id="user-content-fnref-zashi-tor" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, pero añade latencia y una dependencia, y su efectividad depende de que la billetera siempre enrute a través de él.</li>
+<li><strong>Servidor autohospedado</strong> — evita el supuesto de confianza en terceros, pero resulta impráctico para la mayoría de los usuarios móviles.</li>
+<li><strong>Zaino</strong> <sup><a href="#user-content-fn-zaino" id="user-content-fnref-zaino" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> — mejora la privacidad del lado del servidor por diseño, pero sigue situándose entre la billetera y la red para el envío, preservando la ventana de correlación de IP.</li>
+</ul>
+<p>Este ZIP propone que una billetera con acceso a uno o más puntos de conexión de pares P2P de Zcash DEBERÍA (SHOULD) enviar transacciones a través de esos pares bajo Dandelion++ en lugar de a través de un servidor de bloques compactos. Dado que la red P2P es una malla descentralizada y el nodo receptor retransmite la transacción a través de su par del tallo sin anunciarla localmente, ninguna entidad única conoce a la vez la transacción y la IP que la envía para la propagación posterior de la transacción.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ol>
+<li>
+<p>Una billetera conforme que implemente este ZIP NO DEBE (MUST NOT) llamar al RPC gRPC <code>SendTransaction</code> en un servidor de bloques compactos para una transacción enviada por la ruta P2P (el envío concurrente volvería a exponer la IP de origen a través del canal centralizado).</p>
+</li>
+<li>
+<p>Una billetera conforme DEBE (MUST) enviar la transacción a un nodo completo usando el intercambio de saludos y el flujo de mensajes P2P descritos en la Especificación más adelante.</p>
+</li>
+<li>
+<p>Una billetera conforme DEBE (MUST) seguir usando servidores de bloques compactos (o equivalentes) para la sincronización de bloques, la obtención de testigos de notas y otras consultas de solo lectura sobre la cadena.</p>
+</li>
+<li>
+<p>La ruta de envío P2P DEBE (MUST) ser una mejora opcional: una billetera que no pueda alcanzar un par que sea nodo completo DEBE (MUST) recurrir al RPC <code>SendTransaction</code> existente sin degradar otras funcionalidades.</p>
+</li>
+<li>
+<p>El nodo completo receptor DEBERÍA (SHOULD) implementar el comportamiento de retransmisión Dandelion++ de draft-zodl-dandelion (PR <a href="https://github.com/zcash/zips/pull/1379">#1379</a>). <sup><a href="#user-content-fn-draft-zodl-dandelion" id="user-content-fnref-draft-zodl-dandelion-4" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> Una billetera que envía por P2P no obtiene ningún beneficio de privacidad si el nodo difunde la transacción de inmediato mediante inundación; sin embargo, un nodo que no lo implemente simplemente la difunde por inundación, lo cual es un recurso de reserva seguro.</p>
+</li>
+</ol>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="peer-discovery"><a class="hanchor" href="#peer-discovery" aria-hidden="true" tabindex="-1">#</a>Descubrimiento de pares</h2>
+<p>Una billetera que implemente este ZIP DEBE (MUST) obtener al menos una dirección de par que sea nodo completo. Los mecanismos aceptables incluyen, entre otros:</p>
+<ul>
+<li>una lista codificada en el software o configurada por el usuario de nodos completos de confianza;</li>
+<li>los sembradores DNS del mainnet de Zcash <sup><a href="#user-content-fn-zcashseeds" id="user-content-fnref-zcashseeds" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>;</li>
+<li>una dirección de par devuelta por un servidor de bloques compactos mediante un RPC de extensión opcional (no definido aquí);</li>
+<li>una dirección de par proporcionada directamente por el usuario.</li>
+</ul>
+<p>La billetera DEBE (MUST) completar el intercambio de saludos P2P <code>version</code>/<code>verack</code> de Zcash antes de enviar una transacción. La billetera DEBE (MUST) anunciar una versión de protocolo al menos igual a la versión mínima de protocolo aceptada por la red receptora, o de lo contrario el par rechazará el intercambio de saludos.</p>
+<h2 id="transaction-submission-message"><a class="hanchor" href="#transaction-submission-message" aria-hidden="true" tabindex="-1">#</a>Mensaje de envío de transacción</h2>
+<p>Después del intercambio de saludos, la billetera envía la transacción usando el mensaje P2P estándar de Zcash <code>tx</code> <sup><a href="#user-content-fn-zcashp2p" id="user-content-fnref-zcashp2p" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>. No se requiere ningún tipo de mensaje P2P nuevo.</p>
+<p>La billetera DEBERÍA (SHOULD) establecer el campo <code>fRelay</code> en su mensaje <code>version</code> en <code>false</code> para que el par no envíe mensajes <code>inv</code> no solicitados de vuelta a la billetera, lo que reduce la fuga de información sobre la conectividad de la billetera.</p>
+<h2 id="dandelion-submission-hint-unadvertised-tx"><a class="hanchor" href="#dandelion-submission-hint-unadvertised-tx" aria-hidden="true" tabindex="-1">#</a>Indicación de envío de Dandelion++ (<code>tx</code> no anunciado)</h2>
+<p>Para solicitar que el nodo completo receptor trate la transacción como candidata a la fase de tallo (en lugar de inundarla de inmediato), la billetera DEBE (MUST) enviar el mensaje <code>tx</code> <strong>sin un anuncio previo de <code>inv</code></strong> en esta conexión. Esta es la convención de "<code>tx</code> no anunciado" de draft-zodl-dandelion §Stem-phase forwarding (PR <a href="https://github.com/zcash/zips/pull/1379">#1379</a>). <sup><a href="#user-content-fn-draft-zodl-dandelion" id="user-content-fnref-draft-zodl-dandelion-5" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>Justificación: anunciar mediante <code>inv</code> antes de <code>tx</code> es la ruta de retransmisión normal, lo que indica que el nodo emisor ya recibió la transacción de otra parte. Enviar <code>tx</code> sin un <code>inv</code> previo en una conexión recién abierta es una señal confiable de que esta es la primera aparición de la transacción.</p>
+<h2 id="no-concurrent-centralised-submission"><a class="hanchor" href="#no-concurrent-centralised-submission" aria-hidden="true" tabindex="-1">#</a>Sin envío centralizado concurrente</h2>
+<p>La billetera NO DEBE (MUST NOT) reenviar la misma transacción mediante el RPC <code>SendTransaction</code> de un servidor de bloques compactos mientras el envío por P2P esté en curso o dentro de la ventana de tiempo de espera de la fase de tallo. El envío concurrente revelaría la IP de origen a través del canal centralizado.</p>
+<h2 id="fallback"><a class="hanchor" href="#fallback" aria-hidden="true" tabindex="-1">#</a>Mecanismo de reserva</h2>
+<p>Si el envío por P2P no resulta en que la transacción aparezca en un bloque dentro de un tiempo de espera configurable (valor predeterminado RECOMENDADO (RECOMMENDED): 30 minutos), la billetera PUEDE (MAY) recurrir a <code>SendTransaction</code> en un servidor de bloques compactos.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Implicaciones de privacidad</h1>
+<ul>
+<li>
+<p>Los pares P2P de la billetera ven la IP de la billetera y la transacción, pero solo antes de que comience el reenvío de la fase de tallo. Con Dandelion++ en modo tallo/inundación, el par retransmite la transacción a su propio par de tallo sin anunciarla localmente, rompiendo la asociación entre la IP de origen y el txid para todos los saltos posteriores.</p>
+</li>
+<li>
+<p>El servidor de bloques compactos usado para la sincronización está desacoplado de la ruta de envío y solo aprende que la billetera está sincronizando bloques, no qué transacciones envió.</p>
+</li>
+<li>
+<p>Un adversario que controle <strong>tanto</strong> el servidor de bloques compactos de la billetera como el par P2P de la billetera aún puede correlacionar si la billetera usa la misma IP para ambos. Las billeteras DEBERÍAN (SHOULD) usar rutas de red distintas (p. ej., Tor para un canal, o circuitos de Tor separados) si este modelo de amenaza es relevante.</p>
+</li>
+<li>
+<p>Dandelion++ no protege contra un adversario pasivo global que monitorea todo el tráfico P2P. Eleva significativamente el costo de la correlación entre IP y transacción para adversarios realistas que operan nodos de retransmisión o monitorean subconjuntos de la red.</p>
+</li>
+<li>
+<p>Las transacciones blindadas ya ocultan sus <em>contenidos</em> mediante pruebas de conocimiento cero; este ZIP cierra la fuga complementaria de <em>metadatos de red</em> (qué IP originó el paquete). Las dos protecciones son ortogonales.</p>
+</li>
+<li>
+<p>Una vez que una transacción entra en la fase de inundación, es indistinguible de cualquier otra transacción en la red.</p>
+</li>
+</ul>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<h2 id="why-not-just-use-tor-for-all-wallets"><a class="hanchor" href="#why-not-just-use-tor-for-all-wallets" aria-hidden="true" tabindex="-1">#</a>¿Por qué no simplemente usar Tor para todas las billeteras?</h2>
+<p>Tor aborda la privacidad de IP de manera exhaustiva, pero añade latencia (típicamente 200–500 ms), requiere mantener código de cliente de Tor por billetera y puede no estar disponible en algunas plataformas. Dandelion++ es un complemento ligero. Ambos no son mutuamente excluyentes: una billetera que usa Tor <strong>y</strong> envío por P2P con Dandelion++ es estrictamente más privada que cualquiera de los dos por separado.</p>
+<h2 id="why-keep-compact-block-servers-for-synchronisation"><a class="hanchor" href="#why-keep-compact-block-servers-for-synchronisation" aria-hidden="true" tabindex="-1">#</a>¿Por qué conservar los servidores de bloques compactos para la sincronización?</h2>
+<p>Proporcionan un protocolo eficiente para entregar datos de notas blindadas a billeteras móviles. Reemplazar la sincronización masiva por una sincronización completa directa por P2P requeriría descargar cientos de gigabytes, algo impráctico en dispositivos móviles. Separar el canal de envío del canal de sincronización también permite que una billetera elija proveedores independientes para cada uno, reduciendo la superficie de confianza.</p>
+<h2 id="why-an-unadvertised-tx-rather-than-a-new-p2p-message-type"><a class="hanchor" href="#why-an-unadvertised-tx-rather-than-a-new-p2p-message-type" aria-hidden="true" tabindex="-1">#</a>¿Por qué un <code>tx</code> no anunciado en lugar de un nuevo tipo de mensaje P2P?</h2>
+<p>Un nuevo tipo de mensaje requeriría una actualización de red y coordinación entre todas las implementaciones de nodos. El mensaje <code>tx</code> existente con una convención semántica (sin un <code>inv</code> previo) logra la misma señalización sin cambios de protocolo, lo que permite un despliegue incremental. Los nodos que no lo implementan difunden por inundación de forma normal (retroceso seguro).</p>
+<h2 id="relationship-to-zaino"><a class="hanchor" href="#relationship-to-zaino" aria-hidden="true" tabindex="-1">#</a>Relación con Zaino</h2>
+<p>Una instancia de Zaino <sup><a href="#user-content-fn-zaino" id="user-content-fnref-zaino-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> coubicada con un nodo Zebra podría implementar de forma nativa la ruta de retransmisión de draft-zodl-dandelion (PR <a href="https://github.com/zcash/zips/pull/1379">#1379</a>), enrutando los envíos de billeteras recibidos vía <code>SendTransaction</code> a través de la ruta de tallo del nodo local. Esto ayudaría a las billeteras que no pueden abrir una conexión P2P directa, sin cambios en el software de la billetera. SE RECOMIENDA (RECOMMENDED) como complemento de (no como reemplazo de) este ZIP.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>Lado de la billetera (Componente A):</p>
+<ul>
+<li><strong>Android</strong>: <a href="https://github.com/zcash/zcash-android-wallet-sdk/pull/2010">zcash/zcash-android-wallet-sdk#2010</a></li>
+<li><strong>iOS (Swift)</strong>: <a href="https://github.com/zcash/zcash-swift-wallet-sdk/pull/1804">zcash/zcash-swift-wallet-sdk#1804</a></li>
+</ul>
+<p>Ambos SDK añaden una opción <code>DandelionSubmitConfig</code> (<code>DirectP2P</code> / <code>directP2P</code>) que resuelve pares mediante los seeders DNS de mainnet, abre una conexión TCP a un nodo completo, realiza el saludo <code>version</code>/<code>verack</code> (anunciando la versión de protocolo 170150, el mínimo actual de mainnet) y envía la <code>tx</code> sin procesar sin un <code>inv</code> previo. La sincronización de la cadena continúa usando el endpoint de lightwalletd. Hay un retroceso a <code>SendTransaction</code> disponible cuando no se puede alcanzar ningún par P2P.</p>
+<p>La retransmisión por nodo completo (Componente B) está especificada e implementada en draft-zodl-dandelion (PR <a href="https://github.com/zcash/zips/pull/1379">#1379</a>): <a href="https://github.com/zcashfoundation/zebra/pull/10928">zcashfoundation/zebra#10928</a>.</p>
+<h1 id="changelog"><a class="hanchor" href="#changelog" aria-hidden="true" tabindex="-1">#</a>Registro de cambios</h1>
+<ul>
+<li>2026-07-09: Borrador inicial.</li>
+</ul>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Key words for use in RFCs to Indicate Requirement Levels</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0307">
+<p><a href="https://zips.z.cash/zip-0307">ZIP 307: Light Client Protocol for Payment Detection</a> <a href="#user-content-fnref-zip-0307" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0307-2" data-footnote-backref="" aria-label="Back to reference 2-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-draft-zodl-dandelion">
+<p>draft-zodl-dandelion: Dandelion++ Transaction Propagation for Zcash P2P Nodes. PR: <a href="https://github.com/zcash/zips/pull/1379">https://github.com/zcash/zips/pull/1379</a> (En preparación; véase zcash/zips#1379.) <a href="#user-content-fnref-draft-zodl-dandelion" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-zodl-dandelion-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-draft-zodl-dandelion-3" data-footnote-backref="" aria-label="Back to reference 3-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-draft-zodl-dandelion-4" data-footnote-backref="" aria-label="Back to reference 3-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-draft-zodl-dandelion-5" data-footnote-backref="" aria-label="Back to reference 3-5" class="data-footnote-backref">↩<sup>5</sup></a></p>
+</li>
+<li id="user-content-fn-zashi-tor">
+<p>Integración de Tor en Zashi. <a href="https://github.com/Electric-Coin-Company/zashi-android">https://github.com/Electric-Coin-Company/zashi-android</a> <a href="#user-content-fnref-zashi-tor" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zaino">
+<p><a href="https://github.com/ZcashFoundation/zaino">Zaino: Zcash Chain Indexer and Light Wallet Server</a> <a href="#user-content-fnref-zaino" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zaino-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zcashseeds">
+<p>Las semillas DNS de mainnet de Zcash están definidas en la Zcash Protocol Specification (Especificación del Protocolo Zcash), sección 3.12 (Network Upgrades). <a href="#user-content-fnref-zcashseeds" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcashp2p">
+<p>El formato de mensajes P2P de Zcash sigue el protocolo de Bitcoin con extensiones específicas de Zcash. Véase la Zcash Protocol Specification para la definición canónica de los mensajes <code>version</code>, <code>verack</code>, <code>inv</code> y <code>tx</code>. <a href="#user-content-fnref-zcashp2p" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

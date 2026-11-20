@@ -1,0 +1,989 @@
+{
+ "segments": {
+  "ZIP: Structured Attestation Protocol for Application-Layer Lifecycle Events (ZAP1)": "ZIP: Protocolo de Atestación Estructurada para Eventos de Ciclo de Vida en la Capa de Aplicación (ZAP1)",
+  "ZIP: ??? Title: Structured Attestation Protocol for Application-Layer Lifecycle Events (ZAP1) Owners: Frontier Compute <g1>ops@frontiercompute.io</g1> Credits: Zk-nd3r Status: Draft Category: Standards Track Created: 2026-03-28 License: MIT Discussions-To: <g2>https://github.com/zcash/zips/pull/1243</g2> Pull-Request: <g3>https://github.com/zcash/zips/pull/1243</g3>": "ZIP: ??? Título: Protocolo de Atestación Estructurada para Eventos de Ciclo de Vida en la Capa de Aplicación (ZAP1) Propietarios: Frontier Compute <g1>ops@frontiercompute.io</g1> Créditos: Zk-nd3r Estado: Borrador Categoría: Standards Track Creado: 2026-03-28 Licencia: MIT Discussions-To: <g2>https://github.com/zcash/zips/pull/1243</g2> Pull-Request: <g3>https://github.com/zcash/zips/pull/1243</g3>",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\", \"SHALL NOT\", \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"NOT RECOMMENDED\", \"MAY\", and \"OPTIONAL\" in this document are to be interpreted as described in BCP 14 when, and only when, they appear in all capitals, as shown here.": "Las palabras clave \"DEBE (MUST)\", \"NO DEBE (MUST NOT)\", \"REQUERIDO (REQUIRED)\", \"DEBERÁ (SHALL)\", \"NO DEBERÁ (SHALL NOT)\", \"DEBERÍA (SHOULD)\", \"NO DEBERÍA (SHOULD NOT)\", \"RECOMENDADO (RECOMMENDED)\", \"NO RECOMENDADO (NOT RECOMMENDED)\", \"PUEDE (MAY)\" y \"OPCIONAL (OPTIONAL)\" en este documento deben interpretarse según lo descrito en el BCP 14 cuando, y solo cuando, aparecen en mayúsculas, como se muestra aquí.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This ZIP specifies an application-layer attestation format for lifecycle events committed to Zcash shielded transactions. It defines event typing, BLAKE2b hash construction rules, Merkle tree aggregation, and a verification procedure for on-chain commitments that keep participant-identifying data off-chain.": "Este ZIP especifica un formato de atestación de capa de aplicación para eventos de ciclo de vida comprometidos en transacciones blindadas de Zcash. Define el tipado de eventos, las reglas de construcción del hash BLAKE2b, la agregación en árbol Merkle y un procedimiento de verificación para compromisos en cadena que mantienen fuera de la cadena los datos que identifican a los participantes.",
+  "This draft is based on the deployed <x1/> attestation protocol (formerly <x2/>). In the reference deployment, event payloads are hashed with BLAKE2b-256 using the personalization string <x3/>, inserted into an append-only Merkle tree, and periodically anchored to Zcash using a transaction with type byte <x4/>.": "Este borrador se basa en el protocolo de atestación <x1/> desplegado (anteriormente <x2/>). En el despliegue de referencia, las cargas útiles de los eventos se procesan con hash BLAKE2b-256 usando la cadena de personalización <x3/>, se insertan en un árbol Merkle de solo adición y se anclan periódicamente a Zcash mediante una transacción con byte de tipo <x4/>.",
+  "<x1/>Relationship to ZIP 302": "<x1/>Relación con el ZIP 302",
+  "This ZIP defines application-layer attestation semantics. The carrier format is specified separately by ZIP 302 <g1><g2>1</g2></g1> (Structured Memos, PR #638). When ZIP 302 is deployed, ZAP1 attestation payloads SHOULD be encoded as a ZIP 302 part type. Until then, the binary layout below serves as a transitional encoding within the raw 512-byte shielded memo field.": "Este ZIP define la semántica de atestación de la capa de aplicación. El formato portador se especifica por separado en el ZIP 302 <g1><g2>1</g2></g1> (Structured Memos, PR #638). Cuando el ZIP 302 se despliegue, las cargas útiles de atestación de ZAP1 DEBERÍAN (SHOULD) codificarse como un tipo de parte del ZIP 302. Hasta entonces, la disposición binaria que sigue sirve como codificación transitoria dentro del campo de memo blindado sin procesar de 512 bytes.",
+  "The parts of this ZIP that are independent of the container are: the event type registry, hash construction rules, Merkle tree aggregation, and the verification procedure.": "Las partes de este ZIP que son independientes del contenedor son: el registro de tipos de evento, las reglas de construcción del hash, la agregación en árbol Merkle y el procedimiento de verificación.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "Zcash shielded memos can carry structured application commitments, but the ecosystem lacks a convention for typed lifecycle events that can be independently recomputed by external verifiers.": "Los memos blindados de Zcash pueden transportar compromisos de aplicación estructurados, pero el ecosistema carece de una convención para eventos de ciclo de vida tipados que los verificadores externos puedan recalcular de forma independiente.",
+  "Exposing Zcash state and actions to agents is straightforward. A REST or GraphQL endpoint can be wrapped as an MCP server in a small amount of code, and wallet-layer MCP implementations can expose balances, signing workflows, sync state, and transaction construction. These surfaces share one property: the consumer must trust the server response. If the backend is wrong, compromised, or unavailable later, the agent has no independent receipt it can hand to a third party for verification.": "Exponer el estado y las acciones de Zcash a agentes es sencillo. Un endpoint REST o GraphQL puede envolverse como un servidor MCP con una cantidad pequeña de código, y las implementaciones MCP de la capa de billetera pueden exponer saldos, flujos de firma, estado de sincronización y construcción de transacciones. Estas superficies comparten una propiedad: el consumidor debe confiar en la respuesta del servidor. Si el backend es incorrecto, está comprometido o deja de estar disponible, el agente no tiene un recibo independiente que pueda entregar a un tercero para su verificación.",
+  "ZAP1 closes that gap. It exposes no balances and moves no value. It produces a receipt: a typed event committed to a BLAKE2b Merkle tree, with the root anchored in Zcash memo data, verifiable from the public schema, proof material, and chain anchor without trusting the issuer's server.": "ZAP1 cierra esa brecha. No expone saldos ni mueve valor. Produce un recibo: un evento tipado comprometido en un árbol Merkle BLAKE2b, con la raíz anclada en datos de memo de Zcash, verificable a partir del esquema público, el material de prueba y el ancla de la cadena, sin confiar en el servidor del emisor.",
+  "The distinction is categorical. Tool servers answer \"what does this backend say right now?\" ZAP1 answers \"what happened, provable later to another verifier?\" The protocol exists for the proof artifact, not for tool exposure.": "La distinción es categórica. Los servidores de herramientas responden \"¿qué dice este backend ahora mismo?\" ZAP1 responde \"¿qué ocurrió, demostrable luego ante otro verificador?\" El protocolo existe para el artefacto de prueba, no para la exposición de herramientas.",
+  "Applications that track ownership, deployment, billing, transfer, and exit events need:": "Las aplicaciones que rastrean eventos de propiedad, despliegue, facturación, transferencia y salida necesitan:",
+  "deterministic hash construction": "construcción determinista del hash",
+  "stable event typing": "tipado de eventos estable",
+  "a payload format that can be parsed without application-specific heuristics": "un formato de carga útil que pueda analizarse sin heurísticas específicas de la aplicación",
+  "a way to commit large event histories without writing full plaintext records to the chain": "una manera de comprometer historiales de eventos grandes sin escribir registros completos en texto plano en la cadena",
+  "This ZIP standardizes the event commitment rules used by one such deployment so that other builders can implement compatible tooling, verification, and future extensions.": "Este ZIP estandariza las reglas de compromiso de eventos utilizadas por uno de esos despliegues, de modo que otros constructores puedan implementar herramientas, verificación y extensiones futuras compatibles.",
+  "<x1/>Requirements": "<x1/>Requisitos",
+  "An implementation of this ZIP:": "Una implementación de este ZIP:",
+  "MUST treat the attestation payload as a binary structure before any wallet-specific shielded memo encoding.": "DEBE (MUST) tratar la carga útil de la atestación como una estructura binaria antes de cualquier codificación de memo blindado específica de la billetera.",
+  "MUST encode integers in big-endian byte order.": "DEBE (MUST) codificar los enteros en orden de bytes big-endian.",
+  "MUST NOT place participant PII directly in the attestation payload.": "NO DEBE (MUST NOT) colocar datos personales identificables de los participantes directamente en la carga útil de la atestación.",
+  "MUST derive event payload hashes deterministically from the underlying event fields.": "DEBE (MUST) derivar los hashes de las cargas útiles de eventos de manera determinista a partir de los campos subyacentes del evento.",
+  "MUST preserve event insertion order when deriving Merkle roots.": "DEBE (MUST) preservar el orden de inserción de los eventos al derivar las raíces de Merkle.",
+  "MUST allow verifiers to recompute both the event leaf hash and the anchored root from public artifacts plus application-provided witness data.": "DEBE (MUST) permitir que los verificadores recalculen tanto el hash de la hoja del evento como la raíz anclada a partir de artefactos públicos más los datos de testigo proporcionados por la aplicación.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "<x1/>Binary Payload Layout": "<x1/>Disposición de la carga útil binaria",
+  "Before shielded memo encoding (or ZIP 302 part encoding), the binary attestation payload is:": "Antes de la codificación del memo blindado (o de la codificación de partes de ZIP 302), la carga útil binaria de la atestación es:",
+  "For human-readable transport, the payload SHOULD be rendered as:": "Para un transporte legible por humanos, la carga útil DEBERÍA (SHOULD) representarse como:",
+  "where:": "donde:",
+  "<x1/> is the protocol marker": "<x1/> es el marcador de protocolo",
+  "<x1/> is the two-digit lowercase hexadecimal event type": "<x1/> es el tipo de evento en hexadecimal de dos dígitos en minúsculas",
+  "<x1/> is the hexadecimal encoding of the full binary layout above": "<x1/> es la codificación hexadecimal de la disposición binaria completa anterior",
+  "<x1/>Event Types": "<x1/>Tipos de eventos",
+  "This draft defines the following event type assignments:": "Este borrador define las siguientes asignaciones de tipos de eventos:",
+  "Type": "Tipo",
+  "Name": "Nombre",
+  "Payload definition": "Definición de carga útil",
+  "Status": "Estado",
+  "Deployed": "Desplegado",
+  "`BLAKE2b_32(wallet_hash": "`BLAKE2b_32(wallet_hash",
+  "`BLAKE2b_32(serial_number": "`BLAKE2b_32(serial_number",
+  "`BLAKE2b_32(old_wallet": "`BLAKE2b_32(old_wallet",
+  "raw 32-byte Merkle root": "raíz Merkle cruda de 32 bytes",
+  "Implementations of the deployed <x1/> flow currently use the first nine event types in production. The staking and governance event types are reserved and MUST NOT be assumed stable until separately activated.": "Las implementaciones del flujo <x1/> desplegado usan actualmente los primeros nueve tipos de eventos en producción. Los tipos de eventos de staking y gobernanza están reservados y NO DEBEN (MUST NOT) asumirse estables hasta que se activen por separado.",
+  "<x1/>Hash Construction": "<x1/>Construcción del hash",
+  "Field sizes for hash inputs:": "Tamaños de los campos para las entradas de los hash:",
+  "<x1/>: 32 bytes (application-derived identifier)": "<x1/>: 32 bytes (identificador derivado de la aplicación)",
+  "<x1/>: 32 bytes": "<x1/>: 32 bytes",
+  "<x1/>: 32 bytes (zero-padded if shorter)": "<x1/>: 32 bytes (rellenado con ceros si es más corto)",
+  "<x1/>: u64 big-endian (8 bytes)": "<x1/>: u64 big-endian (8 bytes)",
+  "<x1/>: u16 big-endian (2 bytes)": "<x1/>: u16 big-endian (2 bytes)",
+  "<x1/>: u32 big-endian (4 bytes)": "<x1/>: u32 big-endian (4 bytes)",
+  "<x1/>, <x2/>, <x3/>: 32 bytes each": "<x1/>, <x2/>, <x3/>: 32 bytes cada uno",
+  "<x1/>, <x2/>: 32 bytes each": "<x1/>, <x2/>: 32 bytes cada uno",
+  "Unless otherwise specified, event payload hashes use BLAKE2b with:": "Salvo que se especifique lo contrario, los hash de las cargas útiles de eventos usan BLAKE2b con:",
+  "digest length: 32 bytes": "longitud del resumen: 32 bytes",
+  "personalization: <x1/> (13 bytes, zero-padded to 16 bytes per BLAKE2b spec)": "personalización: <x1/> (13 bytes, rellenados con ceros hasta 16 bytes según la especificación de BLAKE2b)",
+  "The hash input for each event type is defined in the table above. The <x1/> event is a special case whose payload hash is the 32-byte Merkle root itself, without an additional BLAKE2b compression step.": "La entrada del hash para cada tipo de evento se define en la tabla anterior. El evento <x1/> es un caso especial cuyo hash de carga útil es la propia raíz Merkle de 32 bytes, sin un paso adicional de compresión BLAKE2b.",
+  "For event types that carry a serial number, the <x1/> payload field MUST be:": "Para los tipos de evento que llevan un número de serie, el campo de carga útil <x1/> DEBE (MUST) ser:",
+  "with the same personalization string <x1/>.": "con la misma cadena de personalización <x1/>.",
+  "If no serial number is applicable, <x1/> MUST be 32 zero bytes.": "Si no se aplica ningún número de serie, <x1/> DEBE (MUST) ser 32 bytes en cero.",
+  "<x1/>Merkle Tree Commitments": "<x1/>Compromisos de árbol Merkle",
+  "Applications using this attestation protocol SHOULD aggregate event payload hashes into an append-only binary Merkle tree. For the deployed <x1/> protocol:": "Las aplicaciones que usan este protocolo de atestación DEBERÍAN (SHOULD) agregar los hash de las cargas útiles de eventos en un árbol Merkle binario de solo adición. Para el protocolo <x1/> desplegado:",
+  "each event produces one leaf": "cada evento produce una hoja",
+  "leaves are ordered by insertion sequence": "las hojas se ordenan por secuencia de inserción",
+  "parent nodes are <x1/>": "los nodos padre son <x1/>",
+  "Merkle node personalization is <x1/>": "la personalización de nodo Merkle es <x1/>",
+  "if a level has odd cardinality, the final node is duplicated": "si un nivel tiene cardinalidad impar, el nodo final se duplica",
+  "An inclusion proof consists of:": "Una prueba de inclusión consiste en:",
+  "leaf hash": "hash de la hoja",
+  "sibling hashes": "hash de los hermanos",
+  "sibling positions": "posiciones de los hermanos",
+  "derived Merkle root": "raíz Merkle derivada",
+  "anchor transaction identifier": "identificador de la transacción de anclaje",
+  "anchor block height": "altura de bloque de anclaje",
+  "<x1/>On-Chain Anchoring": "<x1/>Anclaje en cadena",
+  "When anchoring a Merkle root to Zcash:": "Al anclar una raíz Merkle en Zcash:",
+  "the event type MUST be <x1/>": "el tipo de evento DEBE (MUST) ser <x1/>",
+  "the payload hash MUST be the raw current Merkle root": "el hash de la carga útil DEBE (MUST) ser la raíz Merkle actual sin procesar",
+  "the shielded memo field SHOULD be encoded as <x1/>": "el campo memo blindado DEBERÍA (SHOULD) codificarse como <x1/>",
+  "The deployed <x1/> implementation broadcasts shielded memo commitments using <x2/>. The current deployment anchors every 10 events or every 24 hours, whichever occurs first.": "La implementación <x1/> desplegada difunde compromisos de memo blindados mediante <x2/>. El despliegue actual ancla cada 10 eventos o cada 24 horas, lo que ocurra primero.",
+  "<x1/>Verification Procedure": "<x1/>Procedimiento de verificación",
+  "To verify a committed event, a verifier:": "Para verificar un evento con compromiso, un verificador:",
+  "recomputes the event payload hash from the application fields": "recalcula el hash del payload del evento a partir de los campos de la aplicación",
+  "reconstructs the attestation payload and event leaf hash": "reconstruye el payload de la atestación y el hash de la hoja del evento",
+  "walks the Merkle proof path to derive the root": "recorre la ruta de la prueba Merkle para derivar la raíz",
+  "retrieves the referenced anchor transaction": "recupera la transacción de anclaje referenciada",
+  "confirms that the shielded memo field contains the same <x1/> root commitment": "confirma que el campo memo blindado contiene el mismo compromiso de raíz <x1/>",
+  "confirms that the transaction is mined on the intended chain": "confirma que la transacción está minada en la cadena prevista",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "This design separates protocol semantics from wallet transport.": "Este diseño separa la semántica del protocolo del transporte de la billetera.",
+  "The binary layout is fixed-width for all critical fields so parsers can extract event type, cohort identifier, and proof-relevant material without needing to understand any free-form label text. BLAKE2b-256 is used for compactness and performance. Personalization strings provide domain separation between event payload hashing and Merkle internal-node hashing.": "El diseño binario es de ancho fijo para todos los campos críticos, de modo que los analizadores puedan extraer el tipo de evento, el identificador de cohorte y el material relevante para la prueba sin necesidad de comprender ningún texto de etiqueta de formato libre. BLAKE2b-256 se usa por compacidad y rendimiento. Las cadenas de personalización proporcionan separación de dominio entre el hash de la carga útil del evento y el hash de los nodos internos del árbol Merkle.",
+  "Anchoring Merkle roots rather than full event records minimizes chain load while preserving independent verifiability. The shielded memo field remains short and constant-sized for the root-commitment case even as the underlying event history grows.": "Anclar raíces Merkle en lugar de registros completos de eventos minimiza la carga de la cadena y preserva la verificabilidad independiente. El campo memo blindado se mantiene corto y de tamaño constante para el caso del compromiso de raíz, incluso a medida que crece el historial de eventos subyacente.",
+  "<x1/>Privacy Considerations": "<x1/>Consideraciones de privacidad",
+  "This protocol avoids writing participant-identifying plaintext data to chain. Implementations MUST ensure that <x1/>, <x2/>, contract digests, and other payload inputs are derived values rather than directly identifying customer records.": "Este protocolo evita escribir en cadena datos en texto plano que identifiquen a participantes. Las implementaciones DEBEN (MUST) garantizar que <x1/>, <x2/>, los resúmenes de contratos y otras entradas de la carga útil sean valores derivados y no registros de clientes que identifiquen directamente.",
+  "The optional <x1/> field may leak application metadata if misused. Protocols using this ZIP SHOULD either omit the <x2/> field or constrain it to operational strings that do not identify participants.": "El campo opcional <x1/> puede filtrar metadatos de la aplicación si se usa incorrectamente. Los protocolos que usan este ZIP DEBERÍAN (SHOULD) omitir el campo <x2/> o limitarlo a cadenas operativas que no identifiquen a participantes.",
+  "<x1/>Security Considerations": "<x1/>Consideraciones de seguridad",
+  "This protocol provides integrity and auditability, not confidentiality of the underlying application database. Security depends on:": "Este protocolo proporciona integridad y auditabilidad, no confidencialidad de la base de datos subyacente de la aplicación. La seguridad depende de:",
+  "correct construction of event hashes": "la construcción correcta de los hash de eventos",
+  "correct Merkle insertion ordering": "el orden de inserción correcto en el árbol Merkle",
+  "correct association between proof bundles and the anchored root that covers them": "la asociación correcta entre los paquetes de prueba y la raíz anclada que los cubre",
+  "correct wallet-side retrieval of the mined shielded-memo-bearing transaction": "la recuperación correcta, por parte de la billetera, de la transacción minada que contiene el memo blindado",
+  "This ZIP does not address:": "Este ZIP no aborda:",
+  "fraudulent off-chain data entry before hashing": "el ingreso fraudulento de datos fuera de cadena antes del hash",
+  "theft of the key used to authorize anchor transactions": "el robo de la clave usada para autorizar transacciones de anclaje",
+  "application-level authorization of transfers or exits": "la autorización a nivel de aplicación de transferencias o salidas",
+  "The deployed <x1/> stack currently uses single-operator anchor signing, with a separate FROST migration design under development for threshold authorization of future root anchors.": "La pila <x1/> desplegada actualmente usa la firma de anclaje de un solo operador, con un diseño de migración a FROST separado en desarrollo para la autorización de umbral de futuras anclas de raíz.",
+  "<x1/>Backwards Compatibility": "<x1/>Compatibilidad con versiones anteriores",
+  "This ZIP codifies the deployed version-<x1/> <x2/> format. Existing proof bundles remain valid as long as verifiers preserve the original event hash construction, Merkle hashing rules, and anchor transaction references.": "Este ZIP codifica el formato <x2/> versión <x1/> desplegado. Los paquetes de prueba existentes siguen siendo válidos siempre que los verificadores preserven la construcción original del hash de eventos, las reglas de hash Merkle y las referencias a transacciones de anclaje.",
+  "Future incompatible payload layouts MUST use a new version byte and SHOULD use a distinct human-readable protocol marker.": "Los diseños de payload incompatibles futuros DEBEN (MUST) usar un nuevo byte de versión y DEBERÍAN (SHOULD) usar un marcador de protocolo legible por humanos distinto.",
+  "<x1/>Reference Implementation": "<x1/>Implementación de referencia",
+  "Reference implementations are available at:": "Las implementaciones de referencia están disponibles en:",
+  "<g1>Frontier-Compute/zap1</g1>, which implements the deployed <x2/> attestation protocol, Merkle tree maintenance, proof bundle generation, and root anchoring flow.": "<g1>Frontier-Compute/zap1</g1>, que implementa el protocolo de atestación <x2/> desplegado, el mantenimiento del árbol Merkle, la generación de paquetes de prueba y el flujo de anclaje de raíz.",
+  "<g1>Frontier-Compute/zap1-verify</g1> <g2><g3>2</g3></g2>, which provides a standalone Rust and WASM verifier for ZAP1 leaf hashes and Merkle proofs.": "<g1>Frontier-Compute/zap1-verify</g1> <g2><g3>2</g3></g2>, que proporciona un verificador independiente en Rust y WASM para hash de hoja y pruebas Merkle de ZAP1.",
+  "In the deployed <x1/> implementation:": "En la implementación <x1/> desplegada:",
+  "event payload hashes are computed with BLAKE2b-256 and personalization <x1/>": "los hash de payload de evento se calculan con BLAKE2b-256 y la personalización <x1/>",
+  "Merkle internal nodes use personalization <x1/>": "los nodos internos del árbol Merkle usan la personalización <x1/>",
+  "root anchors are transmitted as <x1/>": "los anclajes de raíz se transmiten como <x1/>",
+  "<x1/>Test Vectors": "<x1/>Vectores de prueba",
+  "A companion test vector package SHOULD provide:": "Un paquete de vectores de prueba complementario DEBERÍA (SHOULD) proporcionar:",
+  "one event hash vector for each deployed event type <x1/> through <x2/>": "un vector de hash de evento para cada tipo de evento desplegado desde <x1/> hasta <x2/>",
+  "the exact input fields used to derive the payload hash": "los campos de entrada exactos usados para derivar el hash de la carga útil",
+  "the expected <x1/>": "el <x1/> esperado",
+  "the hash personalization strings used": "las cadenas de personalización del hash usadas",
+  "The deployed <x1/> implementation <g2><g3>3</g3></g2> publishes those vectors separately as:": "La implementación <x1/> desplegada <g2><g3>3</g3></g2> publica esos vectores por separado como:",
+  "<g1>Frontier-Compute/zap1/TEST_VECTORS.md</g1>": "<g1>Frontier-Compute/zap1/TEST_VECTORS.md</g1>",
+  "<g1>TEST_VECTORS.md</g1>": "<g1>TEST_VECTORS.md</g1>",
+  "<x1/>References": "<x1/>Referencias",
+  "<x1/>Footnotes": "<x1/>Notas al pie",
+  "<g1>ZIP 302: Standardized Memo Field Format</g1> <g2>↩</g2>": "<g1>ZIP 302: Formato estandarizado del campo memo</g1> <g2>↩</g2>",
+  "<g1>Frontier-Compute/zap1-verify: standalone Rust and WASM verifier for ZAP1 proofs</g1> <g2>↩</g2>": "<g1>Frontier-Compute/zap1-verify: verificador independiente en Rust y WASM para pruebas de ZAP1</g1> <g2>↩</g2>",
+  "<g1>Frontier-Compute/zap1: ZAP1 attestation protocol reference implementation</g1> <g2>↩</g2>": "<g1>Frontier-Compute/zap1: implementación de referencia del protocolo de atestación ZAP1</g1> <g2>↩</g2>"
+ },
+ "reviews": {
+  "ZIP: Structured Attestation Protocol for Application-Layer Lifecycle Events (ZAP1)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "ZIP: ??? Title: Structured Attestation Protocol for Application-Layer Lifecycle Events (ZAP1) Owners: Frontier Compute <g1>ops@frontiercompute.io</g1> Credits: Zk-nd3r Status: Draft Category: Standards Track Created: 2026-03-28 License: MIT Discussions-To: <g2>https://github.com/zcash/zips/pull/1243</g2> Pull-Request: <g3>https://github.com/zcash/zips/pull/1243</g3>": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The ZIP title following \"Título:\" is left in English instead of being translated as in the document title."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "ZIP: ??? Título: Structured Attestation Protocol for Application-Layer Lifecycle Events (ZAP1) Propietarios: Frontier Compute <g1>ops@frontiercompute.io</g1> Créditos: Zk-nd3r Estado: Borrador Categoría: Standards Track Creado: 2026-03-28 Licencia: MIT Discussions-To: <g2>https://github.com/zcash/zips/pull/1243</g2> Pull-Request: <g3>https://github.com/zcash/zips/pull/1243</g3>"
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\", \"SHALL NOT\", \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"NOT RECOMMENDED\", \"MAY\", and \"OPTIONAL\" in this document are to be interpreted as described in BCP 14 when, and only when, they appear in all capitals, as shown here.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP specifies an application-layer attestation format for lifecycle events committed to Zcash shielded transactions. It defines event typing, BLAKE2b hash construction rules, Merkle tree aggregation, and a verification procedure for on-chain commitments that keep participant-identifying data off-chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This draft is based on the deployed <x1/> attestation protocol (formerly <x2/>). In the reference deployment, event payloads are hashed with BLAKE2b-256 using the personalization string <x3/>, inserted into an append-only Merkle tree, and periodically anchored to Zcash using a transaction with type byte <x4/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Relationship to ZIP 302": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP defines application-layer attestation semantics. The carrier format is specified separately by ZIP 302 <g1><g2>1</g2></g1> (Structured Memos, PR #638). When ZIP 302 is deployed, ZAP1 attestation payloads SHOULD be encoded as a ZIP 302 part type. Until then, the binary layout below serves as a transitional encoding within the raw 512-byte shielded memo field.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The parts of this ZIP that are independent of the container are: the event type registry, hash construction rules, Merkle tree aggregation, and the verification procedure.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Zcash shielded memos can carry structured application commitments, but the ecosystem lacks a convention for typed lifecycle events that can be independently recomputed by external verifiers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Exposing Zcash state and actions to agents is straightforward. A REST or GraphQL endpoint can be wrapped as an MCP server in a small amount of code, and wallet-layer MCP implementations can expose balances, signing workflows, sync state, and transaction construction. These surfaces share one property: the consumer must trust the server response. If the backend is wrong, compromised, or unavailable later, the agent has no independent receipt it can hand to a third party for verification.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "ZAP1 closes that gap. It exposes no balances and moves no value. It produces a receipt: a typed event committed to a BLAKE2b Merkle tree, with the root anchored in Zcash memo data, verifiable from the public schema, proof material, and chain anchor without trusting the issuer's server.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The distinction is categorical. Tool servers answer \"what does this backend say right now?\" ZAP1 answers \"what happened, provable later to another verifier?\" The protocol exists for the proof artifact, not for tool exposure.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Applications that track ownership, deployment, billing, transfer, and exit events need:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "deterministic hash construction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "stable event typing": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a payload format that can be parsed without application-specific heuristics": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a way to commit large event histories without writing full plaintext records to the chain": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP standardizes the event commitment rules used by one such deployment so that other builders can implement compatible tooling, verification, and future extensions.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An implementation of this ZIP:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "MUST treat the attestation payload as a binary structure before any wallet-specific shielded memo encoding.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "MUST encode integers in big-endian byte order.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "MUST NOT place participant PII directly in the attestation payload.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "MUST derive event payload hashes deterministically from the underlying event fields.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "MUST preserve event insertion order when deriving Merkle roots.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "MUST allow verifiers to recompute both the event leaf hash and the anchored root from public artifacts plus application-provided witness data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Binary Payload Layout": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Before shielded memo encoding (or ZIP 302 part encoding), the binary attestation payload is:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For human-readable transport, the payload SHOULD be rendered as:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "where:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> is the protocol marker": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> is the two-digit lowercase hexadecimal event type": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> is the hexadecimal encoding of the full binary layout above": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Event Types": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This draft defines the following event type assignments:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Type": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Name": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Payload definition": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Status": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Deployed": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "`BLAKE2b_32(wallet_hash": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "`BLAKE2b_32(serial_number": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "`BLAKE2b_32(old_wallet": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "raw 32-byte Merkle root": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Implementations of the deployed <x1/> flow currently use the first nine event types in production. The staking and governance event types are reserved and MUST NOT be assumed stable until separately activated.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Hash Construction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Field sizes for hash inputs:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>: 32 bytes (application-derived identifier)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>: 32 bytes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>: 32 bytes (zero-padded if shorter)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>: u64 big-endian (8 bytes)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>: u16 big-endian (2 bytes)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>: u32 big-endian (4 bytes)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>, <x2/>, <x3/>: 32 bytes each": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>, <x2/>: 32 bytes each": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Unless otherwise specified, event payload hashes use BLAKE2b with:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "digest length: 32 bytes": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"digest\" is left in English with no reason; it should be translated as \"resumen\"."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "longitud del digest: 32 bytes"
+  },
+  "personalization: <x1/> (13 bytes, zero-padded to 16 bytes per BLAKE2b spec)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The hash input for each event type is defined in the table above. The <x1/> event is a special case whose payload hash is the 32-byte Merkle root itself, without an additional BLAKE2b compression step.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"carga útil de hash\" reverses the meaning of \"payload hash\", which is the hash of the payload."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "La entrada del hash para cada tipo de evento se define en la tabla anterior. El evento <x1/> es un caso especial cuya carga útil de hash es la raíz Merkle de 32 bytes misma, sin un paso adicional de compresión BLAKE2b."
+  },
+  "For event types that carry a serial number, the <x1/> payload field MUST be:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "with the same personalization string <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If no serial number is applicable, <x1/> MUST be 32 zero bytes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Merkle Tree Commitments": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Applications using this attestation protocol SHOULD aggregate event payload hashes into an append-only binary Merkle tree. For the deployed <x1/> protocol:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "each event produces one leaf": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "leaves are ordered by insertion sequence": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "parent nodes are <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Merkle node personalization is <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if a level has odd cardinality, the final node is duplicated": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An inclusion proof consists of:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "leaf hash": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "sibling hashes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "sibling positions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "derived Merkle root": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "anchor transaction identifier": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "anchor block height": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>On-Chain Anchoring": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "When anchoring a Merkle root to Zcash:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the event type MUST be <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the payload hash MUST be the raw current Merkle root": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The English word \"payload\" is left untranslated and is not a glossary keep term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "el hash del payload DEBE (MUST) ser la raíz Merkle actual sin procesar"
+  },
+  "the shielded memo field SHOULD be encoded as <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The deployed <x1/> implementation broadcasts shielded memo commitments using <x2/>. The current deployment anchors every 10 events or every 24 hours, whichever occurs first.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Verification Procedure": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "To verify a committed event, a verifier:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "recomputes the event payload hash from the application fields": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "reconstructs the attestation payload and event leaf hash": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "walks the Merkle proof path to derive the root": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "retrieves the referenced anchor transaction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "confirms that the shielded memo field contains the same <x1/> root commitment": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "confirms that the transaction is mined on the intended chain": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This design separates protocol semantics from wallet transport.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The binary layout is fixed-width for all critical fields so parsers can extract event type, cohort identifier, and proof-relevant material without needing to understand any free-form label text. BLAKE2b-256 is used for compactness and performance. Personalization strings provide domain separation between event payload hashing and Merkle internal-node hashing.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word 'payload' is left in English with no reason; it must be translated."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "El diseño binario es de ancho fijo para todos los campos críticos, de modo que los analizadores puedan extraer el tipo de evento, el identificador de cohorte y el material relevante para la prueba sin necesidad de comprender ningún texto de etiqueta de formato libre. BLAKE2b-256 se usa por compacidad y rendimiento. Las cadenas de personalización proporcionan separación de dominio entre el hash del payload del evento y el hash de los nodos internos del árbol Merkle."
+  },
+  "Anchoring Merkle roots rather than full event records minimizes chain load while preserving independent verifiability. The shielded memo field remains short and constant-sized for the root-commitment case even as the underlying event history grows.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Privacy Considerations": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This protocol avoids writing participant-identifying plaintext data to chain. Implementations MUST ensure that <x1/>, <x2/>, contract digests, and other payload inputs are derived values rather than directly identifying customer records.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word 'payload' is left in English with no reason; it must be translated."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Este protocolo evita escribir en cadena datos en texto plano que identifiquen a participantes. Las implementaciones DEBEN (MUST) garantizar que <x1/>, <x2/>, los resúmenes de contratos y otras entradas del payload sean valores derivados y no registros de clientes que identifiquen directamente."
+  },
+  "The optional <x1/> field may leak application metadata if misused. Protocols using this ZIP SHOULD either omit the <x2/> field or constrain it to operational strings that do not identify participants.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Security Considerations": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This protocol provides integrity and auditability, not confidentiality of the underlying application database. Security depends on:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "correct construction of event hashes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "correct Merkle insertion ordering": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "correct association between proof bundles and the anchored root that covers them": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "correct wallet-side retrieval of the mined shielded-memo-bearing transaction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP does not address:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "fraudulent off-chain data entry before hashing": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "theft of the key used to authorize anchor transactions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "application-level authorization of transfers or exits": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The deployed <x1/> stack currently uses single-operator anchor signing, with a separate FROST migration design under development for threshold authorization of future root anchors.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Backwards Compatibility": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP codifies the deployed version-<x1/> <x2/> format. Existing proof bundles remain valid as long as verifiers preserve the original event hash construction, Merkle hashing rules, and anchor transaction references.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Future incompatible payload layouts MUST use a new version byte and SHOULD use a distinct human-readable protocol marker.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Reference Implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Reference implementations are available at:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Frontier-Compute/zap1</g1>, which implements the deployed <x2/> attestation protocol, Merkle tree maintenance, proof bundle generation, and root anchoring flow.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Frontier-Compute/zap1-verify</g1> <g2><g3>2</g3></g2>, which provides a standalone Rust and WASM verifier for ZAP1 leaf hashes and Merkle proofs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "In the deployed <x1/> implementation:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "event payload hashes are computed with BLAKE2b-256 and personalization <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Merkle internal nodes use personalization <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "root anchors are transmitted as <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Test Vectors": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A companion test vector package SHOULD provide:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "one event hash vector for each deployed event type <x1/> through <x2/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the exact input fields used to derive the payload hash": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"payload\" is left in English but is not a glossary keep term"
+   ],
+   "model": "glm-5.3-flash",
+   "first": "los campos de entrada exactos usados para derivar el hash del payload"
+  },
+  "the expected <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the hash personalization strings used": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The deployed <x1/> implementation <g2><g3>3</g3></g2> publishes those vectors separately as:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Frontier-Compute/zap1/TEST_VECTORS.md</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>TEST_VECTORS.md</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Footnotes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>ZIP 302: Standardized Memo Field Format</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The ZIP 302 title is descriptive, not just names and identifiers, so leaving it in English is unjustified."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>ZIP 302: Standardized Memo Field Format</g1> <g2>↩</g2>"
+  },
+  "<g1>Frontier-Compute/zap1-verify: standalone Rust and WASM verifier for ZAP1 proofs</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Frontier-Compute/zap1: ZAP1 attestation protocol reference implementation</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  }
+ }
+}

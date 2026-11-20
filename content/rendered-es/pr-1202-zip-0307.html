@@ -1,0 +1,516 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)" y "PUEDE (MAY)" en este documento se interpretan como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>El carácter § se usa al referirse a secciones de la Zcash Protocol Specification (Especificación del Protocolo Zcash). [^protocol]</p>
+<p>Los términos "Mainnet" y "Testnet" se interpretan como se describe en § 3.12 «Mainnet y Testnet». [^protocol-networks]</p>
+<p>Los términos siguientes deben interpretarse de la siguiente manera:</p>
+<dl class="simple">
+<dt>Cliente ligero</dt>
+<dd><p>Un cliente que no es un participante completo en la red de pares de Zcash. Puede recibir y (si posee las claves de gasto necesarias) enviar pagos, pero no almacena ni valida una copia completa del block chain.</p>
+</dd>
+</dl>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP define un protocolo para clientes ligeros de Zcash que permite la detección de pagos entrantes, la identificación de notas gastadas y el mantenimiento de testigos de los árboles de compromiso de notas y de conjuntos de nullifiers para transacciones blindadas de Sapling <a class="brackets" href="#zip-0205" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a> y Orchard <a class="brackets" href="#zip-0224" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a>, así como el rastreo de entradas y salidas transparentes.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Antes de la introducción de este protocolo, un cliente que deseaba enviar o recibir pagos blindados debía ser un nodo completo participante en la red de Zcash. Esto requería una cantidad de ancho de banda, espacio y capacidad de procesamiento disponibles que no era adecuada para algunos casos de uso. Este protocolo de cliente ligero atiende esa necesidad y es apropiado para máquinas de baja potencia, conscientes del ancho de banda o limitadas de otra manera (como teléfonos móviles).</p>
+
+<h1 id="high-level-design"><a class="hanchor" href="#high-level-design" aria-hidden="true" tabindex="-1">#</a>Diseño de alto nivel</h1>
+<p>Un sistema de cliente ligero de Zcash tiene tres componentes lógicos:</p>
+<ul class="simple">
+<li><p><strong>Nodo completo de Zcash</strong> que provee el estado de la cadena y sirve como raíz de confianza del sistema.</p></li>
+<li><p><strong>Servidor proxy</strong> que extrae datos del block chain desde un nodo completo de Zcash para almacenarlos y servirlos en un formato de menor ancho de banda.</p></li>
+<li><p><strong>Cliente ligero</strong> que se suscribe al flujo de un servidor proxy y usa esos datos para actualizar su propia vista del estado de la cadena. El cliente ligero PUEDE (MAY) estar conectado a un backend de billetera que rastreará notas blindadas particulares.</p></li>
+</ul>
+<figure class="align-center">
+<img alt="../rendered/assets/images/zip-0307-arch.png" src="/upstream/../rendered/assets/images/zip-0307-arch.png">
+<figcaption>
+<p>Esquema de la arquitectura de billetera ligera</p>
+</figcaption>
+</figure>
+
+<h1 id="security-model"><a class="hanchor" href="#security-model" aria-hidden="true" tabindex="-1">#</a>Modelo de seguridad</h1>
+<p>En este modelo, proponemos la <strong>privacidad de detección de pagos</strong> como nuestro principal objetivo de seguridad. Es decir, el proxy no debería aprender cuáles transacciones (recibidas del block chain) están dirigidas a una billetera ligera dada. Si además asumimos privacidad de red (mediante Tor o similar), el proxy no debería poder vincular diferentes conexiones o consultas como provenientes de la misma billetera.</p>
+<p>En particular, se asume que la combinación del nodo de Zcash subyacente y el proxy es "honesto pero curioso", y se confía en que proporcione una vista correcta del mejor estado actual de la cadena y que transmita fielmente consultas y respuestas.</p>
+<p>Este ZIP no aborda cómo gastar notas de forma privada.</p>
+
+<h1 id="compact-stream-format"><a class="hanchor" href="#compact-stream-format" aria-hidden="true" tabindex="-1">#</a>Formato de flujo compacto</h1>
+<p>Una observación clave en este protocolo es que el texto cifrado en cada salida blindada tiene una longitud de varios cientos de bytes, debido a la inclusión de un memo de transacción. La necesidad de descargar el texto cifrado completo impone un costo sustancial de ancho de banda a cada billetera ligera, que puede ser un dispositivo móvil limitado en un plan de ancho de banda restringido. El campo de memo puede ignorarse durante la detección de pagos, al igual que cualquier información que no sea directamente relevante para el procesamiento de transacciones blindadas.</p>
+<p>Un <strong>bloque compacto</strong> es un empaquetado de SOLO los datos de un bloque necesarios para:</p>
+<ol class="arabic simple">
+<li><p>Detectar un pago a su dirección blindada (Sapling u Orchard).</p></li>
+<li><p>Detectar un gasto de sus notas blindadas.</p></li>
+<li><p>Actualizar los testigos de los árboles de compromiso de notas.</p></li>
+</ol>
+<p>Los bloques compactos y sus transacciones compactas componentes se codifican en la red mediante Protocol Buffers <a class="brackets" href="#protocolbuffers" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>. Las definiciones normativas del formato de bloque compacto se especifican en el archivo <span class="docutils literal">compact_formats.proto</span> del Zcash Light Client Protocol <a class="brackets" href="#lightwallet-protocol" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a>.</p>
+<p>El protocolo ha evolucionado a través de varias versiones principales:</p>
+<ul class="simple">
+<li><p><strong>v0.3.x</strong> (2021–2023): se agregó soporte del protocolo blindado Orchard mediante <span class="docutils literal">CompactOrchardAction</span> y consultas de estado del árbol de compromiso de notas (<span class="docutils literal">GetTreeState</span>, <span class="docutils literal">GetLatestTreeState</span>) y recuperación de raíces de subárbol (<span class="docutils literal">GetSubtreeRoots</span>) para soportar la construcción eficiente de testigos.</p></li>
+<li><p><strong>v0.4.x</strong> (2025): se agregaron datos de transacciones transparentes (<span class="docutils literal">CompactTxIn</span>, <span class="docutils literal">TxOut</span>) a los bloques compactos, lo que permite descubrir salidas transparentes sin revelar las direcciones del cliente al servidor de billetera ligera. La actualización también agregó filtrado basado en <span class="docutils literal">PoolType</span> para la recuperación selectiva por protocolo blindado.</p></li>
+</ul>
+<p>Las secciones siguientes describen la justificación del diseño del formato compacto.</p>
+<h2 id="output-compression"><a class="hanchor" href="#output-compression" aria-hidden="true" tabindex="-1">#</a>Compresión de salidas</h2>
+<p>En el protocolo de Zcash, cada salida blindada contiene un <em>texto plano de nota</em> cifrado con AEAD <a class="brackets" href="#protocol-notept" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>. Tanto para Sapling como para Orchard, este texto cifrado (<span class="docutils literal">encCiphertext</span>) tiene una longitud de 580 bytes e incluye el campo de memo y una etiqueta de autenticación.</p>
+<p>Un destinatario detecta sus transacciones mediante el descifrado de prueba de este texto cifrado. En un nodo completo que posee la block chain completa, el costo principal es computacional. Sin embargo, para los clientes ligeros existe un costo adicional de ancho de banda: cada texto cifrado de la block chain debe recibirse del servidor (o nodo de red) al que está conectado el cliente ligero.</p>
+<p>Sin embargo, la detección de pagos no requiere el texto cifrado completo. Los primeros 52 bytes de <span class="docutils literal">encCiphertext</span> contienen el contenido y la apertura del compromiso de nota, lo cual es suficiente para detectar, verificar y gastar la nota. Por lo tanto, la representación compacta incluye solo estos 52 bytes junto con el compromiso de nota extraído y la clave pública efímera.</p>
+<p>Para <strong>Sapling</strong>, un <span class="docutils literal">CompactSaplingOutput</span> contiene el compromiso de nota extraído de 32 bytes (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚖</mi>
+    <mi>𝚞</mi>
+  </mrow>
+</math>), la clave pública efímera de 32 bytes y los primeros 52 bytes del texto cifrado, para un total de 116 bytes por salida. Una descripción completa de Sapling Output <a class="brackets" href="#protocol-outputencodingandconsensus" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> ocupa 948 bytes en las transacciones v4 (756 bytes en v5), por lo que la representación compacta proporciona una reducción del 85–88% en el ancho de banda.</p>
+<p>Para <strong>Orchard</strong>, un <span class="docutils literal">CompactOrchardAction</span> contiene el nullifier de 32 bytes, el compromiso de nota extraído de 32 bytes (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚖</mi>
+    <mi>𝚡</mi>
+  </mrow>
+</math>), la clave pública efímera de 32 bytes y los primeros 52 bytes del texto cifrado, para un total de 148 bytes por acción. Una descripción completa de Orchard Action <a class="brackets" href="#protocol-actionencodingandconsensus" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a> ocupa 820 bytes, por lo que la representación compacta proporciona una reducción del 82% en el ancho de banda. Nótese que la representación compacta de Orchard incluye el nullifier porque la estructura de Orchard Action combina un gasto y una salida en una sola descripción.</p>
+<p>Dado que la representación compacta omite la etiqueta de autenticación, la integridad del texto plano de la nota descifrado se valida en su lugar recalculando el compromiso de nota a partir del texto plano descifrado y comparándolo con el compromiso de nota enviado fuera del texto cifrado, el cual está autenticado por la firma de enlace (binding) sobre la transacción completa.</p>
+
+<h2 id="spend-compression"><a class="hanchor" href="#spend-compression" aria-hidden="true" tabindex="-1">#</a>Compresión de Spend</h2>
+<p>Para <strong>Sapling</strong>, una descripción completa de Spend ocupa 384 bytes <a class="brackets" href="#protocol-spendencodingandconsensus" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. La única parte necesaria para la detección de gastos es el nullifier de 32 bytes, que permite a un cliente ligero detectar cuándo una de sus propias notas ha sido gastada. Por lo tanto, un <span class="docutils literal">CompactSaplingSpend</span> contiene solo el nullifier, para una reducción del 92% en el ancho de banda.</p>
+<p>Para <strong>Orchard</strong>, la detección de gastos se maneja verificando el nullifier incluido en cada <span class="docutils literal">CompactOrchardAction</span> (como se describe en <a class="reference internal" href="#output-compression">Compresión de salidas</a> arriba), ya que la estructura de Orchard Action combina un gasto y una salida.</p>
+
+
+<h1 id="proxy-operation"><a class="hanchor" href="#proxy-operation" aria-hidden="true" tabindex="-1">#</a>Operación del proxy</h1>
+<p>El propósito del proxy es proporcionar una interfaz escalable y eficiente en ancho de banda entre un nodo de Zcash y cualquier número de clientes ligeros. Lo logra analizando un flujo de transacciones bloque a bloque desde el nodo y convirtiéndolas al formato compacto descrito anteriormente.</p>
+<p>El proxy ofrece una API de gRPC a los clientes, definida por el archivo <span class="docutils literal">service.proto</span> del Zcash Light Client Protocol <a class="brackets" href="#lightwallet-protocol" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a>. El servicio <span class="docutils literal">CompactTxStreamer</span> proporciona métodos para recuperar bloques compactos, enviar transacciones, consultar el estado del árbol de compromiso de notas y consultar salidas transparentes por dirección.</p>
+
+<h1 id="client-operation"><a class="hanchor" href="#client-operation" aria-hidden="true" tabindex="-1">#</a>Operación del cliente</h1>
+<p>Los clientes ligeros obtienen bloques compactos de uno o más servidores proxy, que luego procesan localmente para actualizar su vista del block chain. Aquí consideramos solo un único servidor proxy, sin pérdida de generalidad.</p>
+<h2 id="local-processing"><a class="hanchor" href="#local-processing" aria-hidden="true" tabindex="-1">#</a>Procesamiento local</h2>
+<p>Dado un <span class="docutils literal">CompactBlock</span> a la altura de bloque <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗁</mi>
+    <mi>𝖾</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗁</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> recibido de un servidor proxy, un cliente ligero lo procesa de las siguientes maneras:</p>
+<h3 id="scanning-for-relevant-transactions"><a class="hanchor" href="#scanning-for-relevant-transactions" aria-hidden="true" tabindex="-1">#</a>Escaneo en busca de transacciones relevantes</h3>
+<p>Por cada <span class="docutils literal">CompactSaplingOutput</span> y <span class="docutils literal">CompactOrchardAction</span> en el <span class="docutils literal">CompactBlock</span>, el cliente ligero intenta el descifrado de prueba contra su conjunto de claves de visualización de entradas. La siguiente subsección describe el procedimiento de descifrado de prueba compacto para Sapling y Orchard.</p>
+<h4 id="sapling-and-orchard-compact-trial-decryption"><a class="hanchor" href="#sapling-and-orchard-compact-trial-decryption" aria-hidden="true" tabindex="-1">#</a>Descifrado de prueba compacto de Sapling y Orchard</h4>
+<p>Para cada salida compacta de Sapling u Orchard, el cliente ligero realiza el descifrado de prueba con cada clave de visualización de entradas <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> correspondiente al protocolo blindado de esa salida.</p>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>ℓ</mi>
+    <mi>𝖽</mi>
+  </msub>
+</math> como se define en § 5.3 «Constants».</p>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝗁</mi>
+    <mi>𝖺</mi>
+    <mi>𝖢</mi>
+    <mi>𝗁</mi>
+    <mi>𝖺</mi>
+    <mn>𝟤𝟢</mn>
+    <mo>.</mo>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+    <mi>𝗋</mi>
+    <mi>𝗒</mi>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗍</mi>
+      <mi>𝖪</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖢</mi>
+  <mo stretchy="false">)</mo>
+</math> el descifrado no autenticado del texto cifrado <tt class="math">\mathsf{C} \;{\small ⦂}\; \mathbb{B}^{{\kern-0.05em\tiny\mathbb{Y}}[\mathbb{N}]}</tt> con la clave de 256 bits <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖪</mi>
+</math>, usando el cifrador de flujo ChaCha20 tal como se define en el RFC 7539 <a class="brackets" href="#rfc7539-chacha20" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> con el contador inicial fijado en 1 (como se define para el componente de cifrado de AEAD_CHACHA20_POLY1305, pero sin el componente de autenticación). Devuelve una secuencia de bytes de la misma longitud que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖢</mi>
+</math> y es infalible.</p>
+<p>El procedimiento para descifrar por prueba una salida compacta toma como entrada <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚖</mi>
+    <mo>*</mo>
+  </mrow>
+</math> (el campo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚖</mi>
+    <mi>𝚞</mi>
+  </mrow>
+</math> o <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚖</mi>
+    <mi>𝚡</mi>
+  </mrow>
+</math> de la descripción de Output o de la descripción de Action, respectivamente), <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚎</mi>
+    <mi>𝚙</mi>
+    <mi>𝚑</mi>
+    <mi>𝚎</mi>
+    <mi>𝚖</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝙺</mi>
+    <mi>𝚎</mi>
+    <mi>𝚢</mi>
+  </mrow>
+</math>, el <span class="docutils literal">encCiphertext</span> truncado <tt class="math">\mathsf{C^{compact}} \;{\small ⦂}\; \mathbb{B}^{{\kern-0.05em\tiny\mathbb{Y}}[52]}</tt>, el protocolo blindado (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖺</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math> u <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖼</mi>
+    <mi>𝗁</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math>), la altura de bloque y el número de versión de la transacción, y una clave de visualización de entradas <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, y produce como salida una nota para ese protocolo blindado.</p>
+<p>Este procedimiento se desvía del descifrado estándar de notas usando una Incoming Viewing Key, según lo especificado en § 4.20.2 «Decryption using an Incoming Viewing Key (Sapling and Orchard)» <a class="brackets" href="#protocol-decryptivk" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>, únicamente en cómo se obtiene <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝐧</mi>
+    <mi>𝐩</mi>
+  </mrow>
+</math>:</p>
+<ul class="simple">
+<li><p>sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖯</mi>
+    <mrow>
+      <mi>𝖼</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗉</mi>
+      <mi>𝖺</mi>
+      <mi>𝖼</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msup>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝗁</mi>
+    <mi>𝖺</mi>
+    <mi>𝖢</mi>
+    <mi>𝗁</mi>
+    <mi>𝖺</mi>
+    <mn>𝟤𝟢</mn>
+    <mo>.</mo>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+    <mi>𝗋</mi>
+    <mi>𝗒</mi>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗍</mi>
+      <msup>
+        <mi>𝖪</mi>
+        <mrow>
+          <mi>𝖾</mi>
+          <mi>𝗇</mi>
+          <mi>𝖼</mi>
+        </mrow>
+      </msup>
+    </msub>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <msup>
+    <mi>𝖢</mi>
+    <mrow>
+      <mi>𝖼</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗉</mi>
+      <mi>𝖺</mi>
+      <mi>𝖼</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msup>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>extraer $mathbf{np} = (mathsf{leadByte} ;{small ⦂}; mathbb{B}^{kern-0.05emtinymathbb{Y}}, mathsf{d} ;{small ⦂}; mathbb{B}^{[ell_{mathsf{d}}]}, mathsf{v} ;{small ⦂}; { 0 .. 2^{ell_{mathsf{value}}}!-!1 }, mathsf{rseed} ;{small ⦂}; mathbb{B}^{{kern-0.05emtinymathbb{Y}}[32]})$ de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖯</mi>
+    <mrow>
+      <mi>𝖼</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗉</mi>
+      <mi>𝖺</mi>
+      <mi>𝖼</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msup>
+</math></p></li>
+</ul>
+<p>y en el hecho de que el último paso devuelve solo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝐧</mi>
+</math>, en lugar de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>𝐧</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝗈</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p>
+<p>Nota no normativa: versiones anteriores de este ZIP reiteraban el procedimiento de descifrado de salida compacta (para Sapling) en lugar de especificar las diferencias respecto de § 4.20.2. Esto llevó a las siguientes diferencias no intencionadas:</p>
+<ul class="simple">
+<li><p>El procedimiento descrito en este ZIP no soportaba salidas de Sapling anteriores a ZIP 212.</p></li>
+<li><p>El intercambio de los separadores de dominio $[4]$ y $[5]$ en las entradas de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝖱</mi>
+    <msup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗑</mi>
+        <mi>𝗉</mi>
+        <mi>𝖺</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math> usadas para derivar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> para Sapling, que fue corregido en la <a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#2023.4.0">versión 2023.4.0 de la especificación del protocolo</a>, no había sido corregido en este ZIP.</p></li>
+<li><p>El error de tipo que fue corregido en la <a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#2025.6.2">versión 2025.6.2 de la especificación del protocolo</a>, no había sido corregido en este ZIP.</p></li>
+<li><p>La refactorización para usar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝗈</mi>
+    <mi>𝗐</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖫</mi>
+    <mi>𝖾</mi>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖡</mi>
+    <mi>𝗒</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math>, también realizada en la versión 2025.6.2, no había sido aplicada.</p></li>
+<li><p>El último paso devolvía incorrectamente <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝐧</mi>
+    <mi>𝐩</mi>
+  </mrow>
+</math> en lugar de la nota.</p></li>
+</ul>
+
+
+<h3 id="maintaining-note-commitment-tree-witnesses"><a class="hanchor" href="#maintaining-note-commitment-tree-witnesses" aria-hidden="true" tabindex="-1">#</a>Mantenimiento de testigos de los árboles de compromisos de notas</h3>
+<p>Para gastar una nota blindada, el gastador debe producir una ruta de Merkle (testigo) desde el compromiso de la nota hasta un ancla (una raíz del árbol de compromisos de notas en cierta altura de bloque). <a class="brackets" href="#protocol-merkletree" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> <a class="brackets" href="#protocol-merklepath" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> Por lo tanto, un cliente ligero DEBE (MUST) mantener suficiente estado del árbol de compromisos de notas para producir testigos de sus notas no gastadas.</p>
+<p>Los compromisos de notas en cada <span class="docutils literal">CompactBlock</span> (los valores de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+    <mi>𝗎</mi>
+  </mrow>
+</math> de las entradas de <span class="docutils literal">CompactSaplingOutput</span> y los valores de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+    <mi>𝗑</mi>
+  </mrow>
+</math> de las entradas de <span class="docutils literal">CompactOrchardAction</span>) se insertan en los árboles de compromisos de notas de Sapling o Orchard correspondientes, en el orden en que aparecen en el bloque.</p>
+<p>Un cliente ligero que ha escaneado un rango contiguo de bloques puede construir testigos a partir de los compromisos de notas que ha observado. Sin embargo, un cliente ligero no necesita haber escaneado toda la cadena para construir testigos: el método RPC <span class="docutils literal">GetSubtreeRoots</span> <a class="brackets" href="#lightwallet-protocol" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a> proporciona raíces de subárboles completados de los árboles de compromisos de notas, que pueden combinarse con compromisos escaneados localmente para producir testigos válidos incluso cuando partes de la cadena no han sido escaneadas.</p>
+
+<h3 id="detecting-spends"><a class="hanchor" href="#detecting-spends" aria-hidden="true" tabindex="-1">#</a>Detección de gastos</h3>
+<p>Las entradas de nullifier de <span class="docutils literal">CompactSaplingSpend</span> y los campos de nullifier de las entradas de <span class="docutils literal">CompactOrchardAction</span> pueden verificarse contra los nullifiers de las notas conocidas por el cliente para determinar cuándo esas notas han sido gastadas.</p>
+
+<h3 id="block-header-validation"><a class="hanchor" href="#block-header-validation" aria-hidden="true" tabindex="-1">#</a>Validación de encabezados de bloque</h3>
+<p><em>Esta sección describe una mejora propuesta que solo se ha implementado parcialmente: actualmente solo se verifica</em> <span class="docutils literal">prevHash</span><em>.</em></p>
+<p>Si el <span class="docutils literal">CompactBlock</span> para la altura <span class="docutils literal">X</span> contiene un encabezado de bloque, el cliente ligero puede validarlo de manera similar a los clientes SPV <a class="brackets" href="#spv-clients" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a> realizando las siguientes comprobaciones:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">version >= MIN_BLOCK_VERSION</span></p></li>
+<li><p><span class="docutils literal">prevHash == prevBlock.id.blockHash</span>, donde <span class="docutils literal">prevBlock</span> es el <span class="docutils literal">CompactBlock</span> anterior recibido (en la altura <span class="docutils literal"><span class="pre">X-1</span></span>).</p></li>
+<li><p><span class="docutils literal">finalSaplingRoot</span> es igual a la raíz del árbol de compromisos de notas de Sapling tras añadir cada <span class="docutils literal">cmu</span> en el <span class="docutils literal">CompactBlock</span> en orden.</p></li>
+<li><p>La solución Equihash es válida.</p></li>
+<li><p><span class="docutils literal">targetFromBits(bits) != 0 &#x26;&#x26; targetFromBits(bits) &#x3C;= powLimit</span>.</p></li>
+<li><p>Si los últimos 27 <span class="docutils literal">CompactBlocks</span> tienen todos encabezados de bloque, <span class="docutils literal">bits</span> está correctamente establecido según el algoritmo de ajuste de dificultad.</p></li>
+<li><p><span class="docutils literal">toLittleEndian(blockHash) &#x3C;= targetFromBits(bits)</span>.</p></li>
+</ul>
+<p>Un <span class="docutils literal">CompactBlock</span> que falle en cualquiera de estas comprobaciones DEBE (MUST) descartarse. Si se recibió como parte de una llamada a <span class="docutils literal">GetBlockRange</span>, la llamada DEBE (MUST) abortarse.</p>
+<p>La validación de encabezados de bloque proporciona a los clientes ligeros cierta seguridad de que las salidas compactas que se les envían provienen efectivamente de bloques válidos que han sido minados. La seguridad máxima posible se logra cuando todos los encabezados de bloque están sincronizados; esto tiene un costo en ancho de banda y almacenamiento.</p>
+<p>Por defecto, <span class="docutils literal">CompactBlocks</span> solo contienen <span class="docutils literal">CompactTxs</span> de transacciones que contienen gastos o salidas blindados. Por lo tanto, no contienen información suficiente para validar que los identificadores de transacción recibidos correspondan a la raíz del árbol de transacciones en el encabezado de bloque. Esto no tiene un efecto significativo en la seguridad del cliente ligero: los clientes ligeros solo dependen directamente de las salidas compactas, que pueden autenticarse mediante la validación de encabezados de bloque. Si se usa un txid en una llamada a <span class="docutils literal">GetTransaction</span>, la transacción devuelta DEBERÍA (SHOULD) verificarse contra las salidas compactas correspondientes, además de verificar las firmas de la transacción.</p>
+
+
+<h2 id="client-server-interaction"><a class="hanchor" href="#client-server-interaction" aria-hidden="true" tabindex="-1">#</a>Interacción cliente-servidor</h2>
+<p>Un cliente ligero DEBE (MUST) realizar las siguientes operaciones como parte de la sincronización:</p>
+<ul class="simple">
+<li><p><strong>Descifrado de prueba</strong>: Para cada <span class="docutils literal">CompactSaplingOutput</span> y <span class="docutils literal">CompactOrchardAction</span> en el <span class="docutils literal">CompactBlocks</span> escaneado, el cliente ligero intenta el descifrado de prueba contra su conjunto de claves de visualización entrantes. Las salidas descifradas con éxito representan notas recibidas. Véase <a class="reference internal" href="#scanning-for-relevant-transactions">Escaneo de transacciones relevantes</a> para más detalles.</p></li>
+<li><p><strong>Coincidencia de nullifiers</strong>: Para cada nullifier de <span class="docutils literal">CompactSaplingSpend</span> y nullifier de <span class="docutils literal">CompactOrchardAction</span> en el <span class="docutils literal">CompactBlocks</span> escaneado, el cliente ligero verifica contra su conjunto de nullifiers conocidos de notas no gastadas. Una coincidencia indica que la nota correspondiente ha sido gastada.</p></li>
+<li><p><strong>Mantenimiento del árbol de compromisos de notas</strong>: El cliente ligero actualiza su estado local del árbol de compromisos de notas como se describe en <a class="reference internal" href="#maintaining-note-commitment-tree-witnesses">Mantenimiento de testigos de los árboles de compromisos de notas</a>.</p></li>
+</ul>
+<h3 id="retrieving-full-transactions"><a class="hanchor" href="#retrieving-full-transactions" aria-hidden="true" tabindex="-1">#</a>Recuperación de transacciones completas</h3>
+<p>El flujo de bloques compactos proporciona información suficiente para la detección de pagos y el seguimiento de saldos, pero no incluye campos de memo ni otros detalles de la transacción. Cuando un cliente ligero necesita acceder al campo de memo de una nota recibida, a los cifrados salientes para la recuperación de gastos, o a otros componentes de la transacción, recupera la transacción completa mediante el método RPC <span class="docutils literal">GetTransaction</span>.</p>
+<p>Dado que una solicitud <span class="docutils literal">GetTransaction</span> revela al servidor proxy que el cliente ligero está interesado en una transacción específica, la recuperación de transacciones completas DEBERÍA (SHOULD) realizarse mediante una conexión de red que preserva la privacidad, como Tor <a class="brackets" href="#tor" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a> o la mixnet de Nym <a class="brackets" href="#nym" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>.</p>
+<p>Además, incluso cuando se usa una conexión de red que preserva la privacidad para estas operaciones, un cliente NO DEBERÍA (SHOULD NOT) hacer solicitudes de datos de transacciones al servidor proxy de una manera que vincule el interés del cliente en esa transacción con otras operaciones que el cliente pueda estar realizando sin protección. Por ejemplo, si un cliente usa una conexión sin protección para la descarga de bloques compactos, ese cliente NO DEBERÍA (SHOULD NOT) recuperar los datos completos de la transacción inmediatamente tras su descubrimiento, sino que DEBERÍA (SHOULD) diferirlo hasta un momento posterior en que la descarga no sea identificablemente relacionada con la descarga del rango de bloques compactos en el que se descubrió la transacción.</p>
+
+<h3 id="importing-a-pre-existing-key"><a class="hanchor" href="#importing-a-pre-existing-key" aria-hidden="true" tabindex="-1">#</a>Importación de una clave preexistente</h3>
+<p>La altura de inicio de escaneo del cliente ligero (a menudo llamada el "cumpleaños de la billetera") determina hasta qué punto hacia atrás debe escanear el cliente ligero para detectar todas las transacciones relevantes. Cuando un cliente ligero se inicializa con una clave recién generada, puede usar la punta actual de la cadena como cumpleaños de la billetera, ya que ninguna transacción previa puede ser relevante.</p>
+<p>Cuando se inicializa con una clave preexistente —ya sea una semilla, una clave de visualización completa o una clave de visualización de entrada— el cliente ligero DEBE (MUST) escanear desde la altura de cumpleaños de la clave, que es la altura de bloque más temprana en la que la clave podría haber sido usada. Si la altura de cumpleaños es desconocida y no puede ser estimada por el usuario, el cliente ligero DEBERÍA (SHOULD) escanear desde la altura de activación del protocolo blindado más temprano soportado por la clave (activación de Sapling en el bloque 419200 de Mainnet, o activación de Orchard en el bloque 1687104 de Mainnet).</p>
+
+
+<h2 id="block-privacy-via-bucketing"><a class="hanchor" href="#block-privacy-via-bucketing" aria-hidden="true" tabindex="-1">#</a>Privacidad de bloques mediante agrupamiento en buckets</h2>
+<p><em>Esta sección describe una mejora propuesta que no ha sido implementada.</em></p>
+<p>Cuando un cliente ligero solicita un rango de bloques compactos mediante <span class="docutils literal">GetBlockRange</span>, la altura de inicio de la solicitud revela al servidor proxy la altura de bloque hasta la cual el cliente ligero se había sincronizado previamente. Esto es una fuga de información bajo nuestro modelo de seguridad (asumiendo privacidad de red). La fuga de información puede reducirse agrupando ("bucketing") el punto de inicio de cada solicitud de sincronización.</p>
+<p>Sea <span class="docutils literal">⌊X⌋ = X - (X % N)</span> el valor de <span class="docutils literal">X</span> redondeado hacia abajo a algún múltiplo del tamaño del cubo <span class="docutils literal">N</span>. En lugar de solicitar bloques comenzando desde la última altura sincronizada del cliente ligero <span class="docutils literal">X</span>, el cliente ligero solicita bloques comenzando desde <span class="docutils literal">⌊X⌋</span>. Los bloques entre <span class="docutils literal">⌊X⌋</span> y <span class="docutils literal">X</span> se verifican contra la vista de cadena en caché del cliente ligero para comprobar consistencia y luego se descartan sin procesamiento adicional. Esto también ayuda a detectar reorganizaciones de la cadena que ocurrieron dentro de la ventana del cubo.</p>
+
+<h2 id="transaction-privacy"><a class="hanchor" href="#transaction-privacy" aria-hidden="true" tabindex="-1">#</a>Privacidad de transacciones</h2>
+<p>El flujo de bloques compactos proporciona al cliente ligero información suficiente para determinar saldos exactos de las direcciones, mostrar cuándo se recibieron o gastaron fondos, y gastar cualquier nota no gastada. Dado que la sincronización ocurre mediante un medio de difusión (el flujo de bloques compactos), no filtra información sobre qué transacciones interesan al cliente ligero.</p>
+<p>Sin embargo, otros métodos de la API revelan intereses más específicos al servidor proxy:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">GetTransaction</span> revela interés en una transacción específica. Véase <a class="reference internal" href="#retrieving-full-transactions">Recuperación de transacciones completas</a> para recomendaciones de mitigación.</p></li>
+<li><p><span class="docutils literal">SendTransaction</span> revela que el cliente ligero es el emisor de una transacción. El envío de transacciones DEBERÍA (SHOULD) realizarse mediante una conexión de red que preserva la privacidad, como Tor <a class="brackets" href="#tor" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a> o la mixnet de Nym <a class="brackets" href="#nym" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Las consultas de direcciones transparentes (<span class="docutils literal">GetTaddressTransactions</span>, <span class="docutils literal">GetTaddressBalance</span>, <span class="docutils literal">GetAddressUtxos</span>) revelan las direcciones transparentes que posee el cliente ligero. Estas consultas DEBERÍAN (SHOULD) realizarse mediante una conexión de red que preserva la privacidad, como Tor <a class="brackets" href="#tor" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a> o la mixnet de Nym <a class="brackets" href="#nym" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Si un cliente consulta transacciones relacionadas con múltiples direcciones transparentes en una sola solicitud, esto filtrará el hecho de que esas direcciones están controladas por el mismo cliente. Si se usan los métodos <span class="docutils literal">GetTaddressTransactions</span>, <span class="docutils literal">GetTaddressBalance</span> o <span class="docutils literal">GetAddressUtxos</span>, incluso mediante una conexión de red que preserva la privacidad, el cliente NO DEBERÍA (SHOULD NOT) solicitar datos de más de una dirección a la vez y DEBERÍA (SHOULD) hacer tales solicitudes de una manera que no sea temporalmente vinculable a otra operación de la billetera.</p></li>
+<li><p><span class="docutils literal">GetMempoolTx</span> y <span class="docutils literal">GetMempoolStream</span> revelan el interés del cliente ligero en transacciones no confirmadas.</p></li>
+</ul>
+
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/lightwalletd">lightwalletd</a> (servidor proxy)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/librustzcash/tree/main/zcash_client_backend">zcash_client_backend</a> (biblioteca de escaneo del cliente ligero)</p></li>
+</ul>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc7539-chacha20" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-11">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc7539.html#section-2.1">RFC 7539: ChaCha20 and Poly1305 for IETF Protocols. Sections 2.1 to 2.4 inclusive.</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.3 [NU6.1] or later</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-merkletree" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#merkletree">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 3.8: Note Commitment Trees</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-merklepath" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-14">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#merklepath">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 4.9: Merkle Path Validity</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-decryptivk" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#decryptivk">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 4.20.2: Decryption using an Incoming Viewing Key (Sapling and Orchard)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concreteorchardkeyagreement" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concreteorchardkeyagreement">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 5.4.6.4: Orchard Key Agreement</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-notept" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#notept">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 5.5: Encodings of Note Plaintexts and Memo Fields</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-spendencodingandconsensus" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#spendencodingandconsensus">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 7.3: Spend Description Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-outputencodingandconsensus" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#outputencodingandconsensus">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 7.4: Output Description Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-actionencodingandconsensus" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#actionencodingandconsensus">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 7.5: Action Description Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0205" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">13</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0205.rst">ZIP 205: Deployment of the Sapling Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0212" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0212.rst">ZIP 212: Allow Recipient to Derive Sapling Ephemeral Secret from Note Plaintext</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0224" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">15</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0224.rst">ZIP 224: Orchard Shielded Protocol</a></p>
+</aside>
+<aside class="footnote brackets" id="lightwallet-protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-10">2</a>,<a role="doc-backlink" href="#footnote-reference-15">3</a>)</span>
+<p><a class="reference external" href="https://github.com/zcash/lightwallet-protocol">Zcash Light Client Protocol</a></p>
+</aside>
+<aside class="footnote brackets" id="protocolbuffers" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">17</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://developers.google.com/protocol-buffers/">Protocol Buffers documentation</a></p>
+</aside>
+<aside class="footnote brackets" id="spv-clients" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-16">18</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/Scalability#Simplified_payment_verification">Bitcoin Wiki: Scalability — Simplified payment verification</a></p>
+</aside>
+<aside class="footnote brackets" id="tor" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-17">1</a>,<a role="doc-backlink" href="#footnote-reference-19">2</a>,<a role="doc-backlink" href="#footnote-reference-21">3</a>)</span>
+<p><a class="reference external" href="https://www.torproject.org/">Tor Project</a></p>
+</aside>
+<aside class="footnote brackets" id="nym" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-18">1</a>,<a role="doc-backlink" href="#footnote-reference-20">2</a>,<a role="doc-backlink" href="#footnote-reference-22">3</a>)</span>
+<p><a class="reference external" href="https://nymtech.net/">Nym mixnet</a></p>
+</aside>
+</aside>
+

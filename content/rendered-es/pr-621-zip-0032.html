@@ -1,0 +1,4837 @@
+<p><tt class="math">% This ZIP makes heavy use of mathematical markup. If you can see this, you may want to instead view the rendered version at https://zips.z.cash/zip-0032 .</tt></p>
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)" y "PUEDE (MAY)" en este documento deben interpretarse como se describe en RFC 2119. <a class="brackets" href="#rfc2119" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a></p>
+<p>"Jubjub" se refiere a la curva elíptica definida en <a class="brackets" href="#protocol-jubjub" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a>.</p>
+<p>Un "código de cadena" es un criptovalor que se necesita, además de una clave de gasto, para derivar claves y direcciones descendientes de esa clave.</p>
+<p>Los términos "Testnet" y "Mainnet" deben interpretarse como se describe en la sección 3.12 de la Zcash Protocol Specification (Especificación del Protocolo Zcash) <a class="brackets" href="#protocol-networks" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta define un mecanismo para extender las billeteras jerárquicas determinísticas, como se describe en BIP 32 <a class="brackets" href="#bip-0032" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>, a fin de admitir las direcciones blindadas de Zcash.</p>
+<p>Las partes iniciales de la especificación definen sistemas (en su mayor parte) equivalentes, pero independientes, para derivar un árbol de componentes de clave a partir de una sola semilla, para los siguientes pools blindados (que tienen estructuras de clave internas diferentes):</p>
+<ul class="simple">
+<li><p>Sapling</p></li>
+<li><p>Orchard</p></li>
+</ul>
+<p>Las versiones anteriores de este documento también definían un sistema de derivación similar para el pool blindado Sprout. Este se ha eliminado dado que nunca se utilizó y es improbable que se utilice, ya que <cite>zcashd</cite> ya no genera direcciones Sprout (y ni <cite>Zebra</cite> ni los SDK móviles lo han hecho jamás).</p>
+<p>La última parte muestra cómo utilizar estos árboles en el contexto de las billeteras existentes conforme a BIP 44 <a class="brackets" href="#bip-0044" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p>
+<p>Esta especificación complementa el uso existente, por parte de algunas billeteras de Zcash, de BIP 32 y BIP 44 para direcciones transparentes de Zcash, y no tiene la intención de desaprobar ese uso (no obstante los riesgos de privacidad de utilizar direcciones transparentes).</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>BIP 32 <a class="brackets" href="#bip-0032" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> es el mecanismo estándar mediante el cual las billeteras para Bitcoin y sus derivados (incluidas las direcciones transparentes de Zcash <a class="brackets" href="#slip-0044" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>) generan claves y direcciones de forma determinística. Esto tiene varias ventajas sobre la generación aleatoria:</p>
+<ul class="simple">
+<li><p>Las billeteras solo necesitan almacenar una sola semilla (particularmente útil para billeteras de hardware).</p></li>
+<li><p>Una copia de seguridad única de la semilla (generalmente almacenada como una frase de palabras <a class="brackets" href="#bip-0039" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>) puede usarse para recuperar los fondos de todas las direcciones futuras.</p></li>
+<li><p>Las claves se organizan en un árbol de cadenas, lo que permite a las billeteras representar "cuentas" u otras estructuras de alto nivel.</p></li>
+<li><p>La autoridad de visualización o la autoridad de gasto pueden delegarse de forma independiente para subárboles sin comprometer la semilla maestra.</p></li>
+</ul>
+<p>En la actualidad, no existe un equivalente para las direcciones blindadas de Zcash. Esto es de particular preocupación para las billeteras de hardware; todos los dispositivos que se comercializan actualmente solo almacenan una semilla internamente y han entrenado a sus usuarios para hacer copia de seguridad únicamente de esa semilla. Dado que la actualización de Sapling hará viable el uso de billeteras de hardware con direcciones blindadas, es deseable contar con un mecanismo estándar para derivarlas.</p>
+
+<h1 id="conventions"><a class="hanchor" href="#conventions" aria-hidden="true" tabindex="-1">#</a>Convenciones</h1>
+<p>La mayor parte de la notación y de las funciones utilizadas en este ZIP están definidas en la especificación del protocolo de Zcash <a class="brackets" href="#protocol" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>. Se reproducen aquí por conveniencia:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗍</mi>
+      <mi>𝗋</mi>
+      <mi>𝗎</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+      <mi>𝖺</mi>
+      <mi>𝗍</mi>
+      <mi>𝖾</mi>
+    </mrow>
+    <mi>k</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>S</mi>
+  <mo stretchy="false">)</mo>
+</math> significa la secuencia formada por los primeros <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> elementos de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>b</mi>
+</math> significa la concatenación de las secuencias <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+</math> y luego <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>b</mi>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mi>k</mi>
+  <mo stretchy="false">]</mo>
+  <mi>P</mi>
+</math> significa multiplicación escalar del punto de curva elíptica <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>P</mi>
+</math> por el escalar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖨</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mi>ℓ</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>S</mi>
+  <mo stretchy="false">)</mo>
+</math> es el entero en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>{</mo>
+  <mn>0</mn>
+  <mspace width="0.1667em"></mspace>
+  <mo>.</mo>
+  <mspace width="-0.1667em"></mspace>
+  <mo>.</mo>
+  <msup>
+    <mn>2</mn>
+    <mi>ℓ</mi>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+</math> representado en orden little-endian por la secuencia de bytes <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> de longitud <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>ℓ</mi>
+  <mo stretchy="false">/</mo>
+  <mn>8</mn>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖡</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mi>ℓ</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>k</mi>
+  <mo stretchy="false">)</mo>
+</math> es la secuencia de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>ℓ</mi>
+</math> bits que representa a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> en orden little-endian.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖡</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mi>ℓ</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>B</mi>
+  <mo stretchy="false">)</mo>
+</math> se define como sigue cuando <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>ℓ</mi>
+</math> es un múltiplo de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>8</mn>
+</math>: convertir cada grupo de 8 bits de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+</math> en un valor de byte con el bit menos significativo primero, y concatenar los bytes resultantes en el mismo orden que los grupos.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math> es la representación del punto de la curva elíptica Jubjub <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>P</mi>
+</math> como una secuencia de bits, definida en <a class="brackets" href="#protocol-jubjub" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖡</mi>
+    <mi>𝖫</mi>
+    <mi>𝖠</mi>
+    <mi>𝖪</mi>
+    <mi>𝖤</mi>
+    <mn>𝟤</mn>
+    <mi>𝖻</mi>
+  </mrow>
+  <mtext>-</mtext>
+  <mn>𝟤𝟧𝟨</mn>
+  <mo stretchy="false">(</mo>
+  <mi>p</mi>
+  <mo>,</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+</math> se refiere a BLAKE2b-256 sin clave en modo secuencial, con una longitud de digest de salida de 32 bytes, una cadena de personalización de 16 bytes <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+</math> y una entrada <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>x</mi>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖡</mi>
+    <mi>𝖫</mi>
+    <mi>𝖠</mi>
+    <mi>𝖪</mi>
+    <mi>𝖤</mi>
+    <mn>𝟤</mn>
+    <mi>𝖻</mi>
+  </mrow>
+  <mtext>-</mtext>
+  <mn>𝟧𝟣𝟤</mn>
+  <mo stretchy="false">(</mo>
+  <mi>p</mi>
+  <mo>,</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+</math> se refiere a BLAKE2b-512 sin clave en modo secuencial, con una longitud de digest de salida de 64 bytes, una cadena de personalización de 16 bytes <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+</math> y una entrada <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>x</mi>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝖱</mi>
+    <msup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗑</mi>
+        <mi>𝗉</mi>
+        <mi>𝖺</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>t</mi>
+  <mo stretchy="false">)</mo>
+  <mo>∶</mo>
+  <mo>=</mo>
+</math><tt class="math">\mathsf{BLAKE2b}\text{-}\mathsf{512}(\texttt{“Zcash_ExpandSeed”},</tt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>t</mi>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>r</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math> es el orden del subgrupo de orden primo grande de Jubjub.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>r</mi>
+    <mi>ℙ</mi>
+  </msub>
+</math> es el orden de la curva Pallas.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖳</mi>
+    <mi>𝗈</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <msup>
+      <mi>𝗋</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+  <mo>∶</mo>
+  <mo>=</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖨</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>512</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.444em"></mspace>
+  <mo stretchy="false">(</mo>
+  <mi>mod</mi>
+  <mspace width="0.333em"></mspace>
+  <msub>
+    <mi>r</mi>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖳</mi>
+    <mi>𝗈</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <msup>
+      <mi>𝗋</mi>
+      <mrow>
+        <mi>𝖮</mi>
+        <mi>𝗋</mi>
+        <mi>𝖼</mi>
+        <mi>𝗁</mi>
+        <mi>𝖺</mi>
+        <mi>𝗋</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+  <mo>∶</mo>
+  <mo>=</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖨</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>512</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.444em"></mspace>
+  <mo stretchy="false">(</mo>
+  <mi>mod</mi>
+  <mspace width="0.333em"></mspace>
+  <msub>
+    <mi>r</mi>
+    <mi>ℙ</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <msup>
+      <mi>𝗁</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>d</mi>
+  <mo stretchy="false">)</mo>
+</math> mapea un diversificador <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>d</mi>
+</math> a un punto base en la curva elíptica Jubjub, o a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math> si el diversificador es inválido. Se instancia en <a class="brackets" href="#protocol-concretediversifyhash" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+<p>Se utiliza el siguiente algoritmo estandarizado en <a class="brackets" href="#nist-sp-800-38g" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖥</mi>
+    <mi>𝖥</mi>
+    <mn>𝟣</mn>
+  </mrow>
+  <mtext>-</mtext>
+  <mrow>
+    <mi>𝖠</mi>
+    <mi>𝖤</mi>
+    <mi>𝖲</mi>
+    <mn>𝟤𝟧𝟨</mn>
+    <mo>.</mo>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗋</mi>
+    <mi>𝗒</mi>
+    <mi>𝗉</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>k</mi>
+  <mi>e</mi>
+  <mi>y</mi>
+  <mo>,</mo>
+  <mi>t</mi>
+  <mi>w</mi>
+  <mi>e</mi>
+  <mi>a</mi>
+  <mi>k</mi>
+  <mo>,</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+</math> se refiere al algoritmo de cifrado FF1 que usa AES con una <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+  <mi>e</mi>
+  <mi>y</mi>
+</math> de 256 bits, y los parámetros <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>r</mi>
+  <mi>a</mi>
+  <mi>d</mi>
+  <mi>i</mi>
+  <mi>x</mi>
+  <mo>=</mo>
+  <mn>2</mn>
+  <mo>,</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>m</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>l</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mo>=</mo>
+  <mn>88</mn>
+  <mo>,</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>m</mi>
+  <mi>a</mi>
+  <mi>x</mi>
+  <mi>l</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mo>=</mo>
+  <mn>88</mn>
+</math>. Solo se usará con la cadena vacía <tt class="math">\texttt{“”}</tt> como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>t</mi>
+  <mi>w</mi>
+  <mi>e</mi>
+  <mi>a</mi>
+  <mi>k</mi>
+</math>. <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>x</mi>
+</math> es una secuencia de 88 bits, al igual que la salida.</p></li>
+</ul>
+<p>También definimos la siguiente función de conversión:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mi>ℓ</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>k</mi>
+  <mo stretchy="false">)</mo>
+</math> es la secuencia de bytes <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> de longitud <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>ℓ</mi>
+  <mo stretchy="false">/</mo>
+  <mn>8</mn>
+</math> que representa en orden little-endian el entero <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>{</mo>
+  <mn>0</mn>
+  <mspace width="0.1667em"></mspace>
+  <mo>.</mo>
+  <mspace width="-0.1667em"></mspace>
+  <mo>.</mo>
+  <msup>
+    <mn>2</mn>
+    <mi>ℓ</mi>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+</math>. Es la operación inversa de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖨</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mi>ℓ</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>S</mi>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+<p>Los implementadores deben tener en cuenta que este ZIP es consistentemente little-endian (en concordancia con las especificaciones de Sapling y Orchard), lo cual es lo opuesto a BIP 32.</p>
+<p>Adaptamos la notación de rutas de BIP 32 <a class="brackets" href="#bip-0032" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> para describir rutas HD blindadas, usando marcas de prima (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>'</mo>
+</math>) para indicar derivación endurecida (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+  <mo>'</mo>
+  <mo>=</mo>
+  <mi>i</mi>
+  <mo>+</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>31</mn>
+  </msup>
+</math>) como en BIP 44 <a class="brackets" href="#bip-0044" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝖣</mi>
+    <mi>𝖪</mi>
+    <mi>𝖿</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝖣</mi>
+    <mi>𝖪</mi>
+    <mi>𝖿</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝖣</mi>
+    <mi>𝖪</mi>
+    <mi>𝖿</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <mi>a</mi>
+  <mo stretchy="false">)</mo>
+  <mo>,</mo>
+  <mi>b</mi>
+  <mo stretchy="false">)</mo>
+  <mo>,</mo>
+  <mi>c</mi>
+  <mo stretchy="false">)</mo>
+</math> se escribe como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">/</mo>
+  <mi>a</mi>
+  <mo stretchy="false">/</mo>
+  <mi>b</mi>
+  <mo stretchy="false">/</mo>
+  <mi>c</mi>
+</math>.</p></li>
+</ul>
+
+<h1 id="specification-sapling-key-derivation"><a class="hanchor" href="#specification-sapling-key-derivation" aria-hidden="true" tabindex="-1">#</a>Especificación: Derivación de claves de Sapling</h1>
+<h2 id="sapling-extended-keys"><a class="hanchor" href="#sapling-extended-keys" aria-hidden="true" tabindex="-1">#</a>Claves extendidas de Sapling</h2>
+<p>BIP 32 define un método para derivar una cantidad de subclaves a partir de una clave padre. Con el fin de evitar que estas dependan únicamente de la clave padre misma, tanto las claves privadas como las públicas se extienden con un código de cadena de 32 bytes. De manera similar, aquí extendemos las claves de Sapling con un código de cadena. Sin embargo, los conceptos de claves "privadas" y "públicas" de BIP 32 no se corresponden limpiamente con los componentes de claves de Sapling. Adoptamos el siguiente enfoque:</p>
+<ul class="simple">
+<li><p>Derivamos subclaves de gasto expandidas de Sapling, en lugar de claves de gasto de Sapling. Esto nos permite implementar tanto los modos de derivación endurecida como no endurecida (siendo este último incompatible con las claves de gasto de Sapling).</p></li>
+<li><p>No derivamos claves públicas de Sapling directamente, ya que esto impediría el uso de direcciones diversificadas. En su lugar, derivamos claves de visualización completas de Sapling, a partir de las cuales se pueden generar direcciones de pago. Esto mantiene la semántica de confianza de BIP 32: alguien con acceso a una clave pública extendida de BIP 32 puede ver todas las transacciones que involucran esa dirección, lo cual una clave de visualización completa de Sapling también permite.</p></li>
+</ul>
+<p>Representamos una clave de gasto extendida de Sapling como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>, donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> es la clave de gasto expandida de Sapling normal, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> es una clave de diversificador y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖼</mi>
+</math> es el código de cadena.</p>
+<p>Representamos una clave de visualización completa extendida de Sapling como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>, donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> es la clave de visualización completa de Sapling normal, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> es la misma clave de diversificador que la anterior y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖼</mi>
+</math> es el código de cadena.</p>
+
+<h2 id="sapling-helper-functions"><a class="hanchor" href="#sapling-helper-functions" aria-hidden="true" tabindex="-1">#</a>Funciones auxiliares de Sapling</h2>
+<p>Definir</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+    <mi>𝖲</mi>
+    <mi>𝖪</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>∶</mo>
+  <mo>=</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+    <mi>𝖥</mi>
+    <mi>𝖵</mi>
+    <mi>𝖪</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>∶</mo>
+  <mo>=</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖡</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖡</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math></p></li>
+</ul>
+
+<h2 id="sapling-master-key-generation"><a class="hanchor" href="#sapling-master-key-generation" aria-hidden="true" tabindex="-1">#</a>Generación de la clave maestra de Sapling</h2>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> una secuencia de bytes de semilla de una longitud elegida, que DEBE (MUST) ser de al menos 32 y como máximo 252 bytes.</p>
+<ul class="simple">
+<li><p>Calcular <tt class="math">I = \mathsf{BLAKE2b}\text{-}\mathsf{512}(\texttt{“ZcashIP32Sapling”}, S)</tt>.</p></li>
+<li><p>Dividir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>I</mi>
+</math> en dos secuencias de 32 bytes, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>L</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Usar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>L</mi>
+  </msub>
+</math> como clave de gasto maestra <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math> como código de cadena maestro <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝖼</mi>
+    <mi>m</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Calcular <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+</math> mediante la derivación estándar de Sapling <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>:</p>
+<ul>
+<li><p><tt class="math">\mathsf{ask}_m = \mathsf{ToScalar^{Sapling}}(\mathsf{PRF^{expand}}(\mathsf{sk}_m, [\texttt{0x00}]))</tt></p></li>
+<li><p><tt class="math">\mathsf{nsk}_m = \mathsf{ToScalar^{Sapling}}(\mathsf{PRF^{expand}}(\mathsf{sk}_m, [\texttt{0x01}]))</tt></p></li>
+<li><p><tt class="math">\mathsf{ovk}_m = \mathsf{truncate}_{32}(\mathsf{PRF^{expand}}(\mathsf{sk}_m, [\texttt{0x02}]))</tt>.</p></li>
+</ul>
+</li>
+<li><p>Calcular <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+</math> de manera similar:</p>
+<ul>
+<li><p><tt class="math">\mathsf{dk}_m = \mathsf{truncate}_{32}(\mathsf{PRF^{expand}}(\mathsf{sk}_m, [\texttt{0x10}]))</tt>.</p></li>
+</ul>
+</li>
+<li><p>Devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mi>m</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math> como la clave de gasto extendida maestra <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msub>
+</math>.</p></li>
+</ul>
+<p>Nótese que la clave extendida maestra es inválida si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+</math> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>, o si la <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> correspondiente derivada como se especifica en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p>
+
+<h2 id="sapling-child-key-derivation"><a class="hanchor" href="#sapling-child-key-derivation" aria-hidden="true" tabindex="-1">#</a>Derivación de subclaves de Sapling</h2>
+<p>Como en BIP 32, el método para derivar una subclave extendida, dada una clave extendida padre y un índice <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math>, depende del tipo de clave que se deriva y de si esta es una derivación endurecida o no endurecida.</p>
+<h3 id="deriving-a-child-extended-spending-key"><a class="hanchor" href="#deriving-a-child-extended-spending-key" aria-hidden="true" tabindex="-1">#</a>Derivación de una subclave de gasto extendida</h3>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝖣</mi>
+    <mi>𝖪</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo>,</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>→</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mi>i</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math></p>
+<ul class="simple">
+<li><p>Verificar si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+  <mo>≥</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>31</mn>
+  </msup>
+</math> (si la subclave es una clave endurecida).</p>
+<ul>
+<li><p>Si es así (hijo endurecido): sea <tt class="math">I = \mathsf{PRF^{expand}}(\mathsf{c}_{par}, [\texttt{0x11}]</tt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+    <mi>𝖲</mi>
+    <mi>𝖪</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>32</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Si no (hijo normal): sea <tt class="math">I = \mathsf{PRF^{expand}}(\mathsf{c}_{par}, [\texttt{0x12}]</tt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+    <mi>𝖥</mi>
+    <mi>𝖵</mi>
+    <mi>𝖪</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>32</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math>, donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math> es la clave de visualización completa derivada de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math> como se describe en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+</li>
+<li><p>Dividir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>I</mi>
+</math> en dos secuencias de 32 bytes, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>L</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Sea <tt class="math">I_\mathsf{ask} = \mathsf{ToScalar^{Sapling}}(\mathsf{PRF^{expand}}(I_L, [\texttt{0x13}]))</tt>.</p></li>
+<li><p>Sea <tt class="math">I_\mathsf{nsk} = \mathsf{ToScalar^{Sapling}}(\mathsf{PRF^{expand}}(I_L, [\texttt{0x14}]))</tt>.</p></li>
+<li><p>Devolver:</p>
+<ul>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>=</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>I</mi>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+  <mo>+</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.444em"></mspace>
+  <mo stretchy="false">(</mo>
+  <mi>mod</mi>
+  <mspace width="0.333em"></mspace>
+  <msub>
+    <mi>r</mi>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>=</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>I</mi>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+  <mo>+</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.444em"></mspace>
+  <mo stretchy="false">(</mo>
+  <mi>mod</mi>
+  <mspace width="0.333em"></mspace>
+  <msub>
+    <mi>r</mi>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><tt class="math">\mathsf{ovk}_i = \mathsf{truncate}_{32}(\mathsf{PRF^{expand}}(I_L, [\texttt{0x15}]</tt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><tt class="math">\mathsf{dk}_i  = \mathsf{truncate}_{32}(\mathsf{PRF^{expand}}(I_L, [\texttt{0x16}]</tt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝖼</mi>
+    <mi>i</mi>
+  </msub>
+  <mo>=</mo>
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math>.</p></li>
+</ul>
+</li>
+</ul>
+<p>Nótese que la subclave extendida es inválida si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+</math> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>, o si la <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> correspondiente derivada como se especifica en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p>
+
+<h3 id="deriving-a-child-extended-full-viewing-key"><a class="hanchor" href="#deriving-a-child-extended-full-viewing-key" aria-hidden="true" tabindex="-1">#</a>Derivación de una subclave de visualización completa extendida</h3>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝒢</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> como se define en <a class="brackets" href="#protocol-concretespendauthsig" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a> y sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>ℋ</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> como se define en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝖣</mi>
+    <mi>𝖪</mi>
+    <mi>𝖿</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo>,</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>→</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mi>i</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math></p>
+<ul class="simple">
+<li><p>Verificar si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+  <mo>≥</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>31</mn>
+  </msup>
+</math> (si la subclave es una clave endurecida).</p>
+<ul>
+<li><p>Si es así (subclave endurecida): devolver fallo.</p></li>
+<li><p>Si no (hijo normal): sea <tt class="math">I = \mathsf{PRF^{expand}}(\mathsf{c}_{par}, [\texttt{0x12}]</tt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+    <mi>𝖥</mi>
+    <mi>𝖵</mi>
+    <mi>𝖪</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>32</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+</li>
+<li><p>Dividir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>I</mi>
+</math> en dos secuencias de 32 bytes, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>L</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Sea <tt class="math">I_\mathsf{ask} = \mathsf{ToScalar^{Sapling}}(\mathsf{PRF^{expand}}(I_L, [\texttt{0x13}]))</tt>.</p></li>
+<li><p>Sea <tt class="math">I_\mathsf{nsk} = \mathsf{ToScalar^{Sapling}}(\mathsf{PRF^{expand}}(I_L, [\texttt{0x14}]))</tt>.</p></li>
+<li><p>Devolver:</p>
+<ul>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <msub>
+    <mi>I</mi>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <msup>
+    <mi>𝒢</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+  <mo>+</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <msub>
+    <mi>I</mi>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <msup>
+    <mi>ℋ</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+  <mo>+</mo>
+  <msub>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+</math></p></li>
+<li><p><tt class="math">\mathsf{ovk}_i = \mathsf{truncate}_{32}(\mathsf{PRF^{expand}}(I_L, [\texttt{0x15}]</tt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗏</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><tt class="math">\mathsf{dk}_i  = \mathsf{truncate}_{32}(\mathsf{PRF^{expand}}(I_L, [\texttt{0x16}]</tt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖽</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝖼</mi>
+    <mi>i</mi>
+  </msub>
+  <mo>=</mo>
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math>.</p></li>
+</ul>
+</li>
+</ul>
+<p>Nótese que la subclave extendida es inválida si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+</math> es el punto cero de Jubjub, o si la <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> correspondiente derivada como se especifica en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p>
+
+
+<h2 id="sapling-internal-key-derivation"><a class="hanchor" href="#sapling-internal-key-derivation" aria-hidden="true" tabindex="-1">#</a>Derivación de claves internas de Sapling</h2>
+<p>Los mecanismos de derivación anteriores producen direcciones externas adecuadas para entregar a emisores. También queremos poder producir otra dirección derivada de una dirección externa dada, para uso de las billeteras en operaciones internas tales como el cambio y el blindaje automático. A diferencia de BIP 44, que permite derivar un flujo de direcciones externas e internas en el mismo árbol de derivación jerárquica <a class="brackets" href="#bip-0044" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>, para cualquier clave de visualización completa externa solo necesitamos poder derivar una única clave de visualización completa interna que tenga autoridad de visualización únicamente para transferencias internas. También necesitamos poder derivar la clave de gasto interna correspondiente si tenemos la clave de gasto externa.</p>
+<h3 id="deriving-a-sapling-internal-spending-key"><a class="hanchor" href="#deriving-a-sapling-internal-spending-key" aria-hidden="true" tabindex="-1">#</a>Derivación de una clave de gasto interna de Sapling</h3>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> la clave de gasto externa.</p>
+<ul class="simple">
+<li><p>Derivar la <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> y la <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> correspondientes como se especifica en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Sea <tt class="math">I = \textsf{BLAKE2b-256}(\texttt{"Zcash_SaplingInt"}, \mathsf{EncodeExtFVKParts}(\mathsf{ak}, \mathsf{nk}, \mathsf{ovk}, \mathsf{dk}))</tt>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖳</mi>
+    <mi>𝗈</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <msup>
+      <mi>𝗋</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝖱</mi>
+    <msup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗑</mi>
+        <mi>𝗉</mi>
+        <mi>𝖺</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>I</mi>
+  <mo>,</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟷𝟽</mn>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝖱</mi>
+    <msup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗑</mi>
+        <mi>𝗉</mi>
+        <mi>𝖺</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>I</mi>
+  <mo>,</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟷𝟾</mn>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>=</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>I</mi>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+  <mo>+</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.444em"></mspace>
+  <mo stretchy="false">(</mo>
+  <mi>mod</mi>
+  <mspace width="0.333em"></mspace>
+  <msub>
+    <mi>r</mi>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Dividir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+</math> en dos secuencias de 32 bytes, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖽</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math>.</p></li>
+<li><p>Devolver la clave de gasto interna como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖽</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+<p>Nótese que la subclave extendida es inválida si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> es el punto cero de Jubjub, o si la <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> correspondiente derivada como se especifica en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-24" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p>
+
+<h3 id="deriving-a-sapling-internal-full-viewing-key"><a class="hanchor" href="#deriving-a-sapling-internal-full-viewing-key" aria-hidden="true" tabindex="-1">#</a>Derivación de una clave de visualización completa interna de Sapling</h3>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>ℋ</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> como se define en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-25" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> la clave de visualización completa externa.</p>
+<ul class="simple">
+<li><p>Sea <tt class="math">I = \textsf{BLAKE2b-256}(\texttt{"Zcash_SaplingInt"}, \mathsf{EncodeExtFVKParts}(\mathsf{ak}, \mathsf{nk}, \mathsf{ovk}, \mathsf{dk}))</tt>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖳</mi>
+    <mi>𝗈</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <msup>
+      <mi>𝗋</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝖱</mi>
+    <msup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗑</mi>
+        <mi>𝗉</mi>
+        <mi>𝖺</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>I</mi>
+  <mo>,</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟷𝟽</mn>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝖱</mi>
+    <msup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗑</mi>
+        <mi>𝗉</mi>
+        <mi>𝖺</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>I</mi>
+  <mo>,</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟷𝟾</mn>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <msub>
+    <mi>I</mi>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">]</mo>
+  <msup>
+    <mi>ℋ</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+  <mo>+</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>.</p></li>
+<li><p>Dividir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+</math> en dos secuencias de 32 bytes, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖽</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math>.</p></li>
+<li><p>Devolver la clave de visualización completa interna como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖽</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+<p>Este diseño utiliza la misma técnica que la derivación no endurecida para obtener una clave de visualización completa con la misma autoridad de gasto (la clave privada correspondiente a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>) que la original, pero con autoridad de visualización únicamente para transferencias internas.</p>
+<p>Los valores de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>I</mi>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mrow>
+      <mi>𝗇</mi>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+</math> son los mismos entre derivar una clave de visualización completa y derivar la clave de gasto correspondiente. Ambas derivaciones se muestran en el siguiente diagrama:</p>
+<figure class="align-center">
+<img alt="/upstream/zip-0032-sapling-internal-key-derivation.svg" src="/upstream/zip-0032-sapling-internal-key-derivation.svg" style="width: 900px;">
+<figcaption>
+<p>Diagrama de la derivación de claves internas de Sapling</p>
+</figcaption>
+</figure>
+<p>(Por simplicidad, la clave de autorización de prueba no se muestra.)</p>
+<p>Este método de derivar claves internas se aplica a claves externas que son subclaves del nivel de Account. Se implementó en <cite>zcashd</cite> como parte del soporte para ZIP 316 <a class="brackets" href="#zip-0316" id="footnote-reference-26" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+<p>Nótese que la clave extendida interna es inválida si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> es el punto cero de Jubjub, o si el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> correspondiente derivado de la clave de visualización completa interna según lo especificado en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-27" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p>
+
+
+<h2 id="sapling-diversifier-derivation"><a class="hanchor" href="#sapling-diversifier-derivation" aria-hidden="true" tabindex="-1">#</a>Derivación de diversificadores de Sapling</h2>
+<p>Los diversificadores de 88 bits para una clave extendida de Sapling se derivan de su clave de diversificación <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>. Para evitar que los diversificadores revelen cuántas direcciones diversificadas ya se han generado para una cuenta, hacemos que la secuencia de diversificadores sea pseudoaleatoria y no correlacionada con la de cualquier otra cuenta. Con el fin de alcanzar el máximo rango posible de diversificadores sin encontrarse con repeticiones debido al límite de cumpleaños, usamos FF1-AES256 como una Permutación Pseudoaleatoria de la siguiente manera:</p>
+<ul class="simple">
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>j</mi>
+</math> el índice del diversificador deseado, en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+  <mspace width="0.1667em"></mspace>
+  <mo>.</mo>
+  <mspace width="-0.1667em"></mspace>
+  <mo>.</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>88</mn>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+</math>.</p></li>
+<li><p><tt class="math">d_j = \mathsf{FF1}\text{-}\mathsf{AES256.Encrypt}(\mathsf{dk}, \texttt{“”}, \mathsf{I2LEBSP}_{88}(j))</tt>.</p></li>
+</ul>
+<p>Un diversificador válido <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>d</mi>
+    <mi>j</mi>
+  </msub>
+</math> es aquel para el cual <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <msup>
+      <mi>𝗁</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>d</mi>
+    <mi>j</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo>≠</mo>
+  <mi>⊥</mi>
+</math>. Para un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> dado, aproximadamente la mitad de los valores posibles de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>j</mi>
+</math> producen diversificadores válidos.</p>
+<p>El diversificador predeterminado para una clave extendida de Sapling se define como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>d</mi>
+    <mi>j</mi>
+  </msub>
+</math>, donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>j</mi>
+</math> es el menor entero no negativo que produce un diversificador válido.</p>
+
+
+<h1 id="specification-orchard-key-derivation"><a class="hanchor" href="#specification-orchard-key-derivation" aria-hidden="true" tabindex="-1">#</a>Especificación: Derivación de claves de Orchard</h1>
+<p>El mecanismo de derivación para direcciones Sapling especificado anteriormente incurre en una complejidad significativa para admitir la derivación no endurecida. En los varios años desde que Sapling se desplegó, no hemos visto casos de uso de derivación no endurecida. Con eso en mente, solo admitimos la derivación de claves endurecidas para Orchard.</p>
+<h2 id="orchard-extended-keys"><a class="hanchor" href="#orchard-extended-keys" aria-hidden="true" tabindex="-1">#</a>Claves extendidas de Orchard</h2>
+<p>Representamos una clave de gasto extendida de Orchard como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>,</mo>
+</math>, donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> es la clave de gasto normal de Orchard (32 bytes opacos) y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖼</mi>
+</math> es el código de cadena.</p>
+
+<h2 id="orchard-master-key-generation"><a class="hanchor" href="#orchard-master-key-generation" aria-hidden="true" tabindex="-1">#</a>Generación de la clave maestra de Orchard</h2>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> una secuencia de bytes de semilla de una longitud elegida, que DEBE (MUST) ser de al menos 32 y como máximo 252 bytes.</p>
+<ul class="simple">
+<li><p>Calcular <tt class="math">I = \mathsf{BLAKE2b}\text{-}\mathsf{512}(\texttt{“ZcashIP32Orchard”}, S)</tt>.</p></li>
+<li><p>Dividir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>I</mi>
+</math> en dos secuencias de 32 bytes, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>L</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Use <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>L</mi>
+  </msub>
+</math> como la clave de gasto maestra <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Usar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math> como el código de cadena maestro <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝖼</mi>
+    <mi>m</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>m</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mi>m</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math> como la clave de gasto extendida maestra <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msub>
+</math>.</p></li>
+</ul>
+
+<h2 id="orchard-child-key-derivation"><a class="hanchor" href="#orchard-child-key-derivation" aria-hidden="true" tabindex="-1">#</a>Derivación de claves hijas de Orchard</h2>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝖣</mi>
+    <mi>𝖪</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mrow>
+      <mi>p</mi>
+      <mi>a</mi>
+      <mi>r</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo>,</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>→</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mi>i</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math></p>
+<ul class="simple">
+<li><p>Verificar si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+  <mo>≥</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>31</mn>
+  </msup>
+</math> (si la subclave es una clave endurecida).</p>
+<ul>
+<li><p>Si es así (derivación endurecida): sea <tt class="math">I = \mathsf{PRF^{expand}}(\mathsf{c}_{par}, [\texttt{0x81}]\,||\,\mathsf{sk}_{par}\,||\,\mathsf{I2LEOSP}_{32}(i))</tt>.</p></li>
+<li><p>Si no (derivación normal): devuelva fallo.</p></li>
+</ul>
+</li>
+<li><p>Dividir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>I</mi>
+</math> en dos secuencias de 32 bytes, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>L</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Use <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>L</mi>
+  </msub>
+</math> como la clave de gasto secundaria <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Use <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>I</mi>
+    <mi>R</mi>
+  </msub>
+</math> como el código de cadena secundario <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝖼</mi>
+    <mi>i</mi>
+  </msub>
+</math>.</p></li>
+</ul>
+<p>Nótese que la clave de gasto hija resultante puede producir una FVK externa inválida, como se especifica en <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-28" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>, con una probabilidad pequeña. La FVK interna correspondiente, derivada como se especifica en la siguiente sección, también puede ser inválida con una probabilidad pequeña.</p>
+
+<h2 id="orchard-internal-key-derivation"><a class="hanchor" href="#orchard-internal-key-derivation" aria-hidden="true" tabindex="-1">#</a>Derivación de claves internas de Orchard</h2>
+<p>Como en el caso de Sapling, para una dirección externa dada, queremos producir otra dirección para uso de las billeteras en operaciones internas tales como el cambio y el autoblindamiento. Es decir, para cualquier clave de visualización completa externa debemos poder derivar una única clave de visualización completa interna que tenga autoridad de visualización solo para transferencias internas. También debemos poder derivar la clave de gasto interna correspondiente si tenemos la clave de gasto externa.</p>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> la clave autorizante de gasto si está disponible, y sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> la clave de visualización completa externa correspondiente, obtenida como se especifica en <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-29" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p>
+<p>Definir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖥</mi>
+    <mi>𝖵</mi>
+    <msup>
+      <mi>𝖪</mi>
+      <mrow>
+        <mi>𝖮</mi>
+        <mi>𝗋</mi>
+        <mi>𝖼</mi>
+        <mi>𝗁</mi>
+        <mi>𝖺</mi>
+        <mi>𝗋</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> como sigue:</p>
+<ul class="simple">
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>K</mi>
+  <mo>=</mo>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖡</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖳</mi>
+    <mi>𝗈</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <msup>
+      <mi>𝗋</mi>
+      <mrow>
+        <mi>𝖮</mi>
+        <mi>𝗋</mi>
+        <mi>𝖼</mi>
+        <mi>𝗁</mi>
+        <mi>𝖺</mi>
+        <mi>𝗋</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝖱</mi>
+    <msup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗑</mi>
+        <mi>𝗉</mi>
+        <mi>𝖺</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>K</mi>
+  <mo>,</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟾𝟹</mn>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖨</mi>
+    <mn>𝟤</mn>
+    <mi>𝖫</mi>
+    <mi>𝖤</mi>
+    <mi>𝖮</mi>
+    <mi>𝖲</mi>
+    <msub>
+      <mi>𝖯</mi>
+      <mn>𝟤𝟧𝟨</mn>
+    </msub>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖨</mi>
+    <mn>𝟤</mn>
+    <mi>𝖫</mi>
+    <mi>𝖤</mi>
+    <mi>𝖮</mi>
+    <mi>𝖲</mi>
+    <msub>
+      <mi>𝖯</mi>
+      <mn>𝟤𝟧𝟨</mn>
+    </msub>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>Devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+<p>El resultado de aplicar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝖨</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗇</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖥</mi>
+    <mi>𝖵</mi>
+    <msup>
+      <mi>𝖪</mi>
+      <mrow>
+        <mi>𝖮</mi>
+        <mi>𝗋</mi>
+        <mi>𝖼</mi>
+        <mi>𝗁</mi>
+        <mi>𝖺</mi>
+        <mi>𝗋</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math> a la clave de visualización completa externa es la clave de visualización completa interna. La clave de gasto interna expandida correspondiente es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>,</p>
+<p>A diferencia de la <a class="reference internal" href="#sapling-internal-key-derivation">derivación de claves internas de Sapling</a>, no basamos este procedimiento de derivación de claves internas en la derivación no endurecida, que no está definida para Orchard. Podemos obtener la separación deseada de la autoridad de visualización modificando solo el campo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> con respecto a la clave de visualización completa externa, lo que hace que se deriven campos <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖽</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗍</mi>
+        <mi>𝖾</mi>
+        <mi>𝗋</mi>
+        <mi>𝗇</mi>
+        <mi>𝖺</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msub>
+  </mrow>
+</math> diferentes, como se especifica en <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-30" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a> y se muestra en el siguiente diagrama:</p>
+<figure class="align-center">
+<img alt="/upstream/zip-0032-orchard-internal-key-derivation.svg" src="/upstream/zip-0032-orchard-internal-key-derivation.svg" style="width: 720px;">
+<figcaption>
+<p>Diagrama de la derivación de claves internas de Orchard, que muestra también la derivación desde la clave de gasto extendida padre</p>
+</figcaption>
+</figure>
+<p>Este método de derivar claves internas se aplica a claves externas que son subclaves del nivel de Account. Se implementó en <cite>zcashd</cite> como parte del soporte para ZIP 316 <a class="brackets" href="#zip-0316" id="footnote-reference-31" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+<p>Nótese que la FVK resultante puede ser inválida, como se especifica en <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-32" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p>
+
+<h2 id="orchard-diversifier-derivation"><a class="hanchor" href="#orchard-diversifier-derivation" aria-hidden="true" tabindex="-1">#</a>Derivación de diversificadores de Orchard</h2>
+<p>Al igual que con Sapling, definimos un mecanismo para derivar de forma determinista una secuencia de diversificadores, sin revelar cuántas direcciones diversificadas ya se han generado para una cuenta. A diferencia de Sapling, lo hacemos derivando una clave de diversificación directamente de la clave de visualización completa, en lugar de como parte de la clave de gasto extendida. Esto significa que la clave de visualización completa proporciona la capacidad de determinar la posición de un diversificador dentro de la secuencia, lo que coincide con las capacidades de una clave de visualización completa extendida de Sapling, pero simplifica la estructura de claves.</p>
+<p>Dada una clave de gasto extendida de Orchard <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mi>i</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math>:</p>
+<ul class="simple">
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> la clave de visualización completa de Orchard para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>K</mi>
+  <mo>=</mo>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖡</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> y sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+  <mo>=</mo>
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>ℙ</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖡</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p><tt class="math">\mathsf{dk}_i = \mathsf{truncate}_{32}(\mathsf{PRF^{expand}}(K, [\texttt{0x82}]\,||\,\mathsf{LEBS2OSP}_{512}(B)))</tt>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>j</mi>
+</math> el índice del diversificador deseado, en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+  <mspace width="0.1667em"></mspace>
+  <mo>.</mo>
+  <mspace width="-0.1667em"></mspace>
+  <mo>.</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>88</mn>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+</math>.</p></li>
+<li><p><tt class="math">d_{i,j} = \mathsf{FF1}\text{-}\mathsf{AES256.Encrypt}(\mathsf{dk}_i, \texttt{“”}, \mathsf{I2LEBSP}_{88}(j))</tt>.</p></li>
+</ul>
+<p>Nótese que, a diferencia de Sapling, todos los diversificadores de Orchard son válidos, y por lo tanto todos los valores posibles de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>j</mi>
+</math> producen diversificadores válidos.</p>
+<p>El diversificador predeterminado para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>𝖼</mi>
+    <mi>i</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math> se define como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>d</mi>
+    <mrow>
+      <mi>i</mi>
+      <mo>,</mo>
+      <mn>0</mn>
+    </mrow>
+  </msub>
+  <mo>.</mo>
+</math></p>
+
+
+<h1 id="specification-wallet-usage"><a class="hanchor" href="#specification-wallet-usage" aria-hidden="true" tabindex="-1">#</a>Especificación: Uso en billeteras</h1>
+<p>Las billeteras HD existentes que admiten Zcash usan todas BIP 44 <a class="brackets" href="#bip-0044" id="footnote-reference-33" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> para organizar sus claves derivadas. Para integrarse más fácilmente con las experiencias de usuario existentes, seguimos aquí en términos generales el diseño de BIP 44. Sin embargo, hemos alterado el diseño donde tiene sentido aprovechar las características de las direcciones blindadas.</p>
+<h2 id="key-path-levels"><a class="hanchor" href="#key-path-levels" aria-hidden="true" tabindex="-1">#</a>Niveles de rutas de claves</h2>
+<p>Las rutas de claves de Sapling y Orchard tienen los siguientes tres niveles de ruta en la parte superior, todos los cuales usan derivación endurecida:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <mi>u</mi>
+  <mi>r</mi>
+  <mi>p</mi>
+  <mi>o</mi>
+  <mi>s</mi>
+  <mi>e</mi>
+</math>: una constante fijada en <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>32</mn>
+  <mo>'</mo>
+</math> (o <tt class="math">\texttt{0x80000020}</tt>) siguiendo la recomendación de BIP 43. Indica que el subárbol de este nodo se utiliza según esta especificación.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>y</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+</math>: una constante que identifica la criptomoneda con la que se usan las claves de este subárbol. Por compatibilidad con las implementaciones existentes de BIP 44, usamos las mismas constantes definidas en SLIP 44 <a class="brackets" href="#slip-0044" id="footnote-reference-34" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>. Nótese que, en consonancia con ese documento, todas las testnets de criptomonedas comparten el índice <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>y</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+</math> <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mi>c</mi>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>u</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+</math>: numerados desde el índice <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math> de manera secuencialmente creciente. Definidos como en BIP 44 <a class="brackets" href="#bip-0044" id="footnote-reference-35" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+<p>A diferencia de BIP 44, ninguna de las rutas de claves blindadas tiene un nivel de ruta <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>c</mi>
+  <mi>h</mi>
+  <mi>a</mi>
+  <mi>n</mi>
+  <mi>g</mi>
+  <mi>e</mi>
+</math>. El uso de direcciones de cambio en Bitcoin es un intento (fallido) de aumentar la dificultad de rastrear a los usuarios en el grafo de transacciones, mediante la separación del uso de direcciones externas e internas. Las direcciones blindadas nunca son visibles públicamente en las transacciones, lo que significa que enviar el cambio de vuelta a la dirección de origen es indistinguible de usar una dirección de cambio.</p>
+
+<h2 id="sapling-key-path"><a class="hanchor" href="#sapling-key-path" aria-hidden="true" tabindex="-1">#</a>Ruta de claves de Sapling</h2>
+<p>Sapling proporciona un mecanismo que permite la creación eficiente de direcciones de pago diversificadas con la misma autoridad de gasto. Un grupo de tales direcciones comparte la misma clave de visualización completa y la misma clave de visualización entrante, por lo que crear tantas direcciones no enlazables como sea necesario no aumenta el costo de escanear la block chain en busca de transacciones relevantes.</p>
+<p>Los niveles de ruta de claves anteriores incluyen un identificador de cuenta, que en todas las interfaces de usuario se representa como un "depósito de fondos" bajo el control de una única autoridad de gasto. Por lo tanto, las billeteras que implementan la derivación de Sapling según ZIP 32 DEBEN (MUST) admitir la siguiente ruta para cualquier cuenta en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>{</mo>
+  <mn>0</mn>
+  <mspace width="0.1667em"></mspace>
+  <mo>.</mo>
+  <mspace width="-0.1667em"></mspace>
+  <mo>.</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>31</mn>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+</math>:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">/</mo>
+  <mi>p</mi>
+  <mi>u</mi>
+  <mi>r</mi>
+  <mi>p</mi>
+  <mi>o</mi>
+  <mi>s</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>y</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>a</mi>
+  <mi>c</mi>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>u</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mo>'</mo>
+</math>.</p></li>
+</ul>
+<p>Además, las billeteras DEBEN (MUST) admitir la generación de la dirección de pago predeterminada (correspondiente al diversificador predeterminado definido anteriormente) para cualquier cuenta que admitan. PUEDEN (MAY) también admitir la generación de un flujo de direcciones de pago para una cuenta dada, si desean mantener la experiencia de usuario de dar una dirección única a cada destinatario.</p>
+<p>Nótese que una cuenta dada puede tener un máximo de aproximadamente <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mn>2</mn>
+    <mn>87</mn>
+  </msup>
+</math> direcciones de pago, porque cada diversificador tiene alrededor de un 50% de probabilidad de ser inválido.</p>
+<p>Si en ciertas circunstancias una billetera necesita derivar autoridades de gasto independientes dentro de una sola cuenta, PUEDEN (MAY) adicionalmente admitir un nivel de ruta <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mi>d</mi>
+  <mi>d</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>s</mi>
+  <mi>_</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>x</mi>
+</math> no endurecido como en <a class="brackets" href="#bip-0044" id="footnote-reference-36" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">/</mo>
+  <mi>p</mi>
+  <mi>u</mi>
+  <mi>r</mi>
+  <mi>p</mi>
+  <mi>o</mi>
+  <mi>s</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>y</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>a</mi>
+  <mi>c</mi>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>u</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>a</mi>
+  <mi>d</mi>
+  <mi>d</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>s</mi>
+  <mi>_</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>x</mi>
+</math>.</p></li>
+</ul>
+<p><cite>zcashd</cite> versión 4.6.0 y posteriores usa esto para derivar direcciones Sapling "heredadas" a partir de una frase semilla mnemónica bajo la cuenta <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟽</mn>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+  </mrow>
+</math>, usando derivación endurecida para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mi>d</mi>
+  <mi>d</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>s</mi>
+  <mi>_</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>x</mi>
+</math>.</p>
+
+<h2 id="orchard-key-path"><a class="hanchor" href="#orchard-key-path" aria-hidden="true" tabindex="-1">#</a>Ruta de claves de Orchard</h2>
+<p>Orchard admite direcciones diversificadas con la misma autoridad de gasto (al igual que Sapling). Un grupo de tales direcciones comparte la misma clave de visualización completa y la misma clave de visualización entrante, por lo que crear tantas direcciones no enlazables como sea necesario no aumenta el costo de escanear la block chain en busca de transacciones relevantes.</p>
+<p>Los niveles de ruta de claves anteriores incluyen un identificador de cuenta, que en todas las interfaces de usuario se representa como un "depósito de fondos" bajo el control de una única autoridad de gasto. Por lo tanto, las billeteras que implementan la derivación de Orchard según ZIP 32 DEBEN (MUST) admitir la siguiente ruta para cualquier cuenta en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>{</mo>
+  <mn>0</mn>
+  <mspace width="0.1667em"></mspace>
+  <mo>.</mo>
+  <mspace width="-0.1667em"></mspace>
+  <mo>.</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>31</mn>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+</math>:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">/</mo>
+  <mi>p</mi>
+  <mi>u</mi>
+  <mi>r</mi>
+  <mi>p</mi>
+  <mi>o</mi>
+  <mi>s</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>y</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>a</mi>
+  <mi>c</mi>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>u</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mo>'</mo>
+</math>.</p></li>
+</ul>
+<p>Además, las billeteras DEBEN (MUST) admitir la generación de la dirección de pago predeterminada (correspondiente al diversificador predeterminado para Orchard) para cualquier cuenta que admitan. PUEDEN (MAY) también admitir la generación de un flujo de direcciones de pago diversificadas para una cuenta dada, si desean permitir a los usuarios dar una dirección única a cada destinatario.</p>
+<p>Nótese que una cuenta dada puede tener un máximo de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mn>2</mn>
+    <mn>88</mn>
+  </msup>
+</math> direcciones de pago (a diferencia de Sapling, todos los diversificadores de Orchard son válidos).</p>
+
+<h2 id="account-discovery"><a class="hanchor" href="#account-discovery" aria-hidden="true" tabindex="-1">#</a>Descubrimiento de cuentas</h2>
+<p>Una billetera que importa una semilla maestra desde una fuente externa DEBERÍA (SHOULD) intentar descubrir cuentas de la siguiente manera.</p>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>M</mi>
+</math> el subconjunto de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>{</mo>
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msub>
+  <mo>}</mo>
+</math> correspondiente a las claves maestras para los tipos de direcciones que esta billetera admite.</p>
+<ul>
+<li><p>Para cada índice de cuenta comenzando desde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mi>c</mi>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>u</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>:</p>
+<ul class="simple">
+<li><p>Para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>m</mi>
+  <mo>∈</mo>
+  <mi>M</mi>
+</math>:</p>
+<ol class="arabic simple">
+<li><p>Derivar la clave de visualización completa externa de la cuenta en la ruta <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>m</mi>
+  <mo stretchy="false">/</mo>
+  <mi>p</mi>
+  <mi>u</mi>
+  <mi>r</mi>
+  <mi>p</mi>
+  <mi>o</mi>
+  <mi>s</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>y</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>a</mi>
+  <mi>c</mi>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>u</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mo>'</mo>
+</math>.</p></li>
+<li><p>Buscar transacciones que envíen a esta cuenta usando el algoritmo de <a class="brackets" href="#protocol-scan" id="footnote-reference-37" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>.</p></li>
+</ol>
+</li>
+</ul>
+<p>Si no se encuentran transacciones ni para Sapling ni para Orchard en un índice de cuenta dado, salir del bucle sobre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mi>c</mi>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>u</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+</math>.</p>
+</li>
+<li><p>Si la billetera admite direcciones de Sapling, entonces para cada índice de dirección comenzando desde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mi>d</mi>
+  <mi>d</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>s</mi>
+  <mi>_</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>x</mi>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>:</p>
+<ol class="arabic simple">
+<li><p>Derivar la clave de visualización completa externa de la dirección de Sapling en la ruta <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>S</mi>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>l</mi>
+      <mi>i</mi>
+      <mi>n</mi>
+      <mi>g</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">/</mo>
+  <mi>p</mi>
+  <mi>u</mi>
+  <mi>r</mi>
+  <mi>p</mi>
+  <mi>o</mi>
+  <mi>s</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>c</mi>
+  <mi>o</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>y</mi>
+  <mi>p</mi>
+  <mi>e</mi>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟽</mn>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+    <mi>𝙵</mi>
+  </mrow>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mi>a</mi>
+  <mi>d</mi>
+  <mi>d</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>s</mi>
+  <mi>_</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>x</mi>
+</math>.</p></li>
+<li><p>Buscar transacciones que envíen a esta dirección usando el algoritmo de <a class="brackets" href="#protocol-scan" id="footnote-reference-38" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>.</p></li>
+</ol>
+<p>Si no se encuentran transacciones para un rango de (<a class="reference internal" href="#legacy-address-gap-limit">límite de brecha de direcciones heredadas</a>) direcciones consecutivas, salir del bucle sobre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mi>d</mi>
+  <mi>d</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>s</mi>
+  <mi>_</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>x</mi>
+</math>.</p>
+</li>
+</ul>
+<p>(El bucle sobre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+  <mi>d</mi>
+  <mi>d</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>s</mi>
+  <mi>s</mi>
+  <mi>_</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>x</mi>
+</math> encuentra direcciones heredadas de Sapling generadas por <cite>zcashd</cite>.)</p>
+<p>Este algoritmo tiene éxito porque las billeteras DEBERÍAN (SHOULD) impedir la creación de cuentas nuevas si la anterior no tiene historial de transacciones, como se describe en <a class="reference internal" href="#key-path-levels">Niveles de rutas de claves</a> más arriba.</p>
+<p>Tenga en cuenta que el algoritmo funciona con el historial de transacciones, no con los saldos de las cuentas, por lo que puede existir una cuenta con saldo cero y el algoritmo continuará con el descubrimiento.</p>
+<h3 id="legacy-address-gap-limit"><a class="hanchor" href="#legacy-address-gap-limit" aria-hidden="true" tabindex="-1">#</a>Límite de brecha de direcciones heredadas</h3>
+<p>El límite de brecha RECOMENDADO (RECOMMENDED) para direcciones heredadas de Sapling es 20. Si una billetera alcanza esta cantidad de direcciones sin usar consecutivas, espera que no haya direcciones usadas más allá de este punto y DEBERÍA (SHOULD) dejar de buscar en la cadena de direcciones heredadas de Sapling. Solo se escanean las cadenas externas, porque las cadenas internas reciben únicamente fondos que provienen de las cadenas externas asociadas.</p>
+<p>El software de la billetera debería advertir cuando el usuario intenta superar el límite de brecha en una cadena externa generando una nueva dirección.</p>
+
+
+
+<h1 id="specification-fingerprints-and-tags"><a class="hanchor" href="#specification-fingerprints-and-tags" aria-hidden="true" tabindex="-1">#</a>Especificación: Huellas y etiquetas</h1>
+<h2 id="sapling-full-viewing-key-fingerprints-and-tags"><a class="hanchor" href="#sapling-full-viewing-key-fingerprints-and-tags" aria-hidden="true" tabindex="-1">#</a>Huellas y etiquetas de las Sapling full viewing keys</h2>
+<p>Una "huella de Sapling full viewing key" de una full viewing key con codificación cruda <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝐹</mi>
+    <mi>𝑉</mi>
+    <mi>𝐾</mi>
+  </mrow>
+</math> (según lo especificado en <a class="brackets" href="#protocol-saplingfullviewingkeyencoding" id="footnote-reference-39" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a>) se obtiene mediante:</p>
+<ul class="simple">
+<li><p><tt class="math">\mathsf{BLAKE2b}\text{-}\mathsf{256}(\texttt{“ZcashSaplingFVFP”}, \mathit{FVK})</tt>.</p></li>
+</ul>
+<p>PUEDE (MAY) usarse para identificar de manera única una clave de visualización completa de Sapling en particular.</p>
+<p>Una "etiqueta de Sapling full viewing key" son los primeros 4 bytes de la huella correspondiente de la Sapling full viewing key. Está destinada a optimizar el rendimiento de las búsquedas de claves, y NO DEBE (MUST NOT) asumirse que identifica de manera única una clave en particular.</p>
+
+<h2 id="orchard-full-viewing-key-fingerprints-and-tags"><a class="hanchor" href="#orchard-full-viewing-key-fingerprints-and-tags" aria-hidden="true" tabindex="-1">#</a>Huellas y etiquetas de las Orchard full viewing keys</h2>
+<p>Una "huella de Orchard full viewing key" de una full viewing key con codificación cruda <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝐹</mi>
+    <mi>𝑉</mi>
+    <mi>𝐾</mi>
+  </mrow>
+</math> (según lo especificado en <a class="brackets" href="#protocol-orchardfullviewingkeyencoding" id="footnote-reference-40" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a>) se obtiene mediante:</p>
+<ul class="simple">
+<li><p><tt class="math">\mathsf{BLAKE2b}\text{-}\mathsf{256}(\texttt{“ZcashOrchardFVFP”}, \mathit{FVK})</tt>.</p></li>
+</ul>
+<p>PUEDE (MAY) usarse para identificar de manera única una clave de visualización completa de Orchard en particular.</p>
+<p>Una "etiqueta de Orchard full viewing key" son los primeros 4 bytes de la huella correspondiente de la Orchard full viewing key. Está destinada a optimizar el rendimiento de las búsquedas de claves, y NO DEBE (MUST NOT) asumirse que identifica de manera única una clave en particular.</p>
+
+<h2 id="seed-fingerprints"><a class="hanchor" href="#seed-fingerprints" aria-hidden="true" tabindex="-1">#</a>Huellas de semillas</h2>
+<p>Una "huella de semilla" para la semilla maestra <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> de una billetera jerárquica determinista se obtiene mediante:</p>
+<ul class="simple">
+<li><p><tt class="math">\mathsf{BLAKE2b}\text{-}\mathsf{256}(\texttt{“Zcash_HD_Seed_FP”},</tt><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>S</mi>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>S</mi>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+<p>PUEDE (MAY) usarse para identificar de manera única una billetera jerárquica determinista en particular.</p>
+<p>No se define ninguna etiqueta corta correspondiente.</p>
+<p>Nota: una versión anterior de esta especificación no incluía el byte de longitud como prefijo de la semilla. La especificación actual refleja la implementación en <cite>zcashd</cite>.</p>
+
+
+<h1 id="specification-key-encodings"><a class="hanchor" href="#specification-key-encodings" aria-hidden="true" tabindex="-1">#</a>Especificación: Codificaciones de claves</h1>
+<p>Las siguientes codificaciones son análogas a las codificaciones <span class="docutils literal">xprv</span> y <span class="docutils literal">xpub</span> definidas en BIP 32 para claves y direcciones transparentes. Cada tipo de clave tiene una representación cruda y una codificación Bech32 <a class="brackets" href="#bip-0173" id="footnote-reference-41" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>.</p>
+<h2 id="sapling-extended-spending-keys"><a class="hanchor" href="#sapling-extended-spending-keys" aria-hidden="true" tabindex="-1">#</a>Claves de gasto extendidas de Sapling</h2>
+<p>Una clave de gasto extendida de Sapling <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>, a profundidad <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>p</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+</math>, con etiqueta de clave de visualización completa padre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mi>_</mi>
+  <mi>f</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mi>g</mi>
+</math> y número de hijo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math>, se representa como una secuencia de bytes:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>8</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>p</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mi>_</mi>
+  <mi>f</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mi>g</mi>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>32</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>𝖼</mi>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+    <mi>𝖲</mi>
+    <mi>𝖪</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+<p>Para la clave de gasto extendida maestra, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>p</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+</math> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mi>_</mi>
+  <mi>f</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mi>g</mi>
+</math> son 4 bytes en cero y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p>
+<p>Cuando se codifica como Bech32, la parte legible por humanos es <span class="docutils literal"><span class="pre">secret-extended-key-main</span></span> para la red de producción, o <span class="docutils literal"><span class="pre">secret-extended-key-test</span></span> para la red de prueba.</p>
+
+<h2 id="sapling-extended-full-viewing-keys"><a class="hanchor" href="#sapling-extended-full-viewing-keys" aria-hidden="true" tabindex="-1">#</a>Claves de visualización completa extendidas de Sapling</h2>
+<p>Una clave de visualización completa extendida de Sapling <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>, a profundidad <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>p</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+</math>, con etiqueta de clave de visualización completa padre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mi>_</mi>
+  <mi>f</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mi>g</mi>
+</math> y número de hijo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math>, se representa como una secuencia de bytes:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>8</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>p</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mi>_</mi>
+  <mi>f</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mi>g</mi>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>32</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>𝖼</mi>
+</math><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+    <mi>𝖥</mi>
+    <mi>𝖵</mi>
+    <mi>𝖪</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖽</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+<p>Para la clave de visualización completa extendida maestra, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>p</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+</math> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mi>_</mi>
+  <mi>f</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mi>g</mi>
+</math> son 4 bytes en cero y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p>
+<p>Cuando se codifica como Bech32, la parte legible por humanos es <span class="docutils literal">zxviews</span> para la red de producción, o <span class="docutils literal">zxviewtestsapling</span> para la red de prueba.</p>
+
+<h2 id="orchard-extended-spending-keys"><a class="hanchor" href="#orchard-extended-spending-keys" aria-hidden="true" tabindex="-1">#</a>Claves de gasto extendidas de Orchard</h2>
+<p>Una clave de gasto extendida de Orchard <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+    <mo>,</mo>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>, a profundidad <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>p</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+</math>, con etiqueta de clave de visualización completa padre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mi>_</mi>
+  <mi>f</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mi>g</mi>
+</math> y número de hijo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math>, se representa como una secuencia de bytes:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>8</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>p</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mi>_</mi>
+  <mi>f</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mi>g</mi>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>32</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>i</mi>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>𝖼</mi>
+  <mspace width="0.1667em"></mspace>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>.</p></li>
+</ul>
+<p>Para la clave de gasto extendida maestra, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>d</mi>
+  <mi>e</mi>
+  <mi>p</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+</math> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>r</mi>
+  <mi>e</mi>
+  <mi>n</mi>
+  <mi>t</mi>
+  <mi>_</mi>
+  <mi>f</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mi>g</mi>
+</math> son 4 bytes en cero y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math> es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>.</p>
+<p>Cuando se codifica como Bech32, la parte legible por humanos es <span class="docutils literal"><span class="pre">secret-orchard-extsk-main</span></span> para Mainnet, o <span class="docutils literal"><span class="pre">secret-orchard-extsk-test</span></span> para Testnet.</p>
+<p>Definimos esta codificación por completitud; sin embargo, dado que incluye la capacidad de derivar claves de gasto hijas, esperamos que la mayoría de las billeteras solo expongan a los usuarios la codificación de la clave de gasto normal de Orchard <a class="brackets" href="#protocol-orchardspendingkeyencoding" id="footnote-reference-42" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a>.</p>
+
+
+<h1 id="values-reserved-due-to-previous-specification-for-sprout"><a class="hanchor" href="#values-reserved-due-to-previous-specification-for-sprout" aria-hidden="true" tabindex="-1">#</a>Valores reservados debido a una especificación previa para Sprout</h1>
+<p>Los siguientes valores se usaron previamente en la especificación de la derivación jerárquica para Sprout y, por lo tanto, NO DEBERÍAN (SHOULD NOT) usarse en futuras especificaciones relacionadas con Zcash:</p>
+<ul class="simple">
+<li><p>la personalización <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖡</mi>
+    <mi>𝖫</mi>
+    <mi>𝖠</mi>
+    <mi>𝖪</mi>
+    <mi>𝖤</mi>
+    <mn>𝟤</mn>
+    <mi>𝖻</mi>
+  </mrow>
+  <mtext>-</mtext>
+  <mn>𝟧𝟣𝟤</mn>
+</math> <tt class="math">\texttt{“ZcashIP32_Sprout”}</tt>, especificada anteriormente para la derivación de la clave maestra del árbol Sprout;</p></li>
+<li><p>la personalización <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖡</mi>
+    <mi>𝖫</mi>
+    <mi>𝖠</mi>
+    <mi>𝖪</mi>
+    <mi>𝖤</mi>
+    <mn>𝟤</mn>
+    <mi>𝖻</mi>
+  </mrow>
+  <mtext>-</mtext>
+  <mn>𝟤𝟧𝟨</mn>
+</math> <tt class="math">\texttt{“Zcash_Sprout_AFP”}</tt>, especificada anteriormente para la generación de huellas de direcciones Sprout;</p></li>
+<li><p>el prefijo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝖱</mi>
+    <msup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗑</mi>
+        <mi>𝗉</mi>
+        <mi>𝖺</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math> <tt class="math">\texttt{0x80}</tt>, especificado anteriormente para la derivación de claves hijas Sprout;</p></li>
+<li><p>las partes legibles por humanos de Bech32 <span class="docutils literal">zxsprout</span> y <span class="docutils literal">zxtestsprout</span>, especificadas anteriormente para las claves de gasto extendidas de Sprout en Mainnet y Testnet respectivamente.</p></li>
+</ul>
+
+<h1 id="test-vectors"><a class="hanchor" href="#test-vectors" aria-hidden="true" tabindex="-1">#</a>Vectores de prueba</h1>
+<p>Por determinar.</p>
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash-hackworks/zip32">https://github.com/zcash-hackworks/zip32</a></p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/librustzcash/pull/29">https://github.com/zcash/librustzcash/pull/29</a></p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3447">https://github.com/zcash/zcash/pull/3447</a></p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3492">https://github.com/zcash/zcash/pull/3492</a></p></li>
+</ul>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="rfc2119" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc2119.html">RFC 2119: Key words for use in RFCs to Indicate Requirement Levels</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-6">2</a>,<a role="doc-backlink" href="#footnote-reference-13">3</a>)</span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki">BIP 32: Hierarchical Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0039" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki">BIP 39: Mnemonic code for generating deterministic keys</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0043" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0043.mediawiki">BIP 43: Purpose Field for Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0044" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-14">2</a>,<a role="doc-backlink" href="#footnote-reference-22">3</a>,<a role="doc-backlink" href="#footnote-reference-33">4</a>,<a role="doc-backlink" href="#footnote-reference-35">5</a>,<a role="doc-backlink" href="#footnote-reference-36">6</a>)</span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki">BIP 44: Multi-Account Hierarchy for Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="slip-0044" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-7">1</a>,<a role="doc-backlink" href="#footnote-reference-34">2</a>)</span>
+<p><a class="reference external" href="https://github.com/satoshilabs/slips/blob/master/slip-0044.md">SLIP 44: Registered coin types for BIP-0044</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0173" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-41">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki">BIP 173: Base32 address format for native v0-16 witness outputs</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0316" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-26">1</a>,<a role="doc-backlink" href="#footnote-reference-31">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2022.3.2 or later [NU5 proposal]</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2022.3.2. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingkeycomponents" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-15">1</a>,<a role="doc-backlink" href="#footnote-reference-16">2</a>,<a role="doc-backlink" href="#footnote-reference-17">3</a>,<a role="doc-backlink" href="#footnote-reference-18">4</a>,<a role="doc-backlink" href="#footnote-reference-20">5</a>,<a role="doc-backlink" href="#footnote-reference-21">6</a>,<a role="doc-backlink" href="#footnote-reference-23">7</a>,<a role="doc-backlink" href="#footnote-reference-24">8</a>,<a role="doc-backlink" href="#footnote-reference-25">9</a>,<a role="doc-backlink" href="#footnote-reference-27">10</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingkeycomponents">Zcash Protocol Specification, Version 2022.3.2. Section 4.2.2: Sapling Key Components</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-orchardkeycomponents" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-28">1</a>,<a role="doc-backlink" href="#footnote-reference-29">2</a>,<a role="doc-backlink" href="#footnote-reference-30">3</a>,<a role="doc-backlink" href="#footnote-reference-32">4</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#orchardkeycomponents">Zcash Protocol Specification, Version 2022.3.2. Section 4.2.3: Orchard Key Components</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-scan" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-37">1</a>,<a role="doc-backlink" href="#footnote-reference-38">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#scan">Zcash Protocol Specification, Version 2022.3.2. Section 4.21: Block Chain Scanning (Sapling and Orchard)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretediversifyhash" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-11">14</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretediversifyhash">Zcash Protocol Specification, Version 2022.3.2. Section 5.4.1.6: DiversifyHash^Sapling and DiversifyHash^Orchard Hash Functions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretespendauthsig" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-19">15</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretespendauthsig">Zcash Protocol Specification, Version 2022.3.2. Section 5.4.7.1: Spend Authorization Signature</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-jubjub" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-10">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#jubjub">Zcash Protocol Specification, Version 2022.3.2. Section 5.4.9.3: Jubjub</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-sproutpaymentaddrencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#sproutpaymentaddrencoding">Zcash Protocol Specification, Version 2022.3.2. Section 5.6.2.1: Sprout Payment Addresses</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-sproutspendingkeyencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#sproutspendingkeyencoding">Zcash Protocol Specification, Version 2022.3.2. Section 5.6.2.3: Sprout Spending Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingfullviewingkeyencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-39">19</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingfullviewingkeyencoding">Zcash Protocol Specification, Version 2022.3.2. Section 5.6.3.3: Sapling Full Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingspendingkeyencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingspendingkeyencoding">Zcash Protocol Specification, Version 2022.3.2. Section 5.6.3.4: Sapling Spending Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-orchardfullviewingkeyencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-40">21</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#orchardfullviewingkeyencoding">Zcash Protocol Specification, Version 2022.3.2. Section 5.6.4.4: Orchard Raw Full Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-orchardspendingkeyencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-42">22</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#orchardspendingkeyencoding">Zcash Protocol Specification, Version 2022.3.2. Section 5.6.4.5: Orchard Spending Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="nist-sp-800-38g" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">23</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://dx.doi.org/10.6028/NIST.SP.800-38G">NIST Special Publication 800-38G — Recommendation for Block Cipher Modes of Operation: Methods for Format-Preserving Encryption</a></p>
+</aside>
+</aside>
+

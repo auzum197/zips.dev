@@ -1,0 +1,505 @@
+<p>No se ha asignado número de ZIP ni actualización de red. Las asignaciones de despliegue y las revisiones pendientes se enumeran más adelante.</p>
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "REQUERIDO (REQUIRED)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" en este documento deben interpretarse como se describe en BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparecen en mayúsculas. Los requisitos de conformidad aparecen en la sección de Especificación.</p>
+<ul>
+<li><strong>ZSV</strong> significa Zcash Stablecoin Vaults.</li>
+<li><strong>zUSD</strong> es el nombre provisional del único activo estable indexado al dólar definido aquí.</li>
+<li><strong>Principal</strong> es la deuda adjunta a una bóveda activa.</li>
+<li><strong>Deuda incobrable</strong> es el pasivo de establecoin que permanece después de que una bóveda se cierra sin quemar todo su principal.</li>
+<li><strong>Oferta estable</strong> incluye todo zUSD no gastado, incluidas las monedas cuyas claves de gasto se han perdido.</li>
+<li>Un <strong>certificado de reporte</strong> es un reporte de precio con las firmas de reportero correspondientes requeridas.</li>
+<li>Una <strong>referencia de bóveda vigente</strong> identifica la transacción que creó su estado más reciente.</li>
+</ul>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta agrega bóvedas nativas de ZEC y una establecoin definida por el protocolo a Zcash. Tomar prestado contra suficiente colateral crea zUSD; el reembolso y la liquidación destruyen zUSD existente y reducen el pasivo correspondiente. El consenso de Zcash aplica la propiedad, la liberación del colateral, la emisión, las quemas y la conservación independiente de ambos activos.</p>
+<p>El protocolo no proporciona registro arbitrario de activos, autoridad de emisor, token de gobernanza ni entorno de ejecución general. Utiliza un formato de transacción dedicado, un grupo de valor de bóvedas de ZEC separado y salidas públicas de zUSD. Los formatos de transacción de ZEC existentes permanecen disponibles bajo sus reglas de consenso aplicables. Las bóvedas y los pagos públicos exponen saldos, montos y relaciones financieras; el zUSD blindado requiere un protocolo posterior especificado y revisado.</p>
+<p>Un quórum fijo de reporteros suministra observaciones de ZEC/USD. El consenso verifica su autenticación y condiciones de validez deterministas, pero no puede establecer su verdad económica. La liquidación total registra como deuda incobrable todo principal no cubierto. No se pueden realizar nuevos préstamos mientras persista la deuda incobrable; los tenedores pueden retirar esa deuda quemando zUSD existente sin compensación. No se crea ningún derecho de redención en dólares ni paridad de mercado garantizada.</p>
+<p>La propuesta es independiente de una asignación o reserva del Dev Fund (Fondo de Desarrollo). Esos mecanismos pueden considerarse por separado. Código de investigación y pruebas económicas respaldan decisiones de diseño seleccionadas; el formato nativo, la autorización y las reglas de despliegue requieren implementación y revisión independiente.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Los tenedores de ZEC pueden desear liquidez denominada en dólares mientras conservan exposición a su colateral restante. Una bóveda nativa les permitiría tomar prestado bajo reglas verificadas por los nodos de Zcash, aceptando el riesgo de liquidación cuando el colateral pierde valor. Los tenedores del activo emitido asumirían el riesgo de colateral, de oráculo, de liquidez y de protocolo.</p>
+<p>Un compromiso de datos por sí solo no puede bloquear ZEC ni crear una establecoin nativa. Los Zcash Shielded Assets (Activos Blindados de Zcash) de propósito general admitirían tokens y emisores no relacionados. ZSV, en cambio, propone un caso de uso monetario con una ruta de emisión cerrada. El dominio de activos más pequeño reduce los casos de emisión, pero la complejidad financiera y de consenso sigue siendo sustancial.</p>
+<p>El beneficio previsto es el préstamo nativo y un activo transferible indexado al dólar sin una interfaz arbitraria de lanzamiento de tokens. Si ese beneficio justifica la dependencia del oráculo, el costo de privacidad y las reglas de consenso adicionales es una cuestión para la revisión de la comunidad.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Implicaciones de privacidad</h1>
+<p>Esta primera versión tiene bóvedas públicas y pagos públicos de la establecoin. Revela el colateral, el principal, las claves del propietario, los montos de pago y los eventos de liquidación. Crear una bóveda a partir de ZEC previamente blindado requiere exponer valor a la ruta de entrada transparente permitida. La reutilización de claves y el análisis del grafo de transacciones pueden vincular el préstamo, los pagos y el reembolso. La liquidación puede revelar dificultades financieras.</p>
+<p>Agregar pagos blindados más adelante no borraría estas revelaciones. Un perfil blindado de activo fijo podría reutilizar técnicas seleccionadas de transferencia, nota y prueba de las ZSA, pero necesitaría sus propias declaraciones de prueba precisas, contabilidad del conjunto de valor y revisión de privacidad. Las auditorías existentes de las ZSA no se aplicarían automáticamente a un circuito modificado. Las bóvedas privadas también requieren que la información de liquidación siga disponible sin la cooperación del prestatario; esta versión no intenta ese diseño.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<p>Los objetivos de diseño son:</p>
+<ul>
+<li>Aplicación del colateral, la deuda, la emisión y la liquidación por el consenso de Zcash, sin puente, cadena de ejecución externa ni comité de custodia.</li>
+<li>Exactamente un activo nativo adicional, emitido únicamente mediante préstamos colateralizados válidos.</li>
+<li>Contabilidad atómica de valor, sin gasto ordinario alternativo del colateral bloqueado y sin borrado oculto de pasivos de la establecoin.</li>
+<li>Reembolso, adiciones de colateral, salida sin deuda y transferencias de pago durante una interrupción del oráculo.</li>
+<li>Validación determinista específica de la rama, trabajo acotado y comportamiento equivalente entre implementaciones.</li>
+<li>Continuidad de la actividad ordinaria de ZEC sin exigir que usuarios no relacionados presenten operaciones de ZSV.</li>
+<li>Operación de las bóvedas definida sin reserva, asignación del Dev Fund ni clave privilegiada de recuperación.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<p>Esta propuesta no agrega emisores arbitrarios, descripciones de activos, NFT, una VM, un token de gobernanza, un puente ni custodia externa. No impide reclamaciones fuera del protocolo, inscripciones, derivados o especulación. No asigna recompensas de bloque ni valor del NSM, no establece una redención en dólares a demanda, ni promete que zUSD se negocie a un dólar.</p>
+<p>La asignación del Dev Fund y la estabilización con reserva son trabajos candidatos separados. Los pagos blindados y la estandarización de direcciones de billetera pueden requerir ZIPs complementarios. Las reglas del oráculo son parte de esta propuesta central; no son un servicio opcional que un nodo pueda configurar de manera diferente.</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="scope-and-activation-parameters"><a class="hanchor" href="#scope-and-activation-parameters" aria-hidden="true" tabindex="-1">#</a>Alcance y parámetros de activación</h2>
+<p>Esta especificación define una nueva versión de transacción dedicada con un dominio fijo de ZEC/zUSD. No modifica el significado de una versión de transacción asignada ni habilita la emisión general de ZSA. El despliegue asigna sus identificadores de versión/grupo, contexto de rama de consenso, alturas de activación y lista fija de oráculos. Hasta que existan esas asignaciones y la implementación/revisión requeridas, esto es una propuesta no activada.</p>
+<p>Los validadores DEBEN (MUST) rechazar el nuevo formato antes de su activación específica de la red. Después de la activación, las versiones ordinarias de transacción de ZEC DEBEN (MUST) conservar sus reglas de validación aplicables. El nuevo formato NO DEBE (MUST NOT) interpretarse como el formato v6 existente ni como el retirado ZIP 230. Un formato existente asignado no está disponible para reasignación por este borrador. El formato existente y la línea base de integración con Zebra están registrados en las fuentes fijadas. <sup><a href="#user-content-fn-sources" id="user-content-fnref-sources" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>En la activación, el conjunto de bóvedas de ZSV y el conjunto de UTXO públicos de zUSD están vacíos, la oferta estable y la deuda incobrable son cero, y ningún reporte de precio está activo. La activación NO DEBE (MUST NOT) crear ZEC, zUSD, un saldo de reserva ni una asignación privilegiada. El préstamo permanece no disponible hasta que se acepte un certificado de reporte válido.</p>
+<h2 id="encoding-conventions-and-bounds"><a class="hanchor" href="#encoding-conventions-and-bounds" aria-hidden="true" tabindex="-1">#</a>Convenciones y límites de codificación</h2>
+<p>Todos los enteros son little-endian sin signo, salvo que se indique lo contrario. Los hash son 32 bytes crudos de digest de consenso, no hex de visualización invertido. Una clave comprimida secp256k1 K tiene exactamente 33 bytes: prefijo 02 o 03 seguido de la codificación canónica de campo de la coordenada x de un punto válido distinto del infinito. Las claves inválidas o no canónicas fallan. Las salidas de nuevos activos no tienen script, metadatos arbitrarios ni identificador de activo.</p>
+<p>Los conteos son CompactSize canónicos. Cada conteo de abajo es a lo sumo 64, por lo que su única codificación válida es un byte. Las entradas de pago resueltas y las salidas de pago recién creadas tienen valores estrictamente positivos. El cero está permitido solo en campos de operación que lo permitan explícitamente. Cada valor de pago en ZEC, las sumas de entrada/salida en ZEC de cada transacción y los lados del balance de valor, y el saldo persistente del conjunto de bóvedas DEBEN (MUST) caber en MAX_MONEY = 2,100,000,000,000,000 zatoshi. Cada valor de pago en zUSD, las sumas de entrada/salida estables de cada transacción y los lados del balance de valor, y la oferta estable persistente DEBEN (MUST) caber en S_MAX = 100,000,000,000 micro-zUSD. Estos son límites por transacción y de estado; no limitan la suma de todas las transferencias en un bloque, que puede reutilizar valor mediante dependencias válidas dentro del mismo bloque. Los límites firmados de quema máxima y recibo mínimo son límites u64 sin signo, no un valor adicional de entrada o salida. Una transacción ZSV serializada, incluida su autorización, tiene a lo sumo 65,536 bytes. Los límites existentes de tamaño de bloque siguen en vigor. Cada bloque contiene a lo sumo 256 transacciones de esta nueva versión, a lo sumo 1,024 ranuras de firma secp256k1 requeridas en total, y a lo sumo 4,096 entradas de salida nuevas, tanto nativas de ZEC como estables, en total. Las ranuras cuentan las firmas de entrada nativas, las firmas de entrada estables y cualquier firma de operación, sean válidas o no; las salidas cuentan ambos vectores de salida explícitos. El oráculo permite a lo sumo un certificado y a lo sumo 7 firmas de reporte Ed25519 por bloque. Verifique estos conteos antes de la verificación de firmas y la inserción de estado. Estos son límites exactos propuestos, no recomendaciones de producción calibradas por puntos de referencia. No hay un límite de UTXO de por vida ni una lista de billeteras permitidas.</p>
+<p>El cálculo de comisión/residuo usa aritmética con signo verificada de ancho suficiente. Los productos centrales de razón de colateral y de liquidación usan u128 verificada. Un formato nuevo no tiene entrada coinbase, paquete blindado, JoinSplit, vector de script general, selector de activos ni campo de extensión opaco opcional.</p>
+<h2 id="effect-body-e"><a class="hanchor" href="#effect-body-e" aria-hidden="true" tabindex="-1">#</a>Cuerpo de efecto E</h2>
+<p>En las tablas de codificación, <code>+</code> denota concatenación de bytes, y los campos se listan en orden de transmisión.</p>
+<p>Una transacción consiste en E seguido inmediatamente de su cola de autorización A, sin bytes finales. E es:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Bytes / regla</th></tr></thead><tbody><tr><td>header</td><td>u32: bit alto 1; los 31 bits restantes son iguales al ZSV_VERSION no asignado</td></tr><tr><td>versionGroupId</td><td>u32: ZSV_VERSION_GROUP_ID no asignado</td></tr><tr><td>consensusBranchId</td><td>u32: exactamente el ID de rama de la actualización activa</td></tr><tr><td>lockTime</td><td>u32, requerido 0</td></tr><tr><td>expiryHeight</td><td>u32, H&#x3C;=expiryHeight&#x3C;500,000,000 y expiryHeight>0, donde H es la altura de inclusión</td></tr><tr><td>nZecInputs</td><td>CompactSize,0..64</td></tr><tr><td>zecInputs</td><td>nZecInputs*(prevTxid32 + prevOutputIndexu32)</td></tr><tr><td>nZecOutputs</td><td>CompactSize,0..64</td></tr><tr><td>zecOutputs</td><td>nZecOutputs*(valueu64 + recipientKey33)</td></tr><tr><td>nStableInputs</td><td>CompactSize,0..64</td></tr><tr><td>stableInputs</td><td>nStableInputs*(prevTxid32 + prevOutputIndexu32)</td></tr><tr><td>nStableOutputs</td><td>CompactSize,0..64</td></tr><tr><td>stableOutputs</td><td>nStableOutputs*(valueu64 + recipientKey33)</td></tr><tr><td>operationTag</td><td>u8, uno de 0..5 a continuación</td></tr><tr><td>operationPayload</td><td>exactamente la carga útil de la etiqueta</td></tr><tr><td>hasOracle</td><td>u8, exactamente 0 o 1</td></tr><tr><td>oracleEffects</td><td>ausente si es 0; si es 1, los 45 bytes exactos de efectos de certificado a continuación</td></tr></tbody></table>
+<p>Los números de secuencia de las entradas nativas son implícitamente finales (0xffffffff); no tienen campo en el formato de transmisión. Las salidas nativas crean UTXOs de ZEC transparente ordinarios con el script estándar exacto <code>0x21||recipientKey33||0xac</code> (P2PK). La entrada debe resolver a una salida transparente real no gastada cuyo script de bloqueo coincida con esa gramática P2PK exacta. Su valor proviene del estado de la rama nativa, no de los datos de la transacción. Las reglas existentes de madurez de coinbase, gasto duplicado, rango de dinero y demás reglas aplicables a entradas nativas continúan aplicándose. Las versiones existentes de transacciones de ZEC y sus scripts aceptados permanecen sin cambios; los usuarios pueden enviar ZEC a una salida P2PK mediante una transacción ordinaria antes de usarla aquí.</p>
+<p>Las salidas estables crean entradas únicamente en el nuevo espacio de nombres de UTXOs de pago de zUSD. No son salidas transparentes nativas de ZEC. Los índices de entradas estables resuelven únicamente en ese espacio de nombres. Los espacios de nombres nativo y estable de <code>(txid,index)</code> son distintos: una tupla de bytes igual no hace intercambiables los dos activos. Toda entrada debe existir, estar no gastada en la rama candidata exacta, tener un valor positivo dentro de rango y tener la propiedad esperada de clave fija. Los outpoints repetidos dentro de un espacio de nombres fallan. Las dependencias dentro del mismo bloque usan salidas de transacciones previamente validadas en orden de bloque.</p>
+<p>Solo se permite una operación opcional. La etiqueta 0 significa NONE y no tiene carga útil; permite transferencias estables puras. Si hasOracle=0 y tag=NONE, se requiere al menos una entrada estable. Si hasOracle=1, tag debe ser NONE y ambos contadores estables deben ser 0. Las entradas y salidas nativas de comisión permanecen permitidas en una transacción de oráculo. Otros usos vacíos de la nueva versión fallan; las transacciones ordinarias de ZEC continúan usando sus formatos existentes.</p>
+<h2 id="vault-state-and-operation-payloads"><a class="hanchor" href="#vault-state-and-operation-payloads" aria-hidden="true" tabindex="-1">#</a>Estado de bóveda y cargas útiles de operación</h2>
+<p>Una bóveda vigente se almacena en un depósito de valor de bóvedas de ZEC dedicado, con clave en su <code>VaultRef</code>, el txid de efectos de 32 bytes sin procesar del OPEN o UPDATE que la creó. Dado que cada transacción tiene a lo sumo una operación, no se necesita índice de operación. El registro de estado es <code>(ownerKey33, collateralu64, principalu64)</code>. OPEN/UPDATE crean un sucesor en su propio txid; UPDATE consume la referencia previa y conserva su propietario. CLOSE/LIQUIDATE consumen sin dejar sucesor. Las referencias vigentes son únicas; insertar una referencia vigente existente falla.</p>
+<p>El colateral de la bóveda no es también una salida transparente ordinaria. No hay script de colateral OP_TRUE ni duplicado gastable. Su monto entra en el depósito de valor de bóvedas de ZEC nativo y puede salir solo mediante una operación válida y la ecuación de comisión a continuación. Todas las rutas de nodo necesitan esta contabilidad, incluida la finalización directa/puntos de control; los gastos nativos ordinarios pueden resolver únicamente UTXOs nativos reales, nunca el depósito de bóvedas.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Etiqueta</th><th>Carga útil</th></tr></thead><tbody><tr><td>0 NONE</td><td>vacío</td></tr><tr><td>1 OPEN</td><td>ownerKey33 + newCollateralu64 + newPrincipalu64 + oracleID32</td></tr><tr><td>2 UPDATE</td><td>priorVaultRef32 + newCollateralu64 + newPrincipalu64 + oracleID32 + ownerPayoutIndexu32</td></tr><tr><td>3 CLOSE</td><td>priorVaultRef32 + ownerPayoutIndexu32</td></tr><tr><td>4 LIQUIDATE</td><td>priorVaultRef32 + oracleID32 + maxBurnu64 + minCollateralu64 + liquidatorKey33 + ownerPayoutIndexu32 + liquidatorPayoutIndexu32</td></tr><tr><td>5 RETIRE_BAD_DEBT</td><td>burnAmountu64</td></tr></tbody></table>
+<p>OracleID es el identificador exacto de la observación de precios seleccionada por el bloque padre, definida por la especificación del oráculo. Para OPEN con D=0, y para UPDATE sin un requisito de precio, oracleID es exactamente 32 bytes cero. Una operación que requiere precio usa el ID activo distinto de cero; no se acepta ninguna observación alternativa ni obsoleta. Esto evita que una observación irrelevante restrinja innecesariamente el reembolso/depósito sin oráculo, y hace que su codificación en el canal sea única.</p>
+<p>OPEN requiere C>0. UPDATE requiere C'>0 y un par <code>(C,D)</code> modificado; <code>(0,0)</code> usa CLOSE. Un D' distinto de cero debe satisfacer la regla de deuda mínima. La clave de autorización del propietario para OPEN es su clave codificada; UPDATE/CLOSE usan el propietario del estado previo real. LIQUIDATE usa su clave de liquidador codificada. RETIRE no tiene firma de propietario de la operación: la autorización de las entradas estables reales controla la quema.</p>
+<p>Un índice de pago obligatorio nombra una salida nativa ordinaria de ZEC en esta misma transacción. La salida nombrada debe tener exactamente el monto requerido y el destinatario P2PK exacto. UPDATE con C'&#x3C;C requiere un pago de C-C' al propietario inmutable. UPDATE sin colateral liberado usa el valor centinela 0xffffffff. CLOSE paga exactamente oldC al propietario. Toda bóveda vigente válida tiene colateral positivo, por lo que este pago siempre usa un índice de salida. LIQUIDATE paga z al liquidador y C-z al propietario. Un pago requerido de cero usa el valor centinela 0xffffffff y no consume ninguna salida. Un pago positivo requiere un índice dentro del rango; el valor centinela es inválido. Ambos índices de pago de liquidación positivos deben ser distintos, incluso en el caso de auto-liquidación cuando ownerKey=liquidatorKey. Una salida no puede satisfacer dos pagos obligatorios. Las salidas nativas adicionales siguen permitidas y quedan cubiertas por todas las firmas y por la conservación de valor.</p>
+<p>Los pagos exactos de colateral no pueden pagar comisiones de forma silenciosa. Cualquier comisión residual positiva debe ser aportada por otro valor nativo real (normalmente entradas de ZEC libres). Las salidas estables acuñadas pueden usar cualquier clave de destinatario válida elegida en la transacción completamente firmada: tomar prestado y enviar valor a otro destinatario puede ser atómico. No se infiere ningún monto a partir de un memo ni de un saldo declarado por el llamador.</p>
+<h2 id="per-asset-value-equations"><a class="hanchor" href="#per-asset-value-equations" aria-hidden="true" tabindex="-1">#</a>Ecuaciones de valor por activo</h2>
+<p>Defínase C_before como el colateral real previo de la bóveda, o 0 para NONE/OPEN/RETIRE; C_after es el colateral codificado de OPEN/UPDATE, o 0 para NONE/CLOSE/LIQUIDATE/RETIRE. Sean Mint y Burn provenientes únicamente de la operación núcleo validada:</p>
+<ul>
+<li>OPEN: Mint=D', Burn=0.</li>
+<li>UPDATE: Mint=max(D'-D,0), Burn=max(D-D',0).</li>
+<li>CLOSE: Mint=0, Burn=D (close puede reembolsar atómicamente todo el principal).</li>
+<li>LIQUIDATE: Mint=0, Burn=x según la fórmula de liquidación exacta especificada.</li>
+<li>RETIRE_BAD_DEBT: Mint=0, Burn=r, con 0 &#x3C; r &#x3C;= B en la entrada de la transacción.</li>
+<li>NONE: Mint=Burn=0.</li>
+</ul>
+<p>Luego, exíjase:</p>
+<pre><code>sum(stableInputs) + Mint = sum(stableOutputs) + Burn
+Fee = sum(nativeZecInputs) + C_before - C_after - sum(nativeZecOutputs)
+0 &#x3C;= Fee &#x3C;= MAX_MONEY
+</code></pre>
+<p>La comisión se cuenta en la contabilidad ordinaria de comisiones/coinbase de ZEC, incluida cualquier regla de disposición de comisiones activa por separado. El valor estable no puede pagarla. Estas reglas no introducen una comisión mínima de consenso positiva; la política de comisiones de retransmisión/minería sigue siendo separada. El conjunto de valor de la bóveda cambia en C_after-C_before, y el suministro estable total cambia en Mint-Burn. Los cambios en el principal vigente y el manejo de deuda incobrable siguen el núcleo; RETIRE disminuye B y S juntos sin tocar el colateral ni el principal activos. Tomar prestado requiere B=0 en la entrada de la transacción, por lo que no puede autofinanciarse con otra operación en la misma transacción (y solo se permite una operación).</p>
+<h2 id="hashes-and-authorization"><a class="hanchor" href="#hashes-and-authorization" aria-hidden="true" tabindex="-1">#</a>Hashes y autorización</h2>
+<p>Sea <code>H(label,bytes)</code> BLAKE2b-256 con la etiqueta ASCII rellenada a la derecha con bytes cero hasta una personalización de 16 bytes. Todas las etiquetas siguientes son exactas y sensibles a mayúsculas; no se añade ningún NUL a los bytes del mensaje. Sea G el hash de 32 bytes sin procesar del bloque génesis de la red configurada. G proviene de la configuración de red confiable, nunca de datos de la transacción. Por lo tanto, las API de hash necesitan contexto de red explícito; los ID de rama por sí solos no distinguen Mainnet de Testnet. El encabezado ya compromete el ID de rama.</p>
+<pre><code>txid = H("ZSV_TxId_v1", G || E)
+contextHash = H("ZSV_Context_v1", R)
+signatureDigest(role,index) = H("ZSV_Sign_v1", G || txid || contextHash || u8(role) || u16LE(index))
+authDigest = H("ZSV_Auth_v1", txid || A)
+</code></pre>
+<p>R es el contexto de entrada resuelto autoritativo, codificado en este orden exacto:</p>
+<pre><code>CompactSize(nZecInputs)
+  for each native input, in wire order:
+    prevTxid32 || prevOutputIndexu32 || actualValueu64 || actualP2pkKey33
+CompactSize(nStableInputs)
+  for each stable input, in wire order:
+    prevTxid32 || prevOutputIndexu32 || actualValueu64 || actualOwnerKey33
+u8(hasPriorVault)  # 1 for UPDATE/CLOSE/LIQUIDATE, else 0
+  if 1: priorVaultRef32 || actualOwnerKey33 || actualCollateralu64 || actualPrincipalu64
+</code></pre>
+<p>Ningún valor/clave de prevout ni registro de bóveda previo suministrado por el llamador puede reemplazar estas búsquedas de estado. Las firmas vinculan cada efecto, referencia de entrada, valor, clave, operación, límite de oráculo y pago. No hay modos SIGHASH seleccionables ni ningún punto de control implícito del estado completo del padre. Los mismos efectos sobre las mismas entradas vigentes pueden ser válidos en ramas competidoras cuando las reglas contextuales de oráculo/vencimiento/política también se cumplen; este es un comportamiento normal de fork, no una repetición entre redes o actualizaciones.</p>
+<p>Una autorización secp256k1 consiste en <code>u8(signatureLength) ||strictDER(signature)</code>, con longitud 8..72. El DER es la codificación ASN.1 válida más corta del par ECDSA; se requiere un DER canónico de ida y vuelta, 1&#x3C;=r&#x3C;n y 1&#x3C;=s&#x3C;=floor(n/2), donde n es el orden del subgrupo secp256k1. No se permite ningún byte de tipo de hash añadido, ningún código de operación de push adicional ni datos finales. Verifíquese ECDSA contra el resumen de 32 bytes indicado y la clave autoritativa. Low-S y el DER mínimo son reglas de consenso para esta versión.</p>
+<p>A contiene exactamente estos espacios, sin conteos ni relleno:</p>
+<ol>
+<li>Una firma por cada entrada nativa, en orden de transmisión, rol 0/índice 0..nZecInputs-1, verificada con su clave P2PK real.</li>
+<li>Una firma por cada entrada estable, en orden de transmisión, rol 1/índice 0..nStableInputs-1, verificada con su clave de propietario real.</li>
+<li>Para OPEN/UPDATE/CLOSE/LIQUIDATE, exactamente una firma de operación, rol 2/índice 0, usando la clave de autorización de operación definida anteriormente. NONE/RETIRE no tienen ese espacio.</li>
+<li>Si hasOracle=1, exactamente popcount(signerMask) firmas de informe Ed25519 sin procesar de 64 bytes en orden ascendente de índice del conjunto de reporteros, bajo las reglas de validación separadas de mensaje de oráculo/ZIP215.</li>
+</ol>
+<p>Un firmante puede aparecer en varios roles; cada rol requerido tiene su propio espacio de firma. Esto evita tratar una firma de entrada de comisión como autoridad sobre una bóveda no relacionada. El txid de efectos excluye todas las firmas, lo que permite construir transacciones dependientes antes de la autorización. authDigest compromete la cola completa. Para esta versión, la hoja del árbol Merkle de la transacción es txid, y la hoja correspondiente del árbol de datos de autorización de ZIP244 es authDigest. Los algoritmos existentes de Merkle y de compromiso de bloque no cambian. No es una hoja de marcador de posición previa a v5. La retransmisión testificada de ZIP239 trata esta versión como portadora de testigo: wtxid son los 64 bytes exactos txid||authDigest, en orden de resumen sin procesar. Las reglas de despacho por versión se extienden en consecuencia; los hash de versiones anteriores y su comportamiento de retransmisión no cambian. En la fuente fijada de Zebra, estos roles corresponden a <code>zebra-chain/src/block/merkle.rs::AuthDataRoot</code>, <code>block/commitment.rs</code> y <code>transaction/hash.rs::WtxId</code> (cuya conversión de bytes concatena estos dos hash de 32 bytes). <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> <sup><a href="#user-content-fn-zip-0239" id="user-content-fnref-zip-0239" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<h2 id="oracle-effects-integration"><a class="hanchor" href="#oracle-effects-integration" aria-hidden="true" tabindex="-1">#</a>Integración de efectos de oráculo</h2>
+<p>La estructura de efectos de oráculo es:</p>
+<pre><code>observedHeightu32 || observedBlockHash32 || priceu64 || signerMasku8
+</code></pre>
+<p>Esto es 45 bytes. El bit alto de la máscara es 0 y el popcount es 5..7 para la lista fija de siete reporteros del despliegue. El ID de lista activo se deriva de las claves ordenadas especificadas y no se repite en la transmisión. Las firmas del oráculo vinculan su mensaje separado de red/rama/lista/informe. El OracleID excluye la máscara de firmantes/firmas, de modo que quórums válidos distintos sobre contenido idéntico identifican la misma observación. Las reglas de Oracle siguientes proporcionan las reglas exactas de ascendencia, antigüedad, orden y rotación.</p>
+<h2 id="units-ranges-and-arithmetic"><a class="hanchor" href="#units-ranges-and-arithmetic" aria-hidden="true" tabindex="-1">#</a>Unidades, rangos y aritmética</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Símbolo</th><th>Valor o definición propuestos</th></tr></thead><tbody><tr><td>q</td><td>100.000.000 zatoshi por ZEC</td></tr><tr><td>m</td><td>1.000.000 micro-zUSD por zUSD</td></tr><tr><td>C</td><td>Colateral de la bóveda en zatoshi; 0 &#x3C;= C &#x3C;= MAX_MONEY</td></tr><tr><td>MAX_MONEY</td><td>21,000,000 * q = 2,100,000,000,000,000 zatoshi, sujeto a la regla de cantidad de ZEC nativo del protocolo base</td></tr><tr><td>D</td><td>Principal de la bóveda en micro-zUSD</td></tr><tr><td>P</td><td>Micro-USD aceptados por ZEC; entero 1 &#x3C;= P &#x3C;= 2^64 - 1</td></tr><tr><td>D_MIN</td><td>100 * m = 100,000,000 micro-zUSD</td></tr><tr><td>S_MAX</td><td>100,000 * m = 100,000,000,000 micro-zUSD</td></tr><tr><td>R_OPEN</td><td>250 por ciento</td></tr><tr><td>R_LIQ</td><td>200 por ciento</td></tr><tr><td>K_LIQ</td><td>105 por ciento, incluido el bono de liquidación del 5 por ciento</td></tr><tr><td>S</td><td>Suministro de zUSD nativo en circulación</td></tr><tr><td>B</td><td>Deuda incobrable explícita</td></tr></tbody></table>
+<p>Estos valores de apertura, liquidación, bono, piso de deuda y tope de suministro son valores provisionales fijos tomados del prototipo. En particular, el pequeño tope de suministro inicial acota los pasivos nominales en circulación; no demuestra su valor en dólares ni su seguridad económica. Cambiar un valor requiere el cambio de consenso versionado definido por la especificación de activación; no existe ningún definidor en tiempo de ejecución por parte del operador.</p>
+<p>Todos los importes monetarios codificados son enteros sin signo. Las sumas y restas DEBEN (MUST) rechazar desbordamiento o subdesbordamiento. Los productos y las divisiones en las reglas siguientes DEBEN (MUST) producir el resultado entero matemático exacto. Una implementación con enteros sin signo de 128 bits y verificación es suficiente para estos rangos: incluso MAX_MONEY * (2^64 - 1) * 100 es menor que 2^128. No se permite punto flotante, aritmética saturante, truncamiento silencioso, razón aproximada ni una validez dependiente del desbordamiento.</p>
+<p><code>floor_div(a,b)</code> es el piso entero para a >= 0 y b > 0. <code>ceil_div(a,b)</code> es <code>a / b + (a % b != 0)</code> usando cociente y residuo enteros. Una implementación que use <code>a + b - 1</code> debe establecer que el intermedio no se desborda.</p>
+<p>Una bóveda con deuda es segura para apertura/retiro exactamente cuando:</p>
+<pre><code>C * P * 100 >= D * q * 250
+</code></pre>
+<p>Una bóveda es liquidable exactamente cuando D > 0 y:</p>
+<pre><code>C * P * 100 &#x3C; D * q * 200
+</code></pre>
+<p>La igualdad en 250 por ciento pasa la prueba de apertura. La igualdad en 200 por ciento no es liquidable. Las operaciones de bóveda sin deuda no necesitan un precio de conversión.</p>
+<h2 id="state-and-transaction-shape"><a class="hanchor" href="#state-and-transaction-shape" aria-hidden="true" tabindex="-1">#</a>Estado y forma de la transacción</h2>
+<p>En la activación, el nuevo grupo de valor, el conjunto de bóvedas, S y B comienzan vacíos/en cero. El ZEC existente no se reemite en un componente confiado. Las reglas ordinarias de autorización de entradas nativas y de suministro de ZEC siguen aplicándose.</p>
+<p>Cada bóveda activa tiene una clave de autorización del propietario inmutable, un colateral C > 0, un principal D y una referencia nativa actual. D DEBE (MUST) ser cero o al menos D_MIN. La propuesta de formato de datos define una referencia actual como únicamente el identificador de la transacción que la crea, porque cada transacción tiene a lo sumo una operación financiera. Una transición consume la referencia actual una sola vez y crea a lo sumo una sucesora. Una referencia gastada o inexistente no puede revivirse afirmando sus saldos anteriores.</p>
+<p>Una transacción nativa contiene a lo sumo una operación financiera opcional: NONE, OPEN, UPDATE, CLOSE, LIQUIDATE o RETIRE_BAD_DEBT. También puede contener entradas/salidas permitidas de ZEC nativo y entradas/salidas de zUSD nativo. NONE permite una transferencia ordinaria de zUSD sin emisión ni quema. OPEN incorpora el préstamo inicial; CLOSE incorpora el reembolso total. Esto da apertura/préstamo y reembolso/cierre atómicos sin un programa arbitrario ni una lista de acciones.</p>
+<p>Una transacción con NONE y sin certificado de oráculo requiere al menos una entrada de zUSD, como lo especifica la gramática de formato de datos. Las transacciones ordinarias de ZEC no relacionadas siguen siendo válidas bajo sus reglas de formato existentes.</p>
+<p>El propietario firma el cuerpo completo de la transacción autorizada y los valores previos resueltos pertinentes bajo el nuevo dominio de firma nativo. La selección del destinatario para el zUSD recién prestado queda cubierta por esa firma. Esto es equivalente en efecto financiero al Borrow seguido de Transfer del modelo, aunque el modelo acredita primero al propietario. Ninguna conversión entre identidades Ed25519 y secp256k1, mapa de claves modelo/nativo preregistrado, dominio de cadena de fixture, nonce de cuenta o intención de estado padre completo es adoptada por estas reglas centrales.</p>
+<p>Para cada transacción defínase el valor de entrada de zUSD nativo I_s, el valor de salida nativo O_s, la emisión permitida M y la quema permitida R. El balance de valor de estable nativo requerido es:</p>
+<pre><code>I_s + M = O_s + R
+</code></pre>
+<p>Solo las reglas explícitas de abajo autorizan M o R. La omisión de una salida, un memo, un campo de quema declarado o una clave inaccesible no constituyen una quema contable. S cuenta el valor total de las salidas de zUSD no gastadas reconocidas por el consenso, incluidas las salidas cuyas claves privadas se han perdido.</p>
+<p>Para una transacción que cambia una bóveda, escríbase C_old = 0 para OPEN y C_new = 0 para CLOSE/LIQUIDATE. Su balance de ZEC es:</p>
+<pre><code>I_zec + C_old = O_zec + C_new + F_zec
+</code></pre>
+<p>Para NONE y RETIRE_BAD_DEBT ambos términos de colateral son cero. F_zec es una comisión de transacción nativa no negativa contabilizada por las reglas ordinarias de comisiones de bloque/coinbase. No se autoriza ninguna comisión en zUSD, subsidio de colateral ni aumento del suministro de ZEC. La política normal de retransmisión/minería puede exigir una comisión positiva; esta ecuación no inventa un mínimo positivo de consenso. Los pagos exactos de colateral indexados descritos abajo no pueden tener comisiones sustraídas de ellos silenciosamente.</p>
+<p>Después de cada transacción ordenada:</p>
+<pre><code>S = sum(live vault principal) + B
+S = sum(value in native unspent zUSD outputs)
+vaultPoolBalance = sum(live vault collateral)
+0 &#x3C;= vaultPoolBalance &#x3C;= MAX_MONEY
+0 &#x3C;= S &#x3C;= S_MAX
+0 &#x3C;= B &#x3C;= S
+</code></pre>
+<p>La segunda igualdad es reemplazada únicamente por una igualdad de grupo de valor público/blindado especificada explícitamente en una extensión blindada posterior. No es un requisito determinar si un propietario todavía conoce una clave privada.</p>
+<h2 id="oracle-use"><a class="hanchor" href="#oracle-use" aria-hidden="true" tabindex="-1">#</a>Uso del oráculo</h2>
+<p>Una operación dependiente del precio DEBE (MUST) vincular el identificador exacto de informe canónico aceptado por la especificación del oráculo, no meramente una altura o un precio afirmado por el llamador. DEBE (MUST) rechazar si ese informe está ausente, ya no es canónico o está fuera de su ventana permitida de validez/anclaje. Las reglas del oráculo de abajo usan siete reporteros configurados, cinco firmas coincidentes y una edad máxima de observación anclada de doce bloques. Esas reglas de aceptación y ordenamiento se especifican en las reglas del oráculo de abajo, y no se redefinen aquí.</p>
+<p>Las operaciones sin requisito de precio usan el identificador de oráculo canónico cero/ausente especificado por el formato de datos. El reembolso, la adición de colateral sin préstamo, el retiro/cierre sin deuda, la transferencia ordinaria y el retiro de deuda incobrable siguen siendo posibles durante interrupciones del oráculo. Ningún validador obtiene un precio de la web ni usa su reloj local.</p>
+<h2 id="open"><a class="hanchor" href="#open" aria-hidden="true" tabindex="-1">#</a>OPEN</h2>
+<p>OPEN suministra C_new > 0, autorización inmutable del propietario y D_new. El propietario autoriza la transacción. Las entradas de ZEC nativo financian C_new mediante el balance de valor de arriba; el colateral existente no puede permanecer simultáneamente gastable en otra parte.</p>
+<p>D_new DEBE (MUST) ser cero o al menos D_MIN. Si D_new > 0, B a la entrada de la transacción DEBE (MUST) ser cero; se requiere el informe canónico exacto fresco; la desigualdad de 250 por ciento DEBE (MUST) cumplirse para (C_new,D_new); y S + D_new DEBE (MUST) ser &#x3C;= S_MAX. Establézcase M = D_new, R = 0, S' = S + D_new y B' = B. Si D_new = 0, no se requiere ningún oráculo.</p>
+<h2 id="update"><a class="hanchor" href="#update" aria-hidden="true" tabindex="-1">#</a>UPDATE</h2>
+<p>UPDATE consume una bóveda actual y retiene a su propietario. Sea delta_C = C_new - C_old y delta_D = D_new - D_old, entendidos como diferencias con signo matemáticas y no como un cálculo sin signo con envolvimiento.</p>
+<p>C_new DEBE (MUST) ser estrictamente positivo. D_new DEBE (MUST) ser cero o >= D_MIN. Un par sin cambios (C_new,D_new) = (C_old,D_old) se rechaza. Una transición a (0,0) usa CLOSE; no se retiene ninguna bóveda activa vacía. Estas restricciones eliminan dos formas sucesoras innecesarias aceptadas por el prototipo de cuentas y son cambios explícitos propuestos de codificación/estado.</p>
+<p>Si delta_D > 0, B a la entrada de la transacción DEBE (MUST) ser cero, DEBE (MUST) vincularse un informe canónico exacto fresco, el estado final DEBE (MUST) satisfacer la desigualdad de 250 por ciento, y S + delta_D DEBE (MUST) ser &#x3C;= S_MAX. Establézcase M = delta_D y R = 0.</p>
+<p>Si delta_D &#x3C; 0, quémese R = -delta_D de zUSD nativo real y establézcase M = 0. Si delta_D = 0, ambos son cero. No existe perdón de deuda autorizado por el propietario. Un reembolso que deja la deuda estrictamente entre cero y D_MIN es inválido.</p>
+<p>Si C_new &#x3C; C_old y D_new > 0, también se requieren un informe canónico exacto fresco y la desigualdad final de 250 por ciento, incluso cuando la deuda disminuye. Si C_new &#x3C; C_old, el pago indexado al propietario DEBE (MUST) ser igual a C_old - C_new; DEBE (MUST) usar el bloqueo de pago nativo prescrito del propietario. Si C_new >= C_old, no existe pago por liberación de colateral. Los depósitos financian el aumento mediante entradas nativas.</p>
+<p>Establézcase S' = S + M - R y B' = B. La autorización del propietario es requerida para todas las formas de UPDATE, incluidos el depósito puro y el reembolso puro, en consonancia con la política de referencia. Una futura facilidad de reembolso/depósito por terceros requiere un cambio explícito; no se infiere silenciosamente de la ausencia de liberación de colateral.</p>
+<h2 id="close"><a class="hanchor" href="#close" aria-hidden="true" tabindex="-1">#</a>CLOSE</h2>
+<p>CLOSE consume una bóveda actual, requiere la autorización de su propietario, quema exactamente R = D_old de zUSD nativo real, paga exactamente C_old al pago nativo indexado del propietario y no crea ningún sucesor. M = 0, S' = S - D_old y B' = B. No necesita oráculo incluso cuando D_old > 0 porque toda la deuda se paga en la misma transacción.</p>
+<p>Esto combina el Repay (deuda completa) del modelo existente seguido de Close. El Close autónomo del modelo requiere que la deuda ya sea cero; la codificación nativa combinada no perdona el principal antiguo.</p>
+<h2 id="liquidate"><a class="hanchor" href="#liquidate" aria-hidden="true" tabindex="-1">#</a>LIQUIDATE</h2>
+<p>LIQUIDATE consume y cierra una bóveda actual. Requiere el informe canónico exacto fresco, D_old > 0 y la desigualdad estricta de liquidación de 200 por ciento. La autorización del prestatario no es necesaria. El liquidador autoriza la transacción completa y puede ser cualquier tenedor, incluido el prestatario.</p>
+<p>Calcúlese usando la C y la D originales:</p>
+<pre><code>x = min(D, floor_div(C * P * 100, q * 105))
+z = ceil_div(x * q * 105, P * 100)
+</code></pre>
+<p>El verificador DEBE (MUST) establecer 0 &#x3C;= z &#x3C;= C. DEBE (MUST) requerir x &#x3C;= signed_max_burn y z >= signed_min_collateral. R = x y M = 0. La transacción consume zUSD nativo real suficiente para x y devuelve el cambio permitido mediante la ecuación de valor estable.</p>
+<p>El pago indexado al liquidador DEBE (MUST) ser exactamente z zatoshi bajo la clave de pago firmada del liquidador. El pago indexado al propietario DEBE (MUST) ser exactamente C-z bajo la clave de pago inmutable del propietario. Los índices de pago DEBEN (MUST) ser inequívocos y no pueden contar la misma salida dos veces; la convención del valor centinela cero está especificada por el formato de transmisión. No queda ninguna bóveda sucesora.</p>
+<p>Establézcase:</p>
+<pre><code>S' = S - x
+B' = B + (D - x)
+</code></pre>
+<p>Esto retiene la política de liquidación de bóveda completa y el redondeo del modelo. Si x = 0, z = 0 y la operación sigue siendo válida cuando los límites firmados lo permiten. No se requiere entonces ninguna entrada de zUSD únicamente por la quema cero, y el propietario recibe C; toda la D se convierte en deuda incobrable. Las reglas nativas de comisión/valor de ZEC siguen aplicándose. No se afirma que alguien tenga un incentivo económico para presentar esa liquidación de polvo.</p>
+<p>La liquidación con zUSD real insuficiente del liquidador se rechaza; no reduce x al saldo del llamador ni deja silenciosamente una bóveda parcial. Una caída de precio puede crear B > 0 incluso con reportadores honestos y ejecución inmediata.</p>
+<h2 id="retire_bad_debt"><a class="hanchor" href="#retire_bad_debt" aria-hidden="true" tabindex="-1">#</a>RETIRE_BAD_DEBT</h2>
+<p>Esta nueva operación propuesta hace posible la recuperación sin una reserva ni un reinicio privilegiado. Un tenedor elige un entero r que satisface 0 &#x3C; r &#x3C;= B a la entrada de la transacción. El tenedor debe autorizar el gasto de entradas de zUSD real. Establézcase R = r, M = 0, S' = S-r y B' = B-r. No se consume ni cambia ninguna bóveda, no se necesita oráculo y el protocolo no paga ningún ZEC.</p>
+<p>El tenedor no recibe ningún derecho de redención, derecho de reembolso futuro, derecho a recompensa, prioridad, privilegio de gobernanza ni propiedad de otra bóveda. El cambio ordinario de la entrada se devuelve bajo la transacción firmada. La operación es una quema de tokens sin compensación contra la deuda incobrable registrada.</p>
+<p>Una transacción NONE o RETIRE_BAD_DEBT no puede crear zUSD ni tomar prestado. La gramática de una sola operación impide combinar el retiro de deuda incobrable con deuda recién acuñada en la misma transacción. Una transacción posterior solo puede tomar prestado después de que un retiro válido precedente haya reducido realmente B a cero.</p>
+<p>Esta operación está ausente del modelo Rust actual y del perfil de colateral. Sus nuevos vectores de conformidad y su futura implementación deben rastrearse por separado de las pruebas heredadas que se aprueban.</p>
+<h2 id="loss-and-liveness-policy"><a class="hanchor" href="#loss-and-liveness-policy" aria-hidden="true" tabindex="-1">#</a>Política de pérdida y vivacidad</h2>
+<p>Se prohíbe tomar prestado mientras B > 0. Las transferencias existentes, el reembolso válido de deuda, los depósitos, los retiros/cierre permitidos, la liquidación y RETIRE_BAD_DEBT continúan. La congelación se basa en el B registrado a la entrada ordenada de la transacción de la operación; las pérdidas latentes en bóvedas no liquidadas no se detectan mágicamente.</p>
+<p>Solo un RETIRE_BAD_DEBT válido reduce B en esta versión central. Ningún reloj, informe de oráculo, campo del minero, clave de operador ni reinicio contable puede borrar pasivos. S disminuye en la misma cantidad, preservando la identidad deuda/oferta. Un futuro mecanismo de reserva aprobado por separado podría financiar el retiro voluntario usando tokens que realmente posea; este núcleo no activa tal financiamiento ni autoridad de reserva.</p>
+<p>Tomar prestado se reanuda automáticamente cuando el valor real de B alcanza cero y se cumplen las condiciones normales de precio fresco/colateral/límite. Si ningún tenedor está dispuesto a retirar tokens, la congelación puede persistir indefinidamente. El protocolo no garantiza recapitalización, recuperación del precio ni un derecho de redención en dólares. Esta es una política explícita de pérdida completa con un riesgo económico de disponibilidad remanente, y no un gancho de recuperación administrativa no especificado.</p>
+<h2 id="complete-block-transition-and-persistence"><a class="hanchor" href="#complete-block-transition-and-persistence" aria-hidden="true" tabindex="-1">#</a>Transición completa de bloque y persistencia</h2>
+<p>La validación DEBE (MUST) comenzar desde el estado exacto del bloque padre del candidato, independientemente de la punta actualmente seleccionada por el nodo. El candidato incluye los UTXO nativos ordinarios y los pools de valor, el pool de bóvedas ZEC/conjunto de bóvedas actual, los UTXO estables, S, B, el estado canónico del oráculo, la contabilidad de comisiones y el contexto de activación. Ningún saldo afirmado por el llamador ni ningún post-estado sustituye la validación contra ese padre.</p>
+<p>Los validadores DEBEN (MUST) aplicar cada transacción ordinaria y ZSV en orden de bloque a un estado candidato privado. Las transacciones posteriores ven las salidas válidas, las referencias gastadas y los cambios de estado de las transacciones anteriores en ese bloque. Las reglas de colocación del oráculo que siguen determinan cuándo un certificado se vuelve utilizable. Una entrada/referencia faltante, ya gastada o duplicada es inválida; crear una salida o una referencia de bóveda actual NO DEBE (MUST NOT) sobrescribir una entrada no gastada existente en su espacio de nombres. La ausencia de una operación ZSV en una transacción ordinaria no puede autorizar el acceso a los pools separados de bóveda o de valor estable.</p>
+<p>Cada transacción DEBE (MUST) satisfacer sus reglas nativas y ZSV, los pagos exactos, los saldos por activo, los límites monetarios y los invariantes de estado aplicables antes de que se evalúe la siguiente transacción. El delta del pool de bóvedas se aplica atómicamente con los deltas ordinarios de entrada/salida de ZEC y de comisiones, de modo que el colateral nunca se cuenta simultáneamente como salida ordinaria y saldo de bóveda. Un bloque que falle cualquier verificación de transacción, oráculo, recursos, compromiso o consenso ordinario DEBE (MUST) ser rechazado sin cambios persistentes en ninguno de estos estados.</p>
+<p>Solo un bloque completamente válido puede confirmar la transición candidata completa. La reorganización, la finalización y el reinicio DEBEN (MUST) reconstruir el mismo estado derivado del padre como reproducción ordenada de la rama aceptada. La admisión al mempool es provisional y NO DEBE (MUST NOT) sustituir la validación en contexto de bloque. Las rutas de punto de control y de finalización directa DEBEN (MUST) aplicar reglas equivalentes y establecer un estado ZSV coincidente; una ruta que meramente omita las nuevas verificaciones o importe saldos ZSV afirmados es inválida. Esta especificación requiere resultados equivalentes, no un diseño de base de datos ni una estrategia de caché particulares.</p>
+<h2 id="oracle-rules"><a class="hanchor" href="#oracle-rules" aria-hidden="true" tabindex="-1">#</a>Reglas del oráculo</h2>
+<h3 id="deployment-roster-and-domains"><a class="hanchor" href="#deployment-roster-and-domains" aria-hidden="true" tabindex="-1">#</a>Lista de despliegue y dominios</h3>
+<p>Para cada rama de consenso ZSV activada, la especificación de despliegue DEBE (MUST) proporcionar siete claves públicas Ed25519 distintas, ordenadas lexicográficamente por sus codificaciones de 32 bytes. Las claves DEBEN (MUST) usar codificaciones canónicas de puntos no identidad en el subgrupo de orden primo de Ed25519. En notación de grupo, cada clave decodificada A satisface A != identidad y [ell]A = identidad, donde ell es el orden del subgrupo de Ed25519. Codificación canónica significa que recodificar el punto decodificado usando la codificación comprimida del RFC 8032 reproduce exactamente la entrada de 32 bytes.</p>
+<p>El conjunto de reporteros queda fijado para esa rama de consenso. No existe transacción de oráculo, firma de administrador, token de votación ni configuración en tiempo de ejecución que cambie la lista, el quórum o el período de frescura. Un cambio de lista requiere una actualización de red especificada explícitamente. La configuración local NO DEBE (MUST NOT) anular la lista de despliegue.</p>
+<p>Defínase:</p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span>reporterSetID = SHA256(</span></span>
+<span class="line"><span>    ASCII("ZSV/OracleSet/v1\0") ||</span></span>
+<span class="line"><span>    u8(7) || u8(5) ||</span></span>
+<span class="line"><span>    key[0] || ... || key[6]</span></span>
+<span class="line"><span>)</span></span></code></pre>
+<p>Aquí <code>\0</code> es un byte cero, la concatenación es concatenación de bytes y SHA256 devuelve sus 32 bytes de resumen sin procesar. El hash de génesis de la red activa es la serialización de consenso de 32 bytes usada para los campos de hash de bloque, no la presentación hexadecimal invertida legible para humanos. El ID de la rama de consenso activa se codifica como un entero sin signo de 32 bits en little-endian.</p>
+<h3 id="report-encoding"><a class="hanchor" href="#report-encoding" aria-hidden="true" tabindex="-1">#</a>Codificación de reportes</h3>
+<p>Los campos de efecto de un reporte tienen la siguiente codificación exacta. No hay CompactSize ni ningún otro prefijo de longitud dentro de esta estructura:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th align="right">Bytes</th><th>Codificación</th></tr></thead><tbody><tr><td>observedHeight</td><td align="right">4</td><td>little-endian sin signo</td></tr><tr><td>observedBlockHash</td><td align="right">32</td><td>serialización de consenso sin procesar del hash de bloque</td></tr><tr><td>price</td><td align="right">8</td><td>little-endian sin signo, micro-USD por ZEC</td></tr><tr><td>signerMask</td><td align="right">1</td><td>el bit i corresponde a la clave i del roster</td></tr></tbody></table>
+<p>Los primeros tres campos forman el <code>reportBody</code> de 44 bytes. La estructura de efecto completa tiene 45 bytes. <code>price</code> DEBE (MUST) estar en <code>1..=2^64-1</code>; cero es inválido. El bit 7 de <code>signerMask</code> DEBE (MUST) ser cero. Su conteo de población DEBE (MUST) ser 5, 6 o 7. La sección de autorización contiene exactamente esa cantidad de firmas Ed25519 de 64 bytes, en orden creciente de índice de firmante. La cantidad de firmas se deriva de la máscara; no se acepta ninguna cantidad declarada de forma independiente.</p>
+<p>Cada firma incluida verifica el mismo mensaje de 126 bytes:</p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span>oracleMessage =</span></span>
+<span class="line"><span>    ASCII("ZSV/Oracle/v1\0") ||        # 14 bytes</span></span>
+<span class="line"><span>    networkGenesisHash ||              # 32 bytes</span></span>
+<span class="line"><span>    LE32(activeConsensusBranchID) ||    # 4 bytes</span></span>
+<span class="line"><span>    reporterSetID ||                    # 32 bytes</span></span>
+<span class="line"><span>    reportBody                         # 44 bytes</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>oracleID = SHA256(oracleMessage)</span></span></code></pre>
+<p><code>oracleID</code> excluye deliberadamente la máscara de firmantes y las firmas. Por lo tanto, distintos subconjuntos válidos de quórum para la misma observación identifican el mismo informe de precio. Los digestos ordinarios de efecto/autenticación de la transacción aún comprometen la máscara y las firmas según lo especificado por el formato de transacción.</p>
+<p>La verificación de firmas Ed25519 DEBE (MUST) seguir los criterios de verificación exactos del ZIP 215 <sup><a href="#user-content-fn-zip-0215" id="user-content-fnref-zip-0215" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>: A y R decodifican a puntos Ed25519, S_sig &#x3C; ell, y la ecuación cofactorizada [8][S_sig]B_Ed = [8]R + [8][k]A se cumple con k = SHA512(R_bytes || A_bytes || oracleMessage) interpretado como un entero little-endian módulo ell, usando las codificaciones de R y A provistas según lo especificado por el ZIP 215 y el RFC 8032. Las implementaciones NO DEBEN (MUST NOT) sustituir las reglas de aceptación "strict Ed25519" no especificadas de otra biblioteca ni la ecuación sin cofactorizar. Las restricciones de clave de despliegue anteriores son restricciones adicionales sobre la lista fija; no cambian las reglas de aceptación del ZIP 215 para las codificaciones R de las firmas. Una firma inválida incluida invalida el certificado incluso cuando otras cinco firmas verifican. En esta ecuación de firma, S_sig es el escalar de la firma y B_Ed es el punto base Ed25519 estándar, independiente de la oferta estable S y de la deuda incobrable B. SHA512 aquí es el hash SHA-512 de 64 bytes; es distinto del identificador de informe SHA256.</p>
+<p>La estructura de efecto y la autorización juntas usan 365 bytes para cinco firmas y 493 bytes para siete firmas, excluyendo el encuadre de la transacción contenedora. No hay mediana de precios, regla de promedio ni selección de precio local al nodo: un certificado autoriza una única tupla de precio firmada idénticamente.</p>
+<h3 id="inclusion-observed-ancestry-and-freshness"><a class="hanchor" href="#inclusion-observed-ancestry-and-freshness" aria-hidden="true" tabindex="-1">#</a>Inclusión, ascendencia observada y frescura</h3>
+<p>Sea H la altura del bloque candidato, A la primera altura de la rama de consenso activa y h el <code>observedHeight</code> del informe. Los validadores DEBEN (MUST) imponer todo lo siguiente antes de aceptar un informe:</p>
+<ol>
+<li><code>A - 1 &#x3C;= h &#x3C; H</code>, con A positivo para una rama ZSV activada.</li>
+<li><code>h + 12</code> es representable como u32, y <code>H &#x3C;= h + 12</code>.</li>
+<li><code>observedBlockHash</code> es igual al hash real del bloque ancestro a la altura h en la cadena padre del bloque candidato.</li>
+<li>Si ya se aceptó una observación bajo esta rama activa y este conjunto de informantes, h es estrictamente mayor que la altura de esa observación.</li>
+<li>El precio, la máscara de firmantes, las longitudes de las firmas y cada firma satisfacen las reglas anteriores.</li>
+</ol>
+<p>Un certificado incluido a la altura I puede fijar el precio de operaciones solo en descendientes a alturas desde <code>I + 1</code> hasta <code>h + 12</code>, inclusive, mientras siga siendo la observación seleccionada por el padre. La altura de fijación de precio más temprana posible es <code>h + 2</code>. El límite de doce bloques es una antigüedad máxima de observación, no un período garantizado de validez de la transacción. Un certificado incluido en <code>h + 12</code> no tiene vida útil de fijación de precio restante. No hay campo de vencimiento arbitrario firmado, ni campo de secuencia de libre ejecución, ni informe con fecha futura. La altura observada provee la secuencia monótona. Un retraso de inclusión consume la vida útil del informe; la reinclusión no puede renovarla.</p>
+<p>En la primera activación de ZSV o en un cambio de la rama de consenso/dominio activo, la observación de fijación de precio del bloque está vacía. Un certificado válido bajo el nuevo dominio puede registrarse en ese bloque, pero se vuelve utilizable solo en sus descendientes bajo las reglas siguientes. Una observación firmada para una rama más antigua no puede autorizar nuevas operaciones dependientes del precio. Los informes pueden usar el último bloque antes de la activación como su ancestro observado, siempre que sus firmas usen el dominio recién activo. El estado existente de bóvedas/pagos/pasivos no se reinicia por este cambio de dominio del oráculo.</p>
+<h3 id="block-order-and-transaction-restrictions"><a class="hanchor" href="#block-order-and-transaction-restrictions" aria-hidden="true" tabindex="-1">#</a>Orden de bloque y restricciones de transacción</h3>
+<p>Un bloque contiene como máximo un certificado de oráculo de ZSV. Si está presente, DEBE (MUST) aparecer en la primera transacción que no sea coinbase. Esa transacción DEBE (MUST) no contener ninguna operación de bóveda ni entrada o salida de establecoins. Las entradas y salidas ordinarias de ZEC pueden financiar su comisión de red, conforme a las reglas ordinarias de ZEC del nuevo formato de transacción. El certificado no se transporta en el coinbase y no crea valor.</p>
+<p>Al entrar al bloque, los validadores DEBEN (MUST) seleccionar la observación de fijación de precio del estado del oráculo comprometido del padre exacto bajo el dominio activo. Esa selección queda fija para todas las operaciones del bloque candidato. Un certificado válido en el bloque candidato DEBE (MUST) actualizar solo el estado del oráculo comprometido para los descendientes; NO DEBE (MUST NOT) reemplazar la observación de fijación de precio del bloque. Sin certificado, se retiene la observación aplicable del padre en el estado comprometido, incluida su altura de observación original. El vencimiento la vuelve inutilizable para fijar precios, pero no borra su altura para la regla de informes estrictamente crecientes. Un segundo certificado, o uno después de cualquier otra transacción que no sea coinbase, invalida el bloque. No hay requisito de incluir un certificado; un bloque con solo coinbase sigue siendo válido bajo las reglas ordinarias de bloque.</p>
+<p>Toda operación de préstamo, retiro con deuda y liquidación DEBE (MUST) vincular <code>oracleID</code> y DEBE (MUST) usar la observación de fijación de precio fija seleccionada por el padre. La altura candidata DEBE (MUST) ser no mayor que el <code>observedHeight + 12</code> de esa observación. Un certificado recién incluido no puede rescatar una observación de fijación de precio ausente o vencida en el mismo bloque. Una operación que nombre una observación distinta de la observación de fijación de precio del bloque, o que nombre una observación vencida o ausente, es inválida incluso si esa observación lleva un certificado de quórum por lo demás válido. El vencimiento ordinario de la transacción de la operación se aplica de manera independiente y no puede extender la ventana del oráculo.</p>
+<p>No se consulta ningún reloj local del nodo, búsqueda de URL, respuesta de API, certificado observado en el mempool ni resultado de un servicio externo durante la validación de consenso. Un productor puede omitir un certificado o elegir entre certificados admisibles para los descendientes; todas las operaciones del bloque actual siguen usando su observación seleccionada por el padre.</p>
+<h3 id="outages-conflicting-reports-and-recovery"><a class="hanchor" href="#outages-conflicting-reports-and-recovery" aria-hidden="true" tabindex="-1">#</a>Interrupciones, informes conflictivos y recuperación</h3>
+<p>Una observación de fijación de precio del bloque ausente o vencida deshabilita el préstamo, el retiro con deuda y la liquidación. No deshabilita las adiciones de garantía, el reembolso, las transferencias estables, el retiro/cierre sin deuda ni un retiro de deuda incobrable explícitamente especificado que queme valor estable real. El vencimiento por sí mismo no mueve garantías, no condona deuda, no activa un acuerdo privilegiado ni autoriza una liquidación usando un precio alternativo fabricado.</p>
+<p>Un certificado válido posterior puede reanudar las operaciones dependientes del precio a partir del bloque siguiente, si aún está fresco, sujeto a todas las demás reglas del protocolo, incluida cualquier congelación de emisión por deuda incobrable. El fallo de informes por sí solo no reinicia pasivos ni reemplaza las claves de los informantes. Si el comité no puede recuperarse, el remedio especificado es una actualización de red revisada, no una elusión por parte de un administrador.</p>
+<p>Dos certificados con precios distintos para la misma altura de observación no pueden ser ambos aceptados en una rama, porque las alturas observadas avanzan estrictamente y un bloque admite a lo sumo un certificado. Forks competidores pueden aceptar certificados válidos distintos. La elección de fork y la reorganización seleccionan el estado completo correspondiente de bóvedas/oráculo/pagos. La evidencia de equivocación de un informante no cambia automáticamente el comité, no embarga fondos ni suspende la cadena en v1; no se especifica ningún depósito ejecutable del informante.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<h2 id="a-dedicated-fixed-asset-protocol"><a class="hanchor" href="#a-dedicated-fixed-asset-protocol" aria-hidden="true" tabindex="-1">#</a>Un protocolo dedicado de activo de valor fijo</h2>
+<p>La propuesta usa un formato de transacción dedicado y campos de pago implícitos de zUSD. No hay identificador de activo elegido por el llamador ni ruta de emisor. Un conjunto de valor de bóvedas dedicado de ZEC retira la garantía de las salidas gastables ordinarias; el marcador experimental <code>OP_DROP OP_TRUE</code> no se usa como un bloqueo nativo.</p>
+<p>Se consideraron la emisión general de ZSA, una VM genérica y la custodia externa. La emisión general y una VM amplían la actividad permitida, mientras que la custodia externa no cumple el requisito de que Zcash haga cumplir las reglas de las bóvedas. Las técnicas seleccionadas de transferencia y prueba de ZSA pueden seguir siendo útiles en un futuro perfil blindado. La primera versión pública intercambia privacidad de pago por una especificación inicial más pequeña; no pretende ofrecer un instrumento de pago en dólares privado.</p>
+<p>Una operación financiera por transacción limita la ambigüedad de ordenamiento. Abrir con deuda y reembolsar y cerrar siguen siendo atómicos. Una actualización de bóveda reemplaza un único estado actual; no acumula identificadores locales del propietario reutilizables. Las firmas nativas especificadas usan un único esquema de clave de propietario en lugar del mapeo permanente entre dos esquemas de claves del prototipo.</p>
+<p>Veylor es un ejemplo de acceso a dólares junto con ZEC blindado: sus intercambios entregan USDC mantenido en Railgun en Ethereum. <sup><a href="#user-content-fn-veylor" id="user-content-fnref-veylor" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup></p>
+<h2 id="economic-policy"><a class="hanchor" href="#economic-policy" aria-hidden="true" tabindex="-1">#</a>Política económica</h2>
+<p>La razón de préstamo del 250%, la razón de liquidación del 200%, el bono del 5%, la deuda mínima de 100 zUSD y el techo de pasivos de 100 000 zUSD son valores iniciales propuestos concretos tomados del modelo de investigación. No son garantías de seguridad calibradas. Una caída del 20% en el precio de la garantía mueve una bóveda del 250% al 200% antes del retraso del oráculo, los costos de ejecución o las brechas de mercado. Una liquidación completa puede crear deuda incobrable a pesar de una contabilidad válida.</p>
+<p>El techo limita la exposición nominal inicial; no acota el valor de ZEC perdido por un precio falso, no garantiza profundidad de liquidación ni asegura una paridad de mercado. El reembolso provee una fuente de demanda, pero los tenedores no reciben un derecho incondicional de redención de un dólar. Una reserva mantenida en ZEC comparte el riesgo de caída de la garantía.</p>
+<p>Retirar la deuda incobrable requiere quemar tokens reales. No transfiere garantía y no crea una autoridad de reinicio privilegiada. Sin embargo, un tenedor puede no tener incentivo para absorber la pérdida, por lo que los préstamos pueden permanecer detenidos indefinidamente. Déficits pequeños pueden provocar la congelación. Agregar un sistema de recapitalización o redención incentivado cambiaría la propuesta económica y necesita una especificación y revisión separadas.</p>
+<h2 id="oracle-and-governance"><a class="hanchor" href="#oracle-and-governance" aria-hidden="true" tabindex="-1">#</a>Oráculo y gobernanza</h2>
+<p>Usar la observación del bloque padre evita que un certificado incluido en el mismo bloque invalide operaciones ya firmadas, incluso cuando los informes llegan en cada bloque. Las billeteras pueden firmar para el siguiente bloque usando el estado del oráculo comprometido en la punta actual. Las transacciones retrasadas más allá de ese bloque o afectadas por una reorganización pueden seguir necesitando una nueva firma. El costo es un bloque de retraso adicional en el precio: ni siquiera un informe de caída reciente puede cambiar los precios de préstamo o liquidación en su bloque de inclusión. Este compromiso requiere calibración económica; no se introduce ningún historial de precios elegibles por el usuario ni autoridad adicional del informante.</p>
+<p>El quórum de informantes es una dependencia de confianza externa explícita. Los umbrales de firma no demuestran organizaciones independientes, fuentes de mercado independientes ni precios veraces. Una membresía fija seleccionada en la actualización elimina un administrador de membresía en tiempo de ejecución, pero hace más lento el reemplazo y la recuperación de claves. El límite de frescura se mide en bloques; su duración en tiempo real depende de la producción real de bloques.</p>
+<p>Cambiar los parámetros de consenso o el conjunto de informantes requiere una actualización de red bajo el proceso de despliegue especificado. Ningún voto de tokens, clave de emisor u operador de reserva puede cambiarlos. La lista, la calibración de parámetros y los arreglos operativos necesitan revisión pública antes del despliegue.</p>
+<h2 id="reserve-and-funding-boundary"><a class="hanchor" href="#reserve-and-funding-boundary" aria-hidden="true" tabindex="-1">#</a>Reserva y límite de financiamiento</h2>
+<p>El núcleo no tiene estado de reserva, asignación de recompensa de bloque, gasto discrecional de incentivos ni retiro de NSM. Una propuesta complementaria podría agregar efectivo de reserva nativo e inventario de tokens ya emitidos, pero necesitaría reglas explícitas de financiamiento, intercambio, asignación, cierre y disposición final.</p>
+<p>Los estudios de investigación identifican riesgos restantes: negociación con precios obsoletos, respuesta limitada del mercado, pérdidas ocurridas después de una quema única de reserva y subastas terminales baratas bajo competencia débil. Las pruebas contables no resuelven estos incentivos. Una reducción propuesta en la asignación de otro destinatario de financiamiento no asigna por sí misma la diferencia a ZSV.</p>
+<h2 id="community-discussion"><a class="hanchor" href="#community-discussion" aria-hidden="true" tabindex="-1">#</a>Discusión comunitaria</h2>
+<p>La <a href="https://forum.zcashcommunity.com/t/zip-draft-zsv-one-zec-backed-stablecoin-on-zcash/58909">discusión del foro</a> se abrió el 5 de noviembre de 2026. No se afirma ningún respaldo comunitario, aprobación de editores ni resultado de revisión pública. Las objeciones, alternativas y respuestas se registrarán aquí cuando existan. Los estudios matemáticos y las revisiones adversariales de agentes de código son evidencia preliminar, no la revisión independiente calificada de expertos requerida para la publicación de un ZIP sensible a la seguridad. <sup><a href="#user-content-fn-zip-0000" id="user-content-fnref-zip-0000" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></p>
+<h1 id="backward-compatibility"><a class="hanchor" href="#backward-compatibility" aria-hidden="true" tabindex="-1">#</a>Compatibilidad con versiones anteriores</h1>
+<p>La activación introduce un cambio de consenso y requiere validadores actualizados. Los formatos de transacción y los conjuntos de pago existentes de ZEC conservan sus reglas. El nuevo formato admite una ruta de financiamiento público restringida; el soporte de billeteras y una presentación segura de direcciones siguen siendo necesarios para que los usuarios la construyan.</p>
+<p>Las firmas V4/Sapling del prototipo, los sobres JSON, el coinbase de financiamiento confiable, los nonces de cuenta del modelo y las intenciones de puntos de control del bloque padre completo no son formatos de consenso nativos. Los vectores del modelo existentes siguen siendo elementos de investigación y no se migran al estado de la red. Ningún saldo o clave de elemento experimental se convierte en una asignación activa.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>No se ha seleccionado ninguna actualización de red objetivo ni altura de activación. El despliegue necesita parámetros de activación explícitos para Mainnet y Testnet, identificadores de transacción, entradas de dominio y claves públicas de informantes. Estas son asignaciones de despliegue, no configuraciones locales de nodo. Ni un número de ZIP ni la fusión de un borrador activan la función.</p>
+<p>Antes de un estado Released como Proposed, el ZIP 0 requiere el proceso editorial/comunitario aplicable y una revisión independiente calificada de seguridad/privacidad para una propuesta con estas implicaciones. Una implementación de referencia completa generalmente no necesita preceder a Proposed. La implementación, las pruebas y la activación en la red son hitos posteriores y distintos. <sup><a href="#user-content-fn-zip-0000" id="user-content-fnref-zip-0000-2" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></p>
+<p>La evidencia de despliegue debería cubrir implementaciones independientes de serialización y firma, vectores de bloques válidos/inválidos entre implementaciones, conservación de valor, cada ruta de aceptación/finalización, reorganizaciones y reinicio de base de datos, evaluaciones comparativas de recursos, escenarios de compromiso/caída del oráculo y pérdidas económicas. Estas verificaciones no pueden establecer una paridad de mercado garantizada.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>El <a href="https://github.com/iJaack/zsv/tree/d0f8529f08653744b7702670bc628b20b7d17b00">repositorio de investigación ZSV</a> proporciona un modelo de cuentas firmado, estudios económicos y perfiles sin conexión enlazados a código de Zebra fijado. Su código original tiene licencia MIT; las dependencias upstream conservan sus propias licencias. No es una implementación completa de este ZIP.</p>
+<p>El modelo prueba la emisión colateralizada, el reembolso, la liquidación, la deuda incobrable explícita y la contabilidad opcional de reservas. El perfil de colateral verifica UTXOs de ZEC serializados de elementos de prueba y firmas P2PK nativas con una guarda experimental. La guarda está fuera del verificador de nodos de Zebra, y zUSD sigue siendo un saldo de modelo. En esa revisión, pasaron 110 pruebas de Rust de referencia, 39 pruebas enlazadas a Zebra y 96 pruebas de Python; se reprodujeron los 351 casos económicos combinados. <sup><a href="#user-content-fn-verification" id="user-content-fnref-verification" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup></p>
+<p>Este candidato introduce reglas que van más allá de ese código: un formato dedicado de transacción y de grupo de valor, transiciones normalizadas de operación única, una política de oráculo diferente, dominios de firma nativos y el retiro sin permisos de la deuda incobrable. Aprobar las pruebas anteriores no es evidencia de que esas nuevas reglas estén implementadas. El <a href="https://github.com/iJaack/zsv/tree/main/zips/draft-ijaack-zsv">material de conformidad</a> que lo acompaña contiene 54 casos financieros, siete ejemplos sin firma de transmisión/contexto/hash que cubren todas las etiquetas de operación y el encuadre del oráculo, y un elemento de prueba de oráculo con firma canónica. Estos no son una transacción nativa firmada completa ni un paquete de consenso de bloque completo.</p>
+<h1 id="outstanding-allocations-and-review"><a class="hanchor" href="#outstanding-allocations-and-review" aria-hidden="true" tabindex="-1">#</a>Asignaciones pendientes y revisión</h1>
+<p>Las decisiones de protocolo de la Especificación son reglas propuestas, sujetas a revisión pública. El trabajo restante antes de llamar a esto una especificación lista para el despliegue es:</p>
+<ol>
+<li>Asignar los nuevos identificadores de transacción/grupo y el contexto de actualización; seleccionar la activación de Mainnet/Testnet y la lista de informantes públicos mediante el proceso de despliegue.</li>
+<li>Revisar e implementar de forma independiente las reglas de bytes, de resumen, de autorización y de estado de rama, y producir vectores de conformidad de transacciones firmadas y bloques completos.</li>
+<li>Obtener una revisión calificada de consenso/criptografía/privacidad y evaluaciones comparativas de recursos, y justificar los parámetros económicos, las operaciones del oráculo y la política de pérdidas frente a condiciones adversarias.</li>
+<li>Incorporar los comentarios del foro y volver a ejecutar el renderizado upstream después de cambios en los metadatos. Este borrador se ha renderizado con la ruta <code>render.sh --pandoc</code> del repositorio de ZIP.</li>
+</ol>
+<p>El alcance de prioridad pública y el contacto de Owners están confirmados. No se ha inventado ningún número asignado por editores, revisor nombrado, operador de oráculo ni aprobación de activación para llenar estas entradas.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">BCP 14: Key words for requirement levels</a>. <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-sources">
+<p><a href="https://github.com/iJaack/zsv/blob/d0f8529f08653744b7702670bc628b20b7d17b00/docs/sources.md">Fuentes de investigación fijadas de Zcash y Zebra</a>. La línea base de investigación de consenso es distinta de la referencia actual del proceso de ZIP anterior. <a href="#user-content-fnref-sources" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0244">
+<p><a href="https://github.com/zcash/zips/blob/2bdf39494320e5e04057ac93b1794031ebfb00b5/zips/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a>. <a href="#user-content-fnref-zip-0244" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0239">
+<p><a href="https://github.com/zcash/zips/blob/2bdf39494320e5e04057ac93b1794031ebfb00b5/zips/zip-0239.rst">ZIP 239: Relay of Version 5 Transactions</a>. <a href="#user-content-fnref-zip-0239" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0215">
+<p><a href="https://github.com/zcash/zips/blob/2bdf39494320e5e04057ac93b1794031ebfb00b5/zips/zip-0215.rst">ZIP 215: Explicitly Defining and Modifying Ed25519 Validation Rules</a>. <a href="#user-content-fnref-zip-0215" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-veylor">
+<p><a href="https://veylor.cash/how-it-works/">Veylor: How it works</a>, leído el 5 de noviembre de 2026. <a href="#user-content-fnref-veylor" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0000">
+<p><a href="https://github.com/zcash/zips/blob/ff594de6e95bb9e9e7d2ace09510281531c30447/zips/zip-0000.rst">ZIP 0: ZIP Process</a>, revisado el 30 de octubre de 2026. La <a href="https://github.com/zcash/zips/blob/ff594de6e95bb9e9e7d2ace09510281531c30447/zips/zip-template.md">plantilla Markdown</a> proporciona la estructura del documento. <a href="#user-content-fnref-zip-0000" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0000-2" data-footnote-backref="" aria-label="Back to reference 7-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-verification">
+<p><a href="https://github.com/iJaack/zsv/blob/d0f8529f08653744b7702670bc628b20b7d17b00/docs/verification.md">Recibo de verificación ZSV en el hito de colateral</a>. <a href="#user-content-fnref-verification" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

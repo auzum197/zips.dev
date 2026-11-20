@@ -1,0 +1,991 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE" (MUST), "NO DEBE" (MUST NOT), "DEBERÍA" (SHOULD), "NO DEBERÍA" (SHOULD NOT), "RECOMENDADO" (RECOMMENDED) y "PUEDE" (MAY) en este documento deben interpretarse como se describe en el BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos del protocolo Zcash son los definidos en la Zcash Protocol Specification (Especificación del Protocolo Zcash). <a class="brackets" href="#protocol" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a></p>
+<p>Los términos "Mainnet" y "Testnet" en este documento deben interpretarse según lo definido en la especificación del protocolo de Zcash <a class="brackets" href="#protocol-networks" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>. Los términos "protocolo Orchard", "<em>pool de Orchard</em>" y "<em>pool de Ironwood</em>" deben interpretarse como en ZIP 258 <a class="brackets" href="#zip-0258" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a>, y "activación de NU6.3" se refiere a la activación de la actualización de red NU6.3 allí especificada. "Regtest" se refiere a la red de pruebas de regresión utilizada por las implementaciones de nodos completos y billeteras de Zcash para pruebas locales.</p>
+<p id="applink">Por «applink» se entiende un mecanismo de la plataforma para activar aplicaciones locales mediante enlaces HTTPS, como App Links <a class="brackets" href="#app-links" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>38<span class="fn-bracket">]</span></a> en Android, Universal Links <a class="brackets" href="#universal-links" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>39<span class="fn-bracket">]</span></a> en iOS, o App URI handlers <a class="brackets" href="#app-uri-handlers" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>40<span class="fn-bracket">]</span></a> en Windows.</p>
+<p>Los términos que siguen deben interpretarse de la siguiente manera:</p>
+<dl class="simple">
+<dt>Pago encapsulado en URI (o <em>pago liberado</em>)</dt>
+<dd><p>Una cantidad de ZEC mantenida por una <em>billetera de pago</em> cuyo único secreto de gasto se lleva dentro de una URI, de modo que quien posea la URI puede tomar los fondos. "Pago liberado" es un sinónimo neutral respecto al producto que se usa en contextos orientados al usuario; los dos términos son intercambiables en este documento.</p>
+</dd>
+<dt>URI que encapsula un pago (o <em>URI de pago</em>)</dt>
+<dd><p>La URI que lleva un pago encapsulado en URI, según lo especificado en <a class="reference internal" href="#syntax">Sintaxis</a>.</p>
+</dd>
+<dt>Secreto de pago</dt>
+<dd><p>El secreto de 32 bytes <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> llevado en el parámetro <span class="docutils literal">key</span> de una URI de pago, del cual se deriva toda clave de la billetera de pago.</p>
+</dd>
+<dt>Billetera de pago</dt>
+<dd><p>La billetera de una sola cuenta derivada de un secreto de pago según lo especificado en <a class="reference internal" href="#payment-wallet-derivation">Derivación de la billetera de pago</a>.</p>
+</dd>
+<dt>Dirección de pago</dt>
+<dd><p>La dirección de pago del protocolo Orchard de la billetera de pago a la que se envían los fondos de un pago encapsulado en URI: en el <em>pool de Orchard</em> antes de la activación de NU6.3, y en el <em>pool de Ironwood</em> a partir de la activación de NU6.3 en adelante.</p>
+</dd>
+<dt>Acuñador</dt>
+<dd><p>La parte (y su software de billetera) que crea una URI de pago y financia su dirección de pago. Es el <em>remitente</em> del pago.</p>
+</dd>
+<dt>Reclamante</dt>
+<dd><p>La parte (y su software de billetera) que usa una URI de pago para trasladar los fondos mantenidos por la billetera de pago a una billetera propia. En el caso habitual, es el <em>destinatario</em> previsto del pago.</p>
+</dd>
+<dt>Transacción de financiación</dt>
+<dd><p>Una transacción que envía fondos a la dirección de pago.</p>
+</dd>
+<dt>Transacción de reclamo</dt>
+<dd><p>Una transacción, creada por un reclamante, que gasta todas las notas gastables mantenidas por una billetera de pago en una de las direcciones propias del reclamante.</p>
+</dd>
+<dt>Reclamo inverso</dt>
+<dd><p>Una transacción de reclamo creada por el emisor, que recupera fondos que nadie más reclamó.</p>
+</dd>
+</dl>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta especifica un mecanismo para enviar pagos de Zcash por cualquier servicio de mensajería no modificado (seguro), medio impreso u otro canal por el que se pueda transmitir una cadena corta. El remitente no necesita conocer la dirección del destinatario y el destinatario no necesita tener una billetera de Zcash ya instalada.</p>
+<p>Un pago se crea derivando un <em>secreto de pago</em> nuevo de 32 bytes, derivando una <em>billetera de pago</em> a partir de ese secreto y enviando fondos a su dirección de pago, una dirección del protocolo Orchard (financiada en el pool Ironwood desde la activación de NU6.3 en adelante). El secreto de pago, junto con una altura de bloque a partir de la cual se pueden encontrar los fondos y metadatos informativos opcionales (monto y descripción), se codifica en el fragmento de una URL HTTPS ordinaria. Dado que el fragmento nunca se envía al servidor nombrado por la URL, el host sirve solo como destino de <a class="reference internal" href="#applink">applink</a> para el software de billetera y como página de aterrizaje para destinatarios sin una billetera compatible.</p>
+<p>Cualquiera que conozca la URI puede reclamar el pago: su billetera deriva la billetera de pago, escanea la cadena desde la altura dada y transfiere cada nota que encuentra a una dirección propia en una sola transacción, tomando el saldo completo en lugar del monto anunciado. Hasta que eso ocurra, el emisor puede recuperar los fondos por el mismo procedimiento; no hay vencimiento en cadena ni límite sobre la antigüedad de un pago. Una transacción de reclamo es normalmente una transacción totalmente blindada ordinaria, indistinguible en cadena de cualquier otra, y se construye de modo que el secreto de pago no otorgue visibilidad de a dónde fueron los fondos después del reclamo.</p>
+<p>La propuesta especifica la sintaxis y la semántica de las URI que encapsulan pagos, la derivación de las billeteras de pago, el flujo de trabajo de acuñación, reclamo y reclamo inverso de pagos, y el comportamiento esperado del software de billetera y de los hosts que aparecen en las URI de pago. También describe, de manera informativa, los formatos de enlaces de pago ya desplegados por la billetera Vizor, que siguen el mismo modelo de un secreto al portador para una billetera estándar de cuenta única.</p>
+<h2 id="usage-story"><a class="hanchor" href="#usage-story" aria-hidden="true" tabindex="-1">#</a>Historia de uso</h2>
+<p>Alice quiere enviar un pago de 1.23 ZEC a Bob. No tiene la dirección de Zcash de Bob, ¡y Bob quizá ni siquiera tenga una billetera o haya oído hablar de Zcash! Sin embargo, sí tiene un canal cifrado de extremo a extremo con Bob en una aplicación de mensajería segura, como Signal o WhatsApp. Ella indica a su propia billetera de Zcash que envíe 1.23 ZEC por ese canal. Su billetera deriva un nuevo secreto de pago a partir de su semilla de billetera, envía 1.2301 ZEC a la dirección de pago correspondiente y construye una URI de pago que contiene el secreto de pago, la cual envía a Bob por la aplicación de mensajería segura.</p>
+<p>Roberto recibe el mensaje, que se ve así:</p>
+<blockquote>
+<p>Este mensaje contiene un pago de Zcash. Haga clic en el siguiente enlace para verlo y recibir los fondos con su aplicación de billetera de Zcash:</p>
+<p><a class="reference external" href="https://example.com/#v=1&#x26;key=zgift1...&#x26;height=3400000&#x26;amount=1.23&#x26;desc=Payment%20for%20foo">https://example.com/#v=1&#x26;key=zgift1...&#x26;height=3400000&#x26;amount=1.23&#x26;desc=Payment%20for%20foo</a></p>
+<p>Si todavía no tiene una aplicación de billetera de Zcash, consulte: <a class="reference external" href="https://z.cash/wallets">https://z.cash/wallets</a></p>
+</blockquote>
+<p>Bob pulsa el enlace. Su aplicación de billetera móvil de Zcash (que ya está instalada y se ha configurado como manejador de <a class="reference internal" href="#applink">applink</a> para <span class="docutils literal">example.com</span>) aparece y le dice a Bob que un pago de aproximadamente 1.23 ZEC lo espera. La aplicación de billetera escanea la block chain desde el bloque 3400000 en busca de los fondos, confirma que están presentes y sin gastar, y ofrece reclamar el pago. Bob pulsa el botón «Reclamar» y su aplicación de billetera genera una transacción que mueve el dinero a su propia dirección (usando los 0.0001 ZEC adicionales que recibió para pagar la comisión de transacción). Cuando esta transacción se confirma en cadena, el pago es definitivo y Bob puede enviar los fondos a otras partes.</p>
+<p>Si Bob no tuviera una billetera compatible instalada, seguir el enlace le habría mostrado en cambio una página web estática en <span class="docutils literal">example.com</span> que explica qué es el enlace y dónde obtener una billetera; la página nunca conoce el secreto de pago, que permanece en el fragmento en el dispositivo de Bob.</p>
+<p>El mismo mecanismo sirve para usos de estilo «tarjeta de regalo»: un comerciante u organizador de eventos acuña un lote de pagos, imprime cada URI como un código QR y financia cada tarjeta una sola vez. Quien reciba una tarjeta la reclama; las tarjetas que nunca se reclaman son recuperadas por el emisor después de una fecha anunciada.</p>
+
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Esta propuesta permite el envío de fondos sin exponer a los usuarios a la noción de direcciones de pago y su distribución segura. En cambio, los fondos pueden enviarse mediante cualquier canal de comunicación preexistente, con un único mensaje enviado de forma unidireccional del remitente al destinatario. Este mensaje transmite toda la información necesaria para obtener el control de los fondos, expresada de forma compacta como una URI textual.</p>
+<p>En consecuencia, toda la funcionalidad relacionada con el descubrimiento de contactos y el establecimiento de canales seguros puede delegarse a las aplicaciones de mensajería con las que el usuario ya está familiarizado, y en las que ya ha establecido canales de comunicación con muchos de sus contactos.</p>
+<p>Además, se pueden enviar fondos a usuarios que aún no han instalado software de billetera y que todavía no tienen una dirección de pago. El destinatario puede cobrar los fondos en cualquier momento posterior instalando el software adecuado. Esto también hace que el mecanismo sea adecuado para la incorporación de nuevos usuarios: una URI de pago puede imprimirse, repartirse en un evento o incluirse en una tarjeta de regalo, y la primera interacción del destinatario con Zcash puede ser recibir dinero en lugar de generar una dirección.</p>
+<p>Finalmente, esto evita el problema de enviar fondos a una dirección incorrecta por error de dedo. El usuario envía fondos mediante un contacto conocido en, p. ej., WhatsApp, con quien tiene una relación o al menos puede confirmar la identidad del destinatario. Además, incluso una vez que se envían fondos mediante una URI, estos pueden recuperarse si la otra parte no los cobra.</p>
+<p>La propuesta es complementaria al ZIP 321 <a class="brackets" href="#zip-0321" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>25<span class="fn-bracket">]</span></a>, que estandariza las <em>URI de solicitud de pago</em> con las cuales el <em>destinatario</em> del pago transmite su dirección de pago persistente al <em>remitente</em>, para transferencias de fondos posteriores (que se realizarán mediante el mecanismo normal en cadena en lugar de los pagos encapsulados descritos en la presente propuesta).</p>
+
+<h1 id="privacy-implications">Implicaciones de privacidad de <a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a></h1>
+<p>Un Pago Encapsulado en URI involucra dos transacciones en cadena: una transacción de financiación del acuñador a la dirección de pago, y una transacción de cobro de la dirección de pago al reclamante. Normalmente ambas son transacciones totalmente blindadas y no se distinguen en cadena de otras transacciones en el mismo pool, excepto mediante la correlación temporal y las estadísticas de sus números de acciones.</p>
+<p>El poseedor de una URI de pago posee la clave de visualización completa de la billetera de pago. Por lo tanto, puede ver la o las transacciones de financiación y el hecho de que las notas se gastaron. La transacción de cobro está especificada de modo que su salida <em>no</em> sea descifrable con la clave de visualización saliente de la billetera de pago; en consecuencia, una parte que posteriormente obtenga la URI (por ejemplo, de una copia de seguridad de chat o de una tarjeta impresa desechada) se entera de que el pago fue cobrado, pero no de la dirección del reclamante ni de ningún otro detalle de la salida del cobro. La contrapartida es que la propia billetera del reclamante es el único registro de a dónde fueron los fondos.</p>
+<p>El acuñador se entera de cuándo (y de que) se cobró un pago, porque las notas que puede ver se vuelven gastadas. Los parámetros <span class="docutils literal">amount</span> y <span class="docutils literal">desc</span> son legibles por cualquier persona que vea la URI, incluso retrospectivamente.</p>
+<p>El host nombrado en una URI de pago nunca recibe el secreto de pago en una solicitud HTTP, porque este se transporta en el fragmento. Sin embargo, cualquier script servido por ese host <em>puede</em> leer el fragmento, por lo que el operador del host (o cualquier persona que pueda modificar su contenido) está en posición de robar fondos no cobrados si la página de aterrizaje no es estática. El software de billetera que maneja la URI mediante un <a class="reference internal" href="#applink">applink</a> evita por completo cualquier solicitud al host.</p>
+
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<p>La especificación de Pagos Encapsulados en URI de esta propuesta, y los protocolos previstos para usarlos, están destinados a cumplir los siguientes requisitos:</p>
+<ul class="simple">
+<li><p>El protocolo no debe requerir que el remitente de un pago permanezca en línea hasta que el destinatario reciba la URI (y mucho menos hasta que cobre el pago).</p></li>
+<li><p>Las URI deberían ser lo suficientemente cortas para mostrarse convenientemente, caber en un código QR de tamaño modesto y ser compatibles con plataformas de mensajería con límites de longitud.</p></li>
+<li><p>No debe ser viable que alguien que no ha visto la URI (o que ha comprometido a una parte que sí la ha visto) cobre los fondos.</p></li>
+<li><p>Ningún servidor, indexador u otro tercero debería necesitar conocer el secreto de pago, y el cobro debería ser posible usando únicamente la infraestructura ordinaria de cliente ligero de la que ya depende una billetera blindada.</p></li>
+<li><p>Las URI y el protocolo deberían minimizar la probabilidad de uso indebido involuntario, y en particular los riesgos analizados en <a class="reference internal" href="#security-considerations">Consideraciones de seguridad</a> más adelante.</p></li>
+<li><p>El protocolo no debe filtrar ninguna información (identidad del remitente, identidad del destinatario, monto, descripción) a terceros, aparte de los metadatos inevitables sobre la existencia de una transacción, la comunicación de red inevitable en torno al envío/recibo de transacciones, la filtración que induzca el canal de comunicación utilizado para transmitir la URI, y lo que las partes compartan voluntariamente.</p></li>
+<li><p>Las URI deberían permitir futuras modificaciones y expansiones del formato, sin riesgo de análisis sintáctico ambiguo.</p></li>
+<li><p>La huella en cadena de los pagos que usan este mecanismo debería ser indistinguible de la de las transacciones normales totalmente blindadas (excepto, posiblemente, por las estadísticas del número de entradas y salidas blindadas).</p></li>
+<li><p>Un pago debería permanecer cobrable mientras sus fondos estén sin gastar, de modo que un pago que se imprime, se guarda o se abre tarde no se vuelva silenciosamente incobrable.</p></li>
+<li><p>No se deben perder fondos, incluso si las billeteras se bloquean, o si se pierde todo excepto el secreto maestro de la billetera emisora. Los pagos acuñados por una billetera deberían ser recuperables a partir de la semilla de esa billetera, y una URI de pago por sí sola debería ser recuperable por cualquier billetera que pueda restaurar una frase mnemónica estándar.</p></li>
+</ul>
+
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<ul class="simple">
+<li><p>Está fuera del alcance de esta propuesta establecer un canal de comunicación seguro para la transmisión de Pagos Encapsulados en URI, o proteger los dispositivos de las partes contra compromisos de seguridad.</p></li>
+<li><p>El cobro del pago puede implicar tiempos de espera significativos, del orden de minutos, mientras se generan, minan y confirman las transacciones en cadena necesarias, y mientras la billetera del reclamante escanea la cadena desde la altura dada. Esta propuesta no intenta resolverlo (aunque sí intenta evitar imponer demoras adicionales significativas, y sí aborda cómo se comunica el estado intermedio al usuario).</p></li>
+<li><p>Un Pago Encapsulado en URI no es un almacén de valor a largo plazo ni un sustituto de una copia de seguridad de la billetera. Véase <a class="reference internal" href="#security-considerations">Consideraciones de seguridad</a>.</p></li>
+<li><p>Esta propuesta no proporciona un vencimiento en cadena para los pagos no cobrados. La recuperación es una acción del lado de la billetera del acuñador.</p></li>
+</ul>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Una URI de encapsulación de pago representa la capacidad de cobrar todos los fondos gastables que tenga, ahora o más tarde, la billetera de pago derivada del secreto de pago que transporta. Véase <a class="reference internal" href="#usage-story">Historia de uso</a> para un ejemplo.</p>
+<h2 id="syntax"><a class="hanchor" href="#syntax" aria-hidden="true" tabindex="-1">#</a>Sintaxis</h2>
+<p>Una URI de encapsulación de pago es un Localizador Uniforme de Recursos (URL), como se define en el RFC 3986 <a class="brackets" href="#rfc3986" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>, con la siguiente estructura:</p>
+<pre class="literal-block">payment-uri  = "https://" host [ ":" port ] path-abempty "#" fragment
+fragment     = param *( "&#x26;" param )
+param        = version / keyparam / heightparam / amountparam / descparam
+             / otherparam
+version      = "v=1"
+keyparam     = "key=" bech32m
+heightparam  = "height=" %x31-39 *DIGIT
+amountparam  = "amount=" 1*DIGIT [ "." 1*8DIGIT ]
+descparam    = "desc=" *qchar
+otherparam   = 1*( ALPHA / DIGIT / "-" / "_" ) "=" *qchar
+qchar        = unreserved / pct-encoded / "+"</pre>
+<p>donde <span class="docutils literal">host</span>, <span class="docutils literal">port</span>, <span class="docutils literal"><span class="pre">path-abempty</span></span>, <span class="docutils literal">unreserved</span>, <span class="docutils literal"><span class="pre">pct-encoded</span></span>, <span class="docutils literal">ALPHA</span> y <span class="docutils literal">DIGIT</span> son como se definen en el RFC 3986 <a class="brackets" href="#rfc3986" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>, y <span class="docutils literal">bech32m</span> es una cadena Bech32m según lo especificado en <a class="reference internal" href="#encoding-of-the-payment-secret">Codificación del secreto de pago</a>. Esta gramática describe las URI que emiten los productores; el manejo de otras entradas por parte de los consumidores se especifica más adelante.</p>
+<p>El esquema DEBE (MUST) ser <span class="docutils literal">https</span>; los consumidores DEBEN (MUST) coincidirlo sin distinguir mayúsculas de minúsculas, como exige el RFC 3986. El <span class="docutils literal">host</span> PUEDE (MAY) ser cualquier host; véase <a class="reference internal" href="#hosts-and-landing-pages">Hosts y páginas de aterrizaje</a>. La ruta DEBERÍA (SHOULD) estar vacía o ser <span class="docutils literal">/</span>. Los productores NO DEBEN (MUST NOT) incluir un componente de consulta (<span class="docutils literal">?</span>): todo lo específico del pago DEBE (MUST) transportarse en el fragmento, de modo que nunca se envíe al host. Los consumidores NO DEBEN (MUST NOT) usar un componente de consulta, si está presente, para interpretar el pago.</p>
+<p>El fragmento consta de pares atributo-valor separados por <span class="docutils literal">&#x26;</span>. Se definen los siguientes atributos:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">v</span>: la versión del formato. DEBE (MUST) estar presente y DEBE (MUST) tener el valor <span class="docutils literal">1</span> para las URI conformes a esta versión de esta especificación. Un consumidor que encuentre cualquier otro valor DEBE (MUST) rechazar la URI como no soportada.</p></li>
+<li><p><span class="docutils literal">key</span>: el secreto de pago, codificado como se especifica en <a class="reference internal" href="#encoding-of-the-payment-secret">Codificación del secreto de pago</a>. DEBE (MUST) estar presente.</p></li>
+<li><p><span class="docutils literal">height</span>: una altura de bloque, en decimal y sin signo, espacios en blanco ni ceros a la izquierda, igual o anterior a la altura de la primera transacción de financiamiento, y no menor que la altura mínima de cumpleaños indicada en <a class="reference internal" href="#semantics">Semántica</a>. DEBE (MUST) estar presente.</p></li>
+<li><p><span class="docutils literal">amount</span>: el monto nominal del pago en ZEC decimales, siguiendo la misma sintaxis e interpretación que el parámetro <span class="docutils literal">amount</span> del ZIP 321 <a class="brackets" href="#zip-0321-amount" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>26<span class="fn-bracket">]</span></a>; además, DEBE (MUST) ser mayor que cero. PUEDE (MAY) estar presente. Este valor es indicativo; véase <a class="reference internal" href="#semantics">Semántica</a>.</p></li>
+<li><p><span class="docutils literal">desc</span>: una descripción del pago legible por humanos. PUEDE (MAY) estar presente. El valor es texto UTF-8 <a class="brackets" href="#rfc3629" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>, codificado por ciento como se describe más adelante, y NO DEBE (MUST NOT) exceder 512 bytes tras la decodificación.</p></li>
+</ul>
+<p>Los atributos <span class="docutils literal">v</span>, <span class="docutils literal">key</span> y <span class="docutils literal">height</span> son <em>estrictos</em>, y <span class="docutils literal">amount</span> y <span class="docutils literal">desc</span> son <em>indicativos</em>.</p>
+<p>Los productores DEBEN (MUST) emitir primero <span class="docutils literal">v</span>, seguido de <span class="docutils literal">key</span>, <span class="docutils literal">height</span>, <span class="docutils literal">amount</span> (si está presente) y <span class="docutils literal">desc</span> (si está presente), en ese orden. Los consumidores DEBEN (MUST) aceptar los atributos definidos en cualquier orden.</p>
+<p>Los consumidores procesan el fragmento de la siguiente manera:</p>
+<ul class="simple">
+<li><p>Los pares vacíos (como los producidos por <span class="docutils literal">&#x26;&#x26;</span>, o por un <span class="docutils literal">&#x26;</span> inicial o final) DEBEN (MUST) omitirse.</p></li>
+<li><p>Un par que no contiene ningún <span class="docutils literal">=</span> se lee como un nombre con un valor vacío.</p></li>
+<li><p>Los pares cuyo nombre no es un atributo definido DEBEN (MUST) ignorarse, contengan o no <span class="docutils literal">=</span>, de modo que versiones futuras de esta especificación puedan añadir atributos opcionales sin cambiar <span class="docutils literal">v</span>.</p></li>
+<li><p>Los consumidores DEBEN (MUST) rechazar una URI en la que un atributo estricto esté ausente, aparezca más de una vez, o esté mal formado o fuera de rango.</p></li>
+<li><p>Si un atributo indicativo aparece más de una vez, o su valor está mal formado o fuera de rango (para <span class="docutils literal">amount</span>: no tiene la sintaxis anterior, es cero o es mayor que la oferta monetaria máxima; para <span class="docutils literal">desc</span>: no es decodificable como se describe más adelante, o es más largo que 512 bytes tras la decodificación), los consumidores DEBEN (MUST) tratar ese atributo como ausente y NO DEBEN (MUST NOT) rechazar la URI por esa razón.</p></li>
+</ul>
+<p>Los productores DEBEN (MUST) codificar por ciento cada byte del valor <span class="docutils literal">desc</span> que no sea uno de los caracteres <span class="docutils literal">unreserved</span> del RFC 3986 (<span class="docutils literal">ALPHA</span>, <span class="docutils literal">DIGIT</span>, <span class="docutils literal">-</span>, <span class="docutils literal">.</span>, <span class="docutils literal">_</span>, <span class="docutils literal">~</span>); en particular, un espacio DEBE (MUST) codificarse como <span class="docutils literal">%20</span>. Los consumidores DEBEN (MUST) decodificar las secuencias <span class="docutils literal">%XX</span> y DEBEN (MUST) tratar un <span class="docutils literal">+</span> sin codificar como un espacio (por compatibilidad con bibliotecas de codificación de formularios). Un valor <span class="docutils literal">desc</span> que contenga un <span class="docutils literal">%</span> no seguido de dos dígitos hexadecimales, o que no decodifique a UTF-8 válido, está mal formado.</p>
+<p>Una URI de encapsulación de pago NO DEBE (MUST NOT) exceder 16384 bytes. Los consumidores PUEDEN (MAY) rechazar entradas más largas, medidas tras eliminar los espacios en blanco iniciales y finales, antes de analizarlas.</p>
+<h3 id="rationale-for-advisory-attributes-being-lenient"><a class="hanchor" href="#rationale-for-advisory-attributes-being-lenient" aria-hidden="true" tabindex="-1">#</a>Justificación de la tolerancia con los atributos indicativos</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>Los fondos que mantiene la billetera de pago son autoritativos, y <span class="docutils literal">amount</span> y <span class="docutils literal">desc</span> solo los describen. Rechazar una URI porque uno de ellos esté mal formado haría que un pago financiado no pudiera reclamarse en billeteras conformes por causa de un campo de solo visualización, lo cual es el peor fallo para un instrumento al portador que quizá ya esté impreso. Los atributos estrictos, en cambio, determinan qué billetera se escanea y desde dónde; adivinarlos podría ocultar fondos o dirigir al reclamante a la billetera equivocada.</p>
+</details>
+<h3 id="sanitization-of-the-description"><a class="hanchor" href="#sanitization-of-the-description" aria-hidden="true" tabindex="-1">#</a>Saneamiento de la descripción</h3>
+<p>El valor <span class="docutils literal">desc</span> es texto elegido por quien produjo la URI. Antes de mostrarlo, o de usarlo de cualquier otra manera (por ejemplo en un memo), un consumidor DEBE (MUST) transformar el valor decodificado de la siguiente manera:</p>
+<ul class="simple">
+<li><p>cada salto de línea, separador de párrafo u otro carácter de control de espacio en blanco (TAB, LF, VT, FF, CR, NEL U+0085, LINE SEPARATOR U+2028 y PARAGRAPH SEPARATOR U+2029) se sustituye por un espacio;</p></li>
+<li><p>todo otro carácter de control (categoría general Unicode <span class="docutils literal">Cc</span>, es decir, los controles C0, DEL y los controles C1) se elimina;</p></li>
+<li><p>se eliminan los caracteres de formato invisibles que pueden ocultar o reordenar el texto mostrado: las marcas bidireccionales (U+061C, U+200E, U+200F), las incrustaciones, invalidaciones y aislamientos bidireccionales (U+202A a U+202E y U+2066 a U+2069), los controles de formato en desuso (U+206A a U+206F), ZERO WIDTH SPACE (U+200B), WORD JOINER y los operadores invisibles (U+2060 a U+2064), ZERO WIDTH NO-BREAK SPACE (U+FEFF) y los controles de anotación interlinear (U+FFF9 a U+FFFB).</p></li>
+</ul>
+<p>Se conservan ZERO WIDTH JOINER, ZERO WIDTH NON-JOINER y los selectores de variación, ya que las secuencias de emoji y varias escrituras dependen de ellos. Si el resultado está vacío o consta solo de espacios en blanco, <span class="docutils literal">desc</span> se trata como ausente.</p>
+<p>Los productores NO DEBEN (MUST NOT) emitir un valor <span class="docutils literal">desc</span> que esté en blanco o que esta transformación cambiaría.</p>
+
+
+<h2 id="semantics"><a class="hanchor" href="#semantics" aria-hidden="true" tabindex="-1">#</a>Semántica</h2>
+<p>El parámetro <span class="docutils literal">key</span> determina de manera determinista una billetera de pago, como se especifica en <a class="reference internal" href="#payment-wallet-derivation">Derivación de la billetera de pago</a>. La URI representa la capacidad de gastar todos los fondos recibidos por esa billetera, en cualquier pool.</p>
+<p>El parámetro <span class="docutils literal">height</span> es el <em>cumpleaños</em> de la billetera de pago: la altura de bloque desde la cual un consumidor escanea la cadena en busca de las notas de la billetera de pago. DEBE (MUST) ser menor o igual que la altura del bloque que contiene la primera transacción de financiamiento para la dirección de pago. Un productor DEBERÍA (SHOULD) fijarlo tan cerca de esa altura como pueda determinarla en el momento en que se genera la URI (por ejemplo, la altura de la punta de la cadena cuando se crea la transacción de financiamiento), dado que un valor menor solo aumenta el costo de escaneo del reclamante. Un consumidor NO DEBE (MUST NOT) asumir que no existan notas por debajo de <span class="docutils literal">height</span>; simplemente no las busca.</p>
+<p><span class="docutils literal">height</span> DEBE (MUST) ser mayor o igual que la <em>altura mínima de cumpleaños</em> de la red identificada por <span class="docutils literal">key</span>: la altura de activación de NU5, que es 1687104 en Mainnet y 1842420 en Testnet, o 1 en Regtest. Los consumidores DEBEN (MUST) rechazar una URI cuyo <span class="docutils literal">height</span> sea menor. Los fondos Orchard de una billetera de pago no pueden ser anteriores a la activación de NU5, que introdujo el pool Orchard. No hay límite superior ni límite inferior relativos a la punta de la cadena; véase <a class="reference internal" href="#payment-rendering-and-blockchain-lookup">Renderizado del pago y búsqueda en la blockchain</a>.</p>
+<p>Los parámetros <span class="docutils literal">amount</span> y <span class="docutils literal">desc</span> son informativos. Existen para que el software de la billetera pueda describir el pago al usuario antes de que se haya escaneado la cadena. El monto que realmente se puede reclamar es el valor total de las notas no gastadas que mantiene la billetera de pago, menos la comisión de transacción de la transacción de reclamo, y PUEDE (MAY) diferir de <span class="docutils literal">amount</span> en cualquier dirección (posiblemente siendo cero).</p>
+<p>El software de la billetera del destinatario DEBERÍA (SHOULD) transmitir al usuario que los valores de <span class="docutils literal">amount</span> y <span class="docutils literal">desc</span> son meramente afirmaciones hechas por la parte que envió la URI, y pueden ser tentativas, inexactas o maliciosas.</p>
+<p>En particular, el software de la billetera del destinatario DEBERÍA (SHOULD) transmitir al usuario que la cantidad de ZEC que puede transferir con éxito a su billetera puede ser diferente de la indicada por el parámetro <span class="docutils literal">amount</span>, y puede cambiar (posiblemente a cero) hasta que la transacción de reclamo haya sido minada.</p>
+<p>El pago asociado a una URI no se considera «recibido» por el destinatario hasta que una transacción de reclamo haya sido minada; véase <a class="reference internal" href="#claiming">Reclamo</a>.</p>
+
+<h2 id="encoding-of-the-payment-secret"><a class="hanchor" href="#encoding-of-the-payment-secret" aria-hidden="true" tabindex="-1">#</a>Codificación del secreto de pago</h2>
+<p>El secreto de pago <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> es una secuencia de exactamente 32 bytes. Se codifica en el parámetro <span class="docutils literal">key</span> utilizando Bech32m <a class="brackets" href="#bip-0350" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>, con los 32 bytes convertidos a grupos de 5 bits como en una parte de datos Bech32 <a class="brackets" href="#zip-0173" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a> y con las siguientes partes legibles por humanos:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Red</p></th>
+<th class="head"><p>Parte legible por humanos</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>Mainnet</p></td>
+<td><p><span class="docutils literal">zgift</span></p></td>
+</tr>
+<tr><td><p>Testnet</p></td>
+<td><p><span class="docutils literal">zgifttest</span></p></td>
+</tr>
+<tr><td><p>Regtest</p></td>
+<td><p><span class="docutils literal">zgiftregtest</span></p></td>
+</tr>
+</tbody>
+</table>
+<p>Un secreto de pago codificado en Bech32m tiene 52 caracteres de datos más el checksum de 6 caracteres, el separador <span class="docutils literal">1</span> y el prefijo legible por humanos.</p>
+<p>Los productores DEBEN (MUST) usar minúsculas. Los consumidores DEBEN (MUST) aceptar codificaciones completamente en minúsculas o completamente en mayúsculas (de modo que el prefijo legible por humanos se compare sin distinguir mayúsculas de minúsculas), como en Bech32, y DEBEN (MUST) rechazar:</p>
+<ul class="simple">
+<li><p>una cadena cuyo checksum no sea un checksum <em>Bech32m</em> válido (en particular, una cadena con un checksum Bech32 DEBE (MUST) ser rechazada);</p></li>
+<li><p>una cadena cuya parte de datos decodificada no sea exactamente de 32 bytes;</p></li>
+<li><p>una cadena cuyos bits de relleno (los 4 bits que sobran cuando los 52 grupos de 5 bits se convierten en 32 bytes) no sean todos cero, ya que estos darían una segunda grafía del mismo secreto;</p></li>
+<li><p>una cadena que mezcle caracteres en minúsculas y mayúsculas;</p></li>
+<li><p>una cadena cuyo prefijo legible por humanos no sea uno de los enumerados anteriormente ("red no admitida");</p></li>
+<li><p>una cadena cuyo prefijo legible por humanos identifique una red distinta de aquella en la que opera la billetera consumidora ("red incorrecta"). Una billetera NO DEBE (MUST NOT) derivar ni mostrar una dirección de pago para un secreto de pago en la red incorrecta, y DEBERÍA (SHOULD) indicar al usuario para qué red es el URI.</p></li>
+</ul>
+<aside class="admonition note">
+<p class="admonition-title">Nota</p>
+<p>Los prefijos legibles por humanos anteriores son específicos de este ZIP. Si se establece un registro de prefijos legibles por humanos Bech32/Bech32m usados por Zcash (por ejemplo en el ZIP 173 <a class="brackets" href="#zip-0173" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a> o el ZIP 316 <a class="brackets" href="#zip-0316" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a>), las entradas <span class="docutils literal">zgift</span>, <span class="docutils literal">zgifttest</span> y <span class="docutils literal">zgiftregtest</span> se registrarán como "secreto de pago ZIP 324" en Mainnet, Testnet y Regtest respectivamente.</p>
+</aside>
+
+<h2 id="payment-wallet-derivation"><a class="hanchor" href="#payment-wallet-derivation" aria-hidden="true" tabindex="-1">#</a>Derivación de la billetera de pago</h2>
+<p>Dado un secreto de pago <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> y una red, la billetera de pago se deriva de la siguiente manera:</p>
+<ol class="arabic simple">
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝗇</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝗈</mi>
+    <mi>𝗇</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math> la frase mnemónica BIP 39 <a class="brackets" href="#bip-0039" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> obtenida a partir de los 256 bits de entropía <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> usando la lista de palabras en inglés. Esta es una frase de 24 palabras cuyos 8 bits finales son el checksum BIP 39 de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math>.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> la semilla BIP 39 de 64 bytes derivada de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝗇</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝗈</mi>
+    <mi>𝗇</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math> con una frase de contraseña vacía (es decir, con el salt PBKDF2 <span class="docutils literal">"mnemonic"</span>).</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑡</mi>
+    <mi>𝑦</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math> el tipo de moneda SLIP 44 <a class="brackets" href="#slip-0044" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a> para la red: $133$ para Mainnet y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math> para Testnet y Regtest.</p></li>
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> la clave de gasto Orchard en la ruta ZIP 32 <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">/</mo>
+  <mn>32</mn>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mrow>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑡</mi>
+    <mi>𝑦</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mn>0</mn>
+  <mo>'</mo>
+</math> derivada de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> como se especifica en el ZIP 32 <a class="brackets" href="#zip-0032-orchard" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a> (es decir, la cuenta <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math> de la semilla).</p></li>
+<li><p>La <em>dirección de pago</em> es la dirección de pago diversificada del protocolo Orchard de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> en el índice de diversificador <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math> <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>. Cuando la dirección de pago deba codificarse, DEBE (MUST) codificarse como una dirección unificada <a class="brackets" href="#zip-0316" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a> que contenga únicamente ese receptor Orchard. Un receptor del protocolo Orchard está acotado al protocolo Orchard y no a un pool, por lo que el mismo receptor acepta fondos en el <em>pool de Orchard</em> y en el <em>pool de Ironwood</em> <a class="brackets" href="#zip-0326-receiving" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></a>. Si NU6.3 introduce una codificación distinta para pagos al pool de Ironwood, esa codificación se usará según lo especificado por el ZIP 258 <a class="brackets" href="#zip-0258" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a> y los ZIP que este cita; véase <a class="reference internal" href="#open-questions">Preguntas abiertas</a>.</p></li>
+</ol>
+<p>La clave de visualización completa, la clave de visualización entrante y la clave de visualización saliente de Orchard de la billetera de pago son las de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>.</p>
+<p>La billetera de pago es la totalidad de la cuenta <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math> de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math>: además de sus claves Orchard, tiene las claves Sapling en la ruta ZIP 32 <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>m</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">/</mo>
+  <mn>32</mn>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mrow>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑡</mi>
+    <mi>𝑦</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>'</mo>
+  <mo stretchy="false">/</mo>
+  <mn>0</mn>
+  <mo>'</mo>
+</math> <a class="brackets" href="#zip-0032-sapling" id="footnote-reference-24" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a>, y las claves transparentes de la cuenta BIP 44 <a class="brackets" href="#bip-0044" id="footnote-reference-25" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a> <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math> para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑡</mi>
+    <mi>𝑦</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math>. Sus claves del protocolo Orchard sirven tanto al <em>pool de Orchard</em> como al <em>pool de Ironwood</em>.</p>
+<p>Un acuñador fondea la dirección de pago de la siguiente manera:</p>
+<ul class="simple">
+<li><p>para una transacción de fondeo minada antes de la activación de NU6.3, el acuñador DEBERÍA (SHOULD) fondear la dirección de pago en el <em>pool de Orchard</em>;</p></li>
+<li><p>a partir de la activación de NU6.3, el valor ya no puede ingresar al <em>pool de Orchard</em> <a class="brackets" href="#zip-0258-nu63-rules" id="footnote-reference-26" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a> y las billeteras no envían a receptores externos en él <a class="brackets" href="#zip-0326-keygen" id="footnote-reference-27" role="doc-noteref"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></a>, por lo que el acuñador DEBE (MUST) fondear la dirección de pago en el <em>pool de Ironwood</em>.</p></li>
+</ul>
+<p>Un acuñador NO DEBERÍA (SHOULD NOT) enviar fondos a una dirección Sapling de la billetera de pago, y NO DEBE (MUST NOT) anunciar un receptor transparente para ella. No obstante, los fondos pueden llegar a otras direcciones de la billetera de pago, por ejemplo si alguien paga una de sus direcciones transparentes por fuera de banda, o si un formato desplegado anunció un receptor Sapling (véase <a class="reference internal" href="#known-uses">Usos conocidos</a>).</p>
+<p>Un reclamante DEBE (MUST) escanear los fondos de la billetera de pago en cada pool blindado (Orchard, Ironwood y Sapling) y en sus direcciones transparentes, y DEBE (MUST) barrerlos todos según lo especificado en <a class="reference internal" href="#claiming">Reclamación</a>. Gastar desde el <em>pool de Orchard</em> sigue siendo posible después de la activación de NU6.3, por lo que los fondos del pool de Orchard de pagos acuñados antes permanecen reclamables.</p>
+<p>Las implementaciones PUEDEN (MAY) calcular <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> directamente de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> sin materializar la frase mnemónica, siempre que el resultado sea idéntico.</p>
+<h3 id="rationale-for-an-orchard-protocol-payment-address-and-an-all-pool-claim"><a class="hanchor" href="#rationale-for-an-orchard-protocol-payment-address-and-an-all-pool-claim" aria-hidden="true" tabindex="-1">#</a>Justificación de una dirección de pago del protocolo Orchard y de una reclamación de todos los pools</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>Se usa el protocolo Orchard porque es el protocolo blindado actual, con las mejores propiedades de privacidad y las pruebas más baratas en dispositivos móviles, y porque una dirección unificada con un único receptor Orchard mantiene corta la dirección de pago. El pool de fondeo sigue el pool actual de ese protocolo: el <em>pool de Orchard</em> antes de la activación de NU6.3 y el <em>pool de Ironwood</em> después de ella, cuando las reglas de consenso ya no permiten que el valor ingrese al <em>pool de Orchard</em>. Fondear el pool actual también mantiene la transacción de reclamación habitual libre de transferencias entre pools, que serían visibles en la cadena como cambios en los saldos de los pools.</p>
+<p>Barrer todo lo que contiene la billetera de pago no le cuesta privacidad al destinatario: la billetera de pago es de un solo uso, sus claves ya son conocidas por el acuñador y por todo poseedor del URI, el destino es un receptor blindado del reclamante, y la clave de visualización saliente de la billetera de pago no se usa. Dejar fondos en un pool que el reclamante no escanea solo los dejaría varados, o los dejaría para cualquier otro poseedor del URI que los tome. Algunos enlaces de pago desplegados (véase <a class="reference internal" href="#known-uses">Usos conocidos</a>) describen una dirección de pago con receptores tanto Orchard como Sapling, por lo que los fondos Sapling sí ocurren en la práctica.</p>
+</details>
+<h3 id="rationale-for-deriving-the-payment-wallet-through-a-bip-39-mnemonic"><a class="hanchor" href="#rationale-for-deriving-the-payment-wallet-through-a-bip-39-mnemonic" aria-hidden="true" tabindex="-1">#</a>Justificación de derivar la billetera de pago mediante una mnemónica BIP 39</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>Derivar la semilla ZIP 32 mediante una mnemónica BIP 39 en lugar de hacerlo directamente de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> significa que la billetera de pago es una billetera ordinaria de una sola cuenta: cualquier billetera de Zcash que pueda restaurar una frase de 24 palabras puede recuperar los fondos de un URI de pago, incluso sin soporte para este ZIP, restaurando la frase y escaneando desde el cumpleaños. Esto proporciona una ruta de recuperación independiente de cualquier software particular y permite que una billetera "mejore" un pago hacia una billetera persistente si así lo decide. El costo es una derivación PBKDF2 de 2048 iteraciones, que es despreciable.</p>
+</details>
+
+<h2 id="minting-a-payment-secret"><a class="hanchor" href="#minting-a-payment-secret" aria-hidden="true" tabindex="-1">#</a>Acuñación de un secreto de pago</h2>
+<p>Un secreto de pago DEBE (MUST) tener 256 bits de entropía. Se obtiene de una de dos maneras.</p>
+<p><strong>Secretos derivados de la semilla.</strong> Una billetera que acuña pagos a partir de una semilla ZIP 32 <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>S</mi>
+    <mi>w</mi>
+  </msub>
+</math> (la semilla de la propia billetera, que no debe confundirse con el secreto de pago) DEBE (MUST) derivar los secretos de pago usando la derivación de claves registrada de ZIP 32 <a class="brackets" href="#zip-0032-registered" id="footnote-reference-28" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>, con:</p>
+<ul class="simple">
+<li><p><tt class="math">\mathsf{ContextString} = \texttt{“Zcash\_URIEncapsulatedPayment”}</tt></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝗂</mi>
+    <mi>𝗉</mi>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗆</mi>
+    <mi>𝖻</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>324</mn>
+</math></p></li>
+</ul>
+<p>El secreto de pago con índice <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑒</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> en la red con tipo de moneda SLIP 44 <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑡</mi>
+    <mi>𝑦</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math> es el componente de clave de 32 bytes de</p>
+<p>$mathsf{CKDreg}(mathsf{CKDreg}(mathsf{RegKD}(texttt{“Zcash_URIEncapsulatedPayment”}, S_w, 324), mathit{coin_type} + 2^{31}, [,]), mathit{index} + 2^{31}, [,])$</p>
+<p>donde el código de cadena del hijo resultante se descarta. En notación de ruta esto es <tt class="math">m_{\texttt{Zcash\_URIEncapsulatedPayment}} / 324' / \mathit{coin\_type}' / \mathit{index}'</tt>, donde <tt class="math">m_{\texttt{Zcash\_URIEncapsulatedPayment}}</tt> es la clave maestra que la derivación de claves registrada calcula a partir de la cadena de contexto y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>S</mi>
+    <mi>w</mi>
+  </msub>
+</math>; el paso $324'$ es el paso <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝗂</mi>
+    <mi>𝗉</mi>
+    <mi>𝖭</mi>
+    <mi>𝗎</mi>
+    <mi>𝗆</mi>
+    <mi>𝖻</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math> que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝗀</mi>
+    <mi>𝖪</mi>
+    <mi>𝖣</mi>
+  </mrow>
+</math> realiza. ZIP 32 no define una notación de ruta general para la derivación de claves registrada; esta es inequívoca porque cada paso usa una etiqueta vacía.</p>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑒</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> DEBE (MUST) estar en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>{</mo>
+  <mn>0</mn>
+  <mspace width="0.1667em"></mspace>
+  <mo>.</mo>
+  <mo>.</mo>
+  <mspace width="0.1667em"></mspace>
+  <msup>
+    <mn>2</mn>
+    <mn>31</mn>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+</math>. Una billetera que acuña NO DEBE (MUST NOT) reutilizar un índice para el que haya producido previamente un URI, y DEBERÍA (SHOULD) asignar índices secuencialmente comenzando desde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math> para que los pagos puedan recuperarse como se describe en <a class="reference internal" href="#recovery-from-wallet-crash">Recuperación tras un fallo de la billetera</a>.</p>
+<p><strong>Secretos aleatorios.</strong> Un acuñador que no deriva los pagos de una semilla (por ejemplo, un servicio que acuña pagos en masa) PUEDE (MAY) en cambio generar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> uniformemente al azar usando un generador de números aleatorios criptográficamente seguro. Tal acuñador es responsable de su propio registro de secretos pendientes si pretende reclamar pagos.</p>
+
+<h2 id="hosts-and-landing-pages"><a class="hanchor" href="#hosts-and-landing-pages" aria-hidden="true" tabindex="-1">#</a>Hosts y páginas de aterrizaje</h2>
+<p>El <span class="docutils literal">host</span> de un URI de encapsulación de pagos sirve a dos propósitos: es el dominio contra el cual el software de billetera registra un manejador <a class="reference internal" href="#applink">applink</a>, y sirve una <em>página de aterrizaje</em> a los usuarios cuyo dispositivo no tiene una billetera que maneje el URI.</p>
+<p>Una billetera que soporta este ZIP DEBERÍA (SHOULD) registrarse como manejador <a class="reference internal" href="#applink">applink</a> para los hosts cuyos URIs de pago pretende manejar, y DEBE (MUST) también aceptar un URI de pago pegado o compartido directamente en ella, sin importar el host, siempre que el URI se ajuste a <a class="reference internal" href="#syntax">Sintaxis</a>.</p>
+<p>El operador de un host que aparece en URIs de pago:</p>
+<ul class="simple">
+<li><p>DEBE (MUST) servir los archivos de asociación requeridos por los mecanismos <a class="reference internal" href="#applink">applink</a> de las plataformas que soporta, listando las aplicaciones de billetera que pueden manejar sus URIs, y DEBERÍA (SHOULD) publicar la política bajo la cual se listan las aplicaciones;</p></li>
+<li><p>NO DEBE (MUST NOT) servir, en la ruta usada por los URIs de pago, ningún script u otro contenido activo que lea el identificador de fragmento, lo transmita o lo almacene — incluyendo scripts de analítica, reporte de errores y gestión de etiquetas;</p></li>
+<li><p>DEBERÍA (SHOULD) servir una página estática que explique que el enlace lleva un pago de Zcash, que los fondos pueden ser tomados por cualquiera que tenga el enlace, y cómo obtener una billetera compatible;</p></li>
+<li><p>DEBERÍA (SHOULD) servir la página con encabezados HTTP que impidan que el fragmento se filtre a través de referentes (por ejemplo un <span class="docutils literal"><span class="pre">Referrer-Policy</span></span> de <span class="docutils literal"><span class="pre">no-referrer</span></span>) y que restrinjan la ejecución de scripts (por ejemplo un <span class="docutils literal"><span class="pre">Content-Security-Policy</span></span> sin <span class="docutils literal"><span class="pre">script-src</span></span>).</p></li>
+</ul>
+<p>Una billetera que abre un URI de pago a través de un <a class="reference internal" href="#applink">applink</a> no contacta al host en absoluto. Una billetera NO DEBE (MUST NOT) obtener el URI por la red por sí misma.</p>
+
+<h2 id="testing"><a class="hanchor" href="#testing" aria-hidden="true" tabindex="-1">#</a>Pruebas</h2>
+<p>Toda la especificación anterior se aplica igualmente a Testnet y Regtest, sustituyendo <span class="docutils literal">ZEC</span> por la Human-Readable Part correspondiente de <a class="reference internal" href="#encoding-of-the-payment-secret">Codificación del secreto de pago</a> y <span class="docutils literal">TAZ</span>.</p>
+<p>Las aplicaciones de billetera PUEDEN (MAY) soportar solo una red, y si soportan más de una entonces DEBEN (MUST) mantener una contabilidad separada y DEBEN (MUST) distinguir claramente la red cuando los pagos o los saldos se transmiten a los usuarios. Una billetera DEBE (MUST) rechazar, con una indicación de "red incorrecta", cualquier URI de pago cuya Human-Readable Part no coincida con la red en la que opera.</p>
+
+
+<h1 id="lifecycle-specification"><a class="hanchor" href="#lifecycle-specification" aria-hidden="true" tabindex="-1">#</a>Especificación del ciclo de vida</h1>
+<p>El ciclo de vida de un URI de encapsulación de pagos consta de varias etapas, que en el caso habitual culminan en que los fondos se depositan de manera irrevocable en la billetera personal del destinatario:</p>
+<h2 id="minting-and-funding"><a class="hanchor" href="#minting-and-funding" aria-hidden="true" tabindex="-1">#</a>Acuñación y financiamiento</h2>
+<p>La billetera del acuñador:</p>
+<ol class="arabic simple">
+<li><p>Obtiene un secreto de pago <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> como se especifica en <a class="reference internal" href="#minting-a-payment-secret">Acuñación de un secreto de pago</a>, y deriva la dirección de pago como se especifica en <a class="reference internal" href="#payment-wallet-derivation">Derivación de la billetera de pago</a>.</p></li>
+<li><p>Elige <span class="docutils literal">height</span>, que DEBE (MUST) ser a lo sumo la altura a la cual se mina la transacción de financiamiento. Una billetera que genera el URI antes de que se mine la transacción de financiamiento DEBERÍA (SHOULD) usar la altura de la punta de la cadena al momento en que se crea la transacción de financiamiento.</p></li>
+<li><p>Registra de manera duradera el pago, como se describe a continuación, antes de difundir cualquier transacción de financiamiento.</p></li>
+<li><p>Crea y difunde una <em>transacción de financiamiento</em> que paga a la dirección de pago. La salida de financiamiento es una salida a la dirección de pago en el pool requerido por <a class="reference internal" href="#payment-wallet-derivation">Derivación de la billetera de pago</a>: el <em>pool Orchard</em> (DEBERÍA (SHOULD)) antes de la activación de NU6.3, y el <em>pool Ironwood</em> (DEBE (MUST)) desde la activación de NU6.3 en adelante. La transacción de financiamiento DEBERÍA (SHOULD) ser una transacción totalmente blindada, de modo que sea indistinguible de las transacciones ordinarias, y PUEDE (MAY) llevar <span class="docutils literal">desc</span> (o nada) en el memo de la salida de financiamiento.</p></li>
+<li><p>Codifica el URI de pago como se especifica en <a class="reference internal" href="#syntax">Sintaxis</a>.</p></li>
+</ol>
+<p>El monto de financiamiento DEBERÍA (SHOULD) incluir, además del monto nominal mostrado en <span class="docutils literal">amount</span>, una <em>reserva de comisión</em> para que el reclamante reciba el monto nominal después de pagar la comisión de la transacción de reclamo. La reserva RECOMENDADA (RECOMMENDED) es 10000 zatoshi, que es la <a class="brackets" href="#zip-0317" id="footnote-reference-29" role="doc-noteref"><span class="fn-bracket">[</span>24<span class="fn-bracket">]</span></a> comisión convencional de ZIP 317 de una transacción de reclamo con a lo sumo dos acciones lógicas. Un acuñador que financia la misma dirección de pago con más de una nota DEBERÍA (SHOULD) aumentar la reserva en 5000 zatoshi por cada nota adicional más allá de la segunda, ya que cada gasto adicional añade una acción lógica.</p>
+<p>La billetera del acuñador NO DEBE (MUST NOT) exponer la dirección de pago como dirección de recepción del acuñador, y NO DEBERÍA (SHOULD NOT) enviar a la misma dirección de pago más de una transacción de financiamiento, excepto para reponer un pago antes de que el URI haya sido transmitido.</p>
+<p>Antes de difundir la transacción de financiamiento, la billetera del acuñador DEBE (MUST) registrar de manera duradera suficiente información para encontrar y reclamar el pago: para un secreto derivado de semilla, su índice y <span class="docutils literal">height</span>; para un secreto aleatorio, el secreto mismo y <span class="docutils literal">height</span>. Esto asegura que una caída entre la difusión y el registro no pueda dejar fondos en una billetera de pago que nadie conoce. La billetera del acuñador DEBERÍA (SHOULD) también registrar el monto nominal y <span class="docutils literal">desc</span>, para poder mostrar el estado y reclamar el pago sin reescanear. La billetera del acuñador DEBE (MUST) conservar la capacidad de derivar la billetera de pago de cada pago que haya acuñado (véase <a class="reference internal" href="#recovery-from-wallet-crash">Recuperación tras una caída de la billetera</a>).</p>
+<p>Un acuñador cuyas claves de gasto están en custodia de un firmante de hardware crea la transacción de financiamiento a través de su flujo habitual de firmado (por ejemplo usando una Partially Created Zcash Transaction <a class="brackets" href="#zip-0374" id="footnote-reference-30" role="doc-noteref"><span class="fn-bracket">[</span>32<span class="fn-bracket">]</span></a>). La custodia en hardware protege solo la cuenta de financiamiento: el secreto de pago y las claves de la billetera de pago siempre existen en el dispositivo anfitrión, y más adelante en el dispositivo del reclamante. Los secretos de pago derivados de semilla requieren la semilla de la billetera, por lo que un acuñador cuya semilla está disponible solo para un firmante de hardware usa secretos aleatorios (véase <a class="reference internal" href="#minting-a-payment-secret">Acuñación de un secreto de pago</a>) o una semilla que esté disponible para el anfitrión.</p>
+<p>Los clientes PUEDEN (MAY) generar y transmitir el URI antes de que se mine la transacción de financiamiento; la billetera del reclamante mostrará el pago como <em>Pendiente</em> hasta que lo sea.</p>
+
+<h2 id="uri-transmission"><a class="hanchor" href="#uri-transmission" aria-hidden="true" tabindex="-1">#</a>Transmisión de la URI</h2>
+<p>El acuñador transmite el URI que encapsula el pago al destinatario previsto, por algún canal seguro (por ejemplo, una plataforma de mensajería cifrada de extremo a extremo como Signal, WhatsApp o Magic Wormhole; un código QR escaneado en persona; o una tarjeta impresa entregada directamente).</p>
+<p>Si se transmite por un medio legible por humanos, como una aplicación de mensajería, el URI que encapsula el pago PUEDE (MAY) ir acompañado de una explicación contextual de que el URI encapsula un pago, y de una acción sugerida que el destinatario realice para completar el proceso (véase <a class="reference internal" href="#usage-story">Historia de uso</a> arriba para un ejemplo).</p>
+<p>Cuando se envía por un medio legible por humanos que consiste en mensajes discretos, el mensaje que contiene el URI NO DEBERÍA (SHOULD NOT) contener ninguna información específica del pago ni ingresada manualmente fuera del URI mismo, ya que esta información puede no ser visible para el destinatario (véase <a class="reference internal" href="#message-rendering">Renderizado de mensajes</a> abajo).</p>
+<p>A partir de este punto, y hasta que el pago sea reclamado o recobrado, desde la perspectiva del acuñador el pago está «en curso»; DEBERÍA (SHOULD) comunicársele así al acuñador; y NO DEBE (MUST NOT) comunicarse como «reclamado» ni con otra redacción que transmita una finalización exitosa.</p>
+
+<h2 id="message-rendering"><a class="hanchor" href="#message-rendering" aria-hidden="true" tabindex="-1">#</a>Renderizado de mensajes</h2>
+<p>El dispositivo del destinatario renderiza el URI que encapsula el pago, o una indicación de su llegada, junto con la explicación contextual antes mencionada (si la hay). El usuario tiene la opción de «abrir» el URI (es decir, haciendo clic en él), lo que resulta en que el dispositivo abra una aplicación de billetera de Zcash, usando el mecanismo de <a class="reference internal" href="#applink">applink</a> de la plataforma local o, en su defecto, la página de aterrizaje del anfitrión.</p>
+<p>Una aplicación de mensajería PUEDE (MAY) reconocer los pagos encapsulados en una URI, y mostrarlos de una manera que transmita su naturaleza con mayor claridad que las cadenas de URI sin procesar. Si el medio de mensajería consiste en mensajes discretos, y un mensaje contiene uno o más pagos encapsulados en una URI, entonces la aplicación de mensajería PUEDE (MAY) asumir que todo el demás contenido de ese mensaje se genera automáticamente y no contiene información específica del pago ni generada manualmente, y por lo tanto puede descartarse durante el renderizado.</p>
+
+<h2 id="intake-of-payment-uris"><a class="hanchor" href="#intake-of-payment-uris" aria-hidden="true" tabindex="-1">#</a>Ingesta de URI de pago</h2>
+<p>Los URI de pago pueden llegar a una billetera desde cualquier página web o aplicación que pueda activar un <a class="reference internal" href="#applink">applink</a>, por lo que una billetera DEBE (MUST) acotar los recursos que los URI entrantes pueden consumir:</p>
+<ul class="simple">
+<li><p>DEBE (MUST) aplicar el límite de longitud de <a class="reference internal" href="#syntax">Sintaxis</a> antes de cualquier otro procesamiento;</p></li>
+<li><p>DEBERÍA (SHOULD) acotar la cantidad de URI de pago en espera de procesamiento en un momento dado, y DEBERÍA (SHOULD) tratar un URI que designa la misma billetera de pago que uno ya en espera de procesamiento como un duplicado en lugar de procesarlo dos veces;</p></li>
+<li><p>un URI mal formado NO DEBE (MUST NOT) impedir el procesamiento de otros URI; y</p></li>
+<li><p>NO DEBE (MUST NOT) comenzar a escanear, ni reclamar, un pago únicamente porque se recibió un URI (véase <a class="reference internal" href="#claiming">Reclamo</a>).</p></li>
+</ul>
+
+<h2 id="payment-rendering-and-blockchain-lookup"><a class="hanchor" href="#payment-rendering-and-blockchain-lookup" aria-hidden="true" tabindex="-1">#</a>Renderizado del pago y búsqueda en la blockchain</h2>
+<p>La aplicación de billetera de Zcash del destinatario DEBERÍA (SHOULD) presentar el monto del pago y PUEDE (MAY) presentar la descripción, según lo transmitido en la URI, junto con una indicación del carácter tentativo de esta información.</p>
+<p>La billetera entonces determina qué contiene realmente la billetera de pago. Para ello DEBE (MUST):</p>
+<ul class="simple">
+<li><p>derivar la clave de visualización completa de la billetera de pago según lo especificado en <a class="reference internal" href="#payment-wallet-derivation">Derivación de la billetera de pago</a>;</p></li>
+<li><p>crear una <em>billetera temporal</em> para esa clave de visualización que esté aislada de las cuentas propias del usuario (por ejemplo, una base de datos separada o una instancia de billetera con nombre separado), con <span class="docutils literal">height</span> como su fecha de nacimiento;</p></li>
+<li><p>escanear la cadena desde <span class="docutils literal">height</span> hasta la punta actual en busca de notas de cada pool blindado (Orchard, Ironwood y Sapling) recibidas por la billetera de pago, tal como ZIP 326 <a class="brackets" href="#zip-0326" id="footnote-reference-31" role="doc-noteref"><span class="fn-bracket">[</span>28<span class="fn-bracket">]</span></a> especifica para notas del protocolo Orchard, y en busca de gastos de esas notas; y</p></li>
+<li><p>buscar salidas transparentes no gastadas recibidas por las direcciones transparentes de la billetera de pago (véase <a class="reference internal" href="#payment-wallet-derivation">Derivación de la billetera de pago</a>), usando el descubrimiento de direcciones transparentes habitual de la billetera.</p></li>
+</ul>
+<p>Una billetera NO DEBE (MUST NOT) negarse a procesar un URI de pago porque su <span class="docutils literal">height</span> esté muy por debajo de la punta de la cadena. Cuando el rango a escanear es grande (por ejemplo, más de unos 100000 bloques), la billetera DEBERÍA (SHOULD) advertir al usuario que encontrar los fondos puede tardar más de lo habitual, DEBERÍA (SHOULD) mostrar el progreso del escaneo y DEBERÍA (SHOULD) permitir al usuario cancelarlo. Si <span class="docutils literal">height</span> está por encima de la punta actual de la cadena, la billetera DEBERÍA (SHOULD) tratar el pago como <em>Pendiente</em>.</p>
+<p>La billetera NO DEBE (MUST NOT) importar las claves de la billetera de pago en las cuentas propias del usuario, y NO DEBE (MUST NOT) mostrar al usuario la dirección de pago como una dirección en la que puede recibir fondos.</p>
+<p>La billetera transmite al usuario uno de los siguientes estados:</p>
+<ul class="simple">
+<li><p><em>Pendiente</em>: aún no se han encontrado notas no gastadas, o las notas encontradas todavía no tienen suficientes confirmaciones (véase abajo). La billetera DEBERÍA (SHOULD) seguir escaneando y reevaluando.</p></li>
+<li><p><em>Listo para reclamar</em>: se han encontrado una o más notas no gastadas con confirmaciones suficientes, y su valor total supera la comisión de la transacción de reclamo. La billetera DEBERÍA (SHOULD) presentar al usuario una opción para reclamar el pago (por ejemplo, un botón «Reclamar») y DEBERÍA (SHOULD) mostrar el monto que efectivamente se recibirá.</p></li>
+<li><p><em>Reclamado</em>: toda nota encontrada ha sido gastada. Los fondos fueron tomados por otro poseedor del URI (posiblemente el acuñador). La billetera DEBE (MUST) transmitir que los fondos no pueden recibirse.</p></li>
+<li><p><em>Inválido</em>: el URI está mal formado, corresponde a la red incorrecta, o el valor no gastado encontrado no cubre la comisión de la transacción de reclamo.</p></li>
+</ul>
+<p>Dentro del estado <em>Pendiente</em>, la aplicación de billetera PUEDE (MAY) considerar también transacciones no minadas vistas en el mempool y transmitir su existencia al usuario. Estas no bastan para entrar en el estado <em>Listo para reclamar</em>.</p>
+<p><strong>Confirmaciones.</strong> Las confirmaciones siguen el ZIP 315 <a class="brackets" href="#zip-0315" id="footnote-reference-32" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>. Los fondos mantenidos por la billetera de pago (notas y salidas transparentes) fueron recibidos desde fuera de la billetera del reclamante y, por lo tanto, son TXO no confiables en el sentido del ZIP 315 para el reclamante: la billetera temporal NO DEBE (MUST NOT) tratarlos como confiables. Si son gastables, y cómo se muestra su estado, siguen la política de confirmaciones del ZIP 315 de la billetera para TXO no confiables. Un acuñador que reclama fondos que él mismo envió les aplica su política del ZIP 315 de la misma manera, según si los trata como confiables o no.</p>
+<p>Las condiciones antes mencionadas pueden cambiar con el tiempo (por ejemplo, las notas pueden ser gastadas por otra persona en el ínterin), por lo que el estado DEBERÍA (SHOULD) actualizarse periódicamente mientras se muestra el pago.</p>
+<h3 id="rationale-for-not-limiting-the-age-of-a-payment"><a class="hanchor" href="#rationale-for-not-limiting-the-age-of-a-payment" aria-hidden="true" tabindex="-1">#</a>Justificación para no limitar la antigüedad de un pago</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>Una ventana de reclamo, como rehusar todo pago cuya fecha de creación esté a más de 100000 bloques (unos 87 días) de la punta, acota el trabajo de escaneo que un URI puede exigir. También convertiría un regalo al portador en uno con vencimiento: las tarjetas que se imprimen, se guardan en un cajón o se abren después de unas vacaciones quedarían sin poder reclamarse en las billeteras conformes mientras sus fondos siguen en la cadena, y recurrir a restaurar la frase mnemónica en una billetera de propósito general no es algo que se pueda esperar de la mayoría de los destinatarios. El costo de escanear un pago antiguo es el mismo que el de restaurar cualquier billetera con una fecha de creación antigua, para una sola cuenta, y al usuario se le puede advertir y puede cancelar. Un URI hostil puede, por lo tanto, costarle tiempo al usuario pero no puede tomar el control del escaneo.</p>
+</details>
+<h3 id="rationale-for-the-confirmation-policy"><a class="hanchor" href="#rationale-for-the-confirmation-policy" aria-hidden="true" tabindex="-1">#</a>Justificación de la política de confirmaciones</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>Este ZIP no fija números de confirmaciones propios; lo que importa es la clasificación de los fondos como confiables o no confiables, y el ZIP 315 provee la política. Se ha argumentado que una sola confirmación basta para las notas de financiamiento, porque fueron creadas expresamente para una billetera de un solo uso y por lo tanto las preocupaciones habituales sobre emisores no confiables no aplican. Sin embargo, la procedencia no es el riesgo: el acuñador todavía conserva el secreto de pago (y, para los secretos derivados de una semilla, siempre puede volver a derivarlo), al igual que otras partes que hayan visto el URI. Si una reorganización de la cadena elimina la transacción de financiamiento o la transacción de reclamo, el acuñador puede gastar dos veces las entradas de la transacción de financiamiento, u otro poseedor del URI puede lograr que se mine su propio reclamo, y la recepción aparente del reclamante desaparece. Estos son exactamente los riesgos que aborda la política del ZIP 315 para TXO no confiables. La transacción de reclamo en sí es distinta: se crea en el dispositivo del reclamante, de modo que su salida es confiable (véase <a class="reference internal" href="#claiming">Reclamo</a>).</p>
+</details>
+
+<h2 id="claiming"><a class="hanchor" href="#claiming" aria-hidden="true" tabindex="-1">#</a>Reclamo</h2>
+<p>Cuando el usuario elige reclamar el pago, la aplicación de billetera construye una única <em>transacción de reclamo</em> con las siguientes propiedades:</p>
+<ul class="simple">
+<li><p>Gasta todos los fondos de la billetera de pago que satisfacen la política de confirmaciones anterior: cada nota no gastada de Orchard, Ironwood y Sapling, y cada salida transparente no gastada. El reclamo DEBE (MUST) barrerlos todos. Cuando las comisiones del ZIP 317, el tamaño de la transacción o las reglas de un pool hacen impráctica una sola transacción, la billetera PUEDE (MAY) reclamar en más de una transacción, cada una con las propiedades aquí enumeradas.</p></li>
+<li><p>Tiene exactamente una salida no ficticia, a un receptor blindado perteneciente a la billetera propia del reclamante, y NO DEBE (MUST NOT) enviar a un receptor transparente. Antes de la activación de NU6.3 la billetera DEBERÍA (SHOULD) enviar a su receptor Orchard en el <em>pool Orchard</em>; desde la activación de NU6.3 en adelante DEBE (MUST) enviar a un receptor del protocolo Orchard en el <em>pool Ironwood</em>. Las notas del pool Orchard de la billetera de pago se gastan como exige el ZIP 326 después de la activación de NU6.3 (con salidas fabricadas de la misma dirección <a class="brackets" href="#zip-0326-fabricated" id="footnote-reference-33" role="doc-noteref"><span class="fn-bracket">[</span>31<span class="fn-bracket">]</span></a>), y su valor sale del <em>pool Orchard</em> hacia el <em>pool Ironwood</em>.</p></li>
+<li><p>El valor de la salida es la suma de las entradas menos la comisión de transacción, de modo que el reclamo transfiere todo el saldo gastable de la billetera de pago. La billetera NO DEBE (MUST NOT) limitar el reclamo al valor de <span class="docutils literal">amount</span>, que sigue siendo indicativo, y no hay salida de cambio.</p></li>
+<li><p>La comisión es la comisión convencional <a class="brackets" href="#zip-0317" id="footnote-reference-34" role="doc-noteref"><span class="fn-bracket">[</span>24<span class="fn-bracket">]</span></a> del ZIP 317 para la transacción tal como se construyó.</p></li>
+<li><p>La transacción de reclamo NO DEBE (MUST NOT) usar la clave de visualización de salidas de la billetera de pago, ni ninguna otra clave derivada del secreto de pago, para cifrar cualquiera de sus salidas. En su lugar, la billetera DEBE (MUST) usar la construcción de "sin clave de visualización de salidas" del protocolo <a class="brackets" href="#protocol-saplingandorchardinband" id="footnote-reference-35" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a> (un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝖼</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> aleatorio) para toda salida que lleve un cifrado de nota real (las salidas fabricadas del ZIP 326 llevan bytes aleatorios en su lugar), de modo que ningún poseedor del secreto de pago pueda descifrar la salida.</p></li>
+<li><p>El memo de la salida DEBERÍA (SHOULD) identificar el origen de los fondos como un Pago Encapsulado en URI, y PUEDE (MAY) incluir el valor de <span class="docutils literal">desc</span>, truncado de modo que el memo no exceda 512 bytes de UTF-8 y siga siendo un memo de texto válido.</p></li>
+<li><p>Usa la expiración de transacción predeterminada de la billetera (véase el ZIP 203 <a class="brackets" href="#zip-0203" id="footnote-reference-36" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a>).</p></li>
+</ul>
+<p>Antes de transmitir, la billetera DEBE (MUST) mostrar al usuario que están a punto de reclamarse fondos de un Pago Encapsulado en URI, el monto que se recibirá y la cuenta de destino, y DEBE (MUST) permitir al usuario cancelar. Una billetera NO DEBE (MUST NOT) reclamar un pago sin una acción explícita del usuario.</p>
+<p>Una vez transmitida la transacción de reclamo, la billetera DEBE (MUST) eliminar la billetera temporal, incluida su base de datos y todo material de claves derivado del secreto de pago, de modo que las claves de la billetera de pago no se retengan en el dispositivo. La billetera DEBERÍA (SHOULD) retener el URI de pago en sí (no las claves derivadas) hasta que la transacción de reclamo sea minada, de modo que el reclamo pueda reintentarse si la transacción expira sin ser minada, y DEBERÍA (SHOULD) eliminarlo después.</p>
+<p>La billetera del reclamante DEBERÍA (SHOULD) comunicar el estado del pago como «Reclamando…» desde el momento en que el usuario inicia el reclamo hasta que la transacción de reclamo es minada, y como «Reclamado» una vez que es minada con el número de confirmaciones que la billetera considera definitivas. Los fondos reclamados aparecen en la billetera del reclamante como una nota recibida ordinaria.</p>
+<h3 id="rationale-for-sweeping-transparent-and-sapling-funds"><a class="hanchor" href="#rationale-for-sweeping-transparent-and-sapling-funds" aria-hidden="true" tabindex="-1">#</a>Justificación para barrer los fondos transparentes y de Sapling</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>Gastar una salida transparente, o mover valor entre pools blindados, normalmente se evita porque es visible en la cadena. Aquí esto no revela nada sobre el reclamante: la billetera de pago es de un solo uso, sus claves ya son conocidas por el acuñador y por todo poseedor del URI, y el destino sigue siendo un receptor blindado del reclamante sin clave de visualización de salidas de la billetera de pago. Dejar el valor atrás lo dejaría varado, o lo dejaría para cualquier otro poseedor del URI que lo tome.</p>
+</details>
+<h3 id="rationale-for-sweeping-the-full-balance"><a class="hanchor" href="#rationale-for-sweeping-the-full-balance" aria-hidden="true" tabindex="-1">#</a>Justificación para barrer el saldo completo</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>Enviar exactamente el monto anunciado haría vinculante a <span class="docutils literal">amount</span> y fallaría de dos maneras. Cualquier excedente (por una sobre-financiación, una recarga o una reserva de comisión mayor que la comisión real) quedaría en la billetera de pago, donde cualquier otro poseedor del URI, incluido el acuñador, podría tomarlo. Y cualquier déficit (por un monto de financiación menor, o una comisión mayor que la reserva) haría el pago no reclamable hasta que el acuñador lo recargara. Barrer todo el saldo le da al reclamante todo lo que el URI controla, y la billetera muestra el monto realmente encontrado antes de que el usuario confirme.</p>
+</details><p>La transacción de reclamo se construye en el dispositivo propio del reclamante, por la misma aplicación de billetera que recibe su salida. La billetera del reclamante DEBERÍA (SHOULD) por ello registrar la transacción de reclamo tan pronto como se transmita (de modo que los fondos entrantes se muestren sin esperar a que sea minada) y DEBERÍA (SHOULD) tratarla como una transacción de confianza en el sentido del ZIP 315 <a class="brackets" href="#zip-0315" id="footnote-reference-37" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>, de modo que la gastabilidad y la visualización de su salida sigan la política de confirmaciones del ZIP 315 de la billetera para TXO de confianza. Este es el permiso de "marcar transacciones externas específicas como de confianza" del ZIP 315: aunque la salida no es una salida de una transacción creada por la billetera del reclamante, su origen se sabe que es la billetera de pago que el propio dispositivo del reclamante acababa de controlar.</p>
+<p>Si la transacción de reclamo expira sin ser minada, o queda de otro modo irrevocablemente inválida (p. ej., por una reorganización), la billetera DEBERÍA (SHOULD) comunicarlo y DEBERÍA (SHOULD) volver a la etapa de <a class="reference internal" href="#payment-rendering-and-blockchain-lookup">Renderizado del pago y búsqueda en la blockchain</a> anterior.</p>
+
+<h3 id="rationale-for-discarding-the-outgoing-viewing-key"><a class="hanchor" href="#rationale-for-discarding-the-outgoing-viewing-key" aria-hidden="true" tabindex="-1">#</a>Justificación para descartar la clave de visualización de salidas</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>Un URI de pago con frecuencia se retiene después de usarse: en un historial de chat, una copia de seguridad de dispositivo, una tarjeta impresa que se desecha o una captura de pantalla. Todo aquel que lo obtenga después posee la clave de visualización completa de la billetera de pago. Si la salida de la transacción de reclamo se cifrara a la clave de visualización de salidas de la billetera de pago, como una billetera normalmente hace para sus propios gastos, cada una de esas partes podría descifrar la salida y conocer la dirección del reclamante y el monto que recibió. Esto incluye al acuñador, que puede volver a derivar un secreto de pago derivado de semilla en cualquier momento y de otro modo conocería la dirección del reclamante y podría vincular pagos posteriores a ella. Usar un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝖼</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> aleatorio en su lugar hace opaca la salida del reclamo para el secreto de pago. La contrapartida es que el reclamante no puede usar el secreto de pago para probar o recuperar a dónde fueron los fondos; su propia billetera es el único registro, lo cual es la misma situación que para cualquier otra nota recibida.</p>
+</details>
+
+<h2 id="reclaiming"><a class="hanchor" href="#reclaiming" aria-hidden="true" tabindex="-1">#</a>Reclamo inverso</h2>
+<p>En cualquier momento antes de que el pago sea reclamado, el acuñador es capaz de cancelar el pago, reclamando él mismo el pago hacia su propia billetera (recuperando así los fondos). La billetera del acuñador DEBERÍA (SHOULD) ofrecer esta función. Un reclamo inverso es una transacción de reclamo como se especifica en <a class="reference internal" href="#claiming">Reclamo</a>, construida por la billetera del acuñador con uno de sus propios receptores blindados como destino; todos los requisitos de esa sección aplican, con confirmaciones como se describe en <a class="reference internal" href="#payment-rendering-and-blockchain-lookup">Renderizado del pago y búsqueda en la blockchain</a>.</p>
+<p>No hay vencimiento en cadena: un pago no reclamado permanece reclamable, por el acuñador y por cualquier poseedor del URI, indefinidamente. Un acuñador que intente reclamar pagos no reclamados DEBERÍA (SHOULD) anunciar la fecha después de la cual lo hará, en el valor <span class="docutils literal">desc</span> o junto al URI.</p>
+<p>El reclamo inverso está sujeto a una carrera: el acuñador y un poseedor del URI pueden ambos construir transacciones de reclamo que gastan las mismas notas, y la que se mine primero tiene éxito. Una billetera DEBE (MUST) tratar el fallo de su propia transacción de reclamo porque las notas se gastaron en otra parte como un resultado normal y comunicarlo como <em>Reclamado</em> (por otra persona) en lugar de como un error.</p>
+<p>Si la billetera del acuñador aún no ha transmitido la transacción de financiación, el pago también puede cancelarse descartando esa transacción.</p>
+<p>El reclamo inverso requiere que el acuñador conozca el secreto de pago. Si el acuñador ha perdido este estado, puede recuperarse de forma determinista para los pagos derivados de semilla (véase <a class="reference internal" href="#recovery-from-wallet-crash">Recuperación tras un fallo de la billetera</a>, más adelante).</p>
+
+<h2 id="status-view"><a class="hanchor" href="#status-view" aria-hidden="true" tabindex="-1">#</a>Vista de estado</h2>
+<p>Las aplicaciones de billetera DEBERÍAN (SHOULD) permitir al usuario ver el estado de todos los pagos que ha acuñado, así como de todos los pagos entrantes (es decir, Pagos Encapsulados en URI que se han abierto en la aplicación). El estado incluye los metadatos disponibles y el estado actual del pago. Cuando sea pertinente, la aplicación de billetera DEBERÍA (SHOULD) ofrecer la posibilidad de reclamar cualquier pago entrante <em>Listo para reclamar</em>, y PUEDE (MAY) ofrecer la posibilidad de reclamar inversamente cualquier pago saliente que no haya sido reclamado.</p>
+<p>La billetera del acuñador puede rastrear el estado de un pago que acuñó escaneando con la clave de visualización completa de la billetera de pago: el pago está <em>sin reclamar</em> mientras sus notas estén sin gastar y <em>reclamado</em> una vez que sean gastadas por una transacción que la billetera del acuñador no creó.</p>
+<p>Las aplicaciones de billetera DEBERÍAN (SHOULD) alertar activamente al usuario (p. ej., mediante notificaciones de estado) si un pago que acuñó no ha sido reclamado dentro de un período razonable (p. ej., 1 semana), y ofrecer reclamar el pago.</p>
+
+<h2 id="recovery-from-wallet-crash"><a class="hanchor" href="#recovery-from-wallet-crash" aria-hidden="true" tabindex="-1">#</a>Recuperación tras un fallo de la billetera</h2>
+<p>Como los secretos de pago derivados de semilla son una función determinista de la semilla de la billetera, un acuñador que haya perdido todo otro estado puede recuperar sus pagos no reclamados.</p>
+<p>El enfoque RECOMENDADO (RECOMMENDED) es que la billetera de acuñación persista, en un almacenamiento que se respalde junto con la semilla (por ejemplo, metadatos de billetera cifrados con claves del ZIP 325 <a class="brackets" href="#zip-0325" id="footnote-reference-38" role="doc-noteref"><span class="fn-bracket">[</span>27<span class="fn-bracket">]</span></a>), el próximo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑒</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> sin usar y, para cada pago acuñado, su <span class="docutils literal">height</span>. La recuperación consiste entonces en volver a derivar cada billetera de pago y escanearla desde su altura registrada.</p>
+<p>Si no hay tales metadatos disponibles, la billetera PUEDE (MAY) recurrir a una búsqueda con límite de hueco, similar al "límite de huecos de direcciones" de BIP 44: derivar las billeteras de pago para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑒</mi>
+    <mi>𝑥</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+  <mo>,</mo>
+  <mn>1</mn>
+  <mo>,</mo>
+  <mn>2</mn>
+  <mo>,</mo>
+  <mi>…</mi>
+</math>, escanear cada una desde el cumpleaños de la propia billetera de acuñación, y detenerse tras <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+</math> índices consecutivos cuya dirección de pago nunca haya recibido una nota. Especificamos un límite de hueco estándar de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+  <mo>=</mo>
+  <mn>3</mn>
+</math>. Como cada índice es una clave de visualización completa distinta, esta búsqueda cuesta un escaneo completo por índice; es un mecanismo de respaldo, no el mecanismo principal.</p>
+<p>Un acuñador que use secretos aleatorios no tiene tal vía de recuperación y DEBE (MUST) mantener su propio registro duradero de secretos si pretende recuperar el pago.</p>
+<p>Un reclamante no necesita ningún mecanismo de recuperación más allá del propio URI: un URI de pago puede volver a abrirse en cualquier momento hasta que sea reclamado, y la billetera de pago también puede restaurarse, con cualquier billetera, a partir de la frase mnemónica de 24 palabras que codifica el secreto de pago (véase <a class="reference internal" href="#payment-wallet-derivation">Derivación de la billetera de pago</a>).</p>
+
+
+<h1 id="known-uses"><a class="hanchor" href="#known-uses" aria-hidden="true" tabindex="-1">#</a>Usos conocidos</h1>
+<p><em>Esta sección es informativa. Describe formatos desplegados; no forma parte de la especificación.</em></p>
+<p>Los formatos <span class="docutils literal"><span class="pre">vizor://payment-link</span></span> y <span class="docutils literal"><span class="pre">https://&#x3C;host>/payment-links/open#v1=</span></span>, <span class="docutils literal">#v2=</span> y <span class="docutils literal">#v3=</span> descritos a continuación fueron diseñados y desplegados por los desarrolladores de la billetera Vizor, antes de esta revisión del ZIP. El modelo de billetera encapsulada de este ZIP sigue su diseño desplegado: un secreto al portador para una billetera ordinaria de cuenta única, derivada de una frase BIP 39 como en <a class="reference internal" href="#payment-wallet-derivation">Derivación de la billetera de pago</a> (cuenta 0 del ZIP 32, frase de contraseña vacía), encontrada escaneando desde una altura de cumpleaños, y financiada con el monto anunciado más una reserva de comisión de 10000 zatoshi en una única transacción totalmente blindada sin memo. El borrador "Mnemonic-Encapsulated Payment Links" de Kris Nuttycombe describe ese protocolo; las formas siguientes se tomaron de él y de enlaces observados en uso.</p>
+<p>Una billetera puede aceptar estas formas además de la forma <span class="docutils literal">v=1</span>. Cuando lo hace, deriva la billetera de pago a partir de la frase o de la entropía como en <a class="reference internal" href="#payment-wallet-derivation">Derivación de la billetera de pago</a>, y todo lo dispuesto en <a class="reference internal" href="#lifecycle-specification">Especificación del ciclo de vida</a> se aplica sin cambios: el reclamo barre el saldo completo, no usa la clave de visualización saliente de la billetera de pago y sigue el ZIP 315 para las confirmaciones. Los pagos nuevos usan la forma <span class="docutils literal">v=1</span>.</p>
+<p><strong>Forma de esquema personalizado.</strong> <span class="docutils literal"><span class="pre">vizor://payment-link?p=&#x3C;payload></span></span>, donde el valor de <span class="docutils literal">p</span>, tras la decodificación porcentual, es base64url <a class="brackets" href="#rfc4648" id="footnote-reference-39" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> de un objeto JSON <a class="brackets" href="#rfc8259" id="footnote-reference-40" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> en UTF-8. El borrador dice que los productores emiten base64url con relleno y que los lectores aceptan cargas útiles con relleno y sin relleno. El objeto tiene estos miembros (los miembros desconocidos se ignoran y los valores de cadena se recortan):</p>
+<ul class="simple">
+<li><p><span class="docutils literal">v</span>: el número JSON <span class="docutils literal">1</span>;</p></li>
+<li><p><span class="docutils literal">network</span>: <span class="docutils literal">"main"</span>, <span class="docutils literal">"test"</span> o <span class="docutils literal">"regtest"</span>;</p></li>
+<li><p><span class="docutils literal">address</span>: la dirección unificada predeterminada de la billetera de pago. El borrador la describe como con un receptor Orchard y un receptor Sapling y sin receptor transparente; un vector de prueba publicado de la implementación desplegada muestra en cambio una dirección solo con Orchard. Un lector puede verificarla contra la dirección que deriva;</p></li>
+<li><p><span class="docutils literal">amountZatoshi</span>: el monto que el destinatario debe recibir, en zatoshi, como cadena decimal o entero JSON;</p></li>
+<li><p><span class="docutils literal">mnemonic</span>: la frase BIP 39 en inglés, con palabras separadas por espacios en blanco. Los productores generan 24 palabras y se aceptan frases de 12 o más palabras;</p></li>
+<li><p><span class="docutils literal">birthdayHeight</span>: una altura de bloque, como entero JSON o cadena decimal;</p></li>
+<li><p><span class="docutils literal">label</span>: una cadena corta;</p></li>
+<li><p><span class="docutils literal">createdAt</span>: una marca de tiempo ISO 8601 en UTC;</p></li>
+<li><p><span class="docutils literal">presentation</span> (opcional): un objeto con un <span class="docutils literal">artworkId</span> opcional (un identificador de arte de tarjeta de 1 a 64 letras, dígitos, <span class="docutils literal">-</span> o <span class="docutils literal">_</span>) y un <span class="docutils literal">message</span> opcional (como máximo 128 racimos de grafemas extendidos <a class="brackets" href="#uax29" id="footnote-reference-41" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> y 512 bytes de UTF-8).</p></li>
+</ul>
+<p><strong>Formas HTTPS.</strong> <span class="docutils literal"><span class="pre">https://&#x3C;host>/payment-links/open#&#x3C;tag>=&#x3C;payload></span></span>, donde <span class="docutils literal">&#x3C;tag></span> es <span class="docutils literal">v1</span>, <span class="docutils literal">v2</span> o <span class="docutils literal">v3</span> y <span class="docutils literal">&#x3C;payload></span> es base64url de un documento JSON en UTF-8. Las cargas útiles observadas no tienen relleno; los lectores aceptan tanto cargas útiles sin relleno como cargas útiles con relleno canónico, y rechazan los bits finales distintos de cero.</p>
+<ul class="simple">
+<li><p><span class="docutils literal">v1</span> y <span class="docutils literal">v2</span>: un objeto JSON con los miembros anteriores. El <span class="docutils literal">v</span> interno es el número JSON 1 o 2, que coincide con la etiqueta. No se ha documentado en qué se diferencia <span class="docutils literal">v2</span> de <span class="docutils literal">v1</span>.</p></li>
+<li><p><span class="docutils literal">v3</span>: un arreglo JSON de 4 a 8 elementos: la cadena de red (<span class="docutils literal">"main"</span>); la entropía BIP 39 como base64url (16, 20, 24, 28 o 32 bytes, de modo que la frase puede tener menos de 24 palabras); la altura de cumpleaños, como entero JSON o cadena decimal; el monto en zatoshi como cadena decimal; un identificador de arte de tarjeta; un valor en moneda fiduciaria (un número JSON en el enlace observado); y la cadena del mensaje.</p></li>
+</ul>
+<p>Solo se han observado enlaces de Mainnet en las formas HTTPS, y un lector puede aceptar solo enlaces de Mainnet de las formas de esta sección. A diferencia del <span class="docutils literal">amount</span> consultivo de la forma <span class="docutils literal">v=1</span>, el monto de estas formas es un miembro obligatorio: los lectores tratan como malformada una carga útil cuyo monto falte, sea cero, no sea un entero o supere el suministro máximo de dinero (o, para <span class="docutils literal">v3</span>, no sea una cadena JSON). La altura de cumpleaños está sujeta a la misma altura mínima de cumpleaños que <span class="docutils literal">height</span> (véase <a class="reference internal" href="#semantics">Semántica</a>), y el mensaje está limitado a 512 bytes y se sanea como se especifica para <span class="docutils literal">desc</span> (véase <a class="reference internal" href="#sanitization-of-the-description">Saneo de la descripción</a>).</p>
+<p>El protocolo desplegado difiere de esta especificación en su comportamiento de reclamo: barre exactamente el monto anunciado, gasta fondos con una única confirmación en lugar de seguir el ZIP 315, rechaza enlaces cuyo cumpleaños esté más de 100000 bloques por detrás de la punta, y permite un destino Sapling. Esta especificación no adopta estas decisiones; véanse <a class="reference internal" href="#rationale-for-sweeping-the-full-balance">Justificación para barrer el saldo completo</a>, <a class="reference internal" href="#rationale-for-the-confirmation-policy">Justificación de la política de confirmaciones</a> y <a class="reference internal" href="#rationale-for-not-limiting-the-age-of-a-payment">Justificación para no limitar la antigüedad de un pago</a>. Los fondos que un acuñador que use estas formas envió a un receptor Sapling se encuentran y barren como cualquier otro fondo de la billetera de pago.</p>
+
+<h1 id="security-considerations"><a class="hanchor" href="#security-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de seguridad</h1>
+<ul class="simple">
+<li><p>Cualquiera que conozca un URI de encapsulación de pago puede tomar los fondos encapsulados. El URI es un <em>secreto al portador</em>. Debería enviarse por un canal seguro y mantenerse en secreto ante cualquiera excepto el destinatario previsto. Las formas comunes de filtrarlo incluyen: respaldos de chat y de dispositivo, capturas de pantalla, historial del portapapeles, historial del navegador y referentes HTTP (si el URI se abre alguna vez en un navegador), registros de servidores y proxys (si se coloca alguna vez en una cadena de consulta en lugar del fragmento), vistas previas de notificaciones y copias impresas.</p>
+<ul>
+<li><p>El URI de encapsulación de pago es como un conjuro mágico que teletransportará el dinero a la primera persona que haga clic en él y luego haga "reclamo".</p></li>
+</ul>
+</li>
+<li><p>El host nombrado en el URI nunca recibe el fragmento en una petición HTTP, pero cualquier JavaScript que el host sirva puede leerlo. Los operadores de hosts deberían servir una página de aterrizaje estática sin analítica ni scripts de terceros, y las billeteras deberían manejar los URI mediante applinks para que no se haga ninguna petición al host (véase <a class="reference internal" href="#hosts-and-landing-pages">Hosts y páginas de aterrizaje</a>). De lo contrario, el compromiso del host, o de un CDN o gestor de etiquetas que este incruste, permitiría robar cada pago no reclamado que se abra en un navegador.</p></li>
+<li><p>Los pagos encapsulados en URI pueden ser capturados por aplicaciones locales maliciosas en la plataforma del remitente o del receptor, por ejemplo, mediante captura de pantalla o interceptación del portapapeles. Las aplicaciones de billetera deberían usar las facilidades de interacción y comunicación de la plataforma de manera que minimice estos riesgos (por ejemplo, usar la API «Share» en lugar de un portapapeles visible para todas las aplicaciones).</p></li>
+<li><p>Asimismo, si el URI se transfiere presentando y escaneando ópticamente un código QR, cualquiera que observe este código QR podría reclamar el pago y así tomar posesión de los fondos antes que el destinatario previsto. Por ejemplo, un atacante podría usar un lente de teleobjetivo apuntado a una terminal de punto de venta para robar pagos codificados en QR enviados a esa terminal.</p></li>
+<li><p>Los pagos impresos ("tarjetas de regalo") deberían financiarse una sola vez, mientras el medio impreso aún está bajo custodia del acuñador, y deberían entregarse de manera que el URI impreso no pueda leerse de antemano (por ejemplo, bajo una capa de raspado o dentro de un empaque sellado). Una tarjeta que haya salido de la custodia del acuñador nunca debería recargarse, ya que su secreto podría haber sido copiado.</p></li>
+<li><p>El parámetro <span class="docutils literal">height</span> no debe ser mayor que la altura en la que se minó la transacción de financiación; de lo contrario, un reclamante que escanee desde <span class="docutils literal">height</span> nunca encontrará los fondos e informará el pago como vacío, aunque la billetera del acuñador lo muestre como financiado. Los productores que generen el URI antes de que se mine la transacción de financiación deben usar una altura igual o inferior a la punta actual de la cadena, y una reorganización entre la generación del URI y el minado no puede mover la transacción de financiación por debajo de esa altura.</p></li>
+<li><p>Las transacciones de reclamo descartan la clave de visualización saliente de la billetera de pago. Esto protege al reclamante de cualquiera que obtenga el URI más adelante, a costa de que la salida del reclamo no pueda recuperarse desde el secreto del pago (véase <a class="reference internal" href="#rationale-for-discarding-the-outgoing-viewing-key">Justificación para descartar la clave de visualización saliente</a>). Las billeteras no deben "amablemente" cifrar la salida a la clave de visualización saliente de la billetera de pago por el bien de la visualización del historial.</p></li>
+<li><p>La billetera temporal usada para escanear y reclamar debe aislarse de las cuentas propias del usuario y eliminarse después de que se difunda el reclamo. Importar las claves de la billetera de pago en la billetera principal del usuario convertiría un secreto al portador, conocido por al menos otra parte, en parte de la autoridad de gasto del propio usuario, y haría que la billetera del usuario muestre y potencialmente reutilice una dirección que otros controlan.</p></li>
+<li><p>La UX de la billetera debe dejar claro que los fondos provienen de un pago encapsulado en URI y permitir al usuario cancelar antes de que se difunda algo. Abrir un URI no debe por sí mismo mover fondos: un applink puede ser activado por cualquier página web, y de lo contrario una página hostil podría hacer que un usuario barra un pago hacia su propia billetera como manera de convertirlo en parte de una transferencia que no intentaba.</p></li>
+<li><p>El memo de reclamo puede incluir el texto <span class="docutils literal">desc</span>, que está controlado por el atacante. Las billeteras deben depurarlo (véase <a class="reference internal" href="#sanitization-of-the-description">Depuración de la descripción</a>), truncarlo al tamaño del memo, no deben interpretarlo como marcado ni como un URI, y deberían mostrarlo como el reclamo hecho por el autor del URI.</p></li>
+<li><p>Cualquier página web puede entregar URI de pago a una billetera mediante un applink. Los límites de admisión en <a class="reference internal" href="#intake-of-payment-uris">Admisión de URI de pago</a> restringen el trabajo que tal página puede provocar, y la billetera temporal es el único estado que un URI hostil puede poblar. Un URI con un <span class="docutils literal">height</span> muy antiguo puede hacer que un escaneo sea largo; las billeteras advierten esto y dejan que el usuario cancele, en lugar de rechazar pagos antiguos.</p></li>
+<li><p>Un reclamo barre cada pool en el que la billetera de pago tenga fondos. Barrer salidas transparentes, o notas Sapling hacia Orchard, revela en la cadena el valor que sale del pool transparente o Sapling, pero nada sobre el reclamante más allá de eso. Los acuñadores deberían financiar la dirección de pago en el pool actual del protocolo Orchard (el <em>pool Orchard</em> antes de la activación de NU6.3, el <em>pool Ironwood</em> después de ella) para que el reclamo habitual permanezca dentro de un solo pool.</p></li>
+<li><p>Los usuarios pueden tener canales de comunicación establecidos de manera casual (por ejemplo, haber ingresado el número de teléfono de un contacto nuevo sin molestarse en verificarlo dos veces), pero más tarde pueden considerar erróneamente que son canales seguros adecuadamente autenticados para enviar un URI de encapsulación de pago. Las aplicaciones de billetera deberían mitigar esto donde sea posible, por ejemplo, indicando que el canal de mensajería elegido no se ha usado antes y que por lo tanto debería verificarse con más cuidado.</p></li>
+<li><p>Los usuarios pueden creer incorrectamente que el pago ha sido recibido de forma irrevocable aunque no lo hayan reclamado, o aunque el reclamo haya fallado. El software de billetera debería transmitir correctamente el estado y fijar las expectativas, como se discutió anteriormente.</p></li>
+<li><p>Los destinatarios de pagos podrían no notar la notificación del pago entrante y actuar en consecuencia (es decir, reclamarlo) de manera oportuna. Para cuando la vean, el pago podría haber sido recuperado por el acuñador.</p></li>
+<li><p>Los usuarios pueden no entender que los pagos encapsulados en URI son de uso único e intentar usar el mismo URI para varias personas o pagos, lo que da lugar a condiciones de carrera sobre quién recibe los fondos.</p></li>
+<li><p>Los usuarios pueden confundir los pagos encapsulados en URI (según lo especificado en el ZIP actual) con los URI de solicitud de pago de la forma <span class="docutils literal"><span class="pre">zcash:payment-address?amount=...</span></span> según lo especificado en el ZIP 321 <a class="brackets" href="#zip-0321" id="footnote-reference-42" role="doc-noteref"><span class="fn-bracket">[</span>25<span class="fn-bracket">]</span></a>. Normalmente estos sirven para flujos de trabajo distintos y funcionan en direcciones opuestas (envío frente a recepción de fondos), por lo que no deberían surgir en un contexto ambiguo. Las aplicaciones de billetera deberían tener cuidado de no crear ni enviar un URI que encapsula un pago (que sirve para <em>enviar</em> fondos) en un contexto donde el usuario pueda tener la intención de <em>recibir</em> fondos.</p></li>
+<li><p>Los usuarios podrían intentar usar un URI de encapsulación de pago como una "billetera fría", por ejemplo, escribiendo el URI en papel y guardándolo en una caja fuerte. Esto es peligroso. El secreto del pago es conocido por la billetera de acuñación en el momento en que se produce el URI, y puede rederivarse desde la semilla de la billetera de acuñación en cualquier momento posterior. Así, un adversario que comprometa la billetera de acuñación podría vaciar la "billetera fría".</p></li>
+<li><p>El acto y el momento de reclamar un pago son visibles para el acuñador, lo que puede constituir una fuga de privacidad. Asimismo, el momento de la transacción de financiamiento puede vincularse con el reclamo posterior, lo que puede constituir una fuga de privacidad.</p></li>
+<li><p>El monto del pago es fácilmente visible para cualquiera que observe el URI de encapsulación de pago, incluso retrospectivamente después de que el pago ya haya sido reclamado (por ejemplo, si los respaldos de su dispositivo o de su registro de chat se comprometen más tarde). Esto puede ser una preocupación de privacidad y, en particular, puede poner en riesgo de atención no deseada a los destinatarios de pagos grandes. Por esta razón, los acuñadores PUEDEN (MAY) omitir <span class="docutils literal">amount</span>.</p></li>
+<li><p>El uso de pagos encapsulados en URI puede entrenar a los usuarios para que, en general, hagan clic en otros tipos de enlaces URI/URL enviados en otros contextos de mensajería. Los enlaces maliciosos enviados por canales de mensajería no autenticados (por ejemplo, correos electrónicos y mensajes SMS) son un vector de ataque común, usado para explotar vulnerabilidades en las aplicaciones que se activan para gestionar estos enlaces. Aunque la culpa de las vulnerabilidades recae en esas otras aplicaciones, y aunque este ZIP usa enlaces profundos URI de la manera prevista, no por ello dejan de existir estas externalidades negativas del fomento de tal uso.</p></li>
+</ul>
+
+<h1 id="design-decisions-and-rationale"><a class="hanchor" href="#design-decisions-and-rationale" aria-hidden="true" tabindex="-1">#</a>Decisiones de diseño y justificación</h1>
+<h2 id="rationale-for-uri-format"><a class="hanchor" href="#rationale-for-uri-format" aria-hidden="true" tabindex="-1">#</a>Justificación del formato de URI</h2>
+<p>El formato de URI <span class="docutils literal"><span class="pre">https://&#x3C;host>/#v=1&#x26;key=...</span></span> fue elegido para permitir la activación automática del software de billetera en dispositivos móviles, mediante el mecanismo de <a class="reference internal" href="#applink">applink</a> de la plataforma, manteniendo al mismo tiempo el secreto del pago fuera de la red: el contenido del identificador de fragmento está especificado por HTTP como algo que se resuelve localmente, en lugar de enviarse por la red. Puede usarse cualquier host HTTPS, lo que permite que cada proveedor de billeteras o servicio opere su propio dominio de applink y su propia página de aterrizaje sin una autoridad central, a costa de que la seguridad de la página de aterrizaje sea responsabilidad de cada operador del host (véanse <a class="reference internal" href="#hosts-and-landing-pages">Hosts y páginas de aterrizaje</a> y <a class="reference internal" href="#security-considerations">Consideraciones de seguridad</a>).</p>
+<p>Se consideraron varias alternativas:</p>
+<ol class="arabic">
+<li><p>Un origen reservado que no resuelve (por ejemplo, un dominio reservado con un número de puerto no válido como <span class="docutils literal">65536</span>), de modo que seguir el enlace sin una billetera instalada no realice ninguna solicitud de red. Esto proporciona defensa en profundidad contra una página de aterrizaje comprometida, pero requiere que una sola parte controle el dominio y la lista blanca de applinks de cada billetera, produce un error confuso o una página en blanco para los usuarios sin billetera y, en la práctica, se encontró que algunas plataformas de mensajería lo rechazan o reescriben. El diseño actual, en cambio, requiere que las páginas de aterrizaje sean estáticas y permite que las billeteras eviten el host por completo.</p></li>
+<li><p><span class="docutils literal"><span class="pre">zcash-data:payment/v1?amount=1.23&#x26;desc=Payment+for+foo&#x26;key=...</span></span>: un esquema de URI personalizado. Esto todavía permite activar una acción de la aplicación (por ejemplo, usando Mobile Deep Links). Sin embargo, en la mayoría de las plataformas, <em>cualquier</em> aplicación instalada en el dispositivo puede registrarse para manejar enlaces de (casi) cualquier esquema de URI personalizado. Si la solicitud es recibida por una parte maliciosa, los fondos podrían ser robados. Además, los esquemas de URI personalizados no se convierten en enlaces cuando se muestran en algunas aplicaciones de mensajería, y no proporcionan alternativa para los usuarios sin billetera.</p>
+<p>Nótese que el esquema <span class="docutils literal">zcash:</span> ya se usa para especificar direcciones de Zcash y solicitudes de pago en el ZIP 321 <a class="brackets" href="#zip-0321" id="footnote-reference-43" role="doc-noteref"><span class="fn-bracket">[</span>25<span class="fn-bracket">]</span></a>, por analogía con los URI <span class="docutils literal">bitcoin</span> del BIP 21, y por lo tanto es inadecuado en cualquier caso.</p>
+</li>
+<li><p>Añadir un código de confirmación fuera del URI que deba ser ingresado manualmente por el usuario en la aplicación de billetera, de modo que la mera interceptación del enlace no bastara. Esto no parece reducir significativamente el riesgo en los escenarios considerados, por lo que se consideró que no justificaba la reducción de la usabilidad.</p></li>
+</ol>
+<p>El secreto del pago se codifica en Bech32m, en lugar de base64url o hex, para que lleve una suma de verificación (un secreto mal escrito o truncado se detecta en lugar de producir una billetera vacía), para que su Parte Legible por Humanos identifique tanto la naturaleza de la cadena de caracteres como la red, y para que sobreviva a la normalización de mayúsculas y sea compatible con códigos QR de la misma manera que las direcciones de Zcash.</p>
+
+<h2 id="rationale-for-scanning-from-a-birthday"><a class="hanchor" href="#rationale-for-scanning-from-a-birthday" aria-hidden="true" tabindex="-1">#</a>Justificación del escaneo desde un cumpleaños</h2>
+<p>La billetera del destinatario necesita encontrar las notas relacionadas con el pago para verificar su validez y luego gastarlas. Los borradores anteriores de este ZIP consideraron varias formas de identificar esas notas sin escanear: listar los compromisos de las notas en el URI, colocar una etiqueta pública en el memo o en una salida adicional, o derivar una sola nota de manera determinista a partir del secreto y el monto de modo que su compromiso pudiera buscarse en un índice. Todas estas alternativas alargan el URI, filtran información en la cadena, requieren infraestructura que los clientes ligeros no tienen de otra manera, o restringen la transacción de financiamiento a una sola nota de un monto fijo.</p>
+<p>El diseño actual, en cambio, incluye una altura de cumpleaños en el URI y escanea desde allí, que es exactamente la operación que un cliente ligero ya realiza para sus propias cuentas y no requiere infraestructura adicional. Como la billetera de pago es una sola cuenta con un cumpleaños conocido que suele estar cerca de la punta de la cadena, el escaneo es corto en la práctica. Esto también significa que la dirección de pago puede financiarse con cualquier cantidad de notas, en cualquier momento después de la acuñación, y que los reabastecimientos y los reclamos parciales se comportan de forma natural.</p>
+
+<h2 id="rationale-for-advisory-metadata"><a class="hanchor" href="#rationale-for-advisory-metadata" aria-hidden="true" tabindex="-1">#</a>Justificación de los metadatos informativos</h2>
+<p>Los parámetros <span class="docutils literal">amount</span> y <span class="docutils literal">desc</span> se incluyen dentro del URI para que los metadatos estén disponibles para su presentación al usuario antes de que se haya escaneado la cadena. Son informativos y no vinculantes porque el estado en cadena es lo único en lo que un reclamante puede confiar, y porque vincularlos requeriría un esquema de derivación de notas (véase arriba) o una firma sobre el URI realizada con una clave en la que el reclamante no tiene razones para confiar.</p>
+<p>No se incluye la identidad del remitente ni la del receptor en el URI, porque la billetera que acuña puede no conocer el nombre de a quién envía (ni siquiera de quién envía). Además, existe el riesgo de que se utilice información fraudulenta sobre el remitente o el destinatario. Si las circunstancias lo exigen, la identidad declarada del remitente y del destinatario puede incluirse en el parámetro <span class="docutils literal">desc</span>.</p>
+
+<h2 id="rationale-for-no-on-chain-expiry"><a class="hanchor" href="#rationale-for-no-on-chain-expiry" aria-hidden="true" tabindex="-1">#</a>Justificación de la ausencia de vencimiento en cadena</h2>
+<p>Un vencimiento en cadena requeriría una condición de gasto con bloqueo temporal, que Zcash blindado no proporciona, o una transacción de reclamo prefirmada con un vencimiento futuro, que tendría que renovarse y revelaría en la cadena la intención del acuñador. Dejar el reclamo enteramente a la billetera del acuñador mantiene la huella en cadena ordinaria y permite a los acuñadores elegir su propia política; el costo es una carrera que ambas partes deben manejar con elegancia.</p>
+
+
+<h1 id="open-questions"><a class="hanchor" href="#open-questions" aria-hidden="true" tabindex="-1">#</a>Preguntas abiertas</h1>
+<ul class="simple">
+<li><p>Si las Partes Legibles por Humanos <span class="docutils literal">zgift</span>, <span class="docutils literal">zgifttest</span> y <span class="docutils literal">zgiftregtest</span> deberían renombrarse para reflejar la terminología de «pago encapsulado en URI» de este ZIP, y dónde deberían registrarse.</p></li>
+<li><p>Si la mnemónica BIP 39 debería permanecer como un paso intermedio normativo en la <a class="reference internal" href="#payment-wallet-derivation">derivación de la billetera de pago</a>, o si la semilla de ZIP 32 debería derivarse directamente del secreto del pago con un separador de dominio.</p></li>
+<li><p>Si, una vez que se despliegue la Revisión 2 de ZIP 316, debería requerirse que la dirección de pago se codifique como una dirección unificada <span class="docutils literal">zu</span>.</p></li>
+<li><p>Cómo se debe codificar la dirección de pago una vez que NU6.3 esté activo, si ZIP 258 o los ZIP que cita definen una codificación distinta para pagos del pool Ironwood.</p></li>
+<li><p>Si las billeteras de pago acuñadas después de la activación de NU6.3 deberían usar la generación de claves recuperables cuánticamente de ZIP 2005 <a class="brackets" href="#zip-2005" id="footnote-reference-44" role="doc-noteref"><span class="fn-bracket">[</span>33<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Si la sección de <a class="reference internal" href="#known-uses">Usos conocidos</a> debería conservarse una vez que los formatos desplegados ya no se produzcan.</p></li>
+<li><p>Si se debe especificar un prefijo de memo fijo para las transacciones de reclamo, de modo que los pagos reclamados puedan reconocerse en el historial de la billetera entre implementaciones.</p></li>
+<li><p>¿Deberían los acuñadores retrasar la difusión de una transacción de financiamiento por un tiempo aleatorio para impedir el análisis de tráfico (es decir, para que el operador del servicio de mensajería no pueda correlacionar mensajes con transacciones en cadena)?</p></li>
+</ul>
+
+<h1 id="test-vectors"><a class="hanchor" href="#test-vectors" aria-hidden="true" tabindex="-1">#</a>Vectores de prueba</h1>
+<p>Los vectores de prueba de este ZIP cubrirán:</p>
+<ul class="simple">
+<li><p>la derivación de secretos de pago derivados de semilla a partir de una semilla de billetera, para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑒</mi>
+    <mi>𝑥</mi>
+  </mrow>
+  <mo>∈</mo>
+  <mo>{</mo>
+  <mn>0</mn>
+  <mo>,</mo>
+  <mn>1</mn>
+  <mo>,</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>31</mn>
+  </msup>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+</math> en Mainnet y Testnet;</p></li>
+<li><p>la codificación Bech32m de cada secreto de pago con la Parte Legible por Humanos correspondiente;</p></li>
+<li><p>la frase mnemónica BIP 39, la semilla BIP 39, la clave de visualización completa de Orchard y la dirección de pago (como una dirección unificada solo de Orchard) derivadas de cada secreto de pago;</p></li>
+<li><p>URI de pago canónicos con y sin <span class="docutils literal">amount</span> y <span class="docutils literal">desc</span>, incluido un <span class="docutils literal">desc</span> que contiene caracteres que no son ASCII y caracteres reservados; y</p></li>
+<li><p>un <span class="docutils literal">key</span> completamente en mayúsculas, que se acepta, y URI que contienen pares vacíos y pares sin <span class="docutils literal">=</span>, que se omiten o se ignoran;</p></li>
+<li><p>entradas que DEBEN (MUST) rechazarse: una suma de verificación Bech32 (no m), una parte de datos de 31 o 33 bytes, bits de relleno distintos de cero, un <span class="docutils literal">key</span> con mayúsculas y minúsculas mezcladas, una Parte Legible por Humanos desconocida, una Parte Legible por Humanos de red incorrecta, <span class="docutils literal">v=2</span>, un <span class="docutils literal">v</span>, <span class="docutils literal">key</span> o <span class="docutils literal">height</span> duplicado, <span class="docutils literal">height=0</span>, un <span class="docutils literal">height</span> con un cero inicial, y un <span class="docutils literal">height</span> uno por debajo de la altura mínima de cumpleaños;</p></li>
+<li><p>entradas cuyo <span class="docutils literal">amount</span> o <span class="docutils literal">desc</span> se trata como ausente: <span class="docutils literal">amount=0</span>, <span class="docutils literal">amount=1.</span>, <span class="docutils literal">amount=0.123456789</span>, un <span class="docutils literal">amount</span> duplicado, un <span class="docutils literal">desc</span> con una secuencia de escape percentual mal formada o UTF-8 no válido, un <span class="docutils literal">desc</span> de más de 512 bytes, y un <span class="docutils literal">desc</span> que queda en blanco después de la sanitización;</p></li>
+<li><p>un <span class="docutils literal">desc</span> que contiene caracteres que la sanitización reemplaza o elimina; y</p></li>
+<li><p>las formas HTTPS descritas en <a class="reference internal" href="#known-uses">Usos conocidos</a>, con relleno y sin relleno.</p></li>
+</ul>
+<!-- TODO: add the actual vectors once the shared vector file is published; the
+descriptions above are the agreed coverage. -->
+
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Agradecimientos</h1>
+<p>Esta revisión fusiona el trabajo del borrador de Kris Nuttycombe «Mnemonic-Encapsulated Payment Links», que especificó el protocolo de enlaces de pago desplegado por la billetera Vizor. Ese borrador aportó las reglas para registrar un pago de forma duradera antes de financiarlo, para financiar mediante un firmante de hardware y para acotar la admisión de enlaces entrantes, así como la descripción de los formatos en <a class="reference internal" href="#known-uses">Usos conocidos</a>. Agradecimientos a los desarrolladores de la billetera Vizor por desplegar y documentar ese protocolo.</p>
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>Las billeteras ZODL implementan esta especificación para los destinatarios: admisión y análisis de URI de pago, derivación de la billetera de pago, la vista de estado y el reclamo. El soporte se incluyó por primera vez en Zodl 3.16.0 para iOS y Android. El código es de código abierto:</p>
+<ul class="simple">
+<li><p>ZODL Swift Wallet SDK <a class="brackets" href="#zodl-swift-sdk" id="footnote-reference-45" role="doc-noteref"><span class="fn-bracket">[</span>34<span class="fn-bracket">]</span></a>: <span class="docutils literal">rust/src/liberated_payment.rs</span> (el secreto de pago y su codificación, la URI de pago, la derivación de la billetera de pago, y la acuñación derivada de la semilla con derivación de claves registrada por ZIP 32) y <span class="docutils literal">Sources/ZODLSwiftWalletSDK/GiftCard/</span> (la verificación de estado y la transacción de reclamo), documentados en <span class="docutils literal">docs/GIFT_CARDS.md</span>.</p></li>
+<li><p>ZODL Android Wallet SDK <a class="brackets" href="#zodl-android-sdk" id="footnote-reference-46" role="doc-noteref"><span class="fn-bracket">[</span>35<span class="fn-bracket">]</span></a>: <span class="docutils literal"><span class="pre">backend-lib/src/main/rust/liberated_payment.rs</span></span> y <span class="docutils literal"><span class="pre">backend-lib/src/main/rust/gift_card.rs</span></span> (análisis y derivación de la billetera de pago) y <span class="docutils literal"><span class="pre">sdk-lib/src/main/java/cash/z/ecc/android/sdk/GiftCardRedeemer.kt</span></span> (la verificación de estado y la transacción de reclamo).</p></li>
+<li><p>Zodl para iOS <a class="brackets" href="#zodl-ios" id="footnote-reference-47" role="doc-noteref"><span class="fn-bracket">[</span>36<span class="fn-bracket">]</span></a>: <span class="docutils literal">secant/Sources/Dependencies/GiftCardClient/</span> y <span class="docutils literal">secant/Sources/Features/GiftCard/</span> (admisión de URI de pago, la vista de estado y el reclamo).</p></li>
+<li><p>Zodl para Android <a class="brackets" href="#zodl-android" id="footnote-reference-48" role="doc-noteref"><span class="fn-bracket">[</span>37<span class="fn-bracket">]</span></a>: <span class="docutils literal"><span class="pre">ui-lib/src/main/java/co/electriccoin/zcash/ui/common/repository/GiftCardRepository.kt</span></span> y <span class="docutils literal"><span class="pre">ui-lib/src/main/java/co/electriccoin/zcash/ui/screen/redeemgift/</span></span> (admisión de URI de pago, la vista de estado y el reclamo).</p></li>
+</ul>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc3629" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc3629.html">RFC 3629: UTF-8, a transformation format of ISO 10646</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc3986" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-9">1</a>,<a role="doc-backlink" href="#footnote-reference-10">2</a>)</span>
+<p><a class="reference external" href="https://tools.ietf.org/html/rfc3986">Uniform Resource Identifier (URI): Generic Syntax</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc4648" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-39">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc4648.html">RFC 4648: The Base16, Base32, and Base64 Data Encodings</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc8259" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-40">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc8259.html">RFC 8259: The JavaScript Object Notation (JSON) Data Interchange Format</a></p>
+</aside>
+<aside class="footnote brackets" id="uax29" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-41">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.unicode.org/reports/tr29/">Unicode Standard Annex #29: Unicode Text Segmentation</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.3 or later</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-orchardkeycomponents" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-20">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#orchardkeycomponents">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 4.2.3: Orchard Key Components</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingandorchardinband" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-35">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingandorchardinband">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section: In-band secret distribution (Sapling and Orchard)</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0039" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-17">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki">BIP 39: Mnemonic code for generating deterministic keys</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0044" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-25">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki">BIP 44: Multi-Account Hierarchy for Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0350" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">13</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki">BIP 350: Bech32m format for v1+ witness addresses</a></p>
+</aside>
+<aside class="footnote brackets" id="slip-0044" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-18">14</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/satoshilabs/slips/blob/master/slip-0044.md">SLIP 44: Registered coin types for BIP-0044</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-sapling" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-24">15</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#sapling-key-path">ZIP 32: Shielded Hierarchical Deterministic Wallets — Sapling key path</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-orchard" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-19">16</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#orchard-key-path">ZIP 32: Shielded Hierarchical Deterministic Wallets — Orchard key path</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-registered" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-28">17</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#specification-registered-key-derivation">ZIP 32: Shielded Hierarchical Deterministic Wallets — Specification: Registered key derivation</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0173" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-14">1</a>,<a role="doc-backlink" href="#footnote-reference-15">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0173.rst">ZIP 173: Bech32 Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0203" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-36">19</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0203.rst">ZIP 203: Transaction Expiry</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0315" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-32">1</a>,<a role="doc-backlink" href="#footnote-reference-37">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0315.rst">ZIP 315: Best Practices for Wallet Implementations</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0316" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-16">1</a>,<a role="doc-backlink" href="#footnote-reference-21">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0258" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-23">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0258.md">ZIP 258: Deployment of the NU6.3 Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0258-nu63-rules" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-26">23</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0258.md">ZIP 258: Deployment of the NU6.3 Network Upgrade — Consensus rules from NU6.3 activation</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0317" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>24<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-29">1</a>,<a role="doc-backlink" href="#footnote-reference-34">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0317.rst">ZIP 317: Proportional Transfer Fee Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0321" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>25<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-8">1</a>,<a role="doc-backlink" href="#footnote-reference-42">2</a>,<a role="doc-backlink" href="#footnote-reference-43">3</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0321.rst">ZIP 321: Payment Request URIs</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0321-amount" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-11">26</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0321.rst#zec-transfer-amount">ZIP 321: Payment Request URIs — ZEC Transfer Amount</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0325" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-38">27</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0325.md">ZIP 325: Account Metadata Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0326" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-31">28</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0326.md">ZIP 326: NU6.3 Consequences for Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0326-keygen" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-27">29</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0326.md">ZIP 326: NU6.3 Consequences for Wallets — Wallet key-generation restrictions</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0326-receiving" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-22">30</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0326.md">ZIP 326: NU6.3 Consequences for Wallets — Receiving funds into the Ironwood pool</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0326-fabricated" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-33">31</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0326.md">ZIP 326: NU6.3 Consequences for Wallets — Fabricated same-address outputs and randomized note ciphertexts</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0374" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-30">32</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0374.md">ZIP 374: Partially Created Zcash Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-2005" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-44">33</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-2005.md">ZIP 2005: Ironwood Quantum Recoverability</a></p>
+</aside>
+<aside class="footnote brackets" id="zodl-swift-sdk" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-45">34</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zodl-inc/zodl-swift-wallet-sdk/tree/8.0.0">ZODL Swift Wallet SDK, version 8.0.0</a></p>
+</aside>
+<aside class="footnote brackets" id="zodl-android-sdk" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-46">35</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zodl-inc/zodl-android-wallet-sdk/tree/v6.0.0">ZODL Android Wallet SDK, version 6.0.0</a></p>
+</aside>
+<aside class="footnote brackets" id="zodl-ios" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-47">36</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zodl-inc/zodl-ios/tree/3.17.1">Zodl for iOS, version 3.17.1</a></p>
+</aside>
+<aside class="footnote brackets" id="zodl-android" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-48">37</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zodl-inc/zodl-android/tree/3.20.0-3807">Zodl for Android, version 3.20.0</a></p>
+</aside>
+<aside class="footnote brackets" id="app-links" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">38</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://developer.android.com/training/app-links">Android Developer Guides: Handling Android App Links</a></p>
+</aside>
+<aside class="footnote brackets" id="universal-links" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">39</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://developer.apple.com/documentation/uikit/inter-process_communication/allowing_apps_and_websites_to_link_to_your_content">Apple Xcode Documentation: Allowing apps and websites to link to your content</a></p>
+</aside>
+<aside class="footnote brackets" id="app-uri-handlers" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">40</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://docs.microsoft.com/en-us/windows/uwp/launch-resume/web-to-app-linking">Microsoft Universal Windows Platform Documentation: Enable apps for websites using app URI handlers</a></p>
+</aside>
+</aside>
+
+<h1 id="publication-blockers"><a class="hanchor" href="#publication-blockers" aria-hidden="true" tabindex="-1">#</a>Impedimentos para la publicación</h1>
+<ul class="simple">
+<li><p>Agregar vectores de prueba.</p></li>
+<li><p>Definir las Partes Legibles por Humanos y su registro.</p></li>
+<li><p>Revisión de seguridad independiente, como lo exige el ZIP 0 para un ZIP con implicaciones de seguridad y privacidad.</p></li>
+</ul>
+

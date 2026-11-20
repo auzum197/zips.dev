@@ -1,0 +1,946 @@
+{
+ "segments": {
+  "Block Chain Synchronization": "Sincronización de block chain",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", \"SHOULD NOT\", \"MAY\", and \"RECOMMENDED\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"NO DEBE (MUST NOT)\", \"DEBERÍA (SHOULD)\", \"NO DEBERÍA (SHOULD NOT)\", \"PUEDE (MAY)\" y \"RECOMENDADO (RECOMMENDED)\" en este documento deben interpretarse como se describe en BCP 14 <g1><g2>1</g2></g1> cuando, y solo cuando, aparecen en mayúsculas.",
+  "The terms \"Mainnet\" and \"Testnet\" are to be interpreted as described in section 3.12 of the Zcash Protocol Specification. <g1><g2>2</g2></g1>": "Los términos \"Mainnet\" y \"Testnet\" deben interpretarse como se describe en la sección 3.12 de la Zcash Protocol Specification. <g1><g2>2</g2></g1>",
+  "The term \"block chain\" in this document is to be interpreted as described in section 3.3 of the Zcash Protocol Specification. <g1><g2>3</g2></g1>": "El término \"block chain\" en este documento debe interpretarse como se describe en la sección 3.3 de la Zcash Protocol Specification. <g1><g2>3</g2></g1>",
+  "The term \"v2 protocol\" in this document refers to the version 2 Zcash P2P network protocol <g1><g2>4</g2></g1>. The terms \"peer\" and \"request stream\", the <x3/>, <x4/>, <x5/>, <x6/>, <x7/>, and <x8/> request stream types, the service flags, and the synchronization rules of that protocol, are to be interpreted as defined there.": "El término \"protocolo v2\" en este documento se refiere a la versión 2 del protocolo de red P2P de Zcash <g1><g2>4</g2></g1>. Los términos \"par\" y \"flujo de solicitudes\", los tipos de flujo de solicitudes <x3/>, <x4/>, <x5/>, <x6/>, <x7/> y <x8/>, las banderas de servicio y las reglas de sincronización de ese protocolo deben interpretarse según se definen allí.",
+  "best chain": "mejor cadena",
+  "The best valid block chain, as described in section 3.3 of the Zcash Protocol Specification <g1><g2>3</g2></g1>; its <g3>tip</g3> is its highest block.": "La mejor block chain válida, como se describe en la sección 3.3 de la Zcash Protocol Specification <g1><g2>3</g2></g1>; su <g3>punta</g3> es su bloque más alto.",
+  "validated tip": "punta validada",
+  "The highest block that a node has accepted into its best chain under the v2 protocol's synchronization rules.": "El bloque más alto que un nodo ha aceptado en su mejor cadena según las reglas de sincronización del protocolo v2.",
+  "synchronization strategy": "estrategia de sincronización",
+  "A procedure by which a node advances its validated tip toward the network chain tip, using the request streams of the v2 protocol.": "Un procedimiento mediante el cual un nodo hace avanzar su punta validada hacia la punta de la cadena de la red, utilizando los flujos de solicitudes del protocolo v2.",
+  "checkpoint": "punto de control",
+  "A (height, block hash) pair that a synchronizing node treats as authoritative for the block at that height.": "Un par (altura, hash de bloque) que un nodo en sincronización trata como autoritativo para el bloque en esa altura.",
+  "trusted commitment": "compromiso confiable",
+  "As defined in the v2 protocol's checkpointed synchronization rules <g1><g2>4</g2></g1>; extended in this ZIP to also bind, for snapshot synchronization, a state snapshot manifest.": "Como se define en las reglas de sincronización con puntos de control del protocolo v2 <g1><g2>4</g2></g1>; extendido en este ZIP para vincular también, en la sincronización por instantánea, un manifiesto de instantánea de estado.",
+  "synchronization artifact": "artefacto de sincronización",
+  "The immutable, content-addressed byte object served via <x1/>, as defined in the v2 protocol <g2><g3>4</g3></g2> — for example, a known-hash chunk file or a snapshot piece.": "El objeto de bytes inmutable y direccionado por contenido servido mediante <x1/>, como se define en el protocolo v2 <g2><g3>4</g3></g2>; por ejemplo, un archivo de fragmento con hash conocido o una pieza de instantánea.",
+  "known-hash list": "lista de hashes conocidos",
+  "The block hashes of every height of a span of the chain, together with per-block sync-cost metadata, bound by a trusted commitment (for example, as the pinned hashes of a list of chunk artifacts).": "Los hashes de bloque de cada altura de un tramo de la cadena, junto con metadatos de costo de sincronización por bloque, vinculados por un compromiso confiable (por ejemplo, como los hashes fijados de una lista de artefactos de fragmento).",
+  "anchor": "ancla",
+  "The anchor of a <x1/> stream, as defined in the v2 protocol <g2><g3>4</g3></g2>; in this ZIP, always a block hash verified against a trusted commitment (directly, or via a verified artifact).": "El ancla de un flujo <x1/>, como se define en el protocolo v2 <g2><g3>4</g3></g2>; en este ZIP, siempre un hash de bloque verificado contra un compromiso confiable (directamente, o mediante un artefacto verificado).",
+  "work unit": "unidad de trabajo",
+  "A contiguous range of blocks (or a byte range of an artifact) scheduled for download as one request stream.": "Un rango contiguo de bloques (o un rango de bytes de un artefacto) programado para descargarse como un único flujo de solicitudes.",
+  "snapshot": "instantánea",
+  "A serialization of a node's chain state at a <g1>snapshot height</g1> <x2/>, divided into a <g3>manifest</g3> and content-addressed <g4>pieces</g4>, allowing a new node to begin operating at height <x5/> without downloading or validating the chain below it.": "Una serialización del estado de la cadena de un nodo en una <g1>altura de instantánea</g1> <x2/>, dividida en un <g3>manifiesto</g3> y <g4>piezas</g4> direccionadas por contenido, que permite a un nodo nuevo comenzar a operar en la altura <x5/> sin descargar ni validar la cadena por debajo de ella.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This ZIP recommends how a node synchronizes the block chain over the version 2 Zcash P2P network protocol. The v2 protocol defines the synchronization primitives and the rules that any use of them must satisfy; this ZIP recommends concrete <g1>synchronization strategies</g1> satisfying those rules — headers-first synchronization, <g2>checkpointed synchronization</g2> over anchored block-range streams, optionally accelerated by verified note commitment tree roots, and <g3>snapshot synchronization</g3>, which makes a new node operational in minutes — together with a download scheduling discipline and the policy for selecting between the strategies.": "Este ZIP recomienda cómo un nodo sincroniza el block chain mediante el protocolo de red P2P de Zcash versión 2. El protocolo v2 define las primitivas de sincronización y las reglas que cualquier uso de ellas debe satisfacer; este ZIP recomienda <g1>estrategias de sincronización</g1> concretas que satisfacen esas reglas: sincronización primero por encabezados, <g2>sincronización con puntos de control</g2> sobre flujos de rangos de bloques anclados, acelerada opcionalmente con raíces verificadas del árbol de compromisos de notas, y <g3>sincronización por instantánea</g3>, que hace operativo a un nodo nuevo en minutos, junto con una disciplina de programación de descargas y la política para seleccionar entre las estrategias.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "The v2 protocol <g1><g2>4</g2></g1> deliberately specifies synchronization primitives, the rules constraining their use, and only one baseline procedure — headers-first synchronization. This ZIP recommends the concrete procedures, because the difference between a naive procedure and a good one is measured in days.": "El protocolo v2 <g1><g2>4</g2></g1> especifica deliberadamente las primitivas de sincronización, las reglas que restringen su uso y solo un procedimiento de línea base: la sincronización primero por encabezados. Este ZIP recomienda los procedimientos concretos, porque la diferencia entre un procedimiento ingenuo y uno bueno se mide en días.",
+  "Three costs dominate initial synchronization, in ascending order of what removing them is worth:": "Tres costos dominan la sincronización inicial, en orden ascendente de lo que vale eliminarlos:",
+  "<g1>Round trips and scheduling.</g1> The legacy protocol transferred blocks in small per-request batches against individually requested hashes; at typical peer round-trip times this bounds throughput at a few hundred small blocks per second regardless of bandwidth. The v2 protocol's <x2/> removes the round trip from the inner loop: blocks stream continuously against a single verified anchor, and per-block download handles are unnecessary.": "<g1>Ciclos de ida y vuelta y programación.</g1> El protocolo heredado transfería bloques en lotes pequeños por solicitud, contra hashes solicitados individualmente; con los tiempos típicos de ida y vuelta entre pares, esto limita el rendimiento a unos cientos de bloques pequeños por segundo, independientemente del ancho de banda. El <x2/> del protocolo v2 elimina el ciclo de ida y vuelta del bucle interno: los bloques fluyen continuamente contra una única ancla verificada, y los identificadores de descarga por bloque resultan innecesarios.",
+  "<g1>Validation CPU.</g1> Under checkpointed synchronization, proofs and signatures below the final checkpoint are vouched for by the trusted commitment, and the dominant remaining CPU cost — measured at roughly 70% of block-commit time in the Zebra implementation — is recomputing the note commitment trees, leaf by leaf, only to learn per-block roots that are already bound by header commitments. Verified tree roots (<x2/>) eliminate that recomputation without adding trust.": "<g1>CPU de validación.</g1> Bajo la sincronización con puntos de control, las pruebas y las firmas por debajo del punto de control final están respaldadas por el compromiso confiable, y el costo restante dominante de CPU — medido en aproximadamente el 70% del tiempo de confirmación de bloque en la implementación Zebra — es recalcular los árboles de compromisos de notas, hoja por hoja, solo para conocer raíces por bloque que ya están vinculadas por compromisos de encabezado. Las raíces verificadas de árbol (<x2/>) eliminan ese recálculo sin añadir confianza.",
+  "<g1>The historical data itself.</g1> A new node operator's goal is a node at the tip; the chain's full history — hundreds of gigabytes — is the overwhelming share of bytes and time, and most operators need it only eventually (to serve peers) or never (pruned operation). Snapshot synchronization removes it from the critical path entirely: the node installs a verified state snapshot at a recent height and is operational in minutes, backfilling history in the background if it chooses.": "<g1>Los datos históricos en sí.</g1> El objetivo de quien opera un nodo nuevo es un nodo en la punta; el historial completo de la cadena — cientos de gigabytes — es la parte abrumadora de los bytes y del tiempo, y la mayoría de los operadores lo necesita solo eventualmente (para servir a los pares) o nunca (operación con poda). La sincronización por instantánea lo elimina por completo de la ruta crítica: el nodo instala una instantánea de estado verificada en una altura reciente y queda operativo en minutos, rellenando el historial en segundo plano si así lo decide.",
+  "Checkpoints themselves also motivate this machinery. The Zebra implementation compiles in known-hash lists covering every block — over 100 MB of hashes that grow with the chain — because the legacy protocol offered no way to fetch and verify them. Under this ZIP, a binary compiles in only the expected hashes of the list itself, chunked by height range (a few kilobytes); the full known-hash list is then obtained verifiably from the P2P network with <x1/>, as specified in <g2>Synchronization Data</g2>.": "Los puntos de control también motivan esta maquinaria. La implementación Zebra incluye compiladas listas de hashes conocidos que cubren cada bloque — más de 100 MB de hashes que crecen con la cadena — porque el protocolo heredado no ofrecía manera de obtenerlas y verificarlas. Bajo este ZIP, un binario incluye compilados solo los hashes esperados de la lista misma, fragmentados por rango de alturas (unos pocos kilobytes); la lista completa de hashes conocidos se obtiene entonces de manera verificable desde la red P2P con <x1/>, como se especifica en <g2>Datos de sincronización</g2>.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "The synchronization rules of the v2 protocol <g1><g2>4</g2></g1> apply to every strategy below and are not restated here.": "Las reglas de sincronización del protocolo v2 <g1><g2>4</g2></g1> se aplican a cada estrategia a continuación y no se reiteran aquí.",
+  "<x1/>Synchronization Data": "<x1/>Datos de sincronización",
+  "A node's trusted commitment binds the data its strategies rely on:": "El compromiso confiable de un nodo vincula los datos en los que se apoyan sus estrategias:",
+  "<g1>Known-hash lists</g1>, as pinned SHA-256 hashes of the list's <g2>chunks</g2>: each chunk is the canonical serialization of the <x3/> entries for a fixed height range. A node obtains the entries from its peers with <x4/> and verifies them by reassembling each chunk and comparing its hash against the commitment. The same bytes MAY instead be obtained as chunk artifacts from any source — bundled with the release, <x5/> requests to <x6/> peers, or out-of-band mirrors — accepted only if their hashes match the commitment. A verified known-hash list makes every listed hash an anchor, and its span metadata gives per-height sizes and costs for scheduling.": "<g1>Listas de hashes conocidos</g1>, como hashes SHA-256 fijados de los <g2>fragmentos</g2> de la lista: cada fragmento es la serialización canónica de las entradas de <x3/> para un rango de alturas fijo. Un nodo obtiene las entradas de sus pares con <x4/> y las verifica reensamblando cada fragmento y comparando su hash contra el compromiso. Los mismos bytes PUEDEN (MAY) obtenerse en cambio como artefactos de fragmento desde cualquier fuente — incluidos con la versión de lanzamiento, solicitudes <x5/> a pares <x6/> o réplicas fuera de banda — aceptados solo si sus hashes coinciden con el compromiso. Una lista de hashes conocidos verificada convierte cada hash listado en un ancla, y sus metadatos de tramo dan tamaños y costos por altura para la programación.",
+  "The commitment MAY additionally bind a single SHA-256 hash of the <g1>spentness hints</g1>: the hint bits for every transparent output created at or below the final checkpoint (see <g2>Spentness Hints</g2>), serialized in canonical order, obtained like any artifact and verified whole against this hash. The hints are committed separately from the entry chunks — one hash rather than one per range — because they are a function of the final checkpoint height as well as of the chain: extending the commitment's coverage would change every per-range hint hash anyway, while the entry-chunk hashes stay stable. A commitment from an older release simply covers a lower final checkpoint: its hints remain valid for that shorter span, and the node synchronizes above it normally.": "El compromiso PUEDE (MAY) adicionalmente vincular un único hash SHA-256 de las <g1>pistas de gasto</g1>: los bits de pista de cada salida transparente creada en o por debajo del punto de control final (véase <g2>Pistas de gasto</g2>), serializados en orden canónico, obtenidos como cualquier artefacto y verificados en su totalidad contra este hash. Las pistas se comprometen por separado de los fragmentos de entradas — un hash en lugar de uno por rango — porque son función tanto de la altura del punto de control final como de la cadena: extender la cobertura del compromiso cambiaría de todos modos cada hash de pista por rango, mientras que los hashes de los fragmentos de entradas permanecen estables. Un compromiso de una versión anterior simplemente cubre un punto de control final más bajo: sus pistas siguen siendo válidas para ese tramo más corto, y el nodo sincroniza por encima de él con normalidad.",
+  "<g1>A snapshot manifest hash</g1>, for snapshot synchronization (see <g2>Snapshot Synchronization</g2>).": "<g1>Un hash de manifiesto de instantánea</g1>, para la sincronización por instantánea (véase <g2>Sincronización por instantánea</g2>).",
+  "Chunk artifacts are deterministic functions of the chain, so any node that has synchronized the covered span can regenerate them byte-identically and serve them; artifact pieces SHOULD be no larger than the <x1/> per-request maximum <g2><g3>4</g3></g2> so each piece is independently fetchable and verifiable.": "Los artefactos de fragmento son funciones deterministas de la cadena, de modo que cualquier nodo que haya sincronizado el tramo cubierto puede regenerarlos byte a byte de forma idéntica y servirlos; las piezas de artefacto DEBERÍAN (SHOULD) no ser mayores que el máximo por solicitud de <x1/> <g2><g3>4</g3></g2> para que cada pieza sea obtenible y verificable de forma independiente.",
+  "<x1/>Recommended Strategies": "<x1/>Estrategias recomendadas",
+  "A node implements headers-first synchronization (the v2 protocol's fallback rule requires it) and MAY implement the others.": "Un nodo implementa la sincronización de encabezados primero (la regla de respaldo del protocolo v2 lo requiere) y PUEDE (MAY) implementar las demás.",
+  "<x1/>Headers-First Synchronization": "<x1/>Sincronización de encabezados primero",
+  "Headers-first synchronization is specified in the v2 protocol <g1><g2>4</g2></g1>, where it is characterized as the baseline, full-validation method. It is also the strategy for the chain near the tip, above the reach of commitments, whatever strategy covered the history below.": "La sincronización primero encabezados está especificada en el protocolo v2 <g1><g2>4</g2></g1>, donde se caracteriza como el método de línea base con validación completa. Es también la estrategia para la cadena cerca de la punta, por encima del alcance de los compromisos, sea cual sea la estrategia que cubrió el historial por debajo.",
+  "<x1/>Checkpointed Synchronization": "<x1/>Sincronización con puntos de control",
+  "A node MAY synchronize the span of the block chain covered by a verified known-hash list as follows:": "Un nodo PUEDE (MAY) sincronizar el tramo del block chain cubierto por una lista verificada de hashes conocidos como sigue:",
+  "<g1>Obtain and verify the known-hash list</g1> for the target span (see <g2>Synchronization Data</g2>).": "<g1>Obtener y verificar la lista de hashes conocidos</g1> para el tramo objetivo (véase <g2>Datos de sincronización</g2>).",
+  "<g1>Partition the span into work units</g1>: contiguous block ranges, sized using the span metadata toward a byte target (see <g2>Download Scheduling</g2>), each ending at a listed height. Any listed hash can end a unit, so unit boundaries are chosen freely — by bytes, not by a fixed block count — and each unit's request carries the byte target as its <x3/> bound.": "<g1>Particionar el tramo en unidades de trabajo</g1>: rangos de bloques contiguos, dimensionados con los metadatos del tramo hacia un objetivo de bytes (véase <g2>Programación de descargas</g2>), cada uno terminando en una altura listada. Cualquier hash listado puede terminar una unidad, de modo que los límites de unidad se eligen libremente — por bytes, no por un conteo fijo de bloques — y la solicitud de cada unidad lleva el objetivo de bytes como su cota <x3/>.",
+  "<g1>Stream each unit with <x2/></g1>, anchored at the unit's final hash. Each delivered block is verified on arrival under the v2 protocol's <x3/> delivery rules <g4><g5>4</g5></g4> and — as a cross-check — matched against the known-hash list at its height. A truncated or cancelled unit keeps its verified prefix, and the remainder is re-requested from any peer, anchored at the next expected hash, as the v2 protocol's <x6/> truncation rules provide.": "<g1>Transmitir cada unidad con <x2/></g1>, anclada en el hash final de la unidad. Cada bloque entregado se verifica a su llegada bajo las reglas de entrega <x3/> del protocolo v2 <g4><g5>4</g5></g4> y — como verificación cruzada — se compara contra la lista de hashes conocidos en su altura. Una unidad truncada o cancelada conserva su prefijo verificado, y el resto se vuelve a solicitar a cualquier par, anclado en el siguiente hash esperado, como prevén las reglas de truncamiento <x6/> del protocolo v2.",
+  "<g1>Commit</g1> each completed range in height order, applying whatever abbreviated validation local policy permits for checkpoint-authenticated blocks under the v2 protocol's validated advancement rule — with tree work eliminated where <g2>Verified Tree Roots</g2> are available.": "<g1>Comprometer</g1> cada rango completado en orden de altura, aplicando la validación abreviada que la política local permita para bloques autenticados por punto de control bajo la regla de avance validado del protocolo v2 — con el trabajo de árboles eliminado donde haya <g2>Raíces de árbol verificadas</g2> disponibles.",
+  "A node with a commitment that binds only spaced checkpoint hashes (rather than a full known-hash list) applies the same procedure with units anchored at checkpoint heights; interior per-block cross-checks and advance sizing are then unavailable, but neither is needed — steps 2 and 3 already bound each unit in bytes and authenticate every delivered block against its anchor.": "Un nodo con un compromiso que vincula solo hashes de puntos de control espaciados (en lugar de una lista completa de hashes conocidos) aplica el mismo procedimiento con unidades ancladas en alturas de puntos de control; las verificaciones cruzadas por bloque interiores y el dimensionamiento anticipado quedan entonces indisponibles, pero ninguno es necesario — los pasos 2 y 3 ya acotan cada unidad en bytes y autentican cada bloque entregado contra su ancla.",
+  "<x1/>Verified Tree Roots": "<x1/>Raíces de árbol verificadas",
+  "A node MAY avoid the note commitment tree recomputation that dominates the CPU cost of committing checkpoint-authenticated blocks (see <g1>Motivation</g1>) by obtaining each historical block's tree roots with <x2/> from <x3/> peers and verifying them against header commitments:": "Un nodo PUEDE (MAY) evitar la recomputación del árbol de compromisos de notas que domina el costo de CPU de comprometer bloques autenticados por punto de control (véase <g1>Motivación</g1>) obteniendo las raíces de árbol de cada bloque histórico con <x2/> de pares <x3/> y verificándolas contra los compromisos de encabezado:",
+  "For each block in the span, obtain the entry (Sapling, Orchard, and Ironwood roots, shielded transaction counts, and authorizing data commitment), anchoring each request's <x1/> at a hash the node has already authenticated, so that entries describe known blocks rather than the responder's view of a best chain.": "Para cada bloque del tramo, obtener la entrada (raíces Sapling, Orchard e Ironwood, conteos de transacciones blindadas y compromiso de datos de autorización), anclando el <x1/> de cada solicitud en un hash que el nodo ya haya autenticado, de modo que las entradas describan bloques conocidos y no la visión de una mejor cadena del respondedor.",
+  "Verify the entries against headers that checkpointed synchronization has authenticated. Which check applies depends on what the block's header commits to at that height, which changes at Heartwood — <g1>not</g1> at NU5:": "Verificar las entradas contra encabezados que la sincronización con puntos de control haya autenticado. Qué verificación aplica depende de a qué se compromete el encabezado del bloque en esa altura, lo cual cambia en Heartwood — <g1>no</g1> en NU5:",
+  "<g1>Between Sapling activation and Heartwood activation</g1>, the fourth header field (<x2/>) is the block's Sapling note commitment tree root. Each supplied Sapling root is checked directly against it.": "<g1>Entre la activación de Sapling y la activación de Heartwood</g1>, el cuarto campo del encabezado (<x2/>) es la raíz del árbol de compromisos de notas Sapling del bloque. Cada raíz Sapling suministrada se verifica directamente contra él.",
+  "<g1>From Heartwood activation</g1>, ZIP 221 <g2><g3>5</g3></g2> repurposes that field to carry the chain history root (<x4/>, and from NU5 <x5/>, which binds the chain history root together with the authorizing data commitment of ZIP 244 <g6><g7>6</g7></g6>). A direct comparison against a note commitment tree root is therefore <g8>not</g8> a valid check anywhere above Heartwood. The node instead rebuilds the chain history tree from the supplied roots and counts and checks the rebuilt values against each header. Each block's header commits to the history tree containing its <g9>parent's</g9> data, so an entry is verified only once the <g10>following</g10> block's header has been checked against it.": "<g1>Desde la activación de Heartwood</g1>, el ZIP 221 <g2><g3>5</g3></g2> reutiliza ese campo para llevar la raíz del historial de la cadena (<x4/>, y desde NU5 <x5/>, que vincula la raíz del historial de la cadena junto con el compromiso de datos de autorización del ZIP 244 <g6><g7>6</g7></g6>). Una comparación directa contra una raíz de árbol de compromisos de notas por lo tanto <g8>no</g8> es una verificación válida en ninguna altura por encima de Heartwood. En su lugar, el nodo reconstruye el árbol del historial de la cadena a partir de las raíces y los conteos suministrados y verifica los valores reconstruidos contra cada encabezado. El encabezado de cada bloque se compromete al árbol del historial que contiene los datos del bloque <g9>anterior</g9>, de modo que una entrada se verifica solo una vez que el encabezado del bloque <g10>siguiente</g10> haya sido verificado contra ella.",
+  "<g1>Before a pool's activation</g1> at the entry's height, the entry's root field is 32 zero bytes and its count is 0, as the v2 protocol requires <g2><g3>4</g3></g2>; an entry that deviates fails verification.": "<g1>Antes de la activación de un pool</g1> a la altura de la entrada, el campo root de la entrada son 32 bytes en cero y su cuenta es 0, como lo exige el protocolo v2 <g2><g3>4</g3></g2>; una entrada que se desvía falla la verificación.",
+  "<g1>A root that no header commits to</g1> at the entry's height is not verifiable by this procedure. The chain history tree leaf of ZIP 221 binds the Sapling and (from NU5) Orchard roots, but defines no Ironwood field, so no header authenticates an Ironwood root.": "<g1>Una raíz a la que ningún encabezado se compromete</g1> en la altura de la entrada no es verificable por este procedimiento. La hoja del árbol del historial de la cadena del ZIP 221 vincula las raíces Sapling y (desde NU5) Orchard, pero no define ningún campo Ironwood, por lo que ningún encabezado autentica una raíz Ironwood.",
+  "A <g1>verified</g1> root replaces the recomputation: the node adopts the root, maintains tree <g2>frontiers</g2> only at strategy boundaries (where full per-block validation resumes), and stores what its serving obligations require. A node MUST NOT adopt a root that the procedure of step 2 has not verified against an authenticated header, and MUST recompute that pool's tree from the blocks' note commitments instead. Two cases in particular are not verified by an entry's own arrival:": "Una raíz <g1>verificada</g1> reemplaza la recomputación: el nodo adopta la raíz, mantiene <g2>fronteras</g2> de árbol solo en los límites de estrategia (donde se reanuda la validación completa por bloque) y almacena lo que sus obligaciones de servicio requieren. Un nodo NO DEBE (MUST NOT) adoptar una raíz que el procedimiento del paso 2 no haya verificado contra un encabezado autenticado, y DEBE (MUST) recomputar en su lugar el árbol de ese conjunto a partir de los compromisos de notas de los bloques. Dos casos en particular no son verificados por la llegada de la propia entrada:",
+  "Because verification above Heartwood runs one block behind, the highest entry of a response is unverified until the entry for the following block is obtained and checked against its header. A node either extends the requested range by one entry or holds the highest entry unadopted.": "Como la verificación por encima de Heartwood va un bloque por detrás, la entrada más alta de una respuesta queda sin verificar hasta que se obtiene la entrada del bloque siguiente y se verifica contra su encabezado. Un nodo extiende el rango solicitado en una entrada o retiene la entrada más alta sin adoptar.",
+  "Entries MAY be obtained and verified in any order, but each entry is adopted only when its own check passes; an entry at the boundary of a range is not adopted merely because its neighbours were.": "Las entradas PUEDEN (MAY) obtenerse y verificarse en cualquier orden, pero cada entrada se adopta solo cuando su propia verificación pasa; una entrada en el límite de un rango no se adopta meramente porque sus vecinas lo hayan sido.",
+  "An entry that fails verification is discarded with a misbehavior penalty (per the v2 protocol); the node falls back to recomputing that span's trees locally.": "Una entrada que falla la verificación se descarta con una penalización por mal comportamiento (según el protocolo v2); el nodo recurre a recomputar localmente los árboles de ese tramo.",
+  "No additional trust is involved: every adopted root is authenticated by a header that is itself authenticated by the trusted commitment, and a root that no header authenticates is never adopted.": "No hay confianza adicional involucrada: cada raíz adoptada está autenticada por un encabezado que a su vez está autenticado por el compromiso de confianza, y una raíz que ningún encabezado autentica nunca se adopta.",
+  "<g1>Frontier artifacts.</g1> Adopting verified roots leaves the node without the tree <g2>frontiers</g2> it needs to resume appending note commitments where full validation begins. The trusted commitment MAY bind the hash of a <g3>frontier artifact</g3> — the serialized Sapling, Orchard, and Ironwood frontiers at the final checkpoint — obtained like any artifact. A frontier whose recomputed root matches the root verified for that height by the procedure above is adopted, so the binding itself carries no trust: a wrong frontier fails the root comparison and the node falls back to rebuilding that pool's tree from the span's note commitments. The Ironwood frontier cannot be verified this way (no header authenticates an Ironwood root); it is authenticated only by the commitment's hash, or rebuilt from the pool's note commitments — a bounded cost, since the pool postdates NU6.3 activation.": "<g1>Artefactos de frontera.</g1> Adoptar raíces verificadas deja al nodo sin las <g2>fronteras</g2> de árbol que necesita para reanudar la anexión de compromisos de notas donde comienza la validación completa. El compromiso de confianza PUEDE (MAY) vincular el hash de un <g3>artefacto de frontera</g3> — las fronteras Sapling, Orchard e Ironwood serializadas en el punto de control final — obtenido como cualquier artefacto. Se adopta una frontera cuya raíz recomputada coincide con la raíz verificada para esa altura por el procedimiento anterior, de modo que la vinculación en sí no conlleva confianza: una frontera incorrecta falla la comparación de raíz y el nodo recurre a reconstruir el árbol de ese pool a partir de los compromisos de notas del tramo. La frontera Ironwood no puede verificarse de esta manera (ningún encabezado autentica una raíz Ironwood); se autentica únicamente por el hash del compromiso, o se reconstruye a partir de los compromisos de notas del pool — un costo acotado, ya que el pool es posterior a la activación de NU6.3.",
+  "<x1/>Spentness Hints": "<x1/>Indicios de gasto",
+  "After tree work is eliminated, the dominant remaining state cost of committing historical blocks is random access: looking up and deleting each transparent input's spent output, and inserting (and, under full validation, membership-testing) each revealed nullifier. Spentness hints — adapted from Bitcoin's SwiftSync <g1><g2>7</g2></g1> — eliminate the random access and make historical commits order-independent, at the cost of a small hint bitmap bound by the trusted commitment, which vouches for its correctness exactly as it vouches for the known block hashes: the bitmap is a deterministic function of the chain, regenerable and auditable by any synchronized node, and its pinned hash is updated by each release that updates the checkpoints. Hints apply only within the reach of the trusted commitment: a node MUST NOT apply them above the final checkpoint.": "Eliminado el trabajo de árbol, el costo de estado restante dominante de comprometer bloques históricos es el acceso aleatorio: buscar y eliminar cada salida transparente gastada como entrada, e insertar (y, bajo validación completa, probar la pertenencia de) cada nullifier revelado. Los indicios de gasto — adaptados del SwiftSync de Bitcoin <g1><g2>7</g2></g1> — eliminan el acceso aleatorio y hacen que los compromisos históricos sean independientes del orden, al costo de un pequeño mapa de bits de indicios acotado por el compromiso de confianza, que responde por su corrección exactamente como responde por los hashes de bloques conocidos: el mapa de bits es una función determinista de la cadena, regenerable y auditable por cualquier nodo sincronizado, y su hash fijado se actualiza con cada versión que actualiza los puntos de control. Los indicios aplican solo dentro del alcance del compromiso de confianza: un nodo NO DEBE (MUST NOT) aplicarlos por encima del punto de control final.",
+  "<g1>Transparent outputs.</g1> The spentness hints (see <g2>Synchronization Data</g2>) carry one bit per transparent output created at or below the <g3>terminal height</g3> — the final checkpoint — in canonical order (by block height, then transaction index, then output index): whether the output is still unspent at that height. The <x4/> metadata of the verified entry chunks gives each height's bit count, so a node can check the bitmap's length before downloading any block bodies, and a work unit anywhere in the span can locate its first bit without processing the blocks below it. During the span:": "<g1>Salidas transparentes.</g1> Los indicios de gasto (véase <g2>Datos de sincronización</g2>) llevan un bit por salida transparente creada en la <g3>altura terminal</g3> o por debajo de ella — el punto de control final — en orden canónico (por altura de bloque, luego índice de transacción, luego índice de salida): si la salida aún está sin gastar en esa altura. Los metadatos <x4/> de los fragmentos de entrada verificados dan el conteo de bits de cada altura, de modo que un nodo puede comprobar la longitud del mapa de bits antes de descargar cualquier cuerpo de bloque, y una unidad de trabajo en cualquier punto del tramo puede ubicar su primer bit sin procesar los bloques por debajo de ella. Durante el tramo:",
+  "An output hinted <g1>unspent</g1> is written to the transparent UTXO set as it is created — and, during the span, never looked up or deleted.": "Una salida con indicio de <g1>sin gastar</g1> se escribe en el conjunto UTXO transparente al crearse — y, durante el tramo, nunca se busca ni se elimina.",
+  "An output hinted <g1>spent</g1> is never stored.": "Una salida con indicio de <g1>gastada</g1> nunca se almacena.",
+  "Transparent inputs perform no lookup at all.": "Las entradas transparentes no realizan ninguna búsqueda.",
+  "The constructed UTXO set is then exactly the set of outputs unspent at the terminal height, without a single random read: every output hinted spent is one the committed chain spends within the span, on the authority of the commitment.": "El conjunto UTXO construido es entonces exactamente el conjunto de salidas sin gastar en la altura terminal, sin una sola lectura aleatoria: toda salida con indicio de gastada es una que la cadena comprometida gasta dentro del tramo, bajo la autoridad del compromiso.",
+  "<g1>Nullifiers.</g1> The nullifier sets never shrink, so no hint is needed at all: revealed nullifiers are simply inserted as they are encountered — insertion is sequential-write work, not the random reads the hints exist to remove — and per-spend membership tests below the final checkpoint are vouched for by the trusted commitment. When backfilling below a snapshot, the reconstructed sets are compared with the snapshot's at <x2/> (see <g3>Snapshot Synchronization</g3>).": "<g1>Nullifiers.</g1> Los conjuntos de nullifiers nunca se reducen, así que no se necesita ningún indicio: los nullifiers revelados simplemente se insertan a medida que se encuentran — la inserción es trabajo de escritura secuencial, no las lecturas aleatorias que los indicios existen para eliminar — y las pruebas de pertenencia por gasto por debajo del punto de control final están respaldadas por el compromiso de confianza. Al rellenar por debajo de una instantánea, los conjuntos reconstruidos se comparan con los de la instantánea en <x2/> (véase <g3>Sincronización de instantánea</g3>).",
+  "<g1>Value pools.</g1> No lookups are needed for value tracking either: shielded pool balances are sums of the blocks' value balance fields, which commute, and the transparent pool balance at the terminal height is the sum of the constructed UTXO set's amounts. These are consensus quantities: they MUST be accumulated with checked arithmetic that detects overflow.": "<g1>Pools de valor.</g1> Tampoco se necesitan búsquedas para el seguimiento de valor: los saldos de los pools blindados son sumas de los campos de balance de valor de los bloques, que conmutan, y el saldo del pool transparente en la altura terminal es la suma de los montos del conjunto UTXO construido. Estas son cantidades de consenso: DEBEN (MUST) acumularse con aritmética verificada que detecte desbordamiento.",
+  "<g1>What order-independence does and does not cover.</g1> The state construction above reads no state written by an earlier block, so the <g2>construction</g2> — the UTXO set, the nullifier sets, and the value pool totals — is order-independent, and blocks and ranges MAY be verified and committed in any order within the span. The per-input reads and per-output deletes disappear entirely.": "<g1>Qué cubre y qué no cubre la independencia del orden.</g1> La construcción de estado anterior no lee ningún estado escrito por un bloque anterior, de modo que la <g2>construcción</g2> — el conjunto UTXO, los conjuntos de nullifiers y los totales de los pools de valor — es independiente del orden, y los bloques y rangos PUEDEN (MAY) verificarse y comprometerse en cualquier orden dentro del tramo. Las lecturas por entrada y las eliminaciones por salida desaparecen por completo.",
+  "Order-independence does not extend to consensus rules whose outcome is not a function of the terminal totals. A node applying hints MUST account for each of the following, either by checking it in height order or by recording it as covered by the trusted commitment under the v2 protocol's validated advancement rule:": "La independencia del orden no se extiende a las reglas de consenso cuyo resultado no es función de los totales terminales. Un nodo que aplica indicios DEBE (MUST) dar cuenta de cada uno de los siguientes puntos, ya sea comprobándolo en orden de altura o registrándolo como cubierto por el compromiso de confianza bajo la regla de avance validado del protocolo v2:",
+  "<g1>Non-negative pool balances at every block.</g1> ZIP 209 <g2><g3>8</g3></g2> requires rejecting a block at which any chain value pool balance would become negative. A terminal total says nothing about a running balance that dips negative at an interior height and recovers; below the final checkpoint this rule is among those vouched for by the trusted commitment, and above it, blocks are committed in height order under full validation.": "<g1>Saldos de pool no negativos en cada bloque.</g1> El ZIP 209 <g2><g3>8</g3></g2> exige rechazar un bloque en el que el saldo de cualquier pool de valor de la cadena se volvería negativo. Un total terminal no dice nada de un saldo corriente que cae a negativo en una altura interior y se recupera; por debajo del punto de control final esta regla está entre las respaldadas por el compromiso de confianza, y por encima de él, los bloques se comprometen en orden de altura bajo validación completa.",
+  "<g1>Coinbase maturity and the pre-NU5 shielded-coinbase rule</g1>, which depend on the creation height and coinbase status of the <g2>spent</g2> output — exactly the lookup that hints remove. This is why hints are confined to the reach of the trusted commitment, where these per-spend checks are vouched for; above the final checkpoint, blocks are committed in height order with the lookups performed.": "<g1>La madurez del coinbase y la regla de coinbase blindado previa a NU5</g1>, que dependen de la altura de creación y del estatus de coinbase de la salida <g2>gastada</g2> — exactamente la búsqueda que los indicios eliminan. Por esto los indicios se limitan al alcance del compromiso de confianza, donde estas comprobaciones por gasto están respaldadas; por encima del punto de control final, los bloques se comprometen en orden de altura con las búsquedas realizadas.",
+  "A node SHOULD obtain and verify the hint bitmap — its hash against the commitment, and its bit count against the span's transparent output total, summed from the verified entry chunks' <x1/> metadata — before processing any block bodies with hints, so that an unavailable or malformed bitmap costs nothing but its fetch; a bitmap that fails either check is discarded and the span is synchronized without hints. A published bitmap that is wrong despite matching its pinned hash is a defect of the commitment itself, exactly as a wrong checkpoint hash would be; because the bitmap is deterministic, publishers and third parties can regenerate and cross-check it, and release processes SHOULD do so.": "Un nodo DEBERÍA (SHOULD) obtener y verificar el mapa de bits de indicios — su hash contra el compromiso, y su conteo de bits contra el total de salidas transparentes del tramo, sumado a partir de los metadatos <x1/> de los fragmentos de entrada verificados — antes de procesar cualquier cuerpo de bloque con indicios, de modo que un mapa de bits no disponible o malformado no cueste más que su descarga; un mapa de bits que falle cualquiera de las dos comprobaciones se descarta y el tramo se sincroniza sin indicios. Un mapa de bits publicado que sea incorrecto a pesar de coincidir con su hash fijado es un defecto del compromiso mismo, exactamente como lo sería un hash de punto de control incorrecto; como el mapa de bits es determinista, los publicadores y terceros pueden regenerarlo y cotejarlo, y los procesos de versión DEBERÍAN (SHOULD) hacerlo.",
+  "<x1/>Snapshot Synchronization": "<x1/>Sincronización de instantánea",
+  "A node with no chain state MAY become operational at a <g1>snapshot height</g1> <x2/> in minutes, deferring or omitting the history below it:": "Un nodo sin estado de cadena PUEDE (MAY) volverse operativo en una <g1>altura de instantánea</g1> <x2/> en minutos, difiriendo u omitiendo el historial por debajo de ella:",
+  "<g1>Obtain the manifest</g1> whose SHA-256 hash is bound by the trusted commitment, from any source (<x2/>, mirrors, bundled). The manifest lists the snapshot's content-addressed pieces and their sizes.": "<g1>Obtener el manifiesto</g1> cuyo hash SHA-256 está vinculado por el compromiso de confianza, de cualquier fuente (<x2/>, espejos, incluido). El manifiesto lista las piezas direccionadas por contenido de la instantánea y sus tamaños.",
+  "<g1>Fetch and verify the pieces</g1> from <x2/> peers via <x3/> and/or out-of-band mirrors, scheduling them like any other work units (see <g4>Download Scheduling</g4>); a piece is accepted only if its hash matches the manifest.": "<g1>Obtener y verificar las piezas</g1> de pares <x2/> mediante <x3/> y/o espejos fuera de banda, programándolas como cualquier otra unidad de trabajo (véase <g4>Programación de descargas</g4>); una pieza se acepta solo si su hash coincide con el manifiesto.",
+  "<g1>Verify the state against the chain where possible.</g1> The snapshot contains, at minimum: the transparent UTXO set; the Sprout, Sapling, Orchard, and Ironwood nullifier sets; the note commitment tree frontiers of each pool; the chain history tree; and the chain value pool balances, which the node needs as the starting point for the pool-balance consensus rules above <x2/>. The parts that the chain commits to — the Sapling, Orchard, and Ironwood frontiers (via their header-committed roots) and the chain history tree (via <x3/> of the following block, ZIP 221 <g4><g5>5</g5></g4>) — MUST be verified against headers authenticated by the trusted commitment. Because the chain history tree at <x6/> is committed by the <g7>following</g7> block's header, the trusted commitment MUST authenticate the header at height <x8/> for that verification to be possible; a commitment that stops at <x9/> leaves the chain history tree unverified, and the node MUST treat it as an uncommitted component. The parts the chain does not commit to (the transparent UTXO set, the nullifier sets, the Sprout tree, and the chain value pool balances) are authenticated solely by the manifest commitment, which therefore carries the same trust as the node's binary — the trust model of the checkpoints themselves.": "<g1>Verificar el estado contra la cadena donde sea posible.</g1> La instantánea contiene, como mínimo: el conjunto de UTXO transparentes; los conjuntos de nullifier de Sprout, Sapling, Orchard e Ironwood; las fronteras del árbol de compromisos de notas de cada pool; el árbol de historial de la cadena; y los saldos de los pools de valor de la cadena, que el nodo necesita como punto de partida para las reglas de consenso de saldos de pools anteriores a <x2/>. Las partes que la cadena compromete — las fronteras de Sapling, Orchard e Ironwood (mediante sus raíces comprometidas en el encabezado) y el árbol de historial de la cadena (mediante <x3/> del bloque siguiente, ZIP 221 <g4><g5>5</g5></g4>) — DEBEN (MUST) verificarse contra encabezados autenticados por el compromiso de confianza. Como el árbol de historial de la cadena en <x6/> está comprometido por el encabezado del bloque <g7>siguiente</g7>, el compromiso de confianza DEBE (MUST) autenticar el encabezado a la altura <x8/> para que esa verificación sea posible; un compromiso que se detiene en <x9/> deja el árbol de historial de la cadena sin verificar, y el nodo DEBE (MUST) tratarlo como un componente no comprometido. Las partes que la cadena no compromete (el conjunto de UTXO transparentes, los conjuntos de nullifier, el árbol de Sprout y los saldos de los pools de valor de la cadena) se autentican únicamente por el compromiso del manifiesto, que por lo tanto carga la misma confianza que el binario del nodo — el modelo de confianza de los puntos de control mismos.",
+  "<g1>Begin operating at <x2/></g1>: validate blocks above <x3/> under the consensus rules (or checkpointed synchronization, where commitments reach above <x4/>), participate fully in relay, and serve the blocks it accumulates, advertising service flags as the v2 protocol requires of a node that lacks the complete chain <g5><g6>4</g6></g5>.": "<g1>Comenzar a operar en <x2/></g1>: validar los bloques por encima de <x3/> bajo las reglas de consenso (o la sincronización con puntos de control, donde los compromisos alcanzan por encima de <x4/>), participar plenamente en la retransmisión y servir los bloques que acumula, anunciando las banderas de servicio como el protocolo v2 exige a un nodo que carece de la cadena completa <g5><g6>4</g6></g5>.",
+  "<g1>Backfill in the background.</g1> The node SHOULD backfill the history below <x2/> using checkpointed synchronization, at low priority, and advertise <x3/> when complete. On completion, backfill reconciles the snapshot's uncommitted components against the chain the node has just replayed. (The hint bitmap's bits are relative to the final checkpoint rather than <x4/>, so backfill below a snapshot proceeds without transparent hints; as background work, it is not on the critical path that hints exist to shorten.)": "<g1>Rellenar en segundo plano.</g1> El nodo DEBERÍA (SHOULD) rellenar el historial por debajo de <x2/> usando la sincronización con puntos de control, con baja prioridad, y anunciar <x3/> al completarse. Al completarse, el relleno concilia los componentes no comprometidos de la instantánea contra la cadena que el nodo acaba de reproducir. (Los bits del mapa de bits de indicios son relativos al punto de control final y no a <x4/>, de modo que el relleno por debajo de una instantánea avanza sin indicios transparentes; como trabajo en segundo plano, no está en la ruta crítica que los indicios existen para acortar.)",
+  "The reconciliation discharges the snapshot's trust only to the extent that each component is actually compared, so each MUST be covered explicitly, and over complete entries: a comparison over outpoints alone would let a fabricated or amount-inflated UTXO entry pass unnoticed. Backfill therefore verifies, at <x1/>:": "La conciliación descarga la confianza de la instantánea solo en la medida en que cada componente se compara efectivamente, por lo que cada uno DEBE (MUST) cubrirse explícitamente y sobre entradas completas: una comparación sobre outpoints solos dejaría pasar inadvertida una entrada de UTXO fabricada o con monto inflado. El relleno por lo tanto verifica, en <x1/>:",
+  "<g1>The transparent UTXO set</g1>, compared as complete entries — the outpoint, the value, the <x2/>, the creation height, and the coinbase flag, in a canonical encoding — between the set the replay constructs and the set the snapshot supplied, so that a phantom outpoint, an inflated value, or an altered script is caught.": "<g1>El conjunto de UTXO transparentes</g1>, comparado como entradas completas — el outpoint, el valor, el <x2/>, la altura de creación y la bandera de coinbase, en una codificación canónica — entre el conjunto que la reproducción construye y el conjunto que la instantánea suministró, de modo que se detecte un outpoint fantasma, un valor inflado o un script alterado.",
+  "<g1>The nullifier sets</g1>, by the same whole-value comparison per pool.": "<g1>Los conjuntos de nullifier</g1>, mediante la misma comparación de valores completos por pool.",
+  "<g1>The Sprout note commitment tree</g1>, which no header commits to, by recomputing it from the JoinSplit note commitments of the replayed blocks and comparing the resulting root and frontier. Sprout is a closed pool of bounded size, so this is inexpensive.": "<g1>El árbol de compromisos de notas de Sprout</g1>, al que ningún encabezado compromete, recalculándolo a partir de los compromisos de notas de JoinSplit de los bloques reproducidos y comparando la raíz y la frontera resultantes. Sprout es un conjunto cerrado de tamaño acotado, así que esto es poco costoso.",
+  "<g1>The chain value pool balances</g1>, by recomputing them over the replayed span (with checked arithmetic, see <g2>Spentness Hints</g2>) and comparing them to the snapshot's.": "<g1>Los saldos de los pools de valor de la cadena</g1>, recalculándolos sobre el tramo reproducido (con aritmética verificada, véase <g2>Indicios de gasto</g2>) y comparándolos con los de la instantánea.",
+  "When all four check out, the snapshot's uncommitted components have been verified against the chain and the node's trust base is that of a fully synchronized node. Until they do, they remain trusted on the strength of the commitment. A mismatch in any of them means the snapshot was wrong: the node discards it and falls back to checkpointed synchronization from genesis. A node MAY instead operate indefinitely without deep history (pruned operation), never advertising <x1/>; such a node never discharges the snapshot's trust.": "Cuando los cuatro concuerdan, los componentes no comprometidos de la instantánea han quedado verificados contra la cadena y la base de confianza del nodo es la de un nodo completamente sincronizado. Hasta que lo hagan, permanecen confiados a la fuerza del compromiso. Una discrepancia en cualquiera de ellos significa que la instantánea era incorrecta: el nodo la descarta y recurre a la sincronización con puntos de control desde el génesis. Un nodo PUEDE (MAY) en cambio operar indefinidamente sin historial profundo (operación con poda), sin anunciar nunca <x1/>; tal nodo nunca descarga la confianza de la instantánea.",
+  "Snapshot heights SHOULD lie at least the v2 protocol's reorganization margin below the network tip at the time the commitment is published, and snapshot artifacts SHOULD be deterministic functions of the chain state at <x1/>, so that any node of the same implementation that reaches <x2/> can regenerate and serve them. A wrong or corrupted snapshot cannot cause acceptance of a false state — a piece that does not match the manifest, or a frontier that fails header verification, is rejected and the node falls back to checkpointed synchronization; the commitment's only unverifiable claims are those with no on-chain commitment (see step 3). (This is the trust model of Bitcoin's assumeutxo <g3><g4>9</g4></g3> and of Ethereum's era archives <g5><g6>10</g6></g5>, with the difference that Zcash's header commitments make the tree components independently verifiable.)": "Las alturas de instantánea DEBERÍAN (SHOULD) situarse al menos el margen de reorganización del protocolo v2 por debajo de la punta de la red en el momento en que se publica el compromiso, y los artefactos de la instantánea DEBERÍAN (SHOULD) ser funciones deterministas del estado de la cadena en <x1/>, de modo que cualquier nodo de la misma implementación que alcance <x2/> pueda regenerarlos y servirlos. Una instantánea incorrecta o corrompida no puede provocar la aceptación de un estado falso — una pieza que no coincida con el manifiesto, o una frontera que falle la verificación de encabezados, se rechaza y el nodo recurre a la sincronización con puntos de control; las únicas afirmaciones no verificables del compromiso son aquellas sin compromiso en la cadena (véase el paso 3). (Este es el modelo de confianza de assumeutxo de Bitcoin <g3><g4>9</g4></g3> y de los archivos de era de Ethereum <g5><g6>10</g6></g5>, con la diferencia de que los compromisos de encabezado de Zcash hacen que los componentes de árbol sean verificables de forma independiente.)",
+  "<x1/>Download Scheduling": "<x1/>Programación de descargas",
+  "Bulk download is a scheduling problem: divide known work across untrusted peers of unknown and changing capacity, so that aggregate throughput approaches the client's link capacity and no single peer can stall progress. A node SHOULD apply the following discipline to bulk transfers (<x1/> units and <x2/> pieces):": "La descarga masiva es un problema de programación: repartir el trabajo conocido entre pares no confiables de capacidad desconocida y cambiante, de modo que el rendimiento agregado se acerque a la capacidad del enlace del cliente y que ningún par único pueda detener el avance. Un nodo DEBERÍA (SHOULD) aplicar la siguiente disciplina a las transferencias masivas (unidades <x1/> y piezas <x2/>):",
+  "<g1>Work units of 16–64 MiB</g1>, realized for block ranges by the request's <x2/> bound (with the known-hash span metadata, where available, used to plan unit boundaries in advance), and for artifacts by manifest piece sizes. Units near the commit frontier SHOULD be smaller, so the frontier advances promptly; deep lookahead units MAY be larger.": "<g1>Unidades de trabajo de 16–64 MiB</g1>, realizadas para rangos de bloques mediante el límite <x2/> de la solicitud (con los metadatos de tramo de hash conocido, cuando estén disponibles, usados para planificar los límites de las unidades con antelación), y para los artefactos según los tamaños de pieza del manifiesto. Las unidades cercanas a la frontera de compromiso DEBERÍAN (SHOULD) ser más pequeñas, para que la frontera avance con prontitud; las unidades de anticipación profunda PUEDEN (MAY) ser más grandes.",
+  "<g1>Pull-based assignment with per-peer budgets.</g1> Maintain an estimate of each peer's delivery rate (for example, an exponentially weighted moving average); let each peer's connection pull the next unassigned unit whenever its in-flight bytes fall below roughly 2–3 seconds of its estimated rate. Fast peers thereby draw more work with no explicit balancing step.": "<g1>Asignación basada en extracción con presupuestos por par.</g1> Mantener una estimación de la tasa de entrega de cada par (por ejemplo, una media móvil exponencialmente ponderada); dejar que la conexión de cada par extraiga la siguiente unidad no asignada cada vez que sus bytes en vuelo caigan por debajo de aproximadamente 2–3 segundos de su tasa estimada. Los pares rápidos así obtienen más trabajo sin ningún paso explícito de balanceo.",
+  "<g1>Concurrency across peers.</g1> Per-connection throughput is typically bounded by a single CPU core (see the v2 protocol's bulk transfer guidance <g2><g3>4</g3></g2>); a node SHOULD download from at least 4–8 peers concurrently, preferring <x4/> peers for deep history and respecting the flow control window guidance of the v2 protocol.": "<g1>Concurrencia entre pares.</g1> El rendimiento por conexión está típicamente acotado por un solo núcleo de CPU (véase la guía de transferencia masiva del protocolo v2 <g2><g3>4</g3></g2>); un nodo DEBERÍA (SHOULD) descargar de al menos 4–8 pares concurrentemente, prefiriendo pares <x4/> para el historial profundo y respetando la guía de ventana de control de flujo del protocolo v2.",
+  "<g1>Bounded lookahead.</g1> In-flight plus downloaded-but-uncommitted data SHOULD be bounded in bytes (a budget on the order of 256 MiB to 1 GiB), not in blocks; block counts calibrated to near-tip synchronization are meaningless across eras whose block sizes differ by three orders of magnitude.": "<g1>Anticipación acotada.</g1> Los datos en vuelo más los descargados pero no comprometidos DEBERÍAN (SHOULD) estar acotados en bytes (un presupuesto del orden de 256 MiB a 1 GiB), no en bloques; los conteos de bloques calibrados para la sincronización cercana a la punta carecen de significado entre eras cuyos tamaños de bloque difieren en tres órdenes de magnitud.",
+  "<g1>Stall detection, twice over.</g1> Cancel (with <x2/>) and reassign a unit whose peer delivers no bytes for a few seconds, falls below an absolute configured rate floor, or sustains a rate far below the current peer median (for example, a quarter). Cancelled block-range units keep their verified prefix and are resumed per step 3 of <g3>Checkpointed Synchronization</g3>.": "<g1>Detección de estancamiento, por partida doble.</g1> Cancelar (con <x2/>) y reasignar una unidad cuyo par no entregue bytes durante unos segundos, caiga por debajo de un umbral absoluto de tasa configurado, o mantenga una tasa muy por debajo de la mediana actual de los pares (por ejemplo, un cuarto). Las unidades de rango de bloques canceladas conservan su prefijo verificado y se reanudan según el paso 3 de <g3>Sincronización con puntos de control</g3>.",
+  "<g1>End-game duplication.</g1> When unassigned work runs out before the fastest peers do, assign remaining units redundantly to the fastest peers and cancel the losers; this bounds the tail of the download at the cost of at most one duplicate unit per peer.": "<g1>Duplicación de fase final.</g1> Cuando el trabajo no asignado se agota antes que los pares más rápidos, asignar las unidades restantes de forma redundante a los pares más rápidos y cancelar a los perdedores; esto acota la cola de la descarga a costa de, como máximo, una unidad duplicada por par.",
+  "<g1>Exact blame.</g1> A block failing its arrival check is attributable with certainty to the delivering peer, as is an artifact piece that fails its hash after being delivered entirely by one peer; both are handled per the v2 protocol's error and misbehavior rules, and the failed unit is reassigned elsewhere. A piece assembled from ranges delivered by several peers is <g2>not</g2> attributable when it fails its hash — the v2 protocol forbids assigning a penalty in that case — so the node re-fetches the piece with each candidate peer serving it whole, which isolates a misbehaving peer; a scheduler that assigns each piece to a single peer (as the unit sizes above make natural) keeps blame exact from the start.": "<g1>Culpa exacta.</g1> Un bloque que falla su verificación de llegada es atribuible con certeza al par que lo entrega, al igual que una pieza de artefacto que falla su hash después de haber sido entregada por completo por un solo par; ambos se manejan según las reglas de error y mal comportamiento del protocolo v2, y la unidad fallida se reasigna a otra parte. Una pieza ensamblada a partir de rangos entregados por varios pares <g2>no</g2> es atribuible cuando falla su hash — el protocolo v2 prohíbe asignar una penalización en ese caso —, de modo que el nodo vuelve a solicitar la pieza con cada par candidato sirviéndola completa, lo que aísla a un par que se comporta mal; un planificador que asigne cada pieza a un solo par (como los tamaños de unidad anteriores hacen natural) mantiene la culpa exacta desde el principio.",
+  "<x1/>Strategy Selection": "<x1/>Selección de estrategia",
+  "A synchronizing node SHOULD proceed as follows:": "Un nodo que se sincroniza DEBERÍA (SHOULD) proceder como sigue:",
+  "A new node with no chain state, holding a snapshot commitment, SHOULD use snapshot synchronization: it is operational after transferring the snapshot (gigabytes) rather than the history (hundreds of gigabytes), and no other strategy changes what the node ultimately trusts.": "Un nodo nuevo sin estado de cadena, que posee un compromiso de instantánea, DEBERÍA (SHOULD) usar la sincronización con instantánea: queda operativo después de transferir la instantánea (gigabytes) en lugar del historial (cientos de gigabytes), y ninguna otra estrategia cambia aquello en lo que el nodo confía en última instancia.",
+  "For spans covered by known-hash commitments — backfill below a snapshot, or the whole chain when no snapshot is used — it SHOULD use checkpointed synchronization, with verified tree roots where peers serve them and spentness hints where its commitment (or snapshot) provides them.": "Para los tramos cubiertos por compromisos de hash conocido — relleno por debajo de una instantánea, o la cadena completa cuando no se usa instantánea — DEBERÍA (SHOULD) usar la sincronización con puntos de control, con raíces de árbol verificadas donde los pares las sirvan e indicios de gasto donde su compromiso (o instantánea) los proporcione.",
+  "Above the reach of its commitments, and within the reorganization margin of the tip, it uses headers-first synchronization.": "Por encima del alcance de sus compromisos, y dentro del margen de reorganización de la punta, usa la sincronización con prioridad de encabezados.",
+  "Every strategy degrades toward headers-first synchronization when its prerequisites are unavailable (no artifacts obtainable, no serving peers, verification failures), per the v2 protocol's fallback rule; scarcity of <x1/> or <x2/> peers slows synchronization but never blocks it.": "Toda estrategia se degrada hacia la sincronización con prioridad de encabezados cuando sus prerrequisitos no están disponibles (ningún artefacto obtenible, ningún par que sirva, fallos de verificación), según la regla de respaldo del protocolo v2; la escasez de pares <x1/> o <x2/> ralentiza la sincronización pero nunca la bloquea.",
+  "<x1/>Security and Privacy Considerations": "<x1/>Consideraciones de seguridad y privacidad",
+  "The security properties of the strategies are analyzed in the v2 protocol's security considerations <g1><g2>4</g2></g1>. All strategies here satisfy its synchronization rules, so the choice between them — including every fallback — affects performance, not the integrity of the resulting chain. The trust base is unchanged by acceleration: every accelerating input is either authenticated against the chain or bound by the trusted commitment, and the only data trusted without chain verification (the spentness hints and the snapshot's uncommitted state components) carries exactly the trust of the binary that shipped the commitment, as the checkpoints already do. The snapshot components' trust is discharged, for each component the reconciliation of <g3>Snapshot Synchronization</g3> step 5 actually compares, when backfill completes; a node that never backfills never discharges it. The spentness hints stand or fall with the commitment itself, exactly as the checkpoint hashes do, and are auditable in the same way: the bitmap is a deterministic function of the chain that any synchronized node can regenerate and cross-check. Malicious synchronization data from peers produces failure, not fraud: every verification failure is detected and routed around, and is attributed and penalized where blame is provable under the v2 protocol's misbehavior rules. (One failure is deliberately <g4>not</g4> attributed: an assembled artifact piece whose ranges came from several peers — see <g5>Download Scheduling</g5>.)": "Las propiedades de seguridad de las estrategias se analizan en las consideraciones de seguridad del protocolo v2 <g1><g2>4</g2></g1>. Todas las estrategias aquí descritas satisfacen sus reglas de sincronización, de modo que la elección entre ellas — incluido todo respaldo — afecta el rendimiento, no la integridad de la cadena resultante. La base de confianza no cambia por la aceleración: toda entrada aceleradora está autenticada contra la cadena o ligada por el compromiso confiable, y los únicos datos en los que se confía sin verificación contra la cadena (los indicios de gasto y los componentes de estado no comprometidos de la instantánea) conllevan exactamente la confianza del binario que incluía el compromiso, tal como ya lo hacen los puntos de control. La confianza en los componentes de la instantánea se descarga, para cada componente que la conciliación del paso 5 de <g3>Sincronización con instantánea</g3> compara realmente, cuando el relleno se completa; un nodo que nunca rellena nunca la descarga. Los indicios de gasto se sostienen o caen junto con el compromiso mismo, exactamente igual que los hash de los puntos de control, y son auditables de la misma manera: el mapa de bits es una función determinista de la cadena que cualquier nodo sincronizado puede regenerar y cotejar. Los datos de sincronización maliciosos provenientes de los pares producen fallo, no fraude: todo fallo de verificación se detecta y se esquiva, y se atribuye y penaliza donde la culpa es demostrable bajo las reglas de mal comportamiento del protocolo v2. (Un fallo deliberadamente <g4>no</g4> se atribuye: una pieza de artefacto ensamblada cuyos rangos provienen de varios pares — véase <g5>Programación de descargas</g5>.)",
+  "<g1>Serving capacity.</g1> Snapshot-synchronized and pruned nodes cannot serve deep history; if they became the majority, historical blocks and artifacts could become scarce. The service flags let nodes advertise what they serve, operators of full nodes are encouraged to retain <x2/> and <x3/>, and artifacts remain regenerable by any backfilled node and servable from out-of-band mirrors.": "<g1>Capacidad de servicio.</g1> Los nodos sincronizados con instantánea y los podados no pueden servir historial profundo; si llegaran a ser la mayoría, los bloques y artefactos históricos podrían volverse escasos. Las banderas de servicio permiten a los nodos anunciar lo que sirven, se recomienda a los operadores de nodos completos conservar <x2/> y <x3/>, y los artefactos siguen siendo regenerables por cualquier nodo con relleno completado y servibles desde espejos fuera de banda.",
+  "<g1>Fingerprinting.</g1> The heights, ranges, and units a node requests reveal its implementation, configuration, and synchronization progress. This is comparable to the fingerprinting surface of headers-first synchronization and of the <x2/> field, and carries the same mitigation: nodes concerned about it can align their request patterns with common implementations.": "<g1>Huellas de identificación.</g1> Las alturas, rangos y unidades que un nodo solicita revelan su implementación, configuración y progreso de sincronización. Esto es comparable a la superficie de huellas de identificación de la sincronización con prioridad de encabezados y del campo <x2/>, y conlleva la misma mitigación: los nodos preocupados por ello pueden alinear sus patrones de solicitud con implementaciones comunes.",
+  "<x1/>Deployment": "<x1/>Despliegue",
+  "This ZIP depends on the v2 protocol <g1><g2>4</g2></g1>, which specifies the request streams, service flags, and synchronization rules used here. No version gating is required beyond the v2 protocol's own deployment: each primitive is refused by nodes that do not serve it, and every strategy degrades gracefully (see <g3>Strategy Selection</g3>). Distribution can be purely in-band: the known-hash list is reassembled via <x4/>, and hint, frontier, and snapshot artifacts are served by <x5/> peers via <x6/> — which requires that seeders and any configured initial peers include such nodes. Implementations MAY additionally bundle current artifacts with releases, or serve them from out-of-band HTTPS mirrors interchangeably with <x7/> peers.": "Este ZIP depende del protocolo v2 <g1><g2>4</g2></g1>, que especifica los flujos de solicitud, las banderas de servicio y las reglas de sincronización usadas aquí. No se requiere ninguna restricción por versión más allá del propio despliegue del protocolo v2: cada primitiva es rechazada por los nodos que no la sirven, y toda estrategia se degrada con elegancia (véase <g3>Selección de estrategia</g3>). La distribución puede ser puramente en banda: la lista de hash conocido se reensambla mediante <x4/>, y los artefactos de indicios, frontera e instantánea los sirven pares <x5/> mediante <x6/> — lo cual exige que los sembradores y cualquier par inicial configurado incluyan tales nodos. Las implementaciones PUEDEN (MAY) además incluir artefactos actuales con sus versiones, o servirlos desde espejos HTTPS fuera de banda de manera intercambiable con pares <x7/>.",
+  "<x1/>References": "<x1/>Referencias",
+  "<x1/>Footnotes": "<x1/>Notas al pie",
+  "<g1>Information on BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": "<g1>Información sobre BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" y \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 3.12: Mainnet and Testnet</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2026.8.0 [NU6.3]. Sección 3.12: Mainnet y Testnet</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 3.3: The Block Chain</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": "<g1>Zcash Protocol Specification, Versión 2026.8.0 [NU6.3]. Sección 3.3: The Block Chain</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>",
+  "<g1>Draft ZIP: Version 2 Zcash P2P Network Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13> <g15>↩<g16>8</g16></g15> <g17>↩<g18>9</g18></g17> <g19>↩<g20>10</g20></g19> <g21>↩<g22>11</g22></g21> <g23>↩<g24>12</g24></g23> <g25>↩<g26>13</g26></g25> <g27>↩<g28>14</g28></g27>": "<g1>ZIP borrador: Version 2 Zcash P2P Network Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13> <g15>↩<g16>8</g16></g15> <g17>↩<g18>9</g18></g17> <g19>↩<g20>10</g20></g19> <g21>↩<g22>11</g22></g21> <g23>↩<g24>12</g24></g23> <g25>↩<g26>13</g26></g25> <g27>↩<g28>14</g28></g27>",
+  "<g1>ZIP 221: FlyClient - Consensus-Layer Changes</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": "<g1>ZIP 221: FlyClient - Cambios en la capa de consenso</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>",
+  "<g1>ZIP 244: Transaction Identifier Non-Malleability</g1> <g2>↩</g2>": "<g1>ZIP 244: No maleabilidad del identificador de transacción</g1> <g2>↩</g2>",
+  "<g1>Ruben Somsen: SwiftSync — speeding up IBD with pre-generated hints</g1> <g2>↩</g2>": "<g1>Ruben Somsen: SwiftSync — acelerar la IBD con pistas pregeneradas</g1> <g2>↩</g2>",
+  "<g1>ZIP 209: Prohibit Negative Shielded Chain Value Pool Balances</g1> <g2>↩</g2>": "<g1>ZIP 209: Prohibir saldos negativos del pool de valor de la cadena blindada</g1> <g2>↩</g2>",
+  "<g1>Bitcoin Core: assumeutxo design and usage</g1> <g2>↩</g2>": "<g1>Bitcoin Core: diseño y uso de assumeutxo</g1> <g2>↩</g2>",
+  "<g1>era1 archival file format specification</g1> <g2>↩</g2>": "<g1>especificación del formato de archivo de archivado era1</g1> <g2>↩</g2>"
+ },
+ "reviews": {
+  "Block Chain Synchronization": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", \"SHOULD NOT\", \"MAY\", and \"RECOMMENDED\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The terms \"Mainnet\" and \"Testnet\" are to be interpreted as described in section 3.12 of the Zcash Protocol Specification. <g1><g2>2</g2></g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The term \"block chain\" in this document is to be interpreted as described in section 3.3 of the Zcash Protocol Specification. <g1><g2>3</g2></g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The term \"v2 protocol\" in this document refers to the version 2 Zcash P2P network protocol <g1><g2>4</g2></g1>. The terms \"peer\" and \"request stream\", the <x3/>, <x4/>, <x5/>, <x6/>, <x7/>, and <x8/> request stream types, the service flags, and the synchronization rules of that protocol, are to be interpreted as defined there.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "best chain": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The best valid block chain, as described in section 3.3 of the Zcash Protocol Specification <g1><g2>3</g2></g1>; its <g3>tip</g3> is its highest block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "validated tip": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The highest block that a node has accepted into its best chain under the v2 protocol's synchronization rules.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "synchronization strategy": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A procedure by which a node advances its validated tip toward the network chain tip, using the request streams of the v2 protocol.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "checkpoint": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A (height, block hash) pair that a synchronizing node treats as authoritative for the block at that height.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "trusted commitment": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "As defined in the v2 protocol's checkpointed synchronization rules <g1><g2>4</g2></g1>; extended in this ZIP to also bind, for snapshot synchronization, a state snapshot manifest.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "synchronization artifact": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The immutable, content-addressed byte object served via <x1/>, as defined in the v2 protocol <g2><g3>4</g3></g2> — for example, a known-hash chunk file or a snapshot piece.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "known-hash list": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The block hashes of every height of a span of the chain, together with per-block sync-cost metadata, bound by a trusted commitment (for example, as the pinned hashes of a list of chunk artifacts).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "anchor": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The anchor of a <x1/> stream, as defined in the v2 protocol <g2><g3>4</g3></g2>; in this ZIP, always a block hash verified against a trusted commitment (directly, or via a verified artifact).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "work unit": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A contiguous range of blocks (or a byte range of an artifact) scheduled for download as one request stream.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "snapshot": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A serialization of a node's chain state at a <g1>snapshot height</g1> <x2/>, divided into a <g3>manifest</g3> and content-addressed <g4>pieces</g4>, allowing a new node to begin operating at height <x5/> without downloading or validating the chain below it.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The final period of the definition is missing."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Una serialización del estado de la cadena de un nodo en una <g1>altura de instantánea</g1> <x2/>, dividida en un <g3>manifiesto</g3> y <g4>piezas</g4> direccionadas por contenido, que permite a un nodo nuevo comenzar a operar en la altura <x5/> sin descargar ni validar la cadena por debajo de ella"
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP recommends how a node synchronizes the block chain over the version 2 Zcash P2P network protocol. The v2 protocol defines the synchronization primitives and the rules that any use of them must satisfy; this ZIP recommends concrete <g1>synchronization strategies</g1> satisfying those rules — headers-first synchronization, <g2>checkpointed synchronization</g2> over anchored block-range streams, optionally accelerated by verified note commitment tree roots, and <g3>snapshot synchronization</g3>, which makes a new node operational in minutes — together with a download scheduling discipline and the policy for selecting between the strategies.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The v2 protocol <g1><g2>4</g2></g1> deliberately specifies synchronization primitives, the rules constraining their use, and only one baseline procedure — headers-first synchronization. This ZIP recommends the concrete procedures, because the difference between a naive procedure and a good one is measured in days.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Three costs dominate initial synchronization, in ascending order of what removing them is worth:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Round trips and scheduling.</g1> The legacy protocol transferred blocks in small per-request batches against individually requested hashes; at typical peer round-trip times this bounds throughput at a few hundred small blocks per second regardless of bandwidth. The v2 protocol's <x2/> removes the round trip from the inner loop: blocks stream continuously against a single verified anchor, and per-block download handles are unnecessary.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Validation CPU.</g1> Under checkpointed synchronization, proofs and signatures below the final checkpoint are vouched for by the trusted commitment, and the dominant remaining CPU cost — measured at roughly 70% of block-commit time in the Zebra implementation — is recomputing the note commitment trees, leaf by leaf, only to learn per-block roots that are already bound by header commitments. Verified tree roots (<x2/>) eliminate that recomputation without adding trust.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>The historical data itself.</g1> A new node operator's goal is a node at the tip; the chain's full history — hundreds of gigabytes — is the overwhelming share of bytes and time, and most operators need it only eventually (to serve peers) or never (pruned operation). Snapshot synchronization removes it from the critical path entirely: the node installs a verified state snapshot at a recent height and is operational in minutes, backfilling history in the background if it chooses.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Checkpoints themselves also motivate this machinery. The Zebra implementation compiles in known-hash lists covering every block — over 100 MB of hashes that grow with the chain — because the legacy protocol offered no way to fetch and verify them. Under this ZIP, a binary compiles in only the expected hashes of the list itself, chunked by height range (a few kilobytes); the full known-hash list is then obtained verifiably from the P2P network with <x1/>, as specified in <g2>Synchronization Data</g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The synchronization rules of the v2 protocol <g1><g2>4</g2></g1> apply to every strategy below and are not restated here.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Synchronization Data": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A node's trusted commitment binds the data its strategies rely on:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Known-hash lists</g1>, as pinned SHA-256 hashes of the list's <g2>chunks</g2>: each chunk is the canonical serialization of the <x3/> entries for a fixed height range. A node obtains the entries from its peers with <x4/> and verifies them by reassembling each chunk and comparing its hash against the commitment. The same bytes MAY instead be obtained as chunk artifacts from any source — bundled with the release, <x5/> requests to <x6/> peers, or out-of-band mirrors — accepted only if their hashes match the commitment. A verified known-hash list makes every listed hash an anchor, and its span metadata gives per-height sizes and costs for scheduling.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The commitment MAY additionally bind a single SHA-256 hash of the <g1>spentness hints</g1>: the hint bits for every transparent output created at or below the final checkpoint (see <g2>Spentness Hints</g2>), serialized in canonical order, obtained like any artifact and verified whole against this hash. The hints are committed separately from the entry chunks — one hash rather than one per range — because they are a function of the final checkpoint height as well as of the chain: extending the commitment's coverage would change every per-range hint hash anyway, while the entry-chunk hashes stay stable. A commitment from an older release simply covers a lower final checkpoint: its hints remain valid for that shorter span, and the node synchronizes above it normally.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>A snapshot manifest hash</g1>, for snapshot synchronization (see <g2>Snapshot Synchronization</g2>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Chunk artifacts are deterministic functions of the chain, so any node that has synchronized the covered span can regenerate them byte-identically and serve them; artifact pieces SHOULD be no larger than the <x1/> per-request maximum <g2><g3>4</g3></g2> so each piece is independently fetchable and verifiable.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Recommended Strategies": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A node implements headers-first synchronization (the v2 protocol's fallback rule requires it) and MAY implement the others.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word order \"sincronización primero encabezados\" is an ungrammatical calque of \"headers-first\"; Spanish requires the modifier after the noun."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Un nodo implementa la sincronización primero encabezados (la regla de respaldo del protocolo v2 lo requiere) y PUEDE (MAY) implementar las demás."
+  },
+  "<x1/>Headers-First Synchronization": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The heading repeats the ungrammatical calque \"sincronización primero encabezados\" for \"headers-first synchronization\"."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<x1/>Sincronización primero encabezados"
+  },
+  "Headers-first synchronization is specified in the v2 protocol <g1><g2>4</g2></g1>, where it is characterized as the baseline, full-validation method. It is also the strategy for the chain near the tip, above the reach of commitments, whatever strategy covered the history below.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Checkpointed Synchronization": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A node MAY synchronize the span of the block chain covered by a verified known-hash list as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Obtain and verify the known-hash list</g1> for the target span (see <g2>Synchronization Data</g2>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Partition the span into work units</g1>: contiguous block ranges, sized using the span metadata toward a byte target (see <g2>Download Scheduling</g2>), each ending at a listed height. Any listed hash can end a unit, so unit boundaries are chosen freely — by bytes, not by a fixed block count — and each unit's request carries the byte target as its <x3/> bound.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Stream each unit with <x2/></g1>, anchored at the unit's final hash. Each delivered block is verified on arrival under the v2 protocol's <x3/> delivery rules <g4><g5>4</g5></g4> and — as a cross-check — matched against the known-hash list at its height. A truncated or cancelled unit keeps its verified prefix, and the remainder is re-requested from any peer, anchored at the next expected hash, as the v2 protocol's <x6/> truncation rules provide.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Commit</g1> each completed range in height order, applying whatever abbreviated validation local policy permits for checkpoint-authenticated blocks under the v2 protocol's validated advancement rule — with tree work eliminated where <g2>Verified Tree Roots</g2> are available.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A node with a commitment that binds only spaced checkpoint hashes (rather than a full known-hash list) applies the same procedure with units anchored at checkpoint heights; interior per-block cross-checks and advance sizing are then unavailable, but neither is needed — steps 2 and 3 already bound each unit in bytes and authenticate every delivered block against its anchor.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Verified Tree Roots": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A node MAY avoid the note commitment tree recomputation that dominates the CPU cost of committing checkpoint-authenticated blocks (see <g1>Motivation</g1>) by obtaining each historical block's tree roots with <x2/> from <x3/> peers and verifying them against header commitments:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For each block in the span, obtain the entry (Sapling, Orchard, and Ironwood roots, shielded transaction counts, and authorizing data commitment), anchoring each request's <x1/> at a hash the node has already authenticated, so that entries describe known blocks rather than the responder's view of a best chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Verify the entries against headers that checkpointed synchronization has authenticated. Which check applies depends on what the block's header commits to at that height, which changes at Heartwood — <g1>not</g1> at NU5:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Between Sapling activation and Heartwood activation</g1>, the fourth header field (<x2/>) is the block's Sapling note commitment tree root. Each supplied Sapling root is checked directly against it.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>From Heartwood activation</g1>, ZIP 221 <g2><g3>5</g3></g2> repurposes that field to carry the chain history root (<x4/>, and from NU5 <x5/>, which binds the chain history root together with the authorizing data commitment of ZIP 244 <g6><g7>6</g7></g6>). A direct comparison against a note commitment tree root is therefore <g8>not</g8> a valid check anywhere above Heartwood. The node instead rebuilds the chain history tree from the supplied roots and counts and checks the rebuilt values against each header. Each block's header commits to the history tree containing its <g9>parent's</g9> data, so an entry is verified only once the <g10>following</g10> block's header has been checked against it.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Before a pool's activation</g1> at the entry's height, the entry's root field is 32 zero bytes and its count is 0, as the v2 protocol requires <g2><g3>4</g3></g2>; an entry that deviates fails verification.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>A root that no header commits to</g1> at the entry's height is not verifiable by this procedure. The chain history tree leaf of ZIP 221 binds the Sapling and (from NU5) Orchard roots, but defines no Ironwood field, so no header authenticates an Ironwood root.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A <g1>verified</g1> root replaces the recomputation: the node adopts the root, maintains tree <g2>frontiers</g2> only at strategy boundaries (where full per-block validation resumes), and stores what its serving obligations require. A node MUST NOT adopt a root that the procedure of step 2 has not verified against an authenticated header, and MUST recompute that pool's tree from the blocks' note commitments instead. Two cases in particular are not verified by an entry's own arrival:": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"pool\" is left in English although it is not a glossary \"keep\" term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Una raíz <g1>verificada</g1> reemplaza la recomputación: el nodo adopta la raíz, mantiene <g2>fronteras</g2> de árbol solo en los límites de estrategia (donde se reanuda la validación completa por bloque) y almacena lo que sus obligaciones de servicio requieren. Un nodo NO DEBE (MUST NOT) adoptar una raíz que el procedimiento del paso 2 no haya verificado contra un encabezado autenticado, y DEBE (MUST) recomputar en su lugar el árbol de ese pool a partir de los compromisos de notas de los bloques. Dos casos en particular no son verificados por la llegada de la propia entrada:"
+  },
+  "Because verification above Heartwood runs one block behind, the highest entry of a response is unverified until the entry for the following block is obtained and checked against its header. A node either extends the requested range by one entry or holds the highest entry unadopted.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Entries MAY be obtained and verified in any order, but each entry is adopted only when its own check passes; an entry at the boundary of a range is not adopted merely because its neighbours were.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An entry that fails verification is discarded with a misbehavior penalty (per the v2 protocol); the node falls back to recomputing that span's trees locally.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "No additional trust is involved: every adopted root is authenticated by a header that is itself authenticated by the trusted commitment, and a root that no header authenticates is never adopted.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Frontier artifacts.</g1> Adopting verified roots leaves the node without the tree <g2>frontiers</g2> it needs to resume appending note commitments where full validation begins. The trusted commitment MAY bind the hash of a <g3>frontier artifact</g3> — the serialized Sapling, Orchard, and Ironwood frontiers at the final checkpoint — obtained like any artifact. A frontier whose recomputed root matches the root verified for that height by the procedure above is adopted, so the binding itself carries no trust: a wrong frontier fails the root comparison and the node falls back to rebuilding that pool's tree from the span's note commitments. The Ironwood frontier cannot be verified this way (no header authenticates an Ironwood root); it is authenticated only by the commitment's hash, or rebuilt from the pool's note commitments — a bounded cost, since the pool postdates NU6.3 activation.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Spentness Hints": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "After tree work is eliminated, the dominant remaining state cost of committing historical blocks is random access: looking up and deleting each transparent input's spent output, and inserting (and, under full validation, membership-testing) each revealed nullifier. Spentness hints — adapted from Bitcoin's SwiftSync <g1><g2>7</g2></g1> — eliminate the random access and make historical commits order-independent, at the cost of a small hint bitmap bound by the trusted commitment, which vouches for its correctness exactly as it vouches for the known block hashes: the bitmap is a deterministic function of the chain, regenerable and auditable by any synchronized node, and its pinned hash is updated by each release that updates the checkpoints. Hints apply only within the reach of the trusted commitment: a node MUST NOT apply them above the final checkpoint.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Transparent outputs.</g1> The spentness hints (see <g2>Synchronization Data</g2>) carry one bit per transparent output created at or below the <g3>terminal height</g3> — the final checkpoint — in canonical order (by block height, then transaction index, then output index): whether the output is still unspent at that height. The <x4/> metadata of the verified entry chunks gives each height's bit count, so a node can check the bitmap's length before downloading any block bodies, and a work unit anywhere in the span can locate its first bit without processing the blocks below it. During the span:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An output hinted <g1>unspent</g1> is written to the transparent UTXO set as it is created — and, during the span, never looked up or deleted.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An output hinted <g1>spent</g1> is never stored.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Transparent inputs perform no lookup at all.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The constructed UTXO set is then exactly the set of outputs unspent at the terminal height, without a single random read: every output hinted spent is one the committed chain spends within the span, on the authority of the commitment.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Nullifiers.</g1> The nullifier sets never shrink, so no hint is needed at all: revealed nullifiers are simply inserted as they are encountered — insertion is sequential-write work, not the random reads the hints exist to remove — and per-spend membership tests below the final checkpoint are vouched for by the trusted commitment. When backfilling below a snapshot, the reconstructed sets are compared with the snapshot's at <x2/> (see <g3>Snapshot Synchronization</g3>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Value pools.</g1> No lookups are needed for value tracking either: shielded pool balances are sums of the blocks' value balance fields, which commute, and the transparent pool balance at the terminal height is the sum of the constructed UTXO set's amounts. These are consensus quantities: they MUST be accumulated with checked arithmetic that detects overflow.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>What order-independence does and does not cover.</g1> The state construction above reads no state written by an earlier block, so the <g2>construction</g2> — the UTXO set, the nullifier sets, and the value pool totals — is order-independent, and blocks and ranges MAY be verified and committed in any order within the span. The per-input reads and per-output deletes disappear entirely.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Order-independence does not extend to consensus rules whose outcome is not a function of the terminal totals. A node applying hints MUST account for each of the following, either by checking it in height order or by recording it as covered by the trusted commitment under the v2 protocol's validated advancement rule:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Non-negative pool balances at every block.</g1> ZIP 209 <g2><g3>8</g3></g2> requires rejecting a block at which any chain value pool balance would become negative. A terminal total says nothing about a running balance that dips negative at an interior height and recovers; below the final checkpoint this rule is among those vouched for by the trusted commitment, and above it, blocks are committed in height order under full validation.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Coinbase maturity and the pre-NU5 shielded-coinbase rule</g1>, which depend on the creation height and coinbase status of the <g2>spent</g2> output — exactly the lookup that hints remove. This is why hints are confined to the reach of the trusted commitment, where these per-spend checks are vouched for; above the final checkpoint, blocks are committed in height order with the lookups performed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A node SHOULD obtain and verify the hint bitmap — its hash against the commitment, and its bit count against the span's transparent output total, summed from the verified entry chunks' <x1/> metadata — before processing any block bodies with hints, so that an unavailable or malformed bitmap costs nothing but its fetch; a bitmap that fails either check is discarded and the span is synchronized without hints. A published bitmap that is wrong despite matching its pinned hash is a defect of the commitment itself, exactly as a wrong checkpoint hash would be; because the bitmap is deterministic, publishers and third parties can regenerate and cross-check it, and release processes SHOULD do so.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Snapshot Synchronization": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A node with no chain state MAY become operational at a <g1>snapshot height</g1> <x2/> in minutes, deferring or omitting the history below it:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Obtain the manifest</g1> whose SHA-256 hash is bound by the trusted commitment, from any source (<x2/>, mirrors, bundled). The manifest lists the snapshot's content-addressed pieces and their sizes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Fetch and verify the pieces</g1> from <x2/> peers via <x3/> and/or out-of-band mirrors, scheduling them like any other work units (see <g4>Download Scheduling</g4>); a piece is accepted only if its hash matches the manifest.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Verify the state against the chain where possible.</g1> The snapshot contains, at minimum: the transparent UTXO set; the Sprout, Sapling, Orchard, and Ironwood nullifier sets; the note commitment tree frontiers of each pool; the chain history tree; and the chain value pool balances, which the node needs as the starting point for the pool-balance consensus rules above <x2/>. The parts that the chain commits to — the Sapling, Orchard, and Ironwood frontiers (via their header-committed roots) and the chain history tree (via <x3/> of the following block, ZIP 221 <g4><g5>5</g5></g4>) — MUST be verified against headers authenticated by the trusted commitment. Because the chain history tree at <x6/> is committed by the <g7>following</g7> block's header, the trusted commitment MUST authenticate the header at height <x8/> for that verification to be possible; a commitment that stops at <x9/> leaves the chain history tree unverified, and the node MUST treat it as an uncommitted component. The parts the chain does not commit to (the transparent UTXO set, the nullifier sets, the Sprout tree, and the chain value pool balances) are authenticated solely by the manifest commitment, which therefore carries the same trust as the node's binary — the trust model of the checkpoints themselves.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The English word \"header\"/\"headers\" is left untranslated where it should be \"encabezado\"/\"encabezados\"."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>Verificar el estado contra la cadena donde sea posible.</g1> La instantánea contiene, como mínimo: el conjunto de UTXO transparentes; los conjuntos de nullifier de Sprout, Sapling, Orchard e Ironwood; las fronteras del árbol de compromisos de notas de cada pool; el árbol de historial de la cadena; y los saldos de los pools de valor de la cadena, que el nodo necesita como punto de partida para las reglas de consenso de saldos de pools anteriores a <x2/>. Las partes que la cadena compromete — las fronteras de Sapling, Orchard e Ironwood (mediante sus raíces comprometidas en el header) y el árbol de historial de la cadena (mediante <x3/> del bloque siguiente, ZIP 221 <g4><g5>5</g5></g4>) — DEBEN (MUST) verificarse contra headers autenticados por el compromiso de confianza. Como el árbol de historial de la cadena en <x6/> está comprometido por el header del bloque <g7>siguiente</g7>, el compromiso de confianza DEBE (MUST) autenticar el header a la altura <x8/> para que esa verificación sea posible; un compromiso que se detiene en <x9/> deja el árbol de historial de la cadena sin verificar, y el nodo DEBE (MUST) tratarlo como un componente no comprometido. Las partes que la cadena no compromete (el conjunto de UTXO transparentes, los conjuntos de nullifier, el árbol de Sprout y los saldos de los pools de valor de la cadena) se autentican únicamente por el compromiso del manifiesto, que por lo tanto carga la misma confianza que el binario del nodo — el modelo de confianza de los puntos de control mismos."
+  },
+  "<g1>Begin operating at <x2/></g1>: validate blocks above <x3/> under the consensus rules (or checkpointed synchronization, where commitments reach above <x4/>), participate fully in relay, and serve the blocks it accumulates, advertising service flags as the v2 protocol requires of a node that lacks the complete chain <g5><g6>4</g6></g5>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Backfill in the background.</g1> The node SHOULD backfill the history below <x2/> using checkpointed synchronization, at low priority, and advertise <x3/> when complete. On completion, backfill reconciles the snapshot's uncommitted components against the chain the node has just replayed. (The hint bitmap's bits are relative to the final checkpoint rather than <x4/>, so backfill below a snapshot proceeds without transparent hints; as background work, it is not on the critical path that hints exist to shorten.)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The reconciliation discharges the snapshot's trust only to the extent that each component is actually compared, so each MUST be covered explicitly, and over complete entries: a comparison over outpoints alone would let a fabricated or amount-inflated UTXO entry pass unnoticed. Backfill therefore verifies, at <x1/>:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>The transparent UTXO set</g1>, compared as complete entries — the outpoint, the value, the <x2/>, the creation height, and the coinbase flag, in a canonical encoding — between the set the replay constructs and the set the snapshot supplied, so that a phantom outpoint, an inflated value, or an altered script is caught.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>The nullifier sets</g1>, by the same whole-value comparison per pool.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>The Sprout note commitment tree</g1>, which no header commits to, by recomputing it from the JoinSplit note commitments of the replayed blocks and comparing the resulting root and frontier. Sprout is a closed pool of bounded size, so this is inexpensive.": {
+   "passed": true,
+   "rounds": 3,
+   "issues": [
+    "The word \"header\" is left in English without reason and should be translated.",
+    "The word \"pool\" is left in English although it is not a glossary keep term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>El árbol de compromisos de notas de Sprout</g1>, al que ningún header compromete, recalculándolo a partir de los compromisos de notas de JoinSplit de los bloques reproducidos y comparando la raíz y la frontera resultantes. Sprout es un pool cerrado de tamaño acotado, así que esto es poco costoso."
+  },
+  "<g1>The chain value pool balances</g1>, by recomputing them over the replayed span (with checked arithmetic, see <g2>Spentness Hints</g2>) and comparing them to the snapshot's.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "When all four check out, the snapshot's uncommitted components have been verified against the chain and the node's trust base is that of a fully synchronized node. Until they do, they remain trusted on the strength of the commitment. A mismatch in any of them means the snapshot was wrong: the node discards it and falls back to checkpointed synchronization from genesis. A node MAY instead operate indefinitely without deep history (pruned operation), never advertising <x1/>; such a node never discharges the snapshot's trust.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Snapshot heights SHOULD lie at least the v2 protocol's reorganization margin below the network tip at the time the commitment is published, and snapshot artifacts SHOULD be deterministic functions of the chain state at <x1/>, so that any node of the same implementation that reaches <x2/> can regenerate and serve them. A wrong or corrupted snapshot cannot cause acceptance of a false state — a piece that does not match the manifest, or a frontier that fails header verification, is rejected and the node falls back to checkpointed synchronization; the commitment's only unverifiable claims are those with no on-chain commitment (see step 3). (This is the trust model of Bitcoin's assumeutxo <g3><g4>9</g4></g3> and of Ethereum's era archives <g5><g6>10</g6></g5>, with the difference that Zcash's header commitments make the tree components independently verifiable.)": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word 'header(s)' is left in English with no reason, since it is not a glossary 'keep' term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Las alturas de instantánea DEBERÍAN (SHOULD) situarse al menos el margen de reorganización del protocolo v2 por debajo de la punta de la red en el momento en que se publica el compromiso, y los artefactos de la instantánea DEBERÍAN (SHOULD) ser funciones deterministas del estado de la cadena en <x1/>, de modo que cualquier nodo de la misma implementación que alcance <x2/> pueda regenerarlos y servirlos. Una instantánea incorrecta o corrompida no puede provocar la aceptación de un estado falso — una pieza que no coincida con el manifiesto, o una frontera que falle la verificación de headers, se rechaza y el nodo recurre a la sincronización con puntos de control; las únicas afirmaciones no verificables del compromiso son aquellas sin compromiso en la cadena (véase el paso 3). (Este es el modelo de confianza de assumeutxo de Bitcoin <g3><g4>9</g4></g3> y de los archivos de era de Ethereum <g5><g6>10</g6></g5>, con la diferencia de que los compromisos de header de Zcash hacen que los componentes de árbol sean verificables de forma independiente.)"
+  },
+  "<x1/>Download Scheduling": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Bulk download is a scheduling problem: divide known work across untrusted peers of unknown and changing capacity, so that aggregate throughput approaches the client's link capacity and no single peer can stall progress. A node SHOULD apply the following discipline to bulk transfers (<x1/> units and <x2/> pieces):": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Work units of 16–64 MiB</g1>, realized for block ranges by the request's <x2/> bound (with the known-hash span metadata, where available, used to plan unit boundaries in advance), and for artifacts by manifest piece sizes. Units near the commit frontier SHOULD be smaller, so the frontier advances promptly; deep lookahead units MAY be larger.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Pull-based assignment with per-peer budgets.</g1> Maintain an estimate of each peer's delivery rate (for example, an exponentially weighted moving average); let each peer's connection pull the next unassigned unit whenever its in-flight bytes fall below roughly 2–3 seconds of its estimated rate. Fast peers thereby draw more work with no explicit balancing step.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Concurrency across peers.</g1> Per-connection throughput is typically bounded by a single CPU core (see the v2 protocol's bulk transfer guidance <g2><g3>4</g3></g2>); a node SHOULD download from at least 4–8 peers concurrently, preferring <x4/> peers for deep history and respecting the flow control window guidance of the v2 protocol.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Bounded lookahead.</g1> In-flight plus downloaded-but-uncommitted data SHOULD be bounded in bytes (a budget on the order of 256 MiB to 1 GiB), not in blocks; block counts calibrated to near-tip synchronization are meaningless across eras whose block sizes differ by three orders of magnitude.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Stall detection, twice over.</g1> Cancel (with <x2/>) and reassign a unit whose peer delivers no bytes for a few seconds, falls below an absolute configured rate floor, or sustains a rate far below the current peer median (for example, a quarter). Cancelled block-range units keep their verified prefix and are resumed per step 3 of <g3>Checkpointed Synchronization</g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>End-game duplication.</g1> When unassigned work runs out before the fastest peers do, assign remaining units redundantly to the fastest peers and cancel the losers; this bounds the tail of the download at the cost of at most one duplicate unit per peer.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Exact blame.</g1> A block failing its arrival check is attributable with certainty to the delivering peer, as is an artifact piece that fails its hash after being delivered entirely by one peer; both are handled per the v2 protocol's error and misbehavior rules, and the failed unit is reassigned elsewhere. A piece assembled from ranges delivered by several peers is <g2>not</g2> attributable when it fails its hash — the v2 protocol forbids assigning a penalty in that case — so the node re-fetches the piece with each candidate peer serving it whole, which isolates a misbehaving peer; a scheduler that assigns each piece to a single peer (as the unit sizes above make natural) keeps blame exact from the start.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Strategy Selection": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A synchronizing node SHOULD proceed as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A new node with no chain state, holding a snapshot commitment, SHOULD use snapshot synchronization: it is operational after transferring the snapshot (gigabytes) rather than the history (hundreds of gigabytes), and no other strategy changes what the node ultimately trusts.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For spans covered by known-hash commitments — backfill below a snapshot, or the whole chain when no snapshot is used — it SHOULD use checkpointed synchronization, with verified tree roots where peers serve them and spentness hints where its commitment (or snapshot) provides them.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Above the reach of its commitments, and within the reorganization margin of the tip, it uses headers-first synchronization.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"headers\" is left in English although it is not a glossary keep term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Por encima del alcance de sus compromisos, y dentro del margen de reorganización de la punta, usa la sincronización con prioridad de headers."
+  },
+  "Every strategy degrades toward headers-first synchronization when its prerequisites are unavailable (no artifacts obtainable, no serving peers, verification failures), per the v2 protocol's fallback rule; scarcity of <x1/> or <x2/> peers slows synchronization but never blocks it.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"headers\" is left in English although it is not a glossary keep term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Toda estrategia se degrada hacia la sincronización con prioridad de headers cuando sus prerrequisitos no están disponibles (ningún artefacto obtenible, ningún par que sirva, fallos de verificación), según la regla de respaldo del protocolo v2; la escasez de pares <x1/> o <x2/> ralentiza la sincronización pero nunca la bloquea."
+  },
+  "<x1/>Security and Privacy Considerations": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The security properties of the strategies are analyzed in the v2 protocol's security considerations <g1><g2>4</g2></g1>. All strategies here satisfy its synchronization rules, so the choice between them — including every fallback — affects performance, not the integrity of the resulting chain. The trust base is unchanged by acceleration: every accelerating input is either authenticated against the chain or bound by the trusted commitment, and the only data trusted without chain verification (the spentness hints and the snapshot's uncommitted state components) carries exactly the trust of the binary that shipped the commitment, as the checkpoints already do. The snapshot components' trust is discharged, for each component the reconciliation of <g3>Snapshot Synchronization</g3> step 5 actually compares, when backfill completes; a node that never backfills never discharges it. The spentness hints stand or fall with the commitment itself, exactly as the checkpoint hashes do, and are auditable in the same way: the bitmap is a deterministic function of the chain that any synchronized node can regenerate and cross-check. Malicious synchronization data from peers produces failure, not fraud: every verification failure is detected and routed around, and is attributed and penalized where blame is provable under the v2 protocol's misbehavior rules. (One failure is deliberately <g4>not</g4> attributed: an assembled artifact piece whose ranges came from several peers — see <g5>Download Scheduling</g5>.)": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word \"bitmap\" is left in English although it is not a glossary keep term; it should be \"mapa de bits\"."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Las propiedades de seguridad de las estrategias se analizan en las consideraciones de seguridad del protocolo v2 <g1><g2>4</g2></g1>. Todas las estrategias aquí descritas satisfacen sus reglas de sincronización, de modo que la elección entre ellas — incluido todo respaldo — afecta el rendimiento, no la integridad de la cadena resultante. La base de confianza no cambia por la aceleración: toda entrada aceleradora está autenticada contra la cadena o ligada por el compromiso confiable, y los únicos datos en los que se confía sin verificación contra la cadena (los indicios de gasto y los componentes de estado no comprometidos de la instantánea) conllevan exactamente la confianza del binario que incluía el compromiso, tal como ya lo hacen los puntos de control. La confianza en los componentes de la instantánea se descarga, para cada componente que la conciliación del paso 5 de <g3>Sincronización con instantánea</g3> compara realmente, cuando el relleno se completa; un nodo que nunca rellena nunca la descarga. Los indicios de gasto se sostienen o caen junto con el compromiso mismo, exactamente igual que los hash de los puntos de control, y son auditables de la misma manera: el bitmap es una función determinista de la cadena que cualquier nodo sincronizado puede regenerar y cotejar. Los datos de sincronización maliciosos provenientes de los pares producen fallo, no fraude: todo fallo de verificación se detecta y se esquiva, y se atribuye y penaliza donde la culpa es demostrable bajo las reglas de mal comportamiento del protocolo v2. (Un fallo deliberadamente <g4>no</g4> se atribuye: una pieza de artefacto ensamblada cuyos rangos provienen de varios pares — véase <g5>Programación de descargas</g5>.)"
+  },
+  "<g1>Serving capacity.</g1> Snapshot-synchronized and pruned nodes cannot serve deep history; if they became the majority, historical blocks and artifacts could become scarce. The service flags let nodes advertise what they serve, operators of full nodes are encouraged to retain <x2/> and <x3/>, and artifacts remain regenerable by any backfilled node and servable from out-of-band mirrors.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Fingerprinting.</g1> The heights, ranges, and units a node requests reveal its implementation, configuration, and synchronization progress. This is comparable to the fingerprinting surface of headers-first synchronization and of the <x2/> field, and carries the same mitigation: nodes concerned about it can align their request patterns with common implementations.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word \"headers\" is left in English with no reason; it should be translated as \"encabezados\"."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>Huellas de identificación.</g1> Las alturas, rangos y unidades que un nodo solicita revelan su implementación, configuración y progreso de sincronización. Esto es comparable a la superficie de huellas de identificación de la sincronización con prioridad de headers y del campo <x2/>, y conlleva la misma mitigación: los nodos preocupados por ello pueden alinear sus patrones de solicitud con implementaciones comunes."
+  },
+  "<x1/>Deployment": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP depends on the v2 protocol <g1><g2>4</g2></g1>, which specifies the request streams, service flags, and synchronization rules used here. No version gating is required beyond the v2 protocol's own deployment: each primitive is refused by nodes that do not serve it, and every strategy degrades gracefully (see <g3>Strategy Selection</g3>). Distribution can be purely in-band: the known-hash list is reassembled via <x4/>, and hint, frontier, and snapshot artifacts are served by <x5/> peers via <x6/> — which requires that seeders and any configured initial peers include such nodes. Implementations MAY additionally bundle current artifacts with releases, or serve them from out-of-band HTTPS mirrors interchangeably with <x7/> peers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Footnotes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Information on BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 3.12: Mainnet and Testnet</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 3.3: The Block Chain</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Version 2 Zcash P2P Network Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13> <g15>↩<g16>8</g16></g15> <g17>↩<g18>9</g18></g17> <g19>↩<g20>10</g20></g19> <g21>↩<g22>11</g22></g21> <g23>↩<g24>12</g24></g23> <g25>↩<g26>13</g26></g25> <g27>↩<g28>14</g28></g27>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>ZIP 221: FlyClient - Consensus-Layer Changes</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>ZIP 244: Transaction Identifier Non-Malleability</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Ruben Somsen: SwiftSync — speeding up IBD with pre-generated hints</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The descriptive part of the article title is left in English with no reason."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>Ruben Somsen: SwiftSync — speeding up IBD with pre-generated hints</g1> <g2>↩</g2>"
+  },
+  "<g1>ZIP 209: Prohibit Negative Shielded Chain Value Pool Balances</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Bitcoin Core: assumeutxo design and usage</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>era1 archival file format specification</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  }
+ }
+}

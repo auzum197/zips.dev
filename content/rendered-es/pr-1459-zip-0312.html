@@ -1,0 +1,2494 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)", "RECOMENDADO (RECOMMENDED)", "NO RECOMENDADO (NOT RECOMMENDED)" y "PUEDE (MAY)" en este documento deben interpretarse según lo descrito en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparezcan en mayúsculas.</p>
+<p>El término "Recovery Protocol" en este documento debe interpretarse como se describe en <a class="brackets" href="#zip-2005" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></a>.</p>
+<p>El término siguiente debe interpretarse de la siguiente manera:</p>
+<dl class="simple">
+<dt>Invinculabilidad</dt>
+<dd><p>La propiedad de independencia estadística de las firmas respecto de las claves de largo plazo de los firmantes, que garantiza que (con una generación perfectamente uniforme de Randomizers y sin filtración de metadatos) es imposible determinar si dos transacciones fueron generadas por la misma parte.</p>
+</dd>
+</dl>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta adapta FROST <a class="brackets" href="#frost" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>, un esquema de firma de umbral, para que admita la realeatorización de claves tal como se describe en <a class="brackets" href="#protocol-abstractsigrerand" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a>. Esto es un requisito para que pueda usarse en la implementación de firmas de autorización de gasto no vinculables en los protocolos blindados Orchard y Sapling, tal como se despliegan en Zcash.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>En el protocolo de Zcash, se emplean firmas de autorización de gasto para autorizar una transacción. La capacidad de generar estas firmas con la clave privada del usuario es lo que efectivamente le permite gastar fondos.</p>
+<p>Este es un paso crítico para la seguridad, ya que cualquiera que obtenga acceso a la clave privada podrá gastar los fondos del usuario. Por esta razón, una posibilidad interesante es asegurar que se requiera la autorización de múltiples partes para que la transacción se lleve a cabo. Esto puede lograrse con firmas de umbral, donde la clave privada se divide entre las partes (o se genera ya dividida mediante un protocolo distribuido) de tal manera que un umbral (por ejemplo, 2 de 3) de ellas debe firmar la transacción para crear la firma final. Esto hace posibles escenarios como usuarios y servicios de terceros compartiendo la custodia de una billetera, o un grupo de personas administrando fondos compartidos, por ejemplo.</p>
+<p>FROST es uno de estos protocolos de firmas de umbral. Sin embargo, no puede usarse tal cual, ya que el protocolo de Zcash también requiere re-aleatorizar las claves públicas y privadas para garantizar la invinculabilidad entre transacciones. Este ZIP especifica una variante de FROST con soporte de re-aleatorización. Esta variante se denomina "Re-Randomized FROST" y ha sido descrita en <a class="brackets" href="#frost-rerandomized" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ul class="simple">
+<li><p>Todas las firmas generadas siguiendo este ZIP deben verificarse con éxito como firmas de autorización de gasto de Sapling u Orchard utilizando la clave de validación apropiada.</p></li>
+<li><p>Las firmas generadas siguiendo este ZIP deberían cumplir los criterios de seguridad para firmas con claves re-aleatorizables según lo especificado en el protocolo de Zcash <a class="brackets" href="#protocol-concretereddsa" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>El modelo de amenazas descrito a continuación debe tenerse en cuenta.</p></li>
+<li><p>La generación de claves debe ser compatible con Quantum Recoverability <a class="brackets" href="#zip-2005" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+<h2 id="threat-model"><a class="hanchor" href="#threat-model" aria-hidden="true" tabindex="-1">#</a>Modelo de amenazas</h2>
+<p>En el uso normal, un usuario de Zcash sigue varios pasos para generar una transacción blindada:</p>
+<ul class="simple">
+<li><p>Se crea la transacción.</p></li>
+<li><p>Se firma la transacción con una versión re-aleatorizada de la clave privada de autorización de gasto del usuario.</p></li>
+<li><p>La prueba de conocimiento cero de la transacción se crea con el aleatorizador como entrada auxiliar (secreta), entre otras.</p></li>
+</ul>
+<p>Al emplear FROST re-aleatorizable según lo especificado en este ZIP, el objetivo es dividir la clave privada de autorización de gasto <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> entre múltiples firmantes posibles. Esto significa que la generación de la prueba seguirá siendo realizada por un único participante, probablemente quien creó la transacción en primer lugar. Nótese que este usuario ya controla la privacidad de la transacción, ya que es responsable de crear la prueba.</p>
+<p>Esto encaja bien con el rol de «Coordinator» de la especificación de FROST <a class="brackets" href="#frost-protocol" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>. El Coordinator es responsable de enviar el mensaje a firmar a todos los participantes y de agregar las participaciones de firma.</p>
+<p>Con esas consideraciones en mente, el modelo de amenazas considerado en este ZIP es:</p>
+<ul class="simple">
+<li><p>El Coordinator es de confianza para la privacidad de la transacción (lo que incluye la propiedad de no vinculación). Un Coordinator malicioso podrá romper la no vinculación y la privacidad, pero no debería poder crear transacciones firmadas sin la aprobación de <span class="docutils literal">MIN_PARTICIPANTS</span> participantes, según lo especificado en FROST.</p></li>
+<li><p>Todos los titulares de participaciones de clave también son de confianza para la privacidad de la transacción; por lo tanto, un titular de participación de clave malicioso podrá romper su privacidad y no vinculación.</p></li>
+</ul>
+<p>Las advertencias relativas al modelo de seguridad para el uso de claves FROST en un protocolo de Quantum Recovery se tratan en <a class="brackets" href="#zip-2005-usage-with-frost" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></a>.</p>
+
+
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<ul class="simple">
+<li><p>Este ZIP no admite eliminar el rol de Coordinator, como se describe en <a class="brackets" href="#frost-removingcoordinator" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Este ZIP no impide que los titulares de participaciones de clave vinculen la operación de firma con una transacción en la blockchain.</p></li>
+<li><p>Al igual que la especificación de FROST <a class="brackets" href="#frost" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>, este ZIP no exige un procedimiento de generación de claves particular, aunque sí sugiere uno.</p></li>
+<li><p>La privacidad de red no está en el alcance de este ZIP y debe obtenerse con otras herramientas si se desea.</p></li>
+</ul>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Los algoritmos de esta sección se especifican mediante pseudocódigo en Python, de la misma manera que la especificación de FROST <a class="brackets" href="#frost" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>Definimos lo siguiente como en <a class="brackets" href="#frost" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> para un conjunto de cifrado (ciphersuite) FROST específico:</p>
+<ul class="simple">
+<li><p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>G</mi>
+</math> un grupo de orden primo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+</math> como se describe en <a class="brackets" href="#frost-primeordergroup" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>, con tipo de elemento <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙴</mi>
+    <mi>𝚕</mi>
+    <mi>𝚎</mi>
+    <mi>𝚖</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚝</mi>
+  </mrow>
+</math>, identidad <tt class="math">I \;{\small ⦂}\; \mathtt{Element}</tt>, elemento base <tt class="math">B \;{\small ⦂}\; \mathtt{Element}</tt> donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+  <mo>≠</mo>
+  <mi>I</mi>
+</math>, y tipo escalar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+  <mo>=</mo>
+  <msub>
+    <mi>𝔽</mi>
+    <mi>p</mi>
+  </msub>
+</math>.</p></li>
+<li><p>Sean <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙽</mi>
+    <mi>𝚎</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙽</mi>
+    <mi>𝚜</mi>
+  </mrow>
+</math> los tamaños en bytes de una representación serializada de Element y de Scalar, respectivamente.</p></li>
+<li><p>Sean también las funciones <tt class="math">\mathsf{Scalar} \;{\small ⦂}\; \{ 0 .. p-1 \} \rightarrow \mathtt{Scalar}</tt>, <tt class="math">\mathsf{RandomScalar} \;{\small ⦂}\; () \stackrel{\tiny\mathrm{R}}{\rightarrow} \mathtt{Scalar}</tt>, <tt class="math">\mathsf{ScalarMult} \;{\small ⦂}\; \mathtt{Element} \times \mathtt{Scalar} \rightarrow \mathtt{Element}</tt>, <tt class="math">\mathsf{ScalarBaseMult} \;{\small ⦂}\; \mathtt{Scalar} \rightarrow \mathtt{Element}</tt>, <code class="math-src">$mathsf{SerializeElement} ;{small ⦂}; mathtt{Element} rightarrow mathbb{B}^{{kern-0.05emtinymathbb{Y}}[mathtt{Ne}]}$</code>, $mathsf{DeserializeElement} ;{small ⦂}; mathbb{B}^{{kern-0.05emtinymathbb{Y}}[mathtt{Ne}]} rightarrow mathtt{Element} cup { bot }$, <code class="math-src">$mathsf{SerializeScalar} ;{small ⦂}; mathtt{Scalar} rightarrow mathbb{B}^{{kern-0.05emtinymathbb{Y}}[mathtt{Ns}]}$</code>, $mathsf{DeserializeScalar} ;{small ⦂}; mathbb{B}^{{kern-0.05emtinymathbb{Y}}[mathtt{Ns}]} rightarrow mathtt{Scalar} cup { bot }$ como se describe en <a class="brackets" href="#frost-primeordergroup" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> (donde "generar un error" corresponde a devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math>).</p></li>
+</ul>
+<p>Nótese que la notación para la multiplicación escalar en curvas elípticas, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖬</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo>,</mo>
+  <mi>k</mi>
+  <mo stretchy="false">)</mo>
+</math>, difiere de la utilizada en la Zcash Protocol Specification (Especificación del Protocolo Zcash), que usaría <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mi>k</mi>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>P</mi>
+</math> con el grupo implícito en <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>P</mi>
+</math> <a class="brackets" href="#protocol-abstractgroup" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a>.</p>
+<h2 id="key-generation"><a class="hanchor" href="#key-generation" aria-hidden="true" tabindex="-1">#</a>Generación de claves</h2>
+<p>La generación de claves FROST con un repartidor de confianza se describe en <a class="brackets" href="#frost-tdkg" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>. Esa descripción no admite la realeatorización de claves, pero puede adaptarse para admitirla, como se describe en la sección 5 de <a class="brackets" href="#frost-rerandomized" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+<aside class="admonition warning">
+<p class="admonition-title">Advertencia</p>
+<p>La generación de claves con repartidor de confianza tiene la grave desventaja de que requiere hardware y software absolutamente confiables por parte del repartidor para evitar de manera confiable la exposición del material de la clave privada. Es decir, no es suficiente con simplemente tener un individuo u organización en quien todos los participantes confíen; toda su pila de hardware y software también debe ser confiable para todos los participantes.</p>
+<p>Dado que esto a menudo será un supuesto poco realista que derroga en parte el propósito de usar un esquema de firma de umbral, la generación de claves con repartidor de confianza NO DEBERÍA (SHOULD NOT) usarse.</p>
+</aside>
+<p>En su lugar, es RECOMENDADO (RECOMMENDED) usar en cambio la Generación de Claves Distribuida (Distributed Key Generation).</p>
+<p>Un protocolo de DKG adecuado es COCKTAIL-DKG <a class="brackets" href="#cocktail-dkg" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>26<span class="fn-bracket">]</span></a>. COCKTAIL-DKG asume que cada participante tiene una clave pública estática conocida por todos los demás participantes.</p>
+<p>El DKG DEBE (MUST) ejecutarse sobre el mismo grupo y punto base que el conjunto de cifrado FROST que usará su salida: <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝒢</mi>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msup>
+</math> para FROST(Pallas, BLAKE2b-512) y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝒢</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> para FROST(Jubjub, BLAKE2b-512). De lo contrario, la clave pública de grupo que produce el DKG no es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <mi>𝒢</mi>
+</math> para el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> compartido, y no es un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> válido para las participaciones de clave.</p>
+<aside class="admonition note">
+<p class="admonition-title">Nota</p>
+<p>Al momento de escribir esto, los vectores de prueba publicados del conjunto de cifrado <span class="docutils literal">COCKTAIL(Pallas, <span class="pre">BLAKE2b-512)</span></span> de COCKTAIL-DKG, que se declaran vigentes a partir de la v0.2.0 de esa especificación, están calculados sobre el generador de Pallas $(-1, 2)$, no sobre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝒢</mi>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msup>
+</math>, por lo que la salida de ese conjunto de cifrado no puede usarse con este ZIP sin cambios. Es necesario definir un conjunto de cifrado de COCKTAIL-DKG sobre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝒢</mi>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msup>
+</math> (y uno sobre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝒢</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math>), ya sea en COCKTAIL-DKG o en este ZIP; esto es una cuestión abierta.</p>
+</aside>
+<p>Cuando se usa COCKTAIL-DKG, el identificador FROST del participante <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math>, para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+  <mo>≤</mo>
+  <mi>i</mi>
+  <mo>≤</mo>
+  <mi>n</mi>
+</math>, es el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> con valor <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math>.</p>
+<p>PUEDEN (MAY) usarse otros protocolos de Generación de Claves Distribuida.</p>
+<p>Para definir una clave de gasto o de visualización que use FROST, los árboles de claves de Orchard y Sapling <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a> <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a> se ajustan de la siguiente manera:</p>
+<ul class="simple">
+<li><p>La clave de validación de gasto <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> se reemplaza por la clave pública de grupo FROST <cite>PK</cite> <a class="brackets" href="#frost-protocol" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> al derivar los demás componentes de clave.</p></li>
+<li><p>La clave de autorización de gasto <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> <a class="brackets" href="#protocol-spendauthsig" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a> se reemplaza por la clave lógica de firma que corresponde a la clave pública de grupo <cite>PK</cite>. Por diseño, esta clave nunca se construye explícitamente (a menos que se haya usado la generación de claves con repartidor de confianza), y en su lugar está representada por cualquier subconjunto suficiente de las participaciones de clave de firma FROST de los participantes <cite>sk_i</cite>.</p></li>
+</ul>
+<p>Tanto para Orchard como para Sapling, el uso de la Generación de Claves Distribuida impide generar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> a partir de una clave de gasto <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>. En su lugar, el protocolo de Generación de Claves Distribuida producirá la clave pública de grupo FROST <cite>PK</cite> (equivalente a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>).</p>
+<p>Las partes restantes del árbol de claves de Orchard o Sapling todavía se derivan de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> (que no debe confundirse con las participaciones de clave de firma FROST <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚜</mi>
+    <mi>𝚔</mi>
+    <mi>_</mi>
+    <mi>𝚒</mi>
+  </mrow>
+</math>) como se describe más adelante en esta sección.</p>
+<p>Para el protocolo Orchard, § 4.2.3 «Orchard Key Components» <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-24" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a> exige que el último bit (el bit <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mover accent="true">
+    <mi>y</mi>
+    <mo stretchy="false">~</mo>
+  </mover>
+</math>) de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>ℙ</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <msup>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝗄</mi>
+    </mrow>
+    <mi>ℙ</mi>
+  </msup>
+  <mo stretchy="false">)</mo>
+</math> sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math>. Por lo tanto, cuando se usa el conjunto de cifrado FROST(Pallas, BLAKE2b-512), después de la generación de claves por cualquier método, si el último bit de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>`</mo>
+  <mo stretchy="false">(</mo>
+  <mo>`</mo>
+  <mi>P</mi>
+  <mi>K</mi>
+</math>) es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math> entonces <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙿</mi>
+    <mi>𝙺</mi>
+  </mrow>
+</math> DEBE (MUST) reemplazarse por <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>−</mo>
+  <mrow>
+    <mi>𝙿</mi>
+    <mi>𝙺</mi>
+  </mrow>
+</math>, cada participación de clave de firma <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚜</mi>
+    <mi>𝚔</mi>
+    <mi>_</mi>
+    <mi>𝚒</mi>
+  </mrow>
+</math> DEBE (MUST) reemplazarse por <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>−</mo>
+  <mrow>
+    <mi>𝚜</mi>
+    <mi>𝚔</mi>
+    <mi>_</mi>
+    <mi>𝚒</mi>
+  </mrow>
+</math>, y cada participación pública de verificación <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙿</mi>
+    <mi>𝙺</mi>
+    <mi>_</mi>
+    <mi>𝚒</mi>
+  </mrow>
+</math> DEBE (MUST) reemplazarse por <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>−</mo>
+  <mrow>
+    <mi>𝙿</mi>
+    <mi>𝙺</mi>
+    <mi>_</mi>
+    <mi>𝚒</mi>
+  </mrow>
+</math>. Cada participante puede realizar este reemplazo localmente, dado que la negación preserva la relación entre las participaciones y la clave de grupo. Los valores recalculados posteriormente a partir de la transcripción del DKG (por ejemplo, cuando un participante restaura su material de clave, o recalcula una participación de verificación) son los valores anteriores a este reemplazo, por lo que el reemplazo DEBE (MUST) aplicarse de nuevo cada vez que se recalculen.</p>
+<p>Al generar los componentes de clave FROST para el protocolo blindado Orchard, las partes restantes del árbol de claves de Orchard aparte de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> DEBERÍAN (SHOULD) generarse como se describe en <a class="brackets" href="#zip-2005-usage-with-frost" id="footnote-reference-25" role="doc-noteref"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></a>. La especificación allí es normativa, y solo se resume aquí. Exige que los participantes acuerden de forma privada un valor <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> (que ya no es suficiente por sí solo para la autorización de gasto), y que luego lo usen para obtener la clave de derivación de nullifier <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, la clave de gasto cuántica <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗊</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, la clave intermedia cuántica <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗊</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, y (usando la clave pública de grupo FROST en lugar de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>) <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math>. Este proceso se especifica en § 4.2.3 «Orchard Key Components» <a class="brackets" href="#protocol-orchardkeycomponents" id="footnote-reference-26" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a> según lo modificado por <a class="brackets" href="#zip-2005-usage-with-frost" id="footnote-reference-27" role="doc-noteref"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></a>.</p>
+<p>De manera similar, al generar una clave FROST para el protocolo blindado Sapling, las partes restantes del árbol de claves de Sapling aparte de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> (es decir, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math>, y los valores adicionales derivados de ellos y de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>) DEBERÍAN (SHOULD) generarse a partir de un valor común <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> (de nuevo, no suficiente por sí solo para la autorización de gasto) como se describe en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-28" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a>.</p>
+<p>Independientemente de cómo se generen los componentes de clave de Orchard o Sapling, los participantes DEBEN (MUST) asegurarse de haber obtenido los mismos valores para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math>.</p>
+<p>Dado que Sapling no se modificará para admitir la Recuperabilidad Cuántica <a class="brackets" href="#zip-2005" id="footnote-reference-29" role="doc-noteref"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></a>, se RECOMIENDA (RECOMMENDED) Orchard para las nuevas claves FROST.</p>
+<p>Para que todos los participantes acuerden el valor de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, DEBERÍA (SHOULD) usarse una de las siguientes opciones:</p>
+<ul class="simple">
+<li><p>Los participantes generan un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> de manera contributiva, por ejemplo usando el método definido en <a class="reference internal" href="#contributory-generation-of-sk">Generación Contributiva de sk</a>. Este enfoque DEBERÍA (SHOULD) usarse para generar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> si se empleó la Generación de Claves Distribuida.</p></li>
+<li><p>Un participante genera un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> aleatorio y lo envía a los demás por un canal cifrado y autenticado. Esta opción DEBERÍA (SHOULD) usarse si se usó la generación de claves con repartidor de confianza, y el valor <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> puede enviarse junto con las participaciones FROST durante la generación de claves. Esta opción NO ES RECOMENDADA (NOT RECOMMENDED) si se empleó la Generación de Claves Distribuida.</p></li>
+</ul>
+
+<h2 id="randomizer-generation"><a class="hanchor" href="#randomizer-generation" aria-hidden="true" tabindex="-1">#</a>Generación del aleatorizador</h2>
+<p>FROST con realeatorización usa aleatorizadores. Esta sección especifica cómo se generan; esto será requerido para la especificación de Generación de Participaciones de Firma que figura más abajo.</p>
+<p>Se proporcionan dos funciones para generar aleatorizadores: <cite>randomizer_generate()</cite> y <cite>randomizer_regenerate()</cite>. Ambas usan funciones auxiliares y una constante que se definen de la siguiente manera:</p>
+<ul class="simple">
+<li><p>La función <cite>encode_group_commitment_list()</cite> está definida en <a class="brackets" href="#frost-listoperations" id="footnote-reference-30" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>. Devuelve una serialización en bytes de un valor <cite>commitment_list</cite>.</p></li>
+<li><p>La función <cite>random_bytes(n)</cite> está definida en <a class="brackets" href="#frost-conventions" id="footnote-reference-31" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> y devuelve una secuencia de <cite>n</cite> bytes muestreados uniformemente al azar.</p></li>
+<li><p>La función <cite>HR(m)</cite> es una función genérica de suites criptográficas que asigna una cadena de bytes arbitraria a un escalar, y se instancia en la sección <a class="reference internal" href="#ciphersuites">Suites criptográficas</a>.</p></li>
+</ul>
+<pre class="literal-block">randomizer_generate():
+
+Inputs:
+- commitment_list = [(i, hiding_nonce_commitment_i,
+  binding_nonce_commitment_i), ...], a list of commitments issued by
+  each participant, where each element in the list indicates a
+  NonZeroScalar identifier i and two commitment Element values
+  (hiding_nonce_commitment_i, binding_nonce_commitment_i). This list
+  MUST be sorted in ascending order by identifier.
+
+Outputs: (randomizer_seed, randomizer), a byte sequence and a Scalar
+
+def randomizer_generate(commitment_list):
+  # Generate a random byte sequence with the size of a serialized scalar.
+  randomizer_seed = random_bytes(Ns)
+  signing_commitments_enc = encode_group_commitment_list(commitment_list)
+  randomizer_input = randomizer_seed || signing_commitments_enc
+  return (randomizer_seed, HR(randomizer_input))</pre>
+<pre class="literal-block">randomizer_regenerate():
+
+Inputs:
+- randomizer_seed = a sequence of Ns bytes
+- commitment_list = [(i, hiding_nonce_commitment_i,
+  binding_nonce_commitment_i), ...], a list of commitments issued by
+  each participant, where each element in the list indicates a
+  NonZeroScalar identifier i and two commitment Element values
+  (hiding_nonce_commitment_i, binding_nonce_commitment_i). This list
+  MUST be sorted in ascending order by identifier.
+
+Outputs: randomizer, a Scalar
+
+def randomizer_regenerate(randomizer_seed, commitment_list):
+  signing_commitments_enc = encode_group_commitment_list(commitment_list)
+  randomizer_input = randomizer_seed || signing_commitments_enc
+  return HR(randomizer_input)</pre>
+
+<h2 id="re-randomized-frost"><a class="hanchor" href="#re-randomized-frost" aria-hidden="true" tabindex="-1">#</a>FROST con realeatorización</h2>
+<p>Para agregar la realeatorización a FROST, los firmantes DEBEN (MUST) seguir la especificación <a class="brackets" href="#frost" id="footnote-reference-32" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> con las siguientes modificaciones.</p>
+<h3 id="round-one-commitment"><a class="hanchor" href="#round-one-commitment" aria-hidden="true" tabindex="-1">#</a>Ronda uno: compromiso</h3>
+<p>La Ronda Uno es exactamente igual a lo especificado en <a class="brackets" href="#frost" id="footnote-reference-33" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>. Pero como contexto, involucra estos pasos:</p>
+<ul class="simple">
+<li><p>Cada firmante genera valores de un solo uso y sus compromisos públicos correspondientes. Un valor de un solo uso es un par de valores <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math>, y un compromiso es un par de valores <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙴</mi>
+    <mi>𝚕</mi>
+    <mi>𝚎</mi>
+    <mi>𝚖</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚝</mi>
+  </mrow>
+</math>.</p></li>
+<li><p>Los nonces se almacenan localmente por el firmante y se mantienen privados para su uso en la segunda ronda.</p></li>
+<li><p>Los compromisos se envían al Coordinador.</p></li>
+</ul>
+
+<h3 id="round-two-signature-share-generation"><a class="hanchor" href="#round-two-signature-share-generation" aria-hidden="true" tabindex="-1">#</a>Ronda dos: generación de participaciones de firma</h3>
+<p>En la Ronda Dos de FROST regular, el Coordinador elige un mensaje y lo envía a cada firmante junto con los compromisos recibidos en la Ronda Uno. En FROST con realeatorización, el Coordinador DEBE (MUST) además llamar a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚐</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚝</mi>
+    <mi>𝚎</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math> y enviar el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚜</mi>
+    <mi>𝚎</mi>
+    <mi>𝚎</mi>
+    <mi>𝚍</mi>
+  </mrow>
+</math> junto con el mensaje y los compromisos. Cada participante, al recibir esos valores, DEBE (MUST) calcular <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> llamando a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚛</mi>
+    <mi>𝚎</mi>
+    <mi>𝚐</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚝</mi>
+    <mi>𝚎</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math> con el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚜</mi>
+    <mi>𝚎</mi>
+    <mi>𝚎</mi>
+    <mi>𝚍</mi>
+  </mrow>
+</math> y los compromisos recibidos.</p>
+<p>En Zcash, el mensaje que debe firmarse es el hash de transacción SIGHASH. Por sí solo, este no transmite suficiente información para que los firmantes decidan si desean autorizar la transacción o no. Por lo tanto, además de la transacción serializada, se deben enviar más datos (como aperturas de compromisos de valor, descifrado de textos cifrados de notas, etc.) del Coordinador a los firmantes. Esto DEBERÍA (SHOULD) hacerse enviando una Transacción de Zcash Parcialmente Construida <a class="brackets" href="#zip-0374" id="footnote-reference-34" role="doc-noteref"><span class="fn-bracket">[</span>27<span class="fn-bracket">]</span></a> por el mismo canal cifrado y autenticado. Para firmar, cada firmante DEBE (MUST) quedar satisfecho de que la transacción deba ser autorizada, usando la información adicional provista en el PCZT cuando sea necesario. Esa información DEBE (MUST) verificarse para asegurar su consistencia con la transacción y no confiarse en ella simplemente porque el Coordinador la esté proporcionando.</p>
+<p>Cada participante es un Firmante en el sentido de <a class="brackets" href="#zip-0374-signer" id="footnote-reference-35" role="doc-noteref"><span class="fn-bracket">[</span>28<span class="fn-bracket">]</span></a>, y DEBE (MUST) realizar las verificaciones que el ZIP 374 exige a un Firmante antes de firmar. En particular, cada participante DEBE (MUST) calcular el SIGHASH a partir de su propia copia del PCZT, y NO DEBE (MUST NOT) firmar ningún otro mensaje.</p>
+<p>Debido a que el SIGHASH se compromete con la clave de validación aleatorizada, que depende del <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math>, el Coordinador DEBE (MUST) completar la Ronda Uno y derivar el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> a partir de sus compromisos antes de finalizar el PCZT. El ZIP 374 describe el aleatorizador como elegido por el Constructor; para una sesión de firma FROST, el Constructor es el Coordinador, y su elección es la derivación especificada más arriba.</p>
+<p>Una transacción con varios gastos de la misma clave FROST necesita una firma por gasto, cada una bajo su propia clave de validación aleatorizada. Esto aplica a todo gasto cuya firma de autorización de gasto se haga con la clave FROST, sea cual sea el valor de la nota gastada: un constructor de transacciones puede agregar un gasto de valor cero de la clave FROST, por ejemplo para emparejarlo con una salida, y ese gasto necesita una firma como cualquier otro. No aplica a los gastos dummy, que se firman con sus propias claves de autorización de gasto.</p>
+<p>Cada gasto DEBE (MUST) usar su propia sesión de firma, con sus propios nonces, compromisos, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚜</mi>
+    <mi>𝚎</mi>
+    <mi>𝚎</mi>
+    <mi>𝚍</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math>. Cada mensaje de una sesión DEBE (MUST) identificar la sesión a la que pertenece, de modo que los compromisos y la participación de firma de un gasto no puedan tomarse por los de otro. Como el SIGHASH se compromete con cada clave de validación aleatorizada, el Coordinador DEBE (MUST) completar la Ronda Uno de cada sesión antes de derivar cualquier <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math>.</p>
+<p>Un participante NO DEBE (MUST NOT) usar nonces relacionados o repetidos en múltiples sesiones (incluidas sesiones para la misma transacción), porque eso podría permitir un ataque sobre la(s) participación(es) de clave de firma.</p>
+<details>
+<summary>Justificación (clic para mostrar/ocultar)</summary><p>Las sesiones de una transacción firman el mismo mensaje bajo diferentes claves aleatorizadas. Cada participación de firma hecha con el mismo par de nonces es por lo tanto una ecuación lineal más en los dos nonces y la participación de clave de firma del participante, y suficientes de estas ecuaciones revelan la participación de clave de firma.</p>
+</details><p>Sea <tt class="math">\textsf{FROST.sign}</tt> la función de firma FROST regular con argumentos <span class="docutils literal">(identifier, sk_i, group_public_key, nonce_i, msg, commitment_list)</span>, como se define en <a class="brackets" href="#frost-sign" id="footnote-reference-36" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>.</p>
+<p>La función <tt class="math">\textsf{Rerandomized-FROST.sign}</tt> toma una entrada adicional <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚜</mi>
+    <mi>𝚎</mi>
+    <mi>𝚎</mi>
+    <mi>𝚍</mi>
+  </mrow>
+</math>, y ajusta las entradas respecto del <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> calculado por <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚛</mi>
+    <mi>𝚎</mi>
+    <mi>𝚐</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚝</mi>
+    <mi>𝚎</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>:</p>
+<pre class="literal-block">def Rerandomized-FROST.sign(identifier, sk_i, group_public_key, nonce_i, msg,
+                            commitment_list, randomizer_seed):
+  randomizer = randomizer_regenerate(randomizer_seed, commitment_list)
+  randomized_sk_i = sk_i + randomizer
+  randomized_group_public_key = group_public_key + G.ScalarBaseMult(randomizer)
+  return FROST.sign(identifier, randomized_sk_i, randomized_group_public_key,
+                    nonce_i, msg, commitment_list)</pre>
+<p>El firmante PUEDE (MAY) almacenar en caché <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖡</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖬</mi>
+    <mi>𝗎</mi>
+    <mi>𝗅</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> para su uso en las funciones <tt class="math">\textsf{Rerandomized-FROST.}</tt> {aggregate, verify_signature_share} definidas más abajo.</p>
+
+<h3 id="signature-share-verification-and-aggregation"><a class="hanchor" href="#signature-share-verification-and-aggregation" aria-hidden="true" tabindex="-1">#</a>Verificación y agregación de participaciones de firma</h3>
+<p>Sea <tt class="math">\textsf{FROST.aggregate}</tt> la función de agregación FROST regular con argumentos <span class="docutils literal">(commitment_list, msg, group_public_key, sig_shares)</span>, como se define en <a class="brackets" href="#frost-aggregate" id="footnote-reference-37" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.</p>
+<p>La función <tt class="math">\textsf{Rerandomized-FROST.aggregate}</tt> toma una entrada adicional <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> calculada como se indicó anteriormente, y ajusta las entradas respecto de este aleatorizador:</p>
+<pre class="literal-block">def Rerandomized-FROST.aggregate(commitment_list, msg, group_public_key, sig_shares,
+                                 randomizer):
+  randomized_group_public_key = group_public_key + G.ScalarBaseMult(randomizer)
+  return FROST.aggregate(commitment_list, msg, randomized_group_public_key, sig_shares)</pre>
+<p>De manera similar, sea <tt class="math">\textsf{FROST.verify\_signature\_share}</tt> la función regular de verificación de participaciones de firma de FROST con argumentos <span class="docutils literal">(identifier, PK_i, comm_i, sig_share_i, commitment_list, group_public_key, msg)</span>, como también se define en <a class="brackets" href="#frost-aggregate" id="footnote-reference-38" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.</p>
+<p>La función <tt class="math">\textsf{Rerandomized-FROST.verify\_signature\_share}</tt> toma una entrada adicional <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> calculada como se indicó anteriormente, y ajusta las entradas respecto de este aleatorizador:</p>
+<pre class="literal-block">def Rerandomized-FROST.verify_signature_share(identifier, PK_i, comm_i, sig_share_i,
+                                              commitment_list, group_public_key, msg,
+                                              randomizer):
+  group_offset = G.ScalarBaseMult(randomizer)
+  randomized_PK_i = PK_i + group_offset
+  randomized_group_public_key = group_public_key + group_offset
+  return FROST.verify_signature_share(identifier, randomized_PK_i, comm_i, sig_share_i,
+                                      commitment_list, randomized_group_public_key, msg)</pre>
+
+
+<h2 id="contributory-generation-of-sk"><a class="hanchor" href="#contributory-generation-of-sk" aria-hidden="true" tabindex="-1">#</a>Generación contributiva de sk</h2>
+<p>La generación contributiva de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> utiliza las cargas útiles de la aplicación y la extensión específica de la aplicación de COCKTAIL-DKG <a class="brackets" href="#cocktail-dkg" id="footnote-reference-39" role="doc-noteref"><span class="fn-bracket">[</span>26<span class="fn-bracket">]</span></a>. Las cargas útiles se cifran para sus destinatarios y no forman parte de la transcripción; la extensión sí forma parte de la transcripción, que es pública.</p>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>n</mi>
+</math> el número de participantes, con identificadores <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+  <mo>≤</mo>
+  <mi>i</mi>
+  <mo>≤</mo>
+  <mi>n</mi>
+</math>. Defínase:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝖧</mi>
+    <mrow>
+      <mi>𝗌</mi>
+      <mi>𝗄</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>m</mi>
+  <mo stretchy="false">)</mo>
+</math> como BLAKE2b-256 <a class="brackets" href="#blake" id="footnote-reference-40" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> con la cadena de personalización <span class="docutils literal">"ZcashFROST_sk_v1"</span> aplicada a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>m</mi>
+</math>;</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝖧</mi>
+    <mrow>
+      <mi>𝖼</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗆</mi>
+      <mi>𝗂</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>m</mi>
+  <mo stretchy="false">)</mo>
+</math> como BLAKE2b-256 con la cadena de personalización <span class="docutils literal">"ZcashFROST_skcmt"</span> aplicada a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>m</mi>
+</math>.</p></li>
+</ul>
+<p>Los participantes proceden de la siguiente manera:</p>
+<ul class="simple">
+<li><p>En la Ronda 1, cada participante <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>i</mi>
+</math> genera una contribución <span class="docutils literal">contrib_i = random_bytes(32)</span>, y establece <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗉</mi>
+      <mi>𝖺</mi>
+      <mi>𝗒</mi>
+      <mi>𝗅</mi>
+      <mi>𝗈</mi>
+      <mi>𝖺</mi>
+      <mi>𝖽</mi>
+    </mrow>
+    <mrow>
+      <mi>i</mi>
+      <mo>,</mo>
+      <mi>j</mi>
+    </mrow>
+  </msub>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝚝</mi>
+    <mi>𝚛</mi>
+    <mi>𝚒</mi>
+    <mi>𝚋</mi>
+    <mi>_</mi>
+    <mi>𝚒</mi>
+  </mrow>
+</math> para cada participante <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>j</mi>
+</math>, incluido <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>j</mi>
+  <mo>=</mo>
+  <mi>i</mi>
+</math>. La contribución no está relacionada con la parte de la clave de firma FROST del participante <cite>sk_i</cite>, que nunca se envía.</p></li>
+<li><p>Tras descifrar sus cargas útiles de la Ronda 2, cada participante calcula <span class="docutils literal">sk = H_sk(contrib_1 || contrib_2 || ... || contrib_n)</span>, con las contribuciones en orden ascendente de identificador de participante. Cada contribución tiene exactamente 32 bytes, por lo que no se necesitan prefijos de longitud. Un participante DEBE (MUST) abortar, sin firmar la transcripción, si alguna carga útil descifrada no tiene exactamente 32 bytes.</p></li>
+<li><p>En la Ronda 3, cada participante usa <span class="docutils literal">ext = H_commit(sk)</span> como la extensión.</p></li>
+</ul>
+<p>La extensión está cubierta por las firmas que cada participante realiza en la Ronda 3, por lo que el protocolo se completa solo si todos los participantes calcularon el mismo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>. Dado que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> tiene 256 bits de entropía que se desconocen fuera del grupo, la extensión no revela nada al respecto. <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> mismo NO DEBE (MUST NOT) colocarse en la extensión ni en ninguna otra parte de la transcripción.</p>
+<aside class="admonition note">
+<p class="admonition-title">Nota</p>
+<p>COCKTAIL-DKG cifra las cargas útiles con claves derivadas mediante Diffie–Hellman de curva elíptica. Un adversario que registre los mensajes de la Ronda 1 o la difusión de la Ronda 2 y que posteriormente obtenga una computadora cuántica criptográficamente relevante puede descifrarlos, conocer <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> y derivar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗊</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> a partir de este, lo que vulnera la Recuperabilidad Cuántica <a class="brackets" href="#zip-2005" id="footnote-reference-41" role="doc-noteref"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></a> para esa clave. Las implementaciones NO DEBERÍAN (SHOULD NOT) conservar esos mensajes después de la ceremonia, y NO DEBERÍAN (SHOULD NOT) incluirlos en los datos de recuperación almacenados; la transcripción, que no los contiene, basta para verificar la ceremonia. Esto no protege contra una parte que registre los mensajes en tránsito. El cifrado resistente a cuántica de las cargas útiles es una cuestión abierta para este ZIP.</p>
+<p>Esto se aparta de los requisitos de respaldo de COCKTAIL-DKG, cuyo procedimiento de recuperación necesita los textos cifrados de la Ronda 1 dirigidos al participante. En su lugar, un participante DEBERÍA (SHOULD) respaldar directamente su participación de clave de firma y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>. La transcripción y el certificado de éxito no contienen ningún secreto y pueden conservarse junto con ellos.</p>
+<p>Si la transcripción está disponible al restaurar, el participante DEBE (MUST) verificar la participación de clave de firma contra su participación de verificación pública calculada a partir de la transcripción, y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝖧</mi>
+    <mrow>
+      <mi>𝖼</mi>
+      <mi>𝗈</mi>
+      <mi>𝗆</mi>
+      <mi>𝗆</mi>
+      <mi>𝗂</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> contra la extensión. De lo contrario, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> puede verificarse contra el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> y el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> de la clave de visualización completa del grupo, y una participación de clave de firma errónea se detecta cuando el participante firma por primera vez, ya que su participación de firma falla la verificación.</p>
+<p>Dado que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗊</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> puede derivarse de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, dicho respaldo DEBE (MUST) protegerse al menos con la misma seguridad que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗊</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> <a class="brackets" href="#zip-2005-usage-with-frost" id="footnote-reference-42" role="doc-noteref"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></a>. Si se almacena o transmite cifrado, el cifrado NO DEBERÍA (SHOULD NOT) basarse únicamente en la dureza del logaritmo discreto.</p>
+</aside>
+
+<h2 id="ciphersuites"><a class="hanchor" href="#ciphersuites" aria-hidden="true" tabindex="-1">#</a>Conjuntos de cifrado</h2>
+<h3 id="frost-jubjub-blake2b-512"><a class="hanchor" href="#frost-jubjub-blake2b-512" aria-hidden="true" tabindex="-1">#</a>FROST(Jubjub, BLAKE2b-512)</h3>
+<p>Este conjunto de cifrado usa Jubjub como Grupo y BLAKE2b-512 como función Hash <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝙷</mi>
+</math> destinada a producir firmas indistinguibles de las Firmas de Autorización de Gasto de Sapling con RedJubjub según lo especificado en <a class="brackets" href="#protocol-concretespendauthsig" id="footnote-reference-43" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a>.</p>
+<ul class="simple">
+<li><p>Grupo: Jubjub <a class="brackets" href="#protocol-jubjub" id="footnote-reference-44" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a> con punto base <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝒢</mi>
+    <mrow>
+      <mi>𝖲</mi>
+      <mi>𝖺</mi>
+      <mi>𝗉</mi>
+      <mi>𝗅</mi>
+      <mi>𝗂</mi>
+      <mi>𝗇</mi>
+      <mi>𝗀</mi>
+    </mrow>
+  </msup>
+</math> como se define en <a class="brackets" href="#protocol-concretespendauthsig" id="footnote-reference-45" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a>.</p>
+<ul>
+<li><p>Orden: <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>r</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math> como se define en <a class="brackets" href="#protocol-jubjub" id="footnote-reference-46" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Identidad: como se define en <a class="brackets" href="#protocol-jubjub" id="footnote-reference-47" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>: Se implementa devolviendo un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> uniformemente aleatorio en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mn>0</mn>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo stretchy="false">]</mo>
+</math>. Consulte <a class="brackets" href="#frost-randomscalar" id="footnote-reference-48" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a> para orientación sobre la implementación.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math>: Se implementa como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math>, como se define en <a class="brackets" href="#protocol-jubjub" id="footnote-reference-49" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math>: Se implementa como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝖻</mi>
+      <mi>𝗌</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math>, como se define en <a class="brackets" href="#protocol-jubjub" id="footnote-reference-50" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a>, devolviendo un error si se devuelve <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math>. Además, esta función valida que el elemento resultante esté en el subgrupo de orden <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>r</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math> y que no sea el elemento identidad del grupo, devolviendo un error si alguna de las dos comprobaciones falla.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math>: Se implementa produciendo la codificación little-endian de 32 bytes del valor <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math>: Se implementa intentando deserializar un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> a partir de una cadena little-endian de 32 bytes. Esta función puede fallar si la entrada no representa un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mn>0</mn>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo stretchy="false">]</mo>
+</math>.</p></li>
+</ul>
+</li>
+<li><p>Hash (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝙷</mi>
+</math>): BLAKE2b-512 <a class="brackets" href="#blake" id="footnote-reference-51" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> (BLAKE2b con salida de 512 bits y cadena de personalización de 16 bytes), y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙽</mi>
+    <mi>𝚑</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>64</mn>
+</math>.</p>
+<ul>
+<li><p>H1(m): implementado calculando BLAKE2b-512("FROST_RedJubjubR", m), interpretando los 64 bytes como un entero little-endian y reduciendo el entero resultante módulo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>H2(m): implementado calculando BLAKE2b-512("Zcash_RedJubjubH", m), interpretando los 64 bytes como un entero little-endian y reduciendo el entero resultante módulo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>. (Esto es equivalente a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖧</mi>
+    <mo>⊛</mo>
+  </msup>
+  <mo stretchy="false">(</mo>
+  <mi>m</mi>
+  <mo stretchy="false">)</mo>
+</math>, según lo definido por el esquema <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖩</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗃</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+  </mrow>
+</math> instanciado en <a class="brackets" href="#protocol-concretereddsa" id="footnote-reference-52" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>.)</p></li>
+<li><p>H3(m): implementado calculando BLAKE2b-512("FROST_RedJubjubN", m), interpretando los 64 bytes como un entero little-endian y reduciendo el entero resultante módulo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>H4(m): implementado calculando BLAKE2b-512("FROST_RedJubjubM", m).</p></li>
+<li><p>H5(m): implementado calculando BLAKE2b-512("FROST_RedJubjubC", m).</p></li>
+<li><p>HR(m): implementado calculando BLAKE2b-512("FROST_RedJubjubA", m), interpretando los 64 bytes como un entero little-endian y reduciendo el entero resultante módulo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+</li>
+</ul>
+<p>La verificación de firmas es según lo especificado en <a class="brackets" href="#protocol-concretespendauthsig" id="footnote-reference-53" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a> para RedJubjub.</p>
+
+<h3 id="frost-pallas-blake2b-512"><a class="hanchor" href="#frost-pallas-blake2b-512" aria-hidden="true" tabindex="-1">#</a>FROST(Pallas, BLAKE2b-512)</h3>
+<p>Este conjunto de cifrado (ciphersuite) utiliza Pallas para el Group y BLAKE2b-512 para la función Hash <span class="docutils literal">H</span> destinada a producir firmas indistinguibles de las RedPallas Orchard Spend Authorization Signatures según lo especificado en <a class="brackets" href="#protocol-concretespendauthsig" id="footnote-reference-54" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a>. El mismo conjunto de cifrado produce firmas de autorización de gasto para las acciones del pool Ironwood <a class="brackets" href="#zip-2005" id="footnote-reference-55" role="doc-noteref"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></a>, que también son firmas RedPallas.</p>
+<ul class="simple">
+<li><p>Grupo: Pallas <a class="brackets" href="#protocol-pallasandvesta" id="footnote-reference-56" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a> con punto base <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝒢</mi>
+    <mrow>
+      <mi>𝖮</mi>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝗋</mi>
+      <mi>𝖽</mi>
+    </mrow>
+  </msup>
+</math> como se define en <a class="brackets" href="#protocol-concretespendauthsig" id="footnote-reference-57" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a>.</p>
+<ul>
+<li><p>Orden: <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>r</mi>
+    <mi>ℙ</mi>
+  </msub>
+</math> como se define en <a class="brackets" href="#protocol-pallasandvesta" id="footnote-reference-58" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Identidad: como se define en <a class="brackets" href="#protocol-pallasandvesta" id="footnote-reference-59" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>: Se implementa devolviendo un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> uniformemente aleatorio en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mn>0</mn>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo stretchy="false">]</mo>
+</math>. Consulte <a class="brackets" href="#frost-randomscalar" id="footnote-reference-60" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a> para orientación sobre la implementación.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math>: Se implementa como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>ℙ</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math>, como se define en <a class="brackets" href="#protocol-pallasandvesta" id="footnote-reference-61" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math>: Se implementa como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝖻</mi>
+      <mi>𝗌</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <mi>ℙ</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>P</mi>
+  <mo stretchy="false">)</mo>
+</math>, como se define en <a class="brackets" href="#protocol-pallasandvesta" id="footnote-reference-62" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a>, fallando si se devuelve <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math>. Además, esta función valida que el elemento resultante no sea el elemento identidad del grupo, devolviendo un error si la comprobación falla.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math>: Se implementa produciendo la codificación little-endian de 32 bytes del valor <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math>: Se implementa intentando deserializar un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> a partir de una cadena little-endian de 32 bytes. Esta función puede fallar si la entrada no representa un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚂</mi>
+    <mi>𝚌</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> en el rango <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mn>0</mn>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo stretchy="false">]</mo>
+</math>.</p></li>
+</ul>
+</li>
+<li><p>Hash (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝙷</mi>
+</math>): BLAKE2b-512 <a class="brackets" href="#blake" id="footnote-reference-63" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> (BLAKE2b con salida de 512 bits y cadena de personalización de 16 bytes), y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙽</mi>
+    <mi>𝚑</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>64</mn>
+</math>.</p>
+<ul>
+<li><p>H1(m): implementado calculando BLAKE2b-512("FROST_RedPallasR", m), interpretando los 64 bytes como un entero little-endian y reduciendo el entero resultante módulo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>H2(m): implementado calculando BLAKE2b-512("Zcash_RedPallasH", m), interpretando los 64 bytes como un entero little-endian y reduciendo el entero resultante módulo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>. (Esto es equivalente a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖧</mi>
+    <mo>⊛</mo>
+  </msup>
+  <mo stretchy="false">(</mo>
+  <mi>m</mi>
+  <mo stretchy="false">)</mo>
+</math>, según lo definido por el esquema <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math> instanciado en <a class="brackets" href="#protocol-concretereddsa" id="footnote-reference-64" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>.)</p></li>
+<li><p>H3(m): implementado calculando BLAKE2b-512("FROST_RedPallasN", m), interpretando los 64 bytes como un entero little-endian y reduciendo el entero resultante módulo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+<li><p>H4(m): implementado calculando BLAKE2b-512("FROST_RedPallasM", m).</p></li>
+<li><p>H5(m): implementado calculando BLAKE2b-512("FROST_RedPallasC", m).</p></li>
+<li><p>HR(m): implementado calculando BLAKE2b-512("FROST_RedPallasA", m), interpretando los 64 bytes como un entero little-endian y reduciendo el entero resultante módulo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖦</mi>
+    <mo>.</mo>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math>.</p></li>
+</ul>
+</li>
+</ul>
+<p>La verificación de firmas es la especificada en <a class="brackets" href="#protocol-concretespendauthsig" id="footnote-reference-65" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a> para RedPallas.</p>
+
+
+
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<p>FROST es un esquema de firmas Schnorr con umbral, y las autorizaciones de gasto de Zcash también son firmas Schnorr, lo que permite el uso de FROST con Zcash. Sin embargo, dado que no existe un estándar ampliamente adoptado para las firmas Schnorr, se debe garantizar que las firmas generadas por la variante de FROST especificada en este ZIP puedan verificarse con éxito mediante una implementación de Zcash que siga su especificación. En la práctica, esto implica asegurarse de que la firma generada pueda verificarse con la función <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> especificada en <a class="brackets" href="#protocol-concretereddsa" id="footnote-reference-66" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>:</p>
+<ul class="simple">
+<li><p>La firma FROST, cuando se divide en <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> en el primer paso de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>, debe producir los valores esperados por la función. Esto se garantiza definiendo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math> en cada conjunto de cifrado para que produzcan esos valores.</p></li>
+<li><p>El desafío <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>c</mi>
+</math> utilizado durante la firma FROST debe ser igual al desafío <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>c</mi>
+</math> calculado durante <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>. Esto requiere definir la función H2 del conjunto de cifrado como la función <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖧</mi>
+    <mo>⊛</mo>
+  </msup>
+  <mo stretchy="false">(</mo>
+  <mi>m</mi>
+  <mo stretchy="false">)</mo>
+</math> de Zcash en los conjuntos de cifrado, y asegurarse de que su entrada sea la misma. Afortunadamente, FROST y Zcash usan el mismo orden de entrada (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+</math>, clave pública, mensaje), así que solo necesitamos asegurarnos de que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖤</mi>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> (utilizado para calcular la clave pública codificada antes de pasarla a la función hash) coincida con lo que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> espera; lo cual es posible dado que tanto <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+</math> como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> (la clave pública) se codifican de la misma manera que en Zcash.</p></li>
+<li><p>Nótese que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>r</mi>
+</math> (y por lo tanto <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+</math>) no se generará como se especifica en <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math>. Sin embargo, esto no es un problema, ya que con las firmas Schnorr no importa para el verificador cómo se eligió el valor <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>r</mi>
+</math>; solo necesita ser un elemento aleatorio uniformemente distribuido, lo cual es cierto para FROST.</p></li>
+<li><p>Lo anterior garantiza que la ecuación de verificación en <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math> se cumpla, ya que FROST garantiza que exactamente la misma ecuación será válida, como se describe en <a class="brackets" href="#frost-primeorderverify" id="footnote-reference-67" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+<p>El segundo paso es añadir la funcionalidad de re-aleatorización para que cada firma FROST genere una firma re-aleatorizada:</p>
+<ul class="simple">
+<li><p>Dondequiera que se use la clave pública, debe usarse en su lugar la clave pública aleatorizada. Esto es exactamente lo que se hace en las funciones definidas anteriormente.</p></li>
+<li><p>La re-aleatorización debe realizarse en cada generación de porciones de firma, de modo que la firma agregada debe ser válida bajo la verificación con la clave pública aleatorizada. Esto se demuestra en <a class="brackets" href="#frost-rerandomized" id="footnote-reference-68" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>El procedimiento de re-aleatorización debe ser exactamente el mismo que en <a class="brackets" href="#protocol-concretereddsa" id="footnote-reference-69" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a> para garantizar que las claves re-aleatorizadas estén uniformemente distribuidas y que las firmas sean desvinculables. Esto también se cumple; obsérvese que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚐</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚝</mi>
+    <mi>𝚎</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math> genera el aleatorizador de manera uniformemente aleatoria según lo requerido por <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖦</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math>; y la generación de firmas es compatible con <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗓</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖵</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖽</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+</math>, como se explica en el punto anterior.</p></li>
+</ul>
+<p>La seguridad de FROST re-aleatorizado con respecto a los supuestos de seguridad del FROST regular se muestra en <a class="brackets" href="#frost-rerandomized" id="footnote-reference-70" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+<p>Con respecto a la generación contributiva de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>: cada participante aprende <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> por diseño, ya que es necesario para derivar los componentes de la clave de visualización. Por lo tanto, un participante que elige su contribución después de ver las de los demás, por ejemplo coludiendo con el Coordinador, solo puede seleccionar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> entre valores que podría calcular de todos modos, y no gana nada que un participante no tenga ya. El compromiso en la extensión sirve para el acuerdo, no para el secreto: permite que cada participante compruebe que todos derivaron el mismo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>, sin colocar en la transcripción pública un valor del cual <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> pudiera ser recuperado.</p>
+<p>En cuanto al manejo del aleatorizador, en Zcash, el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> se llama <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>α</mi>
+</math> y generalmente se genera usando la función <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖦</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> definida en la especificación de Zcash <a class="brackets" href="#protocol-spendauthsig" id="footnote-reference-71" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a>. Nótese que la elección de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>α</mi>
+</math> influye en el cálculo del SIGHASH, por lo que es imposible calcular el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> basándose en el mensaje (SIGHASH), como se sugiere en <a class="brackets" href="#frost-rerandomized" id="footnote-reference-72" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>. Esto no es un problema siempre que el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+  </mrow>
+</math> se genere con las mismas propiedades de seguridad que el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖦</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math>. Lo garantizamos usando un enfoque muy similar; mientras que el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖣</mi>
+    <mi>𝖲</mi>
+    <mi>𝖠</mi>
+    <mo>.</mo>
+    <mi>𝖦</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖱</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+  </mrow>
+</math> original usa <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖧</mi>
+    <mo>⊛</mo>
+  </msup>
+  <mo stretchy="false">(</mo>
+  <mi>T</mi>
+  <mo stretchy="false">)</mo>
+</math> donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>T</mi>
+</math> es una secuencia de bytes aleatoria de cierto tamaño, en este ZIP usamos efectivamente <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖧</mi>
+    <mo>⊛</mo>
+  </msup>
+  <mo stretchy="false">(</mo>
+  <mi>T</mi>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗇</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>_</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝗆</mi>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗍</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝗌</mi>
+    <mi>_</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>, es decir, concatenamos los bytes aleatorios con la codificación de los compromisos de firma. Esto preserva los supuestos de seguridad y también protege contra problemas en el generador de bytes aleatorios del Coordinator y evita que el Coordinator influya totalmente en el aleatorizador, reduciendo sus supuestos de confianza.</p>
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>El crate <cite>frost-rerandomized</cite> <a class="brackets" href="#crate-frost-rerandomized" id="footnote-reference-73" role="doc-noteref"><span class="fn-bracket">[</span>25<span class="fn-bracket">]</span></a>, a partir de la versión 3.0.0, implementa Re-Randomized FROST sobre cualquier conjunto de cifrado FROST, incluidos <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚐</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚝</mi>
+    <mi>𝚎</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚘</mi>
+    <mi>𝚖</mi>
+    <mi>𝚒</mi>
+    <mi>𝚣</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>_</mi>
+    <mi>𝚛</mi>
+    <mi>𝚎</mi>
+    <mi>𝚐</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚝</mi>
+    <mi>𝚎</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">)</mo>
+</math> según lo especificado aquí. Los dos conjuntos de cifrado de este ZIP están implementados en las versiones 0.5.x del crate <cite>reddsa</cite> <a class="brackets" href="#crate-reddsa" id="footnote-reference-74" role="doc-noteref"><span class="fn-bracket">[</span>24<span class="fn-bracket">]</span></a>; la versión 0.6.0 de ese crate los eliminó y, al momento de escribir esto, no están publicados en ningún otro lugar.</p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="blake" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-40">1</a>,<a role="doc-backlink" href="#footnote-reference-51">2</a>,<a role="doc-backlink" href="#footnote-reference-63">3</a>)</span>
+<p><a class="reference external" href="https://blake2.net/#sp">BLAKE2: simpler, smaller, fast as MD5</a></p>
+</aside>
+<aside class="footnote brackets" id="frost" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-3">1</a>,<a role="doc-backlink" href="#footnote-reference-11">2</a>,<a role="doc-backlink" href="#footnote-reference-12">3</a>,<a role="doc-backlink" href="#footnote-reference-13">4</a>,<a role="doc-backlink" href="#footnote-reference-32">5</a>,<a role="doc-backlink" href="#footnote-reference-33">6</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-rerandomized" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-18">2</a>,<a role="doc-backlink" href="#footnote-reference-68">3</a>,<a role="doc-backlink" href="#footnote-reference-70">4</a>,<a role="doc-backlink" href="#footnote-reference-72">5</a>)</span>
+<p><a class="reference external" href="https://eprint.iacr.org/2024/436">Re-Randomized FROST (ePrint 2024/436)</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-conventions" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-31">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#name-conventions-and-definitions">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Section 2: Conventions and Definitions</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-primeordergroup" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-14">1</a>,<a role="doc-backlink" href="#footnote-reference-15">2</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#name-prime-order-group">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Section 3.1: Prime-Order Group</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-listoperations" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-30">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#name-list-operations">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Section 4.3: List Operations</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-8">1</a>,<a role="doc-backlink" href="#footnote-reference-22">2</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#name-two-round-frost-signing-pro">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Section 5: Two-Round FROST Signing Protocol</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-sign" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-36">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#name-round-two-signature-share-g">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Section 5.2: Round Two - Signature Share Generation</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-aggregate" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-37">1</a>,<a role="doc-backlink" href="#footnote-reference-38">2</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#name-signature-share-aggregation">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Section 5.3: Signature Share Aggregation</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-removingcoordinator" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#name-removing-the-coordinator-ro">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Section 7.5: Removing the Coordinator Role</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-primeorderverify" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-67">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#appendix-B">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Appendix B: Schnorr Signature Generation and Verification for Prime-Order Groups</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-tdkg" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-17">13</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#name-trusted-dealer-key-generati">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Appendix C: Trusted Dealer Key Generation</a></p>
+</aside>
+<aside class="footnote brackets" id="frost-randomscalar" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-48">1</a>,<a role="doc-backlink" href="#footnote-reference-60">2</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc9591.html#name-random-scalar-generation">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures. Appendix D: Random Scalar Generation</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-abstractsigrerand" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">15</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#abstractsigrerand">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 4.1.7.1: Signature with Re-Randomizable Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-abstractgroup" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-16">16</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#abstractgroup">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 4.1.9: Represented Group</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingkeycomponents" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-21">1</a>,<a role="doc-backlink" href="#footnote-reference-28">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingkeycomponents">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 4.2.2: Sapling Key Components</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-orchardkeycomponents" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-20">1</a>,<a role="doc-backlink" href="#footnote-reference-24">2</a>,<a role="doc-backlink" href="#footnote-reference-26">3</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#orchardkeycomponents">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 4.2.3: Orchard Key Components</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-spendauthsig" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-23">1</a>,<a role="doc-backlink" href="#footnote-reference-71">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#spendauthsig">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 4.15: Spend Authorization Signature (Sapling and Orchard)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretereddsa" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-6">1</a>,<a role="doc-backlink" href="#footnote-reference-52">2</a>,<a role="doc-backlink" href="#footnote-reference-64">3</a>,<a role="doc-backlink" href="#footnote-reference-66">4</a>,<a role="doc-backlink" href="#footnote-reference-69">5</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretereddsa">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.7: RedDSA, RedJubjub, and RedPallas</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concretespendauthsig" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-43">1</a>,<a role="doc-backlink" href="#footnote-reference-45">2</a>,<a role="doc-backlink" href="#footnote-reference-53">3</a>,<a role="doc-backlink" href="#footnote-reference-54">4</a>,<a role="doc-backlink" href="#footnote-reference-57">5</a>,<a role="doc-backlink" href="#footnote-reference-65">6</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concretespendauthsig">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.7.1: Spend Authorization Signature (Sapling and Orchard)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-jubjub" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-44">1</a>,<a role="doc-backlink" href="#footnote-reference-46">2</a>,<a role="doc-backlink" href="#footnote-reference-47">3</a>,<a role="doc-backlink" href="#footnote-reference-49">4</a>,<a role="doc-backlink" href="#footnote-reference-50">5</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#jubjub">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.9.3: Jubjub</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-pallasandvesta" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-56">1</a>,<a role="doc-backlink" href="#footnote-reference-58">2</a>,<a role="doc-backlink" href="#footnote-reference-59">3</a>,<a role="doc-backlink" href="#footnote-reference-61">4</a>,<a role="doc-backlink" href="#footnote-reference-62">5</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#pallasandvesta">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Section 5.4.9.6: Pallas and Vesta</a></p>
+</aside>
+<aside class="footnote brackets" id="crate-reddsa" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-74">24</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/ZcashFoundation/reddsa">reddsa Rust crate</a></p>
+</aside>
+<aside class="footnote brackets" id="crate-frost-rerandomized" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-73">25</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/ZcashFoundation/frost/tree/main/frost-rerandomized">frost-rerandomized Rust crate</a></p>
+</aside>
+<aside class="footnote brackets" id="cocktail-dkg" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>26<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-19">1</a>,<a role="doc-backlink" href="#footnote-reference-39">2</a>)</span>
+<p><a class="reference external" href="https://c2sp.org/cocktail-dkg">COCKTAIL-DKG: Distributed Key Generation protocol for FROST, version 0.2.1</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0374" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-34">27</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0374.md">ZIP 374: Partially Created Zcash Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0374-signer" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-35">28</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0374.md#signer">ZIP 374: Partially Created Zcash Transaction Format — Signer</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-2005" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-7">2</a>,<a role="doc-backlink" href="#footnote-reference-29">3</a>,<a role="doc-backlink" href="#footnote-reference-41">4</a>,<a role="doc-backlink" href="#footnote-reference-55">5</a>)</span>
+<p><a class="reference external" href="/upstream/zip-2005.md">ZIP 2005: Quantum recoverability</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-2005-usage-with-frost" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-9">1</a>,<a role="doc-backlink" href="#footnote-reference-25">2</a>,<a role="doc-backlink" href="#footnote-reference-27">3</a>,<a role="doc-backlink" href="#footnote-reference-42">4</a>)</span>
+<p><a class="reference external" href="/upstream/zip-2005.md#usage-with-frost">ZIP 2005: Quantum recoverability - Usage with FROST</a></p>
+</aside>
+</aside>
+

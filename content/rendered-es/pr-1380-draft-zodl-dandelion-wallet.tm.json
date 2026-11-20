@@ -1,0 +1,579 @@
+{
+ "segments": {
+  "Direct Wallet Transaction Submission via Dandelion++ P2P Relay": "Envío directo de transacciones desde la billetera mediante retransmisión P2P con Dandelion++",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", \"SHOULD NOT\", \"MAY\", and \"RECOMMENDED\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"NO DEBE (MUST NOT)\", \"DEBERÍA (SHOULD)\", \"NO DEBERÍA (SHOULD NOT)\", \"PUEDE (MAY)\" y \"RECOMENDADO (RECOMMENDED)\" en este documento deben interpretarse como se describe en BCP 14 <g1><g2>1</g2></g1> cuando, y solo cuando, aparecen en mayúsculas.",
+  "<g1>Light client:</g1> A Zcash wallet that does not store or validate a full copy of the block chain, relying instead on a compact-block server for block data.": "<g1>Cliente ligero:</g1> Una billetera de Zcash que no almacena ni valida una copia completa del block chain, y que en su lugar depende de un servidor de bloques compactos para los datos de bloque.",
+  "<g1>Compact-block server:</g1> A server implementing the lightwalletd gRPC protocol <g2><g3>2</g3></g2>, or a compatible implementation such as Zaino, that serves compact blocks and transaction-related RPCs to light clients.": "<g1>Servidor de bloques compactos:</g1> Un servidor que implementa el protocolo gRPC de lightwalletd <g2><g3>2</g3></g2>, o una implementación compatible como Zaino, que sirve bloques compactos y RPC relacionados con transacciones a clientes ligeros.",
+  "<g1>Submission intermediary:</g1> Any server to which a wallet sends a newly-constructed transaction for broadcast, including but not limited to a compact-block server.": "<g1>Intermediario de envío:</g1> Cualquier servidor al que una billetera envía una transacción recién construida para su difusión, incluido entre otros un servidor de bloques compactos.",
+  "<g1>Dandelion++ stem phase / fluff phase / stem peer:</g1> As defined in draft-zodl-dandelion (PR <g2>#1379</g2>). <g3><g4>3</g4></g3>": "<g1>Fase stem / fase fluff / par stem de Dandelion++:</g1> Según se define en draft-zodl-dandelion (PR <g2>#1379</g2>). <g3><g4>3</g4></g3>",
+  "<g1>IP-to-transaction correlation:</g1> The ability of a network observer to determine which IP address originated a given transaction by observing when and where the transaction first appeared on the P2P network.": "<g1>Correlación entre IP y transacción:</g1> La capacidad de un observador de red de determinar qué dirección IP originó una transacción dada observando cuándo y dónde apareció por primera vez la transacción en la red P2P.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This ZIP specifies how Zcash light-client wallets MAY submit newly-constructed transactions directly to a full node peer via the Zcash P2P network — using the Dandelion++ stem-phase forwarding defined in draft-zodl-dandelion (PR <g1>#1379</g1>) <g2><g3>3</g3></g2> — instead of through a compact-block server, while continuing to use compact-block servers exclusively for chain synchronisation.": "Este ZIP especifica cómo las billeteras de clientes ligeros de Zcash PUEDEN (MAY) enviar transacciones recién construidas directamente a un par que sea nodo completo a través de la red P2P de Zcash — usando la retransmisión en fase stem de Dandelion++ definida en draft-zodl-dandelion (PR <g1>#1379</g1>) <g2><g3>3</g3></g2> — en lugar de hacerlo a través de un servidor de bloques compactos, continuando a la vez con el uso exclusivo de servidores de bloques compactos para la sincronización de la cadena.",
+  "Under the current architecture, a wallet's submission intermediary (a compact-block server such as lightwalletd or Zaino) learns both the wallet's IP address and the transaction it submits at the same instant, letting a passive observer correlate transaction origin with network identity. This ZIP removes that correlation for the submission path.": "Bajo la arquitectura actual, el intermediario de envío de una billetera (un servidor de bloques compactos como lightwalletd o Zaino) conoce tanto la dirección IP de la billetera como la transacción que esta envía en el mismo instante, lo que permite a un observador pasivo correlacionar el origen de la transacción con la identidad de red. Este ZIP elimina esa correlación en la ruta de envío.",
+  "No consensus-rule changes are required. This ZIP covers the <g1>wallet side</g1> (sometimes called \"Component A\"); the full-node relay behaviour it depends on is specified in draft-zodl-dandelion (PR <g2>#1379</g2>) (Component B). <g3><g4>3</g4></g3>": "No se requieren cambios en las reglas de consenso. Este ZIP cubre el <g1>lado de la billetera</g1> (a veces llamado \"Componente A\"); el comportamiento de retransmisión del nodo completo del que depende se especifica en draft-zodl-dandelion (PR <g2>#1379</g2>) (Componente B). <g3><g4>3</g4></g3>",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "ZIP 307 <g1><g2>2</g2></g1> defines a light-client architecture in which a compact-block server mediates between the wallet and the P2P network. This is appropriate for block synchronisation: a well-designed wallet fetches whole block ranges, so the server learns little about which notes are the wallet's.": "El ZIP 307 <g1><g2>2</g2></g1> define una arquitectura de cliente ligero en la que un servidor de bloques compactos media entre la billetera y la red P2P. Esto es apropiado para la sincronización de bloques: una billetera bien diseñada obtiene rangos completos de bloques, por lo que el servidor sabe poco sobre cuáles notas son de la billetera.",
+  "Transaction submission is different. When a wallet calls the <x1/> gRPC RPC, the compact-block server receives:": "El envío de transacciones es diferente. Cuando una billetera llama al RPC gRPC <x1/>, el servidor de bloques compactos recibe:",
+  "the wallet's IP address,": "la dirección IP de la billetera,",
+  "the exact serialised transaction, and": "la transacción serializada exacta, y",
+  "the submission timestamp.": "la marca de tiempo del envío.",
+  "That is enough to link a transaction to a network identity. For shielded transactions the on-chain data reveals nothing about the sender, yet the submission channel leaks exactly the information that shielding is designed to protect.": "Eso es suficiente para vincular una transacción a una identidad de red. En el caso de las transacciones blindadas, los datos en la cadena no revelan nada sobre el emisor; sin embargo, el canal de envío filtra exactamente la información que el blindaje está diseñado para proteger.",
+  "Existing mitigations impose costs:": "Las mitigaciones existentes imponen costos:",
+  "<g1>Tor</g1> — Zashi supports Tor <g2><g3>4</g3></g2>, but it adds latency and a dependency, and its effectiveness depends on the wallet always routing through it.": "<g1>Tor</g1> — Zashi admite Tor <g2><g3>4</g3></g2>, pero añade latencia y una dependencia, y su efectividad depende de que la billetera siempre enrute a través de él.",
+  "<g1>Self-hosted server</g1> — avoids the third-party trust assumption but is impractical for most mobile users.": "<g1>Servidor autohospedado</g1> — evita el supuesto de confianza en terceros, pero resulta impráctico para la mayoría de los usuarios móviles.",
+  "<g1>Zaino</g1> <g2><g3>5</g3></g2> — improves server-side privacy by design but still sits between the wallet and the network for submission, preserving the IP-correlation window.": "<g1>Zaino</g1> <g2><g3>5</g3></g2> — mejora la privacidad del lado del servidor por diseño, pero sigue situándose entre la billetera y la red para el envío, preservando la ventana de correlación de IP.",
+  "This ZIP proposes that a wallet with access to one or more Zcash P2P peer endpoints SHOULD submit transactions via those peers under Dandelion++ rather than via a compact-block server. Because the P2P network is a decentralised mesh and the receiving node relays the transaction through its stem peer without advertising it locally, no single entity learns both the transaction and the submitting IP together for the transaction's onward propagation.": "Este ZIP propone que una billetera con acceso a uno o más puntos de conexión de pares P2P de Zcash DEBERÍA (SHOULD) enviar transacciones a través de esos pares bajo Dandelion++ en lugar de a través de un servidor de bloques compactos. Dado que la red P2P es una malla descentralizada y el nodo receptor retransmite la transacción a través de su par del tallo sin anunciarla localmente, ninguna entidad única conoce a la vez la transacción y la IP que la envía para la propagación posterior de la transacción.",
+  "<x1/>Requirements": "<x1/>Requisitos",
+  "A compliant wallet implementing this ZIP MUST NOT call the <x1/> gRPC RPC on a compact-block server for a transaction submitted via the P2P path (concurrent submission would re-expose the origin IP through the centralised channel).": "Una billetera conforme que implemente este ZIP NO DEBE (MUST NOT) llamar al RPC gRPC <x1/> en un servidor de bloques compactos para una transacción enviada por la ruta P2P (el envío concurrente volvería a exponer la IP de origen a través del canal centralizado).",
+  "A compliant wallet MUST send the transaction to a full node using the P2P handshake and message flow in the Specification below.": "Una billetera conforme DEBE (MUST) enviar la transacción a un nodo completo usando el intercambio de saludos y el flujo de mensajes P2P descritos en la Especificación más adelante.",
+  "A compliant wallet MUST continue to use compact-block servers (or equivalent) for block synchronisation, note-witness retrieval, and other read-only chain queries.": "Una billetera conforme DEBE (MUST) seguir usando servidores de bloques compactos (o equivalentes) para la sincronización de bloques, la obtención de testigos de notas y otras consultas de solo lectura sobre la cadena.",
+  "The P2P submission path MUST be an optional enhancement: a wallet that cannot reach a full node peer MUST fall back to the existing <x1/> RPC without degrading other functionality.": "La ruta de envío P2P DEBE (MUST) ser una mejora opcional: una billetera que no pueda alcanzar un par que sea nodo completo DEBE (MUST) recurrir al RPC <x1/> existente sin degradar otras funcionalidades.",
+  "The receiving full node SHOULD implement the Dandelion++ relay behaviour of draft-zodl-dandelion (PR <g1>#1379</g1>). <g2><g3>3</g3></g2> A wallet submitting via P2P gains no privacy benefit if the node immediately floods the transaction; however, a non-implementing node simply flood-broadcasts it, which is a safe fallback.": "El nodo completo receptor DEBERÍA (SHOULD) implementar el comportamiento de retransmisión Dandelion++ de draft-zodl-dandelion (PR <g1>#1379</g1>). <g2><g3>3</g3></g2> Una billetera que envía por P2P no obtiene ningún beneficio de privacidad si el nodo difunde la transacción de inmediato mediante inundación; sin embargo, un nodo que no lo implemente simplemente la difunde por inundación, lo cual es un recurso de reserva seguro.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "<x1/>Peer discovery": "<x1/>Descubrimiento de pares",
+  "A wallet implementing this ZIP MUST obtain at least one full-node peer address. Acceptable mechanisms include, but are not limited to:": "Una billetera que implemente este ZIP DEBE (MUST) obtener al menos una dirección de par que sea nodo completo. Los mecanismos aceptables incluyen, entre otros:",
+  "a hard-coded or user-configured list of trusted full nodes;": "una lista codificada en el software o configurada por el usuario de nodos completos de confianza;",
+  "the Zcash mainnet DNS seeders <g1><g2>6</g2></g1>;": "los sembradores DNS del mainnet de Zcash <g1><g2>6</g2></g1>;",
+  "a peer address returned by a compact-block server via an optional extension RPC (not defined here);": "una dirección de par devuelta por un servidor de bloques compactos mediante un RPC de extensión opcional (no definido aquí);",
+  "a peer address provided directly by the user.": "una dirección de par proporcionada directamente por el usuario.",
+  "The wallet MUST complete the Zcash P2P <x1/>/<x2/> handshake before submitting a transaction. The wallet MUST advertise a protocol version at least equal to the receiving network's minimum accepted protocol version, or the peer will reject the handshake.": "La billetera DEBE (MUST) completar el intercambio de saludos P2P <x1/>/<x2/> de Zcash antes de enviar una transacción. La billetera DEBE (MUST) anunciar una versión de protocolo al menos igual a la versión mínima de protocolo aceptada por la red receptora, o de lo contrario el par rechazará el intercambio de saludos.",
+  "<x1/>Transaction submission message": "<x1/>Mensaje de envío de transacción",
+  "After the handshake, the wallet submits the transaction using the standard Zcash P2P <x1/> message <g2><g3>7</g3></g2>. No new P2P message type is required.": "Después del intercambio de saludos, la billetera envía la transacción usando el mensaje P2P estándar de Zcash <x1/> <g2><g3>7</g3></g2>. No se requiere ningún tipo de mensaje P2P nuevo.",
+  "The wallet SHOULD set the <x1/> field in its <x2/> message to <x3/> so that the peer does not push unsolicited <x4/> messages back to the wallet, reducing leakage about the wallet's connectivity.": "La billetera DEBERÍA (SHOULD) establecer el campo <x1/> en su mensaje <x2/> en <x3/> para que el par no envíe mensajes <x4/> no solicitados de vuelta a la billetera, lo que reduce la fuga de información sobre la conectividad de la billetera.",
+  "<x1/>Dandelion++ submission hint (unadvertised <x2/>)": "<x1/>Indicación de envío de Dandelion++ (<x2/> no anunciado)",
+  "To request that the receiving full node treat the transaction as a stem-phase candidate (rather than immediately flooding it), the wallet MUST send the <x1/> message with <g2>no prior <x3/> announcement</g2> on this connection. This is the \"unadvertised <x4/>\" convention of draft-zodl-dandelion §Stem-phase forwarding (PR <g5>#1379</g5>). <g6><g7>3</g7></g6>": "Para solicitar que el nodo completo receptor trate la transacción como candidata a la fase de tallo (en lugar de inundarla de inmediato), la billetera DEBE (MUST) enviar el mensaje <x1/> <g2>sin un anuncio previo de <x3/></g2> en esta conexión. Esta es la convención de \"<x4/> no anunciado\" de draft-zodl-dandelion §Stem-phase forwarding (PR <g5>#1379</g5>). <g6><g7>3</g7></g6>",
+  "Rationale: advertising via <x1/> before <x2/> is the normal relay path, which signals the sending node already received the transaction from elsewhere. Sending <x3/> without a prior <x4/> on a freshly-opened connection is a reliable signal that this is the transaction's first appearance.": "Justificación: anunciar mediante <x1/> antes de <x2/> es la ruta de retransmisión normal, lo que indica que el nodo emisor ya recibió la transacción de otra parte. Enviar <x3/> sin un <x4/> previo en una conexión recién abierta es una señal confiable de que esta es la primera aparición de la transacción.",
+  "<x1/>No concurrent centralised submission": "<x1/>Sin envío centralizado concurrente",
+  "The wallet MUST NOT resubmit the same transaction via a compact-block server <x1/> RPC while the P2P submission is in flight or within the stem-phase timeout window. Concurrent submission would reveal the originating IP via the centralised channel.": "La billetera NO DEBE (MUST NOT) reenviar la misma transacción mediante el RPC <x1/> de un servidor de bloques compactos mientras el envío por P2P esté en curso o dentro de la ventana de tiempo de espera de la fase de tallo. El envío concurrente revelaría la IP de origen a través del canal centralizado.",
+  "<x1/>Fallback": "<x1/>Mecanismo de reserva",
+  "If the P2P submission does not result in the transaction appearing in a block within a configurable timeout (RECOMMENDED default: 30 minutes), the wallet MAY fall back to <x1/> on a compact-block server.": "Si el envío por P2P no resulta en que la transacción aparezca en un bloque dentro de un tiempo de espera configurable (valor predeterminado RECOMENDADO (RECOMMENDED): 30 minutos), la billetera PUEDE (MAY) recurrir a <x1/> en un servidor de bloques compactos.",
+  "<x1/>Privacy Implications": "<x1/>Implicaciones de privacidad",
+  "The wallet's P2P peer(s) see the wallet's IP and the transaction, but only before stem-phase forwarding begins. With Dandelion++ stem/fluff the peer relays the transaction to its own stem peer without advertising it locally, breaking the origin-IP↔txid association for all subsequent hops.": "Los pares P2P de la billetera ven la IP de la billetera y la transacción, pero solo antes de que comience el reenvío de la fase de tallo. Con Dandelion++ en modo tallo/inundación, el par retransmite la transacción a su propio par de tallo sin anunciarla localmente, rompiendo la asociación entre la IP de origen y el txid para todos los saltos posteriores.",
+  "The compact-block server used for synchronisation is decoupled from the submission path and learns only that the wallet is synchronising blocks, not which transactions it submitted.": "El servidor de bloques compactos usado para la sincronización está desacoplado de la ruta de envío y solo aprende que la billetera está sincronizando bloques, no qué transacciones envió.",
+  "An adversary who controls <g1>both</g1> the wallet's compact-block server and the wallet's P2P peer can still correlate if the wallet uses the same IP for both. Wallets SHOULD use distinct network paths (e.g. Tor for one channel, or separate Tor circuits) if this threat model is relevant.": "Un adversario que controle <g1>tanto</g1> el servidor de bloques compactos de la billetera como el par P2P de la billetera aún puede correlacionar si la billetera usa la misma IP para ambos. Las billeteras DEBERÍAN (SHOULD) usar rutas de red distintas (p. ej., Tor para un canal, o circuitos de Tor separados) si este modelo de amenaza es relevante.",
+  "Dandelion++ does not protect against a global passive adversary monitoring all P2P traffic. It significantly raises the cost of IP-to-transaction correlation for realistic adversaries operating relay nodes or monitoring subsets of the network.": "Dandelion++ no protege contra un adversario pasivo global que monitorea todo el tráfico P2P. Eleva significativamente el costo de la correlación entre IP y transacción para adversarios realistas que operan nodos de retransmisión o monitorean subconjuntos de la red.",
+  "Shielded transactions already hide their <g1>contents</g1> via zero-knowledge proofs; this ZIP closes the complementary <g2>network-metadata</g2> leak (which IP originated the packet). The two protections are orthogonal.": "Las transacciones blindadas ya ocultan sus <g1>contenidos</g1> mediante pruebas de conocimiento cero; este ZIP cierra la fuga complementaria de <g2>metadatos de red</g2> (qué IP originó el paquete). Las dos protecciones son ortogonales.",
+  "Once a transaction enters the fluff phase it is indistinguishable from any other transaction on the network.": "Una vez que una transacción entra en la fase de inundación, es indistinguible de cualquier otra transacción en la red.",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "<x1/>Why not just use Tor for all wallets?": "<x1/>¿Por qué no simplemente usar Tor para todas las billeteras?",
+  "Tor addresses IP privacy comprehensively but adds latency (typically 200–500 ms), requires maintaining Tor client code per wallet, and may be unavailable on some platforms. Dandelion++ is a lightweight complement. The two are not mutually exclusive: a wallet using Tor <g1>and</g1> P2P Dandelion++ submission is strictly more private than either alone.": "Tor aborda la privacidad de IP de manera exhaustiva, pero añade latencia (típicamente 200–500 ms), requiere mantener código de cliente de Tor por billetera y puede no estar disponible en algunas plataformas. Dandelion++ es un complemento ligero. Ambos no son mutuamente excluyentes: una billetera que usa Tor <g1>y</g1> envío por P2P con Dandelion++ es estrictamente más privada que cualquiera de los dos por separado.",
+  "<x1/>Why keep compact-block servers for synchronisation?": "<x1/>¿Por qué conservar los servidores de bloques compactos para la sincronización?",
+  "They provide an efficient protocol for delivering shielded-note data to mobile wallets. Replacing bulk sync with a direct P2P full-sync would require downloading hundreds of gigabytes, impractical on mobile. Separating the submission channel from the sync channel also lets a wallet choose independent providers for each, reducing the trust surface.": "Proporcionan un protocolo eficiente para entregar datos de notas blindadas a billeteras móviles. Reemplazar la sincronización masiva por una sincronización completa directa por P2P requeriría descargar cientos de gigabytes, algo impráctico en dispositivos móviles. Separar el canal de envío del canal de sincronización también permite que una billetera elija proveedores independientes para cada uno, reduciendo la superficie de confianza.",
+  "<x1/>Why an unadvertised <x2/> rather than a new P2P message type?": "<x1/>¿Por qué un <x2/> no anunciado en lugar de un nuevo tipo de mensaje P2P?",
+  "A new message type would require a network upgrade and coordination across all node implementations. The existing <x1/> message with a semantic convention (no prior <x2/>) achieves the same signalling with no protocol change, allowing incremental deployment. Non-implementing nodes flood-broadcast normally (safe fallback).": "Un nuevo tipo de mensaje requeriría una actualización de red y coordinación entre todas las implementaciones de nodos. El mensaje <x1/> existente con una convención semántica (sin un <x2/> previo) logra la misma señalización sin cambios de protocolo, lo que permite un despliegue incremental. Los nodos que no lo implementan difunden por inundación de forma normal (retroceso seguro).",
+  "<x1/>Relationship to Zaino": "<x1/>Relación con Zaino",
+  "A Zaino <g1><g2>5</g2></g1> instance co-located with a Zebra node could implement the draft-zodl-dandelion (PR <g3>#1379</g3>) relay path natively, routing wallet submissions received via <x4/> through the local node's stem path. This would help wallets that cannot open a direct P2P connection, without wallet-software changes. It is RECOMMENDED as a complement to (not a replacement for) this ZIP.": "Una instancia de Zaino <g1><g2>5</g2></g1> coubicada con un nodo Zebra podría implementar de forma nativa la ruta de retransmisión de draft-zodl-dandelion (PR <g3>#1379</g3>), enrutando los envíos de billeteras recibidos vía <x4/> a través de la ruta de tallo del nodo local. Esto ayudaría a las billeteras que no pueden abrir una conexión P2P directa, sin cambios en el software de la billetera. SE RECOMIENDA (RECOMMENDED) como complemento de (no como reemplazo de) este ZIP.",
+  "<x1/>Reference Implementation": "<x1/>Implementación de referencia",
+  "Wallet-side (Component A):": "Lado de la billetera (Componente A):",
+  "<g1>Android</g1>: <g2>zcash/zcash-android-wallet-sdk#2010</g2>": "<g1>Android</g1>: <g2>zcash/zcash-android-wallet-sdk#2010</g2>",
+  "<g1>iOS (Swift)</g1>: <g2>zcash/zcash-swift-wallet-sdk#1804</g2>": "<g1>iOS (Swift)</g1>: <g2>zcash/zcash-swift-wallet-sdk#1804</g2>",
+  "Both SDKs add an opt-in <x1/> (<x2/> / <x3/>) that resolves peers via the mainnet DNS seeders, opens a TCP connection to a full node, performs the <x4/>/<x5/> handshake (advertising protocol version 170150, the current mainnet minimum), and sends the raw <x6/> without a prior <x7/>. Chain synchronisation continues to use the lightwalletd endpoint. A fallback to <x8/> is available when no P2P peer is reachable.": "Ambos SDK añaden una opción <x1/> (<x2/> / <x3/>) que resuelve pares mediante los seeders DNS de mainnet, abre una conexión TCP a un nodo completo, realiza el saludo <x4/>/<x5/> (anunciando la versión de protocolo 170150, el mínimo actual de mainnet) y envía la <x6/> sin procesar sin un <x7/> previo. La sincronización de la cadena continúa usando el endpoint de lightwalletd. Hay un retroceso a <x8/> disponible cuando no se puede alcanzar ningún par P2P.",
+  "Full-node relay (Component B) is specified and implemented in draft-zodl-dandelion (PR <g1>#1379</g1>): <g2>zcashfoundation/zebra#10928</g2>.": "La retransmisión por nodo completo (Componente B) está especificada e implementada en draft-zodl-dandelion (PR <g1>#1379</g1>): <g2>zcashfoundation/zebra#10928</g2>.",
+  "<x1/>Changelog": "<x1/>Registro de cambios",
+  "2026-07-09: Initial draft.": "2026-07-09: Borrador inicial.",
+  "<x1/>References": "<x1/>Referencias",
+  "<x1/>Footnotes": "<x1/>Notas al pie",
+  "<g1>Key words for use in RFCs to Indicate Requirement Levels</g1> <g2>↩</g2>": "<g1>Key words for use in RFCs to Indicate Requirement Levels</g1> <g2>↩</g2>",
+  "<g1>ZIP 307: Light Client Protocol for Payment Detection</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": "<g1>ZIP 307: Light Client Protocol for Payment Detection</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>",
+  "draft-zodl-dandelion: Dandelion++ Transaction Propagation for Zcash P2P Nodes. PR: <g1>https://github.com/zcash/zips/pull/1379</g1> (In preparation — see zcash/zips#1379.) <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9>": "draft-zodl-dandelion: Dandelion++ Transaction Propagation for Zcash P2P Nodes. PR: <g1>https://github.com/zcash/zips/pull/1379</g1> (En preparación; véase zcash/zips#1379.) <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9>",
+  "Zashi Tor integration. <g1>https://github.com/Electric-Coin-Company/zashi-android</g1> <g2>↩</g2>": "Integración de Tor en Zashi. <g1>https://github.com/Electric-Coin-Company/zashi-android</g1> <g2>↩</g2>",
+  "<g1>Zaino: Zcash Chain Indexer and Light Wallet Server</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": "<g1>Zaino: Zcash Chain Indexer and Light Wallet Server</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>",
+  "Zcash mainnet DNS seeds are defined in the Zcash Protocol Specification, section 3.12 (Network Upgrades). <g1>↩</g1>": "Las semillas DNS de mainnet de Zcash están definidas en la Zcash Protocol Specification, sección 3.12 (Network Upgrades). <g1>↩</g1>",
+  "Zcash P2P message format follows Bitcoin's protocol with Zcash-specific extensions. See the Zcash Protocol Specification for the canonical definition of the <x1/>, <x2/>, <x3/>, and <x4/> messages. <g5>↩</g5>": "El formato de mensajes P2P de Zcash sigue el protocolo de Bitcoin con extensiones específicas de Zcash. Véase la Zcash Protocol Specification para la definición canónica de los mensajes <x1/>, <x2/>, <x3/> y <x4/>. <g5>↩</g5>"
+ },
+ "reviews": {
+  "Direct Wallet Transaction Submission via Dandelion++ P2P Relay": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", \"SHOULD NOT\", \"MAY\", and \"RECOMMENDED\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Light client:</g1> A Zcash wallet that does not store or validate a full copy of the block chain, relying instead on a compact-block server for block data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Compact-block server:</g1> A server implementing the lightwalletd gRPC protocol <g2><g3>2</g3></g2>, or a compatible implementation such as Zaino, that serves compact blocks and transaction-related RPCs to light clients.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Submission intermediary:</g1> Any server to which a wallet sends a newly-constructed transaction for broadcast, including but not limited to a compact-block server.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Dandelion++ stem phase / fluff phase / stem peer:</g1> As defined in draft-zodl-dandelion (PR <g2>#1379</g2>). <g3><g4>3</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>IP-to-transaction correlation:</g1> The ability of a network observer to determine which IP address originated a given transaction by observing when and where the transaction first appeared on the P2P network.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP specifies how Zcash light-client wallets MAY submit newly-constructed transactions directly to a full node peer via the Zcash P2P network — using the Dandelion++ stem-phase forwarding defined in draft-zodl-dandelion (PR <g1>#1379</g1>) <g2><g3>3</g3></g2> — instead of through a compact-block server, while continuing to use compact-block servers exclusively for chain synchronisation.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Under the current architecture, a wallet's submission intermediary (a compact-block server such as lightwalletd or Zaino) learns both the wallet's IP address and the transaction it submits at the same instant, letting a passive observer correlate transaction origin with network identity. This ZIP removes that correlation for the submission path.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "No consensus-rule changes are required. This ZIP covers the <g1>wallet side</g1> (sometimes called \"Component A\"); the full-node relay behaviour it depends on is specified in draft-zodl-dandelion (PR <g2>#1379</g2>) (Component B). <g3><g4>3</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "ZIP 307 <g1><g2>2</g2></g1> defines a light-client architecture in which a compact-block server mediates between the wallet and the P2P network. This is appropriate for block synchronisation: a well-designed wallet fetches whole block ranges, so the server learns little about which notes are the wallet's.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Transaction submission is different. When a wallet calls the <x1/> gRPC RPC, the compact-block server receives:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the wallet's IP address,": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the exact serialised transaction, and": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the submission timestamp.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "That is enough to link a transaction to a network identity. For shielded transactions the on-chain data reveals nothing about the sender, yet the submission channel leaks exactly the information that shielding is designed to protect.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Existing mitigations impose costs:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Tor</g1> — Zashi supports Tor <g2><g3>4</g3></g2>, but it adds latency and a dependency, and its effectiveness depends on the wallet always routing through it.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Self-hosted server</g1> — avoids the third-party trust assumption but is impractical for most mobile users.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Zaino</g1> <g2><g3>5</g3></g2> — improves server-side privacy by design but still sits between the wallet and the network for submission, preserving the IP-correlation window.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP proposes that a wallet with access to one or more Zcash P2P peer endpoints SHOULD submit transactions via those peers under Dandelion++ rather than via a compact-block server. Because the P2P network is a decentralised mesh and the receiving node relays the transaction through its stem peer without advertising it locally, no single entity learns both the transaction and the submitting IP together for the transaction's onward propagation.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A compliant wallet implementing this ZIP MUST NOT call the <x1/> gRPC RPC on a compact-block server for a transaction submitted via the P2P path (concurrent submission would re-expose the origin IP through the centralised channel).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A compliant wallet MUST send the transaction to a full node using the P2P handshake and message flow in the Specification below.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A compliant wallet MUST continue to use compact-block servers (or equivalent) for block synchronisation, note-witness retrieval, and other read-only chain queries.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The P2P submission path MUST be an optional enhancement: a wallet that cannot reach a full node peer MUST fall back to the existing <x1/> RPC without degrading other functionality.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The receiving full node SHOULD implement the Dandelion++ relay behaviour of draft-zodl-dandelion (PR <g1>#1379</g1>). <g2><g3>3</g3></g2> A wallet submitting via P2P gains no privacy benefit if the node immediately floods the transaction; however, a non-implementing node simply flood-broadcasts it, which is a safe fallback.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Peer discovery": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A wallet implementing this ZIP MUST obtain at least one full-node peer address. Acceptable mechanisms include, but are not limited to:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a hard-coded or user-configured list of trusted full nodes;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the Zcash mainnet DNS seeders <g1><g2>6</g2></g1>;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a peer address returned by a compact-block server via an optional extension RPC (not defined here);": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a peer address provided directly by the user.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The wallet MUST complete the Zcash P2P <x1/>/<x2/> handshake before submitting a transaction. The wallet MUST advertise a protocol version at least equal to the receiving network's minimum accepted protocol version, or the peer will reject the handshake.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Transaction submission message": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "After the handshake, the wallet submits the transaction using the standard Zcash P2P <x1/> message <g2><g3>7</g3></g2>. No new P2P message type is required.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The wallet SHOULD set the <x1/> field in its <x2/> message to <x3/> so that the peer does not push unsolicited <x4/> messages back to the wallet, reducing leakage about the wallet's connectivity.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Dandelion++ submission hint (unadvertised <x2/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "To request that the receiving full node treat the transaction as a stem-phase candidate (rather than immediately flooding it), the wallet MUST send the <x1/> message with <g2>no prior <x3/> announcement</g2> on this connection. This is the \"unadvertised <x4/>\" convention of draft-zodl-dandelion §Stem-phase forwarding (PR <g5>#1379</g5>). <g6><g7>3</g7></g6>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Rationale: advertising via <x1/> before <x2/> is the normal relay path, which signals the sending node already received the transaction from elsewhere. Sending <x3/> without a prior <x4/> on a freshly-opened connection is a reliable signal that this is the transaction's first appearance.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>No concurrent centralised submission": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The wallet MUST NOT resubmit the same transaction via a compact-block server <x1/> RPC while the P2P submission is in flight or within the stem-phase timeout window. Concurrent submission would reveal the originating IP via the centralised channel.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Fallback": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"Retroceso\" means a setback or reversal, but \"Fallback\" here is a backup submission path used when P2P submission fails."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<x1/>Retroceso"
+  },
+  "If the P2P submission does not result in the transaction appearing in a block within a configurable timeout (RECOMMENDED default: 30 minutes), the wallet MAY fall back to <x1/> on a compact-block server.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Privacy Implications": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The wallet's P2P peer(s) see the wallet's IP and the transaction, but only before stem-phase forwarding begins. With Dandelion++ stem/fluff the peer relays the transaction to its own stem peer without advertising it locally, breaking the origin-IP↔txid association for all subsequent hops.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The compact-block server used for synchronisation is decoupled from the submission path and learns only that the wallet is synchronising blocks, not which transactions it submitted.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An adversary who controls <g1>both</g1> the wallet's compact-block server and the wallet's P2P peer can still correlate if the wallet uses the same IP for both. Wallets SHOULD use distinct network paths (e.g. Tor for one channel, or separate Tor circuits) if this threat model is relevant.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Dandelion++ does not protect against a global passive adversary monitoring all P2P traffic. It significantly raises the cost of IP-to-transaction correlation for realistic adversaries operating relay nodes or monitoring subsets of the network.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Shielded transactions already hide their <g1>contents</g1> via zero-knowledge proofs; this ZIP closes the complementary <g2>network-metadata</g2> leak (which IP originated the packet). The two protections are orthogonal.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Once a transaction enters the fluff phase it is indistinguishable from any other transaction on the network.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why not just use Tor for all wallets?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Tor addresses IP privacy comprehensively but adds latency (typically 200–500 ms), requires maintaining Tor client code per wallet, and may be unavailable on some platforms. Dandelion++ is a lightweight complement. The two are not mutually exclusive: a wallet using Tor <g1>and</g1> P2P Dandelion++ submission is strictly more private than either alone.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why keep compact-block servers for synchronisation?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "They provide an efficient protocol for delivering shielded-note data to mobile wallets. Replacing bulk sync with a direct P2P full-sync would require downloading hundreds of gigabytes, impractical on mobile. Separating the submission channel from the sync channel also lets a wallet choose independent providers for each, reducing the trust surface.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why an unadvertised <x2/> rather than a new P2P message type?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A new message type would require a network upgrade and coordination across all node implementations. The existing <x1/> message with a semantic convention (no prior <x2/>) achieves the same signalling with no protocol change, allowing incremental deployment. Non-implementing nodes flood-broadcast normally (safe fallback).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Relationship to Zaino": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A Zaino <g1><g2>5</g2></g1> instance co-located with a Zebra node could implement the draft-zodl-dandelion (PR <g3>#1379</g3>) relay path natively, routing wallet submissions received via <x4/> through the local node's stem path. This would help wallets that cannot open a direct P2P connection, without wallet-software changes. It is RECOMMENDED as a complement to (not a replacement for) this ZIP.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The ALL-CAPITALS key word RECOMMENDED must be rendered as the capitalised Spanish verb 'SE RECOMIENDA (RECOMMENDED)', not 'Es RECOMENDADO'."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Una instancia de Zaino <g1><g2>5</g2></g1> coubicada con un nodo Zebra podría implementar de forma nativa la ruta de retransmisión de draft-zodl-dandelion (PR <g3>#1379</g3>), enrutando los envíos de billeteras recibidos vía <x4/> a través de la ruta de tallo del nodo local. Esto ayudaría a las billeteras que no pueden abrir una conexión P2P directa, sin cambios en el software de la billetera. Es RECOMENDADO (RECOMMENDED) como complemento de (no como reemplazo de) este ZIP."
+  },
+  "<x1/>Reference Implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Wallet-side (Component A):": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Android</g1>: <g2>zcash/zcash-android-wallet-sdk#2010</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>iOS (Swift)</g1>: <g2>zcash/zcash-swift-wallet-sdk#1804</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Both SDKs add an opt-in <x1/> (<x2/> / <x3/>) that resolves peers via the mainnet DNS seeders, opens a TCP connection to a full node, performs the <x4/>/<x5/> handshake (advertising protocol version 170150, the current mainnet minimum), and sends the raw <x6/> without a prior <x7/>. Chain synchronisation continues to use the lightwalletd endpoint. A fallback to <x8/> is available when no P2P peer is reachable.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Full-node relay (Component B) is specified and implemented in draft-zodl-dandelion (PR <g1>#1379</g1>): <g2>zcashfoundation/zebra#10928</g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Changelog": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "2026-07-09: Initial draft.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Footnotes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Key words for use in RFCs to Indicate Requirement Levels</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>ZIP 307: Light Client Protocol for Payment Detection</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "draft-zodl-dandelion: Dandelion++ Transaction Propagation for Zcash P2P Nodes. PR: <g1>https://github.com/zcash/zips/pull/1379</g1> (In preparation — see zcash/zips#1379.) <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Zashi Tor integration. <g1>https://github.com/Electric-Coin-Company/zashi-android</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Zaino: Zcash Chain Indexer and Light Wallet Server</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Zcash mainnet DNS seeds are defined in the Zcash Protocol Specification, section 3.12 (Network Upgrades). <g1>↩</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Zcash P2P message format follows Bitcoin's protocol with Zcash-specific extensions. See the Zcash Protocol Specification for the canonical definition of the <x1/>, <x2/>, <x3/>, and <x4/> messages. <g5>↩</g5>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  }
+ }
+}

@@ -1,0 +1,1920 @@
+{
+ "segments": {
+  "Shielded Voting Wallet API": "API de billetera para votación blindada",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"NO DEBE (MUST NOT)\", \"DEBERÍA (SHOULD)\" y \"PUEDE (MAY)\" en este documento deben interpretarse como se describe en BCP 14 <g1><g2>1</g2></g1> cuando, y solo cuando, aparecen en mayúsculas.",
+  "The terms below are to be interpreted as follows:": "Los términos a continuación deben interpretarse de la siguiente manera:",
+  "Vote round": "Ronda de votación",
+  "A time-bounded voting session defining a set of proposals, a Zcash snapshot height, and a deadline. Wallet clients interact with exactly one vote round at a time.": "Una sesión de votación acotada en el tiempo que define un conjunto de propuestas, una altura de instantánea de Zcash y una fecha límite. Los clientes de billetera interactúan con exactamente una ronda de votación a la vez.",
+  "Delegation": "Delegación",
+  "The act of proving ownership of unspent Orchard notes at the snapshot height and registering a vote authority note on the vote commitment tree. See <g1><g2>2</g2></g1>.": "El acto de demostrar la propiedad de notas Orchard no gastadas en la altura de instantánea y registrar una nota de autoridad de voto en el árbol de compromisos de voto. Véase <g1><g2>2</g2></g1>.",
+  "Vote authority note (VAN)": "Nota de autoridad de voto (VAN)",
+  "A note appended to the vote commitment tree during delegation. The VAN carries the delegated vote weight and is consumed (nullified) when the holder casts a vote.": "Una nota que se añade al árbol de compromisos de voto durante la delegación. La VAN lleva el peso de voto delegado y se consume (se anula) cuando el titular emite un voto.",
+  "Vote commitment tree": "Árbol de compromisos de voto",
+  "An append-only Merkle tree that records vote authority notes and vote commitments. The tree root at a given block height serves as a public input to zero-knowledge proof verification.": "Un árbol Merkle de solo adición que registra las notas de autoridad de voto y los compromisos de voto. La raíz del árbol en una altura de bloque dada sirve como entrada pública para la verificación de pruebas de conocimiento cero.",
+  "Share": "Cuota",
+  "A fragment of the holder's delegated vote weight, encrypted and submitted to helper servers rather than directly to the chain to prevent timing-based linkability.": "Un fragmento del peso de voto delegado del titular, cifrado y enviado a servidores auxiliares en lugar de directamente a la cadena para evitar la vinculación basada en tiempos.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This ZIP specifies the REST API endpoints, wire formats, and discovery mechanism that wallet clients use to participate in shielded on-chain voting rounds. It covers vote round discovery via a per-vote configuration document, data query endpoints for reading chain state, transaction submission endpoints for delegation and vote casting, and the encoding conventions for all exchanged data.": "Este ZIP especifica los endpoints de la API REST, los formatos de transmisión y el mecanismo de descubrimiento que usan los clientes de billetera para participar en rondas de votación blindadas en la cadena. Cubre el descubrimiento de rondas de votación mediante un documento de configuración por votación, los endpoints de consulta de datos para leer el estado de la cadena, los endpoints de envío de transacciones para la delegación y la emisión de votos, y las convenciones de codificación para todos los datos intercambiados.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "The shielded voting protocol involves multiple ZIPs that specify the cryptographic circuits <g1><g2>3</g2></g1>, nullifier retrieval <g3><g4>4</g4></g3>, proof-of-balance <g5><g6>2</g6></g5>, share submission <g7><g8>5</g8></g7>, and election authority key ceremony <g9><g10>6</g10></g9>. A wallet integrator currently must read several of these specifications to understand which endpoints to call, what wire formats to use, and how to discover an active vote.": "El protocolo de votación blindada comprende varios ZIP que especifican los circuitos criptográficos <g1><g2>3</g2></g1>, la recuperación de nullifiers <g3><g4>4</g4></g3>, la prueba de saldo <g5><g6>2</g6></g5>, el envío de cuotas <g7><g8>5</g8></g7> y la ceremonia de claves de la autoridad electoral <g9><g10>6</g10></g9>. Actualmente, un integrador de billeteras debe leer varias de estas especificaciones para entender qué endpoints llamar, qué formatos de transmisión usar y cómo descubrir una votación activa.",
+  "This ZIP consolidates the wallet-facing API surface into a single document, specifying the REST endpoints, JSON wire formats, encoding conventions, and discovery mechanism needed to participate in a vote.": "Este ZIP consolida la superficie de la API orientada a la billetera en un solo documento, especificando los endpoints REST, los formatos de transmisión JSON, las convenciones de codificación y el mecanismo de descubrimiento necesarios para participar en una votación.",
+  "Versioning fields in the vote configuration allow the protocol to evolve (new PIR schemes, circuit versions, tally methods) while maintaining backwards compatibility with deployed wallets.": "Los campos de versionamiento en la configuración de la votación permiten que el protocolo evolucione (nuevos esquemas PIR, versiones de circuitos, métodos de escrutinio) manteniendo compatibilidad hacia atrás con las billeteras desplegadas.",
+  "<x1/>Requirements": "<x1/>Requisitos",
+  "A wallet can discover and join an active voting round using a published configuration document.": "Una billetera puede descubrir y unirse a una ronda de votación activa mediante un documento de configuración publicado.",
+  "A wallet can submit delegation and vote commitment transactions using the wire formats in this specification. Proof construction is specified in companion ZIPs.": "Una billetera puede enviar transacciones de delegación y de compromiso de voto usando los formatos de transmisión de esta especificación. La construcción de pruebas se especifica en ZIP complementarios.",
+  "A wallet can submit encrypted vote shares to helper servers and confirm their on-chain inclusion.": "Una billetera puede enviar cuotas de voto cifradas a servidores auxiliares y confirmar su inclusión on-chain.",
+  "Each protocol component (vote server, vote protocol, tally method, PIR) can be versioned and upgraded independently. A change to one component has no impact on other components or the configuration schema.": "Cada componente del protocolo (servidor de votación, protocolo de votación, método de escrutinio, PIR) puede versionarse y actualizarse de forma independiente. Un cambio en un componente no tiene impacto en otros componentes ni en el esquema de configuración.",
+  "<x1/>Non-requirements": "<x1/>No requisitos",
+  "Validator onboarding, key registration, and EA key ceremony.": "La incorporación de validadores, el registro de claves y la ceremonia de claves de la EA.",
+  "Chain consensus rules and block production.": "Las reglas de consenso de la cadena y la producción de bloques.",
+  "Round creation and governance authority operations.": "La creación de rondas y las operaciones de la autoridad de gobernanza.",
+  "The internal implementation of helper servers (specified in <g1><g2>5</g2></g1>).": "La implementación interna de los servidores auxiliares (especificada en <g1><g2>5</g2></g1>).",
+  "<x1/>High level summary": "<x1/>Resumen de alto nivel",
+  "This section is non-normative.": "Esta sección no es normativa.",
+  "This section provides an informational overview of the end-to-end sequence a wallet follows to participate in a shielded voting round. Each step references the normative section that specifies its details. All requirements use the language defined in those sections.": "Esta sección proporciona una descripción general informativa de la secuencia de extremo a extremo que sigue una billetera para participar en una ronda de votación blindada. Cada paso referencia la sección normativa que especifica sus detalles. Todos los requisitos usan el lenguaje definido en esas secciones.",
+  "The vote configuration itself is versioned by <x1/>, which tracks the schema of the configuration document. It also carries four independently versioned protocol components:": "La configuración de la votación en sí está versionada por <x1/>, que sigue el esquema del documento de configuración. También incluye cuatro componentes del protocolo versionados de forma independiente:",
+  "<g1><x2/></g1> — the ZKP circuits (ZKP1, ZKP2, ZKP3) and commitment tree structure. The circuits are designed to be upgradeable: a new circuit version bumps <x3/> without affecting the other components.": "<g1><x2/></g1> — los circuitos ZKP (ZKP1, ZKP2, ZKP3) y la estructura del árbol de compromisos. Los circuitos están diseñados para ser actualizables: una nueva versión de circuito incrementa <x3/> sin afectar a los demás componentes.",
+  "<g1><x2/></g1> — threshold decryption and result aggregation.": "<g1><x2/></g1> — el descifrado por umbral y la agregación de resultados.",
+  "<g1><x2/></g1> — the nullifier PIR retrieval scheme.": "<g1><x2/></g1> — el esquema de recuperación PIR de nullifiers.",
+  "<g1><x2/></g1> — the helper server API that vote shares are submitted to.": "<g1><x2/></g1> — la API del servidor auxiliar a la que se envían las cuotas de voto.",
+  "See [Version Handling] for the normative rules.": "Véase [Gestión de versiones] para las reglas normativas.",
+  "<x1/>Discovery and Validation": "<x1/>Descubrimiento y validación",
+  "<g1>Obtain vote configuration.</g1> Fetch or receive the vote configuration JSON document for the round. See [Vote Configuration Format].": "<g1>Obtener la configuración de la votación.</g1> Recuperar o recibir el documento JSON de configuración de la votación para la ronda. Véase [Vote Configuration Format].",
+  "<g1>Validate configuration.</g1> Check all fields against the rules in [Validation Rules] and verify version compatibility per [Compatibility Rules]. Reject the configuration and stop if any check fails.": "<g1>Validar la configuración.</g1> Comprobar todos los campos contra las reglas de [Validation Rules] y verificar la compatibilidad de versiones según [Compatibility Rules]. Rechazar la configuración y detenerse si alguna comprobación falla.",
+  "<g1>Fetch active round from chain.</g1> Query <x2/> to confirm the round is ACTIVE and retrieve on-chain parameters: <x3/>, <x4/>, <x5/>, and <x6/>. See [Active Round].": "<g1>Obtener la ronda activa de la cadena.</g1> Consultar <x2/> para confirmar que la ronda está ACTIVE y recuperar los parámetros en cadena: <x3/>, <x4/>, <x5/> y <x6/>. Véase [Active Round].",
+  "<g1>Verify proposals hash.</g1> Compute the proposals hash from the configuration's <x2/> array and compare it to <x3/> from the chain response. See [Proposals Hash].": "<g1>Verificar el hash de las propuestas.</g1> Calcular el hash de las propuestas a partir del arreglo <x2/> de la configuración y compararlo con <x3/> de la respuesta de la cadena. Véase [Proposals Hash].",
+  "<x1/>Delegation": "<x1/>Delegación",
+  "<g1>Retrieve nullifier exclusion proofs.</g1> Connect to a <x2/> server and retrieve Merkle non-membership proofs for the wallet's Orchard note nullifiers at <x3/>. See [Nullifier Retrieval] and <g4><g5>4</g5></g4>.": "<g1>Recuperar las pruebas de exclusión de nullifiers.</g1> Conectarse a un servidor <x2/> y recuperar pruebas de no pertenencia Merkle para los nullifiers de las notas Orchard de la billetera en <x3/>. Véanse [Nullifier Retrieval] y <g4><g5>4</g5></g4>.",
+  "<g1>Construct and submit delegation transaction.</g1> Build the ZKP1 proof (proving Orchard note ownership at the snapshot height) and submit via <x2/>. See [Delegation Transaction] and <g3><g4>2</g4></g3>.": "<g1>Construir y enviar la transacción de delegación.</g1> Construir la prueba ZKP1 (que demuestra la propiedad de las notas Orchard en la altura de la instantánea) y enviarla mediante <x2/>. Véanse [Delegation Transaction] y <g3><g4>2</g4></g3>.",
+  "<g1>Poll for delegation confirmation.</g1> Poll <x2/> using the <x3/> from the submission response until the response includes a non-empty <x4/> and <x5/> = 0. See [Confirmation Polling].": "<g1>Sondear la confirmación de la delegación.</g1> Sondear <x2/> usando el <x3/> de la respuesta de envío hasta que la respuesta incluya un <x4/> no vacío y <x5/> = 0. Véase [Confirmation Polling].",
+  "<g1>Sync commitment tree and locate VAN.</g1> Query the [Commitment Tree Leaves] endpoint to incrementally sync the local tree. Identify the wallet's vote authority note by its commitment <x2/> computed during step 6.": "<g1>Sincronizar el árbol de compromisos y localizar el VAN.</g1> Consultar el endpoint [Commitment Tree Leaves] para sincronizar incrementalmente el árbol local. Identificar la nota de autoridad de voto de la billetera por su compromiso <x2/>, calculado durante el paso 6.",
+  "<x1/>Voting (repeat for each proposal)": "<x1/>Votación (repetir para cada propuesta)",
+  "<g1>Construct and submit vote commitment.</g1> Build the ZKP2 proof (consuming the current VAN and producing a new VAN) and submit via <x2/>. The tree root at the anchor height is a public input to this proof. See [Vote Commitment Transaction] and <g3><g4>3</g4></g3>.": "<g1>Construir y enviar el compromiso de voto.</g1> Construir la prueba ZKP2 (que consume el VAN actual y produce un nuevo VAN) y enviarla mediante <x2/>. La raíz del árbol en la altura del ancla es una entrada pública de esta prueba. Véanse [Vote Commitment Transaction] y <g3><g4>3</g4></g3>.",
+  "<g1>Poll for vote commitment confirmation.</g1> Poll <x2/> until confirmed.": "<g1>Sondear la confirmación del compromiso de voto.</g1> Sondear <x2/> hasta que se confirme.",
+  "<g1>Sync commitment tree.</g1> Query [Commitment Tree Leaves] again to locate the new VAN (needed as input for the next proposal) and the vote commitment leaf (needed for share construction).": "<g1>Sincronizar el árbol de compromisos.</g1> Consultar de nuevo [Commitment Tree Leaves] para localizar el nuevo VAN (necesario como entrada para la siguiente propuesta) y la hoja del compromiso de voto (necesaria para la construcción de las cuotas).",
+  "<g1>Construct and submit shares.</g1> Build 16 encrypted share payloads and submit each to a helper server via <x2/>. Each share references the <x3/> of the vote commitment leaf from step 11. See [Share Delegation] and <g4><g5>5</g5></g4>.": "<g1>Construir y enviar las cuotas.</g1> Construir 16 cargas útiles cifradas de cuotas y enviar cada una a un servidor auxiliar mediante <x2/>. Cada cuota hace referencia al <x3/> de la hoja del compromiso de voto del paso 11. Véanse [Share Delegation] y <g4><g5>5</g5></g4>.",
+  "<g1>Poll share statuses.</g1> For each submitted share, poll <x2/> until all return <x3/>. See [Share Status].": "<g1>Sondear los estados de las cuotas.</g1> Para cada cuota enviada, sondear <x2/> hasta que todas devuelvan <x3/>. Véase [Share Status].",
+  "Steps 9 through 13 are repeated sequentially for each proposal in the round. Each iteration consumes the current VAN and produces a new one, so proposals cannot be voted on in parallel.": "Los pasos 9 a 13 se repiten secuencialmente para cada propuesta de la ronda. Cada iteración consume el VAN actual y produce uno nuevo, por lo que las propuestas no pueden votarse en paralelo.",
+  "<x1/>Results (optional)": "<x1/>Resultados (opcional)",
+  "<g1>View tally results.</g1> After the round reaches FINALIZED status, query <x2/> for decrypted per-proposal tallies. See [Tally Results].": "<g1>Ver los resultados del escrutinio.</g1> Después de que la ronda alcance el estado FINALIZED, consultar <x2/> para obtener los escrutinios descifrados por propuesta. Véase [Tally Results].",
+  "<x1/>Specification": "<x1/>Especificación",
+  "<x1/>Vote Discovery": "<x1/>Descubrimiento de votaciones",
+  "A vote configuration is a JSON document published for each vote round. It contains all parameters a wallet needs to locate services and participate in the round.": "Una configuración de votación es un documento JSON publicado para cada ronda de votación. Contiene todos los parámetros que una billetera necesita para localizar los servicios y participar en la ronda.",
+  "<x1/>Vote Configuration Format": "<x1/>Formato de la configuración de votación",
+  "<x1/>Field Definitions": "<x1/>Definiciones de campos",
+  "Field": "Campo",
+  "Type": "Tipo",
+  "Description": "Descripción",
+  "integer": "entero",
+  "Schema version of this configuration document. Currently 1.": "Versión del esquema de este documento de configuración. Actualmente 1.",
+  "string": "cadena",
+  "Hex-encoded 32-byte vote round identifier (64 characters, lowercase).": "Identificador de ronda de votación de 32 bytes codificado en hexadecimal (64 caracteres, minúsculas).",
+  "array": "arreglo",
+  "One or more vote server base URLs serving both chain and helper endpoints. Each entry has <x1/> (string) and <x2/> (string).": "Una o más URL base de servidores de votación que sirven tanto los endpoints de la cadena como los auxiliares. Cada entrada tiene <x1/> (cadena) y <x2/> (cadena).",
+  "One or more nullifier PIR server base URLs. Each entry has <x1/> and <x2/>.": "Una o más URL base de servidores PIR de nullifiers. Cada entrada tiene <x1/> y <x2/>.",
+  "Zcash block height at which the Orchard pool snapshot was taken.": "Altura de bloque de Zcash en la que se tomó la instantánea del pool de Orchard.",
+  "Unix timestamp (seconds) after which votes are no longer accepted.": "Marca de tiempo Unix (segundos) después de la cual ya no se aceptan votos.",
+  "Ordered list of proposals. Each has <x1/> (integer, 1-indexed), <x2/> (string), <x3/> (string), and <x4/> (array of <x5/>).": "Lista ordenada de propuestas. Cada una tiene <x1/> (entero, indexado desde 1), <x2/> (cadena), <x3/> (cadena) y <x4/> (arreglo de <x5/>).",
+  "array of strings": "arreglo de cadenas",
+  "PIR retrieval scheme versions supported by the servers (e.g., <x1/>).": "Versiones del esquema de recuperación PIR compatibles con los servidores (p. ej., <x1/>).",
+  "Vote protocol version covering the ZKP circuits and commitment tree structure (e.g., <x1/>).": "Versión del protocolo de votación que cubre los circuitos ZKP y la estructura del árbol de compromisos (p. ej., <x1/>).",
+  "Tally method version covering threshold decryption and result aggregation (e.g., <x1/>).": "Versión del método de escrutinio que cubre el descifrado por umbral y la agregación de resultados (p. ej., <x1/>).",
+  "Vote server version covering the REST API (e.g., <x1/>).": "Versión del servidor de votación que cubre la API REST (p. ej., <x1/>).",
+  "<x1/>Validation Rules": "<x1/>Reglas de validación",
+  "A wallet MUST validate the configuration before use:": "Una billetera DEBE (MUST) validar la configuración antes de usarla:",
+  "<x1/> MUST be a version the wallet recognizes. This specification defines version 1.": "<x1/> DEBE (MUST) ser una versión que la billetera reconozca. Esta especificación define la versión 1.",
+  "<x1/> MUST be exactly 64 lowercase hexadecimal characters.": "<x1/> DEBE (MUST) consistir exactamente de 64 caracteres hexadecimales en minúsculas.",
+  "<x1/> MUST contain at least one entry.": "<x1/> DEBE (MUST) contener al menos una entrada.",
+  "<x1/> MUST be greater than 0.": "<x1/> DEBE (MUST) ser mayor que 0.",
+  "<x1/> MUST contain between 1 and 15 entries.": "<x1/> DEBE (MUST) contener entre 1 y 15 entradas.",
+  "Each proposal MUST have between 2 and 8 options.": "Cada propuesta DEBE (MUST) tener entre 2 y 8 opciones.",
+  "Proposal <x1/> values MUST be unique and in the range 1 to 15.": "Los valores de <x1/> de las propuestas DEBEN (MUST) ser únicos y estar en el rango de 1 a 15.",
+  "Option <x1/> values within a proposal MUST be unique and 0-indexed.": "Los valores de <x1/> de las opciones dentro de una propuesta DEBEN (MUST) ser únicos e indexados desde 0.",
+  "The wallet MUST check version compatibility as specified in [Version Handling]. In summary: <x1/>, <x2/>, and <x3/> MUST be recognized versions; <x4/> MUST contain at least one version the wallet supports.": "La billetera DEBE (MUST) verificar la compatibilidad de versiones según lo especificado en [Version Handling]. En resumen: <x1/>, <x2/> y <x3/> DEBEN (MUST) ser versiones reconocidas; <x4/> DEBE (MUST) contener al menos una versión que la billetera admita.",
+  "<x1/>Distribution": "<x1/>Distribución",
+  "The vote configuration is published out-of-band for each vote round. Distribution mechanisms include:": "La configuración de votación se publica fuera de banda para cada ronda de votación. Los mecanismos de distribución incluyen:",
+  "A developer-merged pull request to a well-known repository linking to the configuration file.": "Una solicitud de extracción fusionada por un desarrollador en un repositorio conocido que enlace al archivo de configuración.",
+  "A CDN or API endpoint serving the configuration.": "Un CDN o un endpoint de API que sirva la configuración.",
+  "Bundling the configuration within a wallet release.": "La inclusión de la configuración dentro de una versión de la billetera.",
+  "The choice of distribution mechanism is outside the scope of this specification. Regardless of the mechanism, the wallet MUST validate the configuration as described above before using it.": "La elección del mecanismo de distribución está fuera del alcance de esta especificación. Independientemente del mecanismo, la billetera DEBE (MUST) validar la configuración como se describió anteriormente antes de usarla.",
+  "<x1/>Data Query Endpoints": "<x1/>Endpoints de consulta de datos",
+  "All query endpoints are served relative to a <x1/> base URL from the vote configuration. Responses are JSON-serialized protobuf messages; byte fields are base64-encoded.": "Todos los endpoints de consulta se sirven en relación con una URL base <x1/> de la configuración de votación. Las respuestas son mensajes protobuf serializados en JSON; los campos de bytes están codificados en base64.",
+  "<x1/>Active Round": "<x1/>Ronda activa",
+  "Returns the active voting round, if any.": "Devuelve la ronda de votación activa, si la hay.",
+  "<g1>Response body:</g1> A JSON object containing a <x2/> field with the <x3/> structure:": "<g1>Cuerpo de la respuesta:</g1> Un objeto JSON que contiene un campo <x2/> con la estructura <x3/>:",
+  "base64 (32 bytes)": "base64 (32 bytes)",
+  "Round identifier.": "Identificador de la ronda.",
+  "uint64": "uint64",
+  "Zcash snapshot block height.": "Altura de bloque de la instantánea de Zcash.",
+  "Zcash block hash at snapshot.": "Hash del bloque de Zcash en la instantánea.",
+  "SHA-256 hash of the proposals array (see [Proposals Hash]).": "Hash SHA-256 del arreglo de propuestas (véase [Proposals Hash]).",
+  "Unix timestamp (seconds).": "Marca de tiempo Unix (segundos).",
+  "Nullifier non-membership tree root.": "Raíz del árbol de no membresía de nullifiers.",
+  "Orchard note commitment tree root.": "Raíz del árbol de compromisos de notas de Orchard.",
+  "uint32": "uint32",
+  "Session status enum (4=PENDING, 1=ACTIVE, 2=TALLYING, 3=FINALIZED).": "Enumeración del estado de la sesión (4=PENDING, 1=ACTIVE, 2=TALLYING, 3=FINALIZED).",
+  "Election authority public key (compressed Pallas point).": "Clave pública de la autoridad electoral (punto comprimido de Pallas).",
+  "Proposals with <x1/> (uint32), <x2/>, <x3/>, and <x4/>.": "Propuestas con <x1/> (uint32), <x2/>, <x3/> y <x4/>.",
+  "Human-readable round description.": "Descripción de la ronda legible por humanos.",
+  "Short human-readable round title.": "Título corto de la ronda legible por humanos.",
+  "Address of the account that created the session.": "Dirección de la cuenta que creó la sesión.",
+  "Vote chain block height at which the round was created.": "Altura de bloque de la cadena de votación en la que se creó la ronda.",
+  "The response may contain additional fields related to the EA key ceremony and threshold decryption (e.g., ceremony status, validator keys, ECIES payloads). These fields exist for validator coordination and have no bearing on wallet operations, so they are not documented here. See <g1><g2>6</g2></g1> for details.": "La respuesta puede contener campos adicionales relacionados con la ceremonia de claves de la EA y el descifrado por umbral (p. ej., estado de la ceremonia, claves de validadores, cargas útiles ECIES). Estos campos existen para la coordinación de los validadores y no afectan a las operaciones de la billetera, por lo que no se documentan aquí. Véase <g1><g2>6</g2></g1> para más detalles.",
+  "The <x1/> field in the VoteRound response contains the same proposals as the vote configuration document. The <x2/> field can be used to verify consistency between the two sources.": "El campo <x1/> de la respuesta VoteRound contiene las mismas propuestas que el documento de configuración de votación. El campo <x2/> puede usarse para verificar la consistencia entre ambas fuentes.",
+  "<x1/>Proposals Hash": "<x1/>Hash de propuestas",
+  "The <x1/> is SHA-256 over the canonical JSON serialization of the <x2/> array, allowing wallets to verify that the proposals shown to the user match those on the vote chain.": "El <x1/> es el SHA-256 de la serialización JSON canónica del arreglo <x2/>, lo que permite a las billeteras verificar que las propuestas mostradas al usuario coincidan con las de la cadena de votación.",
+  "To compute: construct a JSON array of proposal objects containing <x1/>, <x2/>, <x3/>, and <x4/> (each with <x5/>, <x6/>), ordered by <x7/> then <x8/> ascending, with object keys in the order listed. Serialize with no whitespace and SHA-256 the UTF-8 result. The JSON serialization MUST NOT escape the forward slash character (<x9/>); non-ASCII characters are emitted as UTF-8 bytes, not as <x10/> escapes. Control characters (U+0000 through U+001F) are escaped per RFC 8259 (<x11/>, <x12/>, <x13/>, <x14/>, <x15/>, or <x16/>).": "Para calcularlo: construya un arreglo JSON de objetos de propuesta que contengan <x1/>, <x2/>, <x3/> y <x4/> (cada uno con <x5/>, <x6/>), ordenados primero por <x7/> y luego por <x8/> de forma ascendente, con las claves de objeto en el orden indicado. Serialice sin espacios en blanco y aplique SHA-256 al resultado UTF-8. La serialización JSON NO DEBE (MUST NOT) escapar el carácter de barra diagonal (<x9/>); los caracteres no ASCII se emiten como bytes UTF-8, no como escapes <x10/>. Los caracteres de control (U+0000 hasta U+001F) se escapan según el RFC 8259 (<x11/>, <x12/>, <x13/>, <x14/>, <x15/> o <x16/>).",
+  "Example preimage (from [Vote Configuration Format]):": "Ejemplo de preimagen (tomada de [Vote Configuration Format]):",
+  "SHA-256 of the above preimage: <x1/>.": "SHA-256 de la preimagen anterior: <x1/>.",
+  "Wallets SHOULD verify <x1/> against the vote configuration before proceeding.": "Las billeteras DEBERÍAN (SHOULD) verificar <x1/> contra la configuración de votación antes de continuar.",
+  "If no active round exists, the response contains a <x1/> field with a null or empty value.": "Si no existe ninguna ronda activa, la respuesta contiene un campo <x1/> con un valor nulo o vacío.",
+  "<x1/>Round Details": "<x1/>Detalles de la ronda",
+  "Returns details for a specific vote round.": "Devuelve los detalles de una ronda de votación específica.",
+  "<g1>Path parameters:</g1>": "<g1>Parámetros de ruta:</g1>",
+  "<x1/>: Hex-encoded 32-byte vote round identifier (64 characters).": "<x1/>: Identificador hexadecimal de 32 bytes de la ronda de votación (64 caracteres).",
+  "<g1>Response body:</g1> Same <x2/> structure as [Active Round].": "<g1>Cuerpo de la respuesta:</g1> La misma estructura <x2/> que en [Active Round].",
+  "<x1/>List Rounds": "<x1/>Listar rondas",
+  "Returns all stored vote rounds.": "Devuelve todas las rondas de votación almacenadas.",
+  "<g1>Response body:</g1> A JSON object containing a <x2/> array of <x3/> structures.": "<g1>Cuerpo de la respuesta:</g1> Un objeto JSON que contiene un arreglo <x2/> de estructuras <x3/>.",
+  "<x1/>Commitment Tree (Latest)": "<x1/>Árbol de compromisos (más reciente)",
+  "Returns the latest commitment tree state for a round.": "Devuelve el estado más reciente del árbol de compromisos de una ronda.",
+  "<x1/>: Hex-encoded 32-byte vote round identifier.": "<x1/>: Identificador hexadecimal de 32 bytes de la ronda de votación.",
+  "<g1>Response body:</g1> A JSON object containing a <x2/> field:": "<g1>Cuerpo de la respuesta:</g1> Un objeto JSON que contiene un campo <x2/>:",
+  "Next leaf index to be written.": "Índice de la próxima hoja que se escribirá.",
+  "Current Merkle root.": "Raíz de Merkle actual.",
+  "Block height at which this root was computed.": "Altura de bloque en la que se calculó esta raíz.",
+  "<x1/> at the time the root was stored.": "<x1/> en el momento en que se almacenó la raíz.",
+  "<x1/>Commitment Tree at Height": "<x1/>Árbol de compromisos en una altura",
+  "Returns the commitment tree state at a specific block height.": "Devuelve el estado del árbol de compromisos en una altura de bloque específica.",
+  "<x1/>: Block height (decimal integer).": "<x1/>: Altura de bloque (entero decimal).",
+  "<g1>Response body:</g1> Same <x2/> structure as [Commitment Tree (Latest)].": "<g1>Cuerpo de la respuesta:</g1> La misma estructura <x2/> que en [Commitment Tree (Latest)].",
+  "<x1/>Commitment Tree Leaves": "<x1/>Hojas del árbol de compromisos",
+  "Returns commitment tree leaves appended in blocks within the specified height range. Used by wallet clients to incrementally sync the local copy of the vote commitment tree.": "Devuelve las hojas del árbol de compromisos añadidas en los bloques dentro del rango de alturas especificado. Lo usan los clientes de billetera para sincronizar de forma incremental la copia local del árbol de compromisos de votación.",
+  "<g1>Query parameters:</g1>": "<g1>Parámetros de consulta:</g1>",
+  "<x1/>: Start block height (inclusive).": "<x1/>: Altura de bloque inicial (inclusive).",
+  "<x1/>: End block height (inclusive).": "<x1/>: Altura de bloque final (inclusive).",
+  "<g1>Response body:</g1> A JSON object containing a <x2/> array. Each entry represents one block:": "<g1>Cuerpo de la respuesta:</g1> Un objeto JSON que contiene un arreglo <x2/>. Cada entrada representa un bloque:",
+  "Block height.": "Altura de bloque.",
+  "Index of the first leaf appended in this block.": "Índice de la primera hoja añadida en este bloque.",
+  "array of base64 (32 bytes)": "arreglo de base64 (32 bytes)",
+  "Commitment leaves (Pallas base field elements, little-endian each).": "Hojas de compromiso (elementos del cuerpo base de Pallas, cada uno en little-endian).",
+  "<x1/>Tally Results": "<x1/>Resultados del escrutinio",
+  "Returns finalized (decrypted) tally results for a vote round. Only available after the round reaches FINALIZED status.": "Devuelve los resultados finales (descifrados) del escrutinio para una ronda de votación. Solo está disponible después de que la ronda alcance el estado FINALIZED.",
+  "<g1>Response body:</g1> A JSON object containing a <x2/> array:": "<g1>Cuerpo de la respuesta:</g1> Un objeto JSON que contiene un arreglo <x2/>:",
+  "Proposal identifier.": "Identificador de la propuesta.",
+  "Vote option index.": "Índice de la opción de voto.",
+  "Decrypted aggregate value (zatoshi).": "Valor agregado descifrado (zatoshi).",
+  "<x1/>Transaction Status": "<x1/>Estado de la transacción",
+  "Returns the confirmation status of a previously submitted transaction.": "Devuelve el estado de confirmación de una transacción enviada previamente.",
+  "<x1/>: Hex-encoded transaction hash.": "<x1/>: Hash de la transacción codificado en hexadecimal.",
+  "<g1>Response body:</g1>": "<g1>Cuerpo de la respuesta:</g1>",
+  "Block height at which the transaction was included (empty if pending).": "Altura de bloque en la que la transacción fue incluida (vacío si está pendiente).",
+  "Result code (0 = success).": "Código de resultado (0 = éxito).",
+  "Error message if <x1/> is non-zero.": "Mensaje de error si <x1/> es distinto de cero.",
+  "ABCI events emitted by the transaction.": "Eventos ABCI emitidos por la transacción.",
+  "<x1/>Delegation Transaction": "<x1/>Transacción de delegación",
+  "The delegation transaction registers a holder's vote weight on the vote commitment tree. It corresponds to ZKP1 (the delegation circuit) as specified in <g1><g2>2</g2></g1> and <g3><g4>3</g4></g3>.": "La transacción de delegación registra el peso de voto de un titular en el árbol de compromiso de votación. Corresponde a ZKP1 (el circuito de delegación) según lo especificado en <g1><g2>2</g2></g1> y <g3><g4>3</g4></g3>.",
+  "<x1/>Endpoint": "<x1/>Punto de conexión",
+  "<x1/>Request Body": "<x1/>Cuerpo de la solicitud",
+  "A JSON object with the following fields:": "Un objeto JSON con los siguientes campos:",
+  "Randomized spend authorization verification key (compressed Pallas point).": "Clave de verificación de autorización de gasto aleatorizada (punto de Pallas comprimido).",
+  "base64 (64 bytes)": "base64 (64 bytes)",
+  "RedPallas spend authorization signature.": "Firma de autorización de gasto con RedPallas.",
+  "Nullifier of the dummy signed note.": "Nullifier de la nota firmada simulada.",
+  "Output note commitment (extracted x-coordinate).": "Compromiso de la nota de salida (coordenada x extraída).",
+  "Vote authority note commitment (extracted x-coordinate).": "Compromiso de la nota de autoridad de voto (coordenada x extraída).",
+  "array of base64 (32 bytes each)": "arreglo de base64 (32 bytes cada uno)",
+  "Governance nullifiers (up to 5). One per claimed note.": "Nullifiers de gobernanza (hasta 5). Uno por nota reclamada.",
+  "base64 (variable)": "base64 (variable)",
+  "Halo 2 ZKP1 proof.": "Prueba ZKP1 de Halo 2.",
+  "Vote round identifier.": "Identificador de la ronda de votación.",
+  "Client-computed sighash for signature verification.": "Sighash calculado por el cliente para la verificación de la firma.",
+  "<x1/>Sighash": "<x1/>Sighash",
+  "The <x1/> field is the 32-byte ZIP 244 <g2><g3>7</g3></g2> shielded sighash extracted from the signed PCZT after the hardware wallet signing flow. The chain verifies the <x4/> against this client-provided sighash; it does not recompute it. See <g5><g6>2</g6></g5> for the PCZT construction and signing flow that produces the sighash.": "El campo <x1/> es el sighash blindado de 32 bytes de ZIP 244 <g2><g3>7</g3></g2> extraído del PCZT firmado después del flujo de firma de la billetera de hardware. La cadena verifica el <x4/> contra este sighash proporcionado por el cliente; no lo recalcula. Consulte <g5><g6>2</g6></g5> para la construcción del PCZT y el flujo de firma que produce el sighash.",
+  "<x1/>Response": "<x1/>Respuesta",
+  "All transaction submission endpoints return the same response format:": "Todos los puntos de conexión de envío de transacciones devuelven el mismo formato de respuesta:",
+  "string (hex)": "cadena (hex)",
+  "Transaction hash for status polling.": "Hash de la transacción para la consulta de estado.",
+  "Result code. 0 indicates the transaction was accepted into the mempool.": "Código de resultado. 0 indica que la transacción fue aceptada en el mempool.",
+  "Error description when <x1/> is non-zero. Omitted on success.": "Descripción del error cuando <x1/> es distinto de cero. Se omite en caso de éxito.",
+  "<x1/>Vote Commitment Transaction": "<x1/>Transacción de compromiso de votación",
+  "The vote commitment transaction casts a vote on a specific proposal. It corresponds to ZKP2 (the vote commitment circuit) as specified in <g1><g2>3</g2></g1>.": "La transacción de compromiso de votación emite un voto sobre una propuesta específica. Corresponde a ZKP2 (el circuito de compromiso de votación) según lo especificado en <g1><g2>3</g2></g1>.",
+  "Nullifier of the vote authority note being consumed.": "Nullifier de la nota de autoridad de voto que se consume.",
+  "New vote authority note commitment.": "Compromiso de la nueva nota de autoridad de voto.",
+  "Vote commitment (Poseidon hash binding the vote).": "Compromiso de votación (hash Poseidon que vincula el voto).",
+  "Proposal identifier (1 to 15).": "Identificador de la propuesta (1 a 15).",
+  "Halo 2 ZKP2 proof.": "Prueba ZKP2 de Halo 2.",
+  "Block height of the vote commitment tree root used as anchor.": "Altura de bloque de la raíz del árbol de compromisos de votación utilizada como ancla.",
+  "RedPallas signature under the randomized voting key.": "Firma RedPallas bajo la clave de votación aleatorizada.",
+  "Randomized voting public key (compressed Pallas point).": "Clave pública de votación aleatorizada (punto Pallas comprimido).",
+  "Same response format as [Delegation Transaction].": "El mismo formato de respuesta que en [Transacción de delegación].",
+  "<x1/>Share Delegation": "<x1/>Delegación de participaciones",
+  "After casting a vote commitment, the wallet constructs encrypted share payloads and submits them to helper servers. The helper server queues each share and submits it to the chain at the client-specified time. See <g1><g2>5</g2></g1> for the server-side processing pipeline and <g3><g4>3</g4></g3> for share construction.": "Después de emitir un compromiso de votación, la billetera construye cargas útiles de participaciones cifradas y las envía a servidores auxiliares. El servidor auxiliar pone en cola cada participación y la envía a la cadena en el momento especificado por el cliente. Véase <g1><g2>5</g2></g1> para el flujo de procesamiento del lado del servidor y <g3><g4>3</g4></g3> para la construcción de participaciones.",
+  "The following endpoints are served from the same <x1/> base URLs as the chain query endpoints.": "Los siguientes endpoints se sirven desde las mismas URL base <x1/> que los endpoints de consulta de la cadena.",
+  "<x1/>Submit Share": "<x1/>Enviar participación",
+  "Submits a single encrypted vote share to a helper server.": "Envía una sola participación de voto cifrada a un servidor auxiliar.",
+  "<g1>Request body:</g1> A JSON object with the following fields:": "<g1>Cuerpo de la solicitud:</g1> Un objeto JSON con los siguientes campos:",
+  "Poseidon hash committing to all shares in this vote.": "Hash Poseidon que compromete todas las participaciones de esta votación.",
+  "Proposal identifier (1-indexed).": "Identificador de la propuesta (indexado desde 1).",
+  "Vote option index (0-indexed).": "Índice de la opción de voto (indexado desde 0).",
+  "object": "objeto",
+  "Encrypted share (see below).": "Participación cifrada (véase más abajo).",
+  "Vote commitment tree leaf index.": "Índice de hoja del árbol de compromisos de voto.",
+  "string (hex, 64 chars)": "cadena (hexadecimal, 64 caracteres)",
+  "Hex-encoded vote round identifier.": "Identificador de ronda de votación codificado en hexadecimal.",
+  "16 per-share Poseidon commitments.": "16 compromisos Poseidon, uno por participación.",
+  "Blinding factor for the revealed share.": "Factor de cegamiento de la participación revelada.",
+  "Unix timestamp (seconds) at which the helper should submit this share to the chain. 0 means submit at the last possible moment before <x1/>.": "Marca de tiempo Unix (segundos) en la que el auxiliar debe enviar esta participación a la cadena. 0 significa enviarla en el último momento posible antes de <x1/>.",
+  "The <x1/> object contains:": "El objeto <x1/> contiene:",
+  "ElGamal ciphertext component <x1/> (compressed Pallas point).": "Componente <x1/> del cifrado ElGamal (punto Pallas comprimido).",
+  "Share index (0 to 15).": "Índice de la participación (de 0 a 15).",
+  "<x1/> if accepted, <x2/> if already received.": "<x1/> si se acepta, <x2/> si ya se recibió.",
+  "Error description (present only on failure).": "Descripción del error (presente solo en caso de fallo).",
+  "<x1/>Share Nullifier": "<x1/>Nullifier de participación",
+  "Each submitted share has a deterministic nullifier derived from the vote commitment fields and the share's blinding factor. The wallet computes this nullifier locally and hex-encodes it (lowercase, 64 characters) for use in the [Share Status] endpoint path. The derivation is specified in <g1><g2>3</g2></g1>.": "Cada participación enviada tiene un nullifier determinista derivado de los campos del compromiso de voto y del factor de cegamiento de la participación. La billetera calcula este nullifier localmente y lo codifica en hexadecimal (minúsculas, 64 caracteres) para usarlo en la ruta del endpoint [Estado de la participación]. La derivación se especifica en <g1><g2>3</g2></g1>.",
+  "<x1/>Share Status": "<x1/>Estado de la participación",
+  "Polls whether a submitted share has been included on-chain.": "Consulta si una participación enviada ha sido incluida en la cadena.",
+  "<x1/>: Hex-encoded 32-byte share nullifier (64 characters), computed as specified in [Share Nullifier].": "<x1/>: Nullifier de participación de 32 bytes codificado en hexadecimal (64 caracteres), calculado como se especifica en [Nullifier de participación].",
+  "<x1/> if not yet on-chain, <x2/> if the share nullifier has been recorded on-chain.": "<x1/> si aún no está en la cadena, <x2/> si el nullifier de la participación ha sido registrado en la cadena.",
+  "<x1/>Vote Commitment Tree": "<x1/>Árbol de compromisos de voto",
+  "The vote commitment tree is an append-only Merkle tree that records vote authority notes and vote commitments.": "El árbol de compromisos de voto es un árbol Merkle de solo adición que registra las notas de autoridad de voto y los compromisos de voto.",
+  "The vote commitment tree structure, hash function, and leaf encoding are specified in <g1><g2>3</g2></g1>. Wallet clients interact with the tree through the query endpoints defined in [Commitment Tree (Latest)], [Commitment Tree at Height], and [Commitment Tree Leaves].": "La estructura del árbol de compromisos de voto, su función de hash y la codificación de las hojas se especifican en <g1><g2>3</g2></g1>. Los clientes de billetera interactúan con el árbol mediante los endpoints de consulta definidos en [Commitment Tree (Latest)], [Commitment Tree at Height] y [Commitment Tree Leaves].",
+  "<x1/>Private Information Retrieval Nullifier Exclusion Proofs": "<x1/>Pruebas de exclusión de nullifier mediante recuperación de información privada",
+  "Nullifier exclusion proofs are retrieved using the PIR protocol specified in <g1><g2>4</g2></g1>. The wallet connects to one of the <x3/> from the vote configuration; version selection follows the rules in [Version Handling].": "Las pruebas de exclusión de nullifier se obtienen mediante el protocolo PIR especificado en <g1><g2>4</g2></g1>. La billetera se conecta a uno de los <x3/> de la configuración de la votación; la selección de la versión sigue las reglas de [Version Handling].",
+  "<x1/>Version Handling": "<x1/>Manejo de versiones",
+  "All version strings in <x1/> use the form <x2/> (e.g., <x3/>, <x4/>). A major version bump indicates a breaking change; within the same major version, implementations remain compatible.": "Todas las cadenas de versión en <x1/> usan la forma <x2/> (p. ej., <x3/>, <x4/>). Un incremento de la versión mayor indica un cambio incompatible; dentro de la misma versión mayor, las implementaciones permanecen compatibles.",
+  "A wallet MUST reject the configuration if it does not support the advertised <x1/>, <x2/>, or <x3/> version, or if <x4/> contains no version it supports. If any check fails, the wallet MUST NOT proceed and SHOULD prompt the user to update.": "Una billetera DEBE (MUST) rechazar la configuración si no admite la versión de <x1/>, <x2/> o <x3/> anunciada, o si <x4/> no contiene ninguna versión que admita. Si alguna verificación falla, la billetera NO DEBE (MUST NOT) continuar y DEBERÍA (SHOULD) solicitar al usuario que actualice.",
+  "<x1/>URL Path Prefix": "<x1/>Prefijo de ruta URL",
+  "REST endpoint paths include a version prefix (e.g., <x1/>). The path version corresponds to the major version declared in <x2/>. A <x3/> value of <x4/> uses the <x5/> prefix.": "Las rutas de los endpoints REST incluyen un prefijo de versión (p. ej., <x1/>). La versión de la ruta corresponde a la versión mayor declarada en <x2/>. Un valor de <x3/> igual a <x4/> usa el prefijo <x5/>.",
+  "<x1/>Relationship to <x2/>": "<x1/>Relación con <x2/>",
+  "<x1/> versions the structure of the vote configuration JSON document itself (field names, types, nesting). The component versions (<x2/>, <x3/>, <x4/>, <x5/>) version protocol behavior. These can all evolve independently: a structural change to the config schema (e.g., adding a new required top-level field) bumps <x6/>, while a change to endpoint behavior bumps <x7/>, a change to circuits or tree structure bumps <x8/>, and a change to decryption or aggregation bumps <x9/>.": "<x1/> define la versión de la estructura del documento JSON de configuración de la votación en sí (nombres de campos, tipos, anidamiento). Las versiones de los componentes (<x2/>, <x3/>, <x4/>, <x5/>) definen la versión del comportamiento del protocolo. Todas pueden evolucionar de forma independiente: un cambio estructural en el esquema de configuración (p. ej., agregar un nuevo campo obligatorio de nivel superior) incrementa <x6/>, mientras que un cambio en el comportamiento de los endpoints incrementa <x7/>, un cambio en los circuitos o en la estructura del árbol incrementa <x8/>, y un cambio en el descifrado o la agregación incrementa <x9/>.",
+  "<x1/>Transaction Lifecycle": "<x1/>Ciclo de vida de la transacción",
+  "<x1/>Broadcast Semantics": "<x1/>Semántica de difusión",
+  "Transaction submission endpoints (<x1/>, <x2/>) return synchronously after initial validation. A successful response (HTTP 200, <x3/> = 0) indicates that the transaction passed validation and entered the mempool. It does not guarantee inclusion in a block.": "Los endpoints de envío de transacciones (<x1/>, <x2/>) responden de forma síncrona tras la validación inicial. Una respuesta exitosa (HTTP 200, <x3/> = 0) indica que la transacción pasó la validación y entró en el mempool. No garantiza su inclusión en un bloque.",
+  "<x1/>Confirmation Polling": "<x1/>Sondeo de confirmación",
+  "After receiving a successful broadcast response, the wallet SHOULD poll the [Transaction Status] endpoint using the <x1/> from the response. The transaction is confirmed when the response includes a non-empty <x2/> and <x3/> = 0.": "Después de recibir una respuesta de difusión exitosa, la billetera DEBERÍA (SHOULD) sondear el endpoint [Transaction Status] usando el <x1/> de la respuesta. La transacción está confirmada cuando la respuesta incluye un <x2/> no vacío y <x3/> = 0.",
+  "<x1/>Timeouts": "<x1/>Tiempos de espera",
+  "Transaction validation includes zero-knowledge proof verification, which may take 30 to 60 seconds. Wallet HTTP clients SHOULD use a timeout of at least 120 seconds for transaction submission requests.": "La validación de transacciones incluye la verificación de pruebas de conocimiento cero, lo cual puede tardar de 30 a 60 segundos. Los clientes HTTP de la billetera DEBERÍAN (SHOULD) usar un tiempo de espera de al menos 120 segundos para las solicitudes de envío de transacciones.",
+  "<x1/>Encoding Conventions": "<x1/>Convenciones de codificación",
+  "All data exchanged between wallet clients and servers uses the encodings described in this section.": "Todos los datos intercambiados entre los clientes de billetera y los servidores usan las codificaciones descritas en esta sección.",
+  "<x1/>Cryptographic Types": "<x1/>Tipos criptográficos",
+  "Size": "Tamaño",
+  "Encoding": "Codificación",
+  "Pallas base field element": "Elemento del cuerpo base de Pallas",
+  "32 bytes": "32 bytes",
+  "Little-endian canonical representation. Implementations MUST reject values &gt;= the Pallas base field modulus.": "Representación canónica little-endian. Las implementaciones DEBEN (MUST) rechazar valores &gt;= el módulo del cuerpo base de Pallas.",
+  "Compressed Pallas point": "Punto de Pallas comprimido",
+  "Standard Pallas point compression. <g1><g2>8</g2></g1>": "Compresión de puntos de Pallas estándar. <g1><g2>8</g2></g1>",
+  "ElGamal ciphertext": "Texto cifrado ElGamal",
+  "64 bytes": "64 bytes",
+  "<x1/> (32 bytes) followed by <x2/> (32 bytes), each a compressed Pallas point.": "<x1/> (32 bytes) seguido de <x2/> (32 bytes), cada uno un punto de Pallas comprimido.",
+  "Halo 2 proof": "Prueba de Halo 2",
+  "variable": "variable",
+  "Opaque byte sequence.": "Secuencia de bytes opaca.",
+  "RedPallas signature": "Firma de RedPallas",
+  "<x1/> (32 bytes) followed by <x2/> (32 bytes).": "<x1/> (32 bytes) seguido de <x2/> (32 bytes).",
+  "<x1/>JSON Encoding": "<x1/>Codificación JSON",
+  "All REST endpoints accept and return <x1/>.": "Todos los endpoints REST aceptan y devuelven <x1/>.",
+  "<g1>Byte arrays</g1>: Standard base64 encoding with padding (RFC 4648 Section 4 <g2><g3>9</g3></g2>).": "<g1>Arreglos de bytes</g1>: Codificación base64 estándar con relleno (RFC 4648 Sección 4 <g2><g3>9</g3></g2>).",
+  "<g1><x2/></g1>: The encoding of <x3/> varies by context. The following table lists every occurrence and its encoding:": "<g1><x2/></g1>: La codificación de <x3/> varía según el contexto. La siguiente tabla enumera cada aparición y su codificación:",
+  "Context": "Contexto",
+  "Vote configuration JSON (<x1/> field)": "JSON de configuración de voto (campo <x1/>)",
+  "Hex (64 lowercase characters)": "Hexadecimal (64 caracteres en minúscula)",
+  "URL path parameters (<x1/>, <x2/>)": "Parámetros de ruta URL (<x1/>, <x2/>)",
+  "Delegation request body (<x1/>)": "Cuerpo de la solicitud de delegación (<x1/>)",
+  "Base64 (32 bytes)": "Base64 (32 bytes)",
+  "Vote commitment request body (<x1/>)": "Cuerpo de la solicitud de compromiso de voto (<x1/>)",
+  "Share submission request body (<x1/>)": "Cuerpo de la solicitud de envío de participación (<x1/>)",
+  "Chain query response bodies (<x1/>)": "Cuerpos de respuesta de consulta de cadena (<x1/>)",
+  "<g1>Integers</g1>: JSON numbers. Fields typed <x2/> or <x3/> in the protocol definition are encoded as JSON numbers.": "<g1>Enteros</g1>: Números JSON. Los campos tipados <x2/> o <x3/> en la definición del protocolo se codifican como números JSON.",
+  "<g1>Enumerations</g1>: JSON numbers corresponding to the protobuf enum value (e.g., <x2/> = 1).": "<g1>Enumeraciones</g1>: Números JSON correspondientes al valor del enum de protobuf (p. ej., <x2/> = 1).",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "<x1/>Unified Vote Servers": "<x1/>Servidores de voto unificados",
+  "All endpoints — chain queries, transaction submission, and share submission — are served under the <x1/> path prefix from the same <x2/> base URLs. In the current architecture, a single <x3/> process hosts every endpoint on the same port, so a separate helper URL is unnecessary.": "Todos los endpoints — consultas de cadena, envío de transacciones y envío de participaciones — se sirven bajo el prefijo de ruta <x1/> desde las mismas URLs base <x2/>. En la arquitectura actual, un único proceso <x3/> aloja todos los endpoints en el mismo puerto, por lo que una URL auxiliar separada es innecesaria.",
+  "<x1/>Independent Component Versions": "<x1/>Versiones independientes de componentes",
+  "Each <x1/> field tracks a component that can change on its own schedule: <x2/> covers the REST API surface, <x3/> covers the ZKP circuits and commitment tree structure, <x4/> covers threshold decryption and result aggregation, and <x5/> covers nullifier retrieval. Separating these avoids forcing a wallet update when only one component changes — for example, a new tally method does not require wallets to update their proof generation code.": "Cada campo <x1/> hace seguimiento de un componente que puede cambiar con su propio calendario: <x2/> cubre la superficie de la API REST, <x3/> cubre los circuitos ZKP y la estructura del árbol de compromisos, <x4/> cubre el descifrado de umbral y la agregación de resultados, y <x5/> cubre la obtención de nullifiers. Separarlos evita forzar una actualización de la billetera cuando solo cambia un componente — por ejemplo, un nuevo método de escrutinio no requiere que las billeteras actualicen su código de generación de pruebas.",
+  "<x1/>JSON over Protobuf": "<x1/>JSON sobre Protobuf",
+  "The REST API uses JSON encoding rather than binary protobuf serialization. JSON is broadly supported across wallet development stacks (Swift, Kotlin, TypeScript, Rust) and does not require protobuf code generation. The trade-off in message size is acceptable for the request and response volumes involved.": "La API REST usa codificación JSON en lugar de serialización protobuf binaria. JSON tiene amplio soporte en las plataformas de desarrollo de billeteras (Swift, Kotlin, TypeScript, Rust) y no requiere generación de código protobuf. La contrapartida en el tamaño de los mensajes es aceptable para los volúmenes de solicitudes y respuestas involucrados.",
+  "<x1/>Open issues": "<x1/>Cuestiones abiertas",
+  "<x1/>Reference implementation": "<x1/>Implementación de referencia",
+  "A reference implementation of the vote chain REST API and helper server is available at <g1>valargroup/vote-sdk</g1>.": "Una implementación de referencia de la API REST de la cadena de votos y del servidor auxiliar está disponible en <g1>valargroup/vote-sdk</g1>.",
+  "<x1/>References": "<x1/>Referencias",
+  "<x1/>Footnotes": "<x1/>Notas al pie",
+  "<g1>Information on BCP 14 -- \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": "<g1>Información sobre BCP 14 -- \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" y \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>",
+  "<g1>Draft ZIP: Orchard Proof-of-Balance</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9>": "<g1>Draft ZIP: Orchard Proof-of-Balance</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9>",
+  "<g1>Draft ZIP: Shielded Voting Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13>": "<g1>Draft ZIP: Shielded Voting Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13>",
+  "<g1>Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5>": "<g1>Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5>",
+  "<g1>Draft ZIP: Shielded Voting Submission Server</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7>": "<g1>Draft ZIP: Shielded Voting Submission Server</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7>",
+  "<g1>Draft ZIP: Election Authority Key Ceremony</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": "<g1>Draft ZIP: Election Authority Key Ceremony</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>",
+  "<g1>ZIP 244: Transaction Identifier Non-Malleability</g1> <g2>↩</g2>": "<g1>ZIP 244: No maleabilidad del identificador de transacción</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.3 [NU6.1] or later</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, versión 2025.6.3 [NU6.1] o posterior</g1> <g2>↩</g2>",
+  "<g1>RFC 4648: The Base16, Base32, and Base64 Data Encodings</g1> <g2>↩</g2>": "<g1>RFC 4648: Codificaciones de datos Base16, Base32 y Base64</g1> <g2>↩</g2>"
+ },
+ "reviews": {
+  "Shielded Voting Wallet API": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The terms below are to be interpreted as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote round": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A time-bounded voting session defining a set of proposals, a Zcash snapshot height, and a deadline. Wallet clients interact with exactly one vote round at a time.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Delegation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The act of proving ownership of unspent Orchard notes at the snapshot height and registering a vote authority note on the vote commitment tree. See <g1><g2>2</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote authority note (VAN)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A note appended to the vote commitment tree during delegation. The VAN carries the delegated vote weight and is consumed (nullified) when the holder casts a vote.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Vote commitment tree": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "An append-only Merkle tree that records vote authority notes and vote commitments. The tree root at a given block height serves as a public input to zero-knowledge proof verification.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Share": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A fragment of the holder's delegated vote weight, encrypted and submitted to helper servers rather than directly to the chain to prevent timing-based linkability.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP specifies the REST API endpoints, wire formats, and discovery mechanism that wallet clients use to participate in shielded on-chain voting rounds. It covers vote round discovery via a per-vote configuration document, data query endpoints for reading chain state, transaction submission endpoints for delegation and vote casting, and the encoding conventions for all exchanged data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The shielded voting protocol involves multiple ZIPs that specify the cryptographic circuits <g1><g2>3</g2></g1>, nullifier retrieval <g3><g4>4</g4></g3>, proof-of-balance <g5><g6>2</g6></g5>, share submission <g7><g8>5</g8></g7>, and election authority key ceremony <g9><g10>6</g10></g9>. A wallet integrator currently must read several of these specifications to understand which endpoints to call, what wire formats to use, and how to discover an active vote.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP consolidates the wallet-facing API surface into a single document, specifying the REST endpoints, JSON wire formats, encoding conventions, and discovery mechanism needed to participate in a vote.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Versioning fields in the vote configuration allow the protocol to evolve (new PIR schemes, circuit versions, tally methods) while maintaining backwards compatibility with deployed wallets.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A wallet can discover and join an active voting round using a published configuration document.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A wallet can submit delegation and vote commitment transactions using the wire formats in this specification. Proof construction is specified in companion ZIPs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A wallet can submit encrypted vote shares to helper servers and confirm their on-chain inclusion.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each protocol component (vote server, vote protocol, tally method, PIR) can be versioned and upgraded independently. A change to one component has no impact on other components or the configuration schema.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Non-requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Validator onboarding, key registration, and EA key ceremony.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Chain consensus rules and block production.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Round creation and governance authority operations.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The internal implementation of helper servers (specified in <g1><g2>5</g2></g1>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>High level summary": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This section is non-normative.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This section provides an informational overview of the end-to-end sequence a wallet follows to participate in a shielded voting round. Each step references the normative section that specifies its details. All requirements use the language defined in those sections.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The vote configuration itself is versioned by <x1/>, which tracks the schema of the configuration document. It also carries four independently versioned protocol components:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1><x2/></g1> — the ZKP circuits (ZKP1, ZKP2, ZKP3) and commitment tree structure. The circuits are designed to be upgradeable: a new circuit version bumps <x3/> without affecting the other components.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1><x2/></g1> — threshold decryption and result aggregation.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1><x2/></g1> — the nullifier PIR retrieval scheme.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1><x2/></g1> — the helper server API that vote shares are submitted to.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "See [Version Handling] for the normative rules.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Discovery and Validation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Obtain vote configuration.</g1> Fetch or receive the vote configuration JSON document for the round. See [Vote Configuration Format].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Validate configuration.</g1> Check all fields against the rules in [Validation Rules] and verify version compatibility per [Compatibility Rules]. Reject the configuration and stop if any check fails.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Fetch active round from chain.</g1> Query <x2/> to confirm the round is ACTIVE and retrieve on-chain parameters: <x3/>, <x4/>, <x5/>, and <x6/>. See [Active Round].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Verify proposals hash.</g1> Compute the proposals hash from the configuration's <x2/> array and compare it to <x3/> from the chain response. See [Proposals Hash].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Delegation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Retrieve nullifier exclusion proofs.</g1> Connect to a <x2/> server and retrieve Merkle non-membership proofs for the wallet's Orchard note nullifiers at <x3/>. See [Nullifier Retrieval] and <g4><g5>4</g5></g4>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Construct and submit delegation transaction.</g1> Build the ZKP1 proof (proving Orchard note ownership at the snapshot height) and submit via <x2/>. See [Delegation Transaction] and <g3><g4>2</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Poll for delegation confirmation.</g1> Poll <x2/> using the <x3/> from the submission response until the response includes a non-empty <x4/> and <x5/> = 0. See [Confirmation Polling].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Sync commitment tree and locate VAN.</g1> Query the [Commitment Tree Leaves] endpoint to incrementally sync the local tree. Identify the wallet's vote authority note by its commitment <x2/> computed during step 6.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Voting (repeat for each proposal)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Construct and submit vote commitment.</g1> Build the ZKP2 proof (consuming the current VAN and producing a new VAN) and submit via <x2/>. The tree root at the anchor height is a public input to this proof. See [Vote Commitment Transaction] and <g3><g4>3</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Poll for vote commitment confirmation.</g1> Poll <x2/> until confirmed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Sync commitment tree.</g1> Query [Commitment Tree Leaves] again to locate the new VAN (needed as input for the next proposal) and the vote commitment leaf (needed for share construction).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Construct and submit shares.</g1> Build 16 encrypted share payloads and submit each to a helper server via <x2/>. Each share references the <x3/> of the vote commitment leaf from step 11. See [Share Delegation] and <g4><g5>5</g5></g4>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Poll share statuses.</g1> For each submitted share, poll <x2/> until all return <x3/>. See [Share Status].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Steps 9 through 13 are repeated sequentially for each proposal in the round. Each iteration consumes the current VAN and produces a new one, so proposals cannot be voted on in parallel.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Results (optional)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>View tally results.</g1> After the round reaches FINALIZED status, query <x2/> for decrypted per-proposal tallies. See [Tally Results].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Vote Discovery": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A vote configuration is a JSON document published for each vote round. It contains all parameters a wallet needs to locate services and participate in the round.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Vote Configuration Format": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Field Definitions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Field": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Type": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Description": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "integer": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Schema version of this configuration document. Currently 1.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "string": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Hex-encoded 32-byte vote round identifier (64 characters, lowercase).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "array": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "One or more vote server base URLs serving both chain and helper endpoints. Each entry has <x1/> (string) and <x2/> (string).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "One or more nullifier PIR server base URLs. Each entry has <x1/> and <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Zcash block height at which the Orchard pool snapshot was taken.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Unix timestamp (seconds) after which votes are no longer accepted.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Ordered list of proposals. Each has <x1/> (integer, 1-indexed), <x2/> (string), <x3/> (string), and <x4/> (array of <x5/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "array of strings": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "PIR retrieval scheme versions supported by the servers (e.g., <x1/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote protocol version covering the ZKP circuits and commitment tree structure (e.g., <x1/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Tally method version covering threshold decryption and result aggregation (e.g., <x1/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote server version covering the REST API (e.g., <x1/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Validation Rules": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A wallet MUST validate the configuration before use:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> MUST be a version the wallet recognizes. This specification defines version 1.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> MUST be exactly 64 lowercase hexadecimal characters.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> MUST contain at least one entry.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> MUST be greater than 0.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> MUST contain between 1 and 15 entries.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each proposal MUST have between 2 and 8 options.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Proposal <x1/> values MUST be unique and in the range 1 to 15.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Option <x1/> values within a proposal MUST be unique and 0-indexed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The wallet MUST check version compatibility as specified in [Version Handling]. In summary: <x1/>, <x2/>, and <x3/> MUST be recognized versions; <x4/> MUST contain at least one version the wallet supports.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Distribution": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The vote configuration is published out-of-band for each vote round. Distribution mechanisms include:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A developer-merged pull request to a well-known repository linking to the configuration file.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A CDN or API endpoint serving the configuration.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Bundling the configuration within a wallet release.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The choice of distribution mechanism is outside the scope of this specification. Regardless of the mechanism, the wallet MUST validate the configuration as described above before using it.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Data Query Endpoints": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "All query endpoints are served relative to a <x1/> base URL from the vote configuration. Responses are JSON-serialized protobuf messages; byte fields are base64-encoded.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Active Round": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Returns the active voting round, if any.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Response body:</g1> A JSON object containing a <x2/> field with the <x3/> structure:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "base64 (32 bytes)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Round identifier.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "uint64": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Zcash snapshot block height.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Zcash block hash at snapshot.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "SHA-256 hash of the proposals array (see [Proposals Hash]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Unix timestamp (seconds).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Nullifier non-membership tree root.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard note commitment tree root.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "uint32": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Session status enum (4=PENDING, 1=ACTIVE, 2=TALLYING, 3=FINALIZED).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Election authority public key (compressed Pallas point).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Proposals with <x1/> (uint32), <x2/>, <x3/>, and <x4/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Human-readable round description.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Short human-readable round title.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Address of the account that created the session.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote chain block height at which the round was created.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The response may contain additional fields related to the EA key ceremony and threshold decryption (e.g., ceremony status, validator keys, ECIES payloads). These fields exist for validator coordination and have no bearing on wallet operations, so they are not documented here. See <g1><g2>6</g2></g1> for details.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <x1/> field in the VoteRound response contains the same proposals as the vote configuration document. The <x2/> field can be used to verify consistency between the two sources.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Proposals Hash": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <x1/> is SHA-256 over the canonical JSON serialization of the <x2/> array, allowing wallets to verify that the proposals shown to the user match those on the vote chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "To compute: construct a JSON array of proposal objects containing <x1/>, <x2/>, <x3/>, and <x4/> (each with <x5/>, <x6/>), ordered by <x7/> then <x8/> ascending, with object keys in the order listed. Serialize with no whitespace and SHA-256 the UTF-8 result. The JSON serialization MUST NOT escape the forward slash character (<x9/>); non-ASCII characters are emitted as UTF-8 bytes, not as <x10/> escapes. Control characters (U+0000 through U+001F) are escaped per RFC 8259 (<x11/>, <x12/>, <x13/>, <x14/>, <x15/>, or <x16/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Example preimage (from [Vote Configuration Format]):": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "SHA-256 of the above preimage: <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Wallets SHOULD verify <x1/> against the vote configuration before proceeding.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If no active round exists, the response contains a <x1/> field with a null or empty value.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Round Details": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Returns details for a specific vote round.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Path parameters:</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Hex-encoded 32-byte vote round identifier (64 characters).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Response body:</g1> Same <x2/> structure as [Active Round].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>List Rounds": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Returns all stored vote rounds.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Response body:</g1> A JSON object containing a <x2/> array of <x3/> structures.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Commitment Tree (Latest)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Returns the latest commitment tree state for a round.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Hex-encoded 32-byte vote round identifier.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Response body:</g1> A JSON object containing a <x2/> field:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Next leaf index to be written.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Current Merkle root.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Block height at which this root was computed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> at the time the root was stored.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Commitment Tree at Height": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Returns the commitment tree state at a specific block height.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Block height (decimal integer).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Response body:</g1> Same <x2/> structure as [Commitment Tree (Latest)].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Commitment Tree Leaves": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Returns commitment tree leaves appended in blocks within the specified height range. Used by wallet clients to incrementally sync the local copy of the vote commitment tree.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Query parameters:</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Start block height (inclusive).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: End block height (inclusive).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Response body:</g1> A JSON object containing a <x2/> array. Each entry represents one block:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Block height.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Index of the first leaf appended in this block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "array of base64 (32 bytes)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Commitment leaves (Pallas base field elements, little-endian each).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Tally Results": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Returns finalized (decrypted) tally results for a vote round. Only available after the round reaches FINALIZED status.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Response body:</g1> A JSON object containing a <x2/> array:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Proposal identifier.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote option index.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Decrypted aggregate value (zatoshi).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Transaction Status": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Returns the confirmation status of a previously submitted transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Hex-encoded transaction hash.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Response body:</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Block height at which the transaction was included (empty if pending).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Result code (0 = success).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Error message if <x1/> is non-zero.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "ABCI events emitted by the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Delegation Transaction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The delegation transaction registers a holder's vote weight on the vote commitment tree. It corresponds to ZKP1 (the delegation circuit) as specified in <g1><g2>2</g2></g1> and <g3><g4>3</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Endpoint": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Request Body": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A JSON object with the following fields:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Randomized spend authorization verification key (compressed Pallas point).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "base64 (64 bytes)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "RedPallas spend authorization signature.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Nullifier of the dummy signed note.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Output note commitment (extracted x-coordinate).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote authority note commitment (extracted x-coordinate).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "array of base64 (32 bytes each)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Governance nullifiers (up to 5). One per claimed note.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "base64 (variable)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Halo 2 ZKP1 proof.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote round identifier.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Client-computed sighash for signature verification.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Sighash": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <x1/> field is the 32-byte ZIP 244 <g2><g3>7</g3></g2> shielded sighash extracted from the signed PCZT after the hardware wallet signing flow. The chain verifies the <x4/> against this client-provided sighash; it does not recompute it. See <g5><g6>2</g6></g5> for the PCZT construction and signing flow that produces the sighash.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Response": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "All transaction submission endpoints return the same response format:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "string (hex)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Transaction hash for status polling.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Result code. 0 indicates the transaction was accepted into the mempool.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Error description when <x1/> is non-zero. Omitted on success.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Vote Commitment Transaction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The vote commitment transaction casts a vote on a specific proposal. It corresponds to ZKP2 (the vote commitment circuit) as specified in <g1><g2>3</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Nullifier of the vote authority note being consumed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "New vote authority note commitment.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote commitment (Poseidon hash binding the vote).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Proposal identifier (1 to 15).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Halo 2 ZKP2 proof.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Block height of the vote commitment tree root used as anchor.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "RedPallas signature under the randomized voting key.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Randomized voting public key (compressed Pallas point).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Same response format as [Delegation Transaction].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Share Delegation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "After casting a vote commitment, the wallet constructs encrypted share payloads and submits them to helper servers. The helper server queues each share and submits it to the chain at the client-specified time. See <g1><g2>5</g2></g1> for the server-side processing pipeline and <g3><g4>3</g4></g3> for share construction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The following endpoints are served from the same <x1/> base URLs as the chain query endpoints.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Submit Share": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Submits a single encrypted vote share to a helper server.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Request body:</g1> A JSON object with the following fields:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Poseidon hash committing to all shares in this vote.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Proposal identifier (1-indexed).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote option index (0-indexed).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "object": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Encrypted share (see below).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vote commitment tree leaf index.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "string (hex, 64 chars)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Hex-encoded vote round identifier.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "16 per-share Poseidon commitments.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Blinding factor for the revealed share.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Unix timestamp (seconds) at which the helper should submit this share to the chain. 0 means submit at the last possible moment before <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <x1/> object contains:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "ElGamal ciphertext component <x1/> (compressed Pallas point).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Share index (0 to 15).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> if accepted, <x2/> if already received.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Error description (present only on failure).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Share Nullifier": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Each submitted share has a deterministic nullifier derived from the vote commitment fields and the share's blinding factor. The wallet computes this nullifier locally and hex-encodes it (lowercase, 64 characters) for use in the [Share Status] endpoint path. The derivation is specified in <g1><g2>3</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Share Status": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Polls whether a submitted share has been included on-chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Hex-encoded 32-byte share nullifier (64 characters), computed as specified in [Share Nullifier].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> if not yet on-chain, <x2/> if the share nullifier has been recorded on-chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Vote Commitment Tree": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The vote commitment tree is an append-only Merkle tree that records vote authority notes and vote commitments.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The vote commitment tree structure, hash function, and leaf encoding are specified in <g1><g2>3</g2></g1>. Wallet clients interact with the tree through the query endpoints defined in [Commitment Tree (Latest)], [Commitment Tree at Height], and [Commitment Tree Leaves].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Private Information Retrieval Nullifier Exclusion Proofs": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Nullifier exclusion proofs are retrieved using the PIR protocol specified in <g1><g2>4</g2></g1>. The wallet connects to one of the <x3/> from the vote configuration; version selection follows the rules in [Version Handling].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Version Handling": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "All version strings in <x1/> use the form <x2/> (e.g., <x3/>, <x4/>). A major version bump indicates a breaking change; within the same major version, implementations remain compatible.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A wallet MUST reject the configuration if it does not support the advertised <x1/>, <x2/>, or <x3/> version, or if <x4/> contains no version it supports. If any check fails, the wallet MUST NOT proceed and SHOULD prompt the user to update.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>URL Path Prefix": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "REST endpoint paths include a version prefix (e.g., <x1/>). The path version corresponds to the major version declared in <x2/>. A <x3/> value of <x4/> uses the <x5/> prefix.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Relationship to <x2/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> versions the structure of the vote configuration JSON document itself (field names, types, nesting). The component versions (<x2/>, <x3/>, <x4/>, <x5/>) version protocol behavior. These can all evolve independently: a structural change to the config schema (e.g., adding a new required top-level field) bumps <x6/>, while a change to endpoint behavior bumps <x7/>, a change to circuits or tree structure bumps <x8/>, and a change to decryption or aggregation bumps <x9/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Transaction Lifecycle": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Broadcast Semantics": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Transaction submission endpoints (<x1/>, <x2/>) return synchronously after initial validation. A successful response (HTTP 200, <x3/> = 0) indicates that the transaction passed validation and entered the mempool. It does not guarantee inclusion in a block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Confirmation Polling": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "After receiving a successful broadcast response, the wallet SHOULD poll the [Transaction Status] endpoint using the <x1/> from the response. The transaction is confirmed when the response includes a non-empty <x2/> and <x3/> = 0.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Timeouts": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Transaction validation includes zero-knowledge proof verification, which may take 30 to 60 seconds. Wallet HTTP clients SHOULD use a timeout of at least 120 seconds for transaction submission requests.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Encoding Conventions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "All data exchanged between wallet clients and servers uses the encodings described in this section.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Cryptographic Types": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Size": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Encoding": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Pallas base field element": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "32 bytes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Little-endian canonical representation. Implementations MUST reject values &gt;= the Pallas base field modulus.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Compressed Pallas point": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Standard Pallas point compression. <g1><g2>8</g2></g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "ElGamal ciphertext": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "64 bytes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> (32 bytes) followed by <x2/> (32 bytes), each a compressed Pallas point.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Halo 2 proof": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "variable": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Opaque byte sequence.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "RedPallas signature": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> (32 bytes) followed by <x2/> (32 bytes).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>JSON Encoding": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "All REST endpoints accept and return <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Byte arrays</g1>: Standard base64 encoding with padding (RFC 4648 Section 4 <g2><g3>9</g3></g2>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1><x2/></g1>: The encoding of <x3/> varies by context. The following table lists every occurrence and its encoding:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Context": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Vote configuration JSON (<x1/> field)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Hex (64 lowercase characters)": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The English word \"Hex\" is left untranslated although Spanish has an equivalent term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Hex (64 caracteres en minúscula)"
+  },
+  "URL path parameters (<x1/>, <x2/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Delegation request body (<x1/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Base64 (32 bytes)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Vote commitment request body (<x1/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Share submission request body (<x1/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Chain query response bodies (<x1/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Integers</g1>: JSON numbers. Fields typed <x2/> or <x3/> in the protocol definition are encoded as JSON numbers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Enumerations</g1>: JSON numbers corresponding to the protobuf enum value (e.g., <x2/> = 1).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Unified Vote Servers": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "All endpoints — chain queries, transaction submission, and share submission — are served under the <x1/> path prefix from the same <x2/> base URLs. In the current architecture, a single <x3/> process hosts every endpoint on the same port, so a separate helper URL is unnecessary.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Independent Component Versions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Each <x1/> field tracks a component that can change on its own schedule: <x2/> covers the REST API surface, <x3/> covers the ZKP circuits and commitment tree structure, <x4/> covers threshold decryption and result aggregation, and <x5/> covers nullifier retrieval. Separating these avoids forcing a wallet update when only one component changes — for example, a new tally method does not require wallets to update their proof generation code.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>JSON over Protobuf": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The REST API uses JSON encoding rather than binary protobuf serialization. JSON is broadly supported across wallet development stacks (Swift, Kotlin, TypeScript, Rust) and does not require protobuf code generation. The trade-off in message size is acceptable for the request and response volumes involved.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Open issues": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Reference implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A reference implementation of the vote chain REST API and helper server is available at <g1>valargroup/vote-sdk</g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Footnotes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Information on BCP 14 -- \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Orchard Proof-of-Balance</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Shielded Voting Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Shielded Voting Submission Server</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Election Authority Key Ceremony</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>ZIP 244: Transaction Identifier Non-Malleability</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The title 'Transaction Identifier Non-Malleability' is left in English; it should be translated using the glossary term 'transacción'."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>ZIP 244: Transaction Identifier Non-Malleability</g1> <g2>↩</g2>"
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.3 [NU6.1] or later</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The words 'Version' and 'or later' in the title are left in English instead of being translated."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>Zcash Protocol Specification, Version 2025.6.3 [NU6.1] or later</g1> <g2>↩</g2>"
+  },
+  "<g1>RFC 4648: The Base16, Base32, and Base64 Data Encodings</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The RFC title is left in English; only 'RFC 4648' and the encoding names should stay untranslated."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>RFC 4648: The Base16, Base32, and Base64 Data Encodings</g1> <g2>↩</g2>"
+  }
+ }
+}

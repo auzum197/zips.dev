@@ -1,0 +1,981 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>La palabra clave "DEBE" (MUST) en este documento se interpretará como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparezca en mayúsculas.</p>
+<p>El término "actualización de red" en este documento se interpreta como se describe en el ZIP 200 <a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>.</p>
+<p>Los términos "Orchard" y "Action" en este documento se interpretan como se describe en el ZIP 224 <a class="brackets" href="#zip-0224" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+<p>Los términos "Asset" y "ZSA" en este documento se interpretan como se describe en el ZIP 227 <a class="brackets" href="#zip-0227" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP especifica controles de usuario para transacciones: un mecanismo que permite a los destinatarios de fondos blindados participar activamente en la transferencia de Assets, aprobando o rechazando las transacciones entrantes.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>En la versión actual de Zcash, las transferencias de fondos se realizan sin el consentimiento explícito de los destinatarios. Si bien esta simplicidad ofrece conveniencia, genera desafíos significativos para los usuarios de la red (por ejemplo, personas o negocios). El objetivo de este ZIP es diseñar un mecanismo mediante el cual el destinatario de fondos blindados en Zcash (para cualquier tipo de ZSA) pueda confirmar (o «aprobar») la recepción de los fondos en la cadena. Esta mejora responde a necesidades cruciales en el ecosistema de Zcash, particularmente en un momento en que los activos que preservan la privacidad enfrentan un escrutinio mayor por parte de las principales casas de cambio de criptomonedas. Los controles propuestos ofrecen soluciones de protección robustas y mantienen al mismo tiempo las características centrales de privacidad de Zcash.</p>
+
+<h1 id="overview"><a class="hanchor" href="#overview" aria-hidden="true" tabindex="-1">#</a>Descripción general</h1>
+<p>En la red actual de Zcash, los usuarios se identifican entre sí mediante direcciones. Cuando dos partes desean transaccionar, el emisor debe primero obtener la dirección del destinatario, típicamente mediante comunicaciones fuera de la cadena, como correo electrónico o foros. Los destinatarios pueden controlar los pagos entrantes compartiendo sus direcciones de forma selectiva, lo que efectivamente "autoriza" a usuarios específicos a enviarles fondos.</p>
+<p>Si bien algunos usuarios u organizaciones (por ejemplo, organizaciones benéficas como Turing Trust) pueden optar por compartir sus direcciones públicamente, otros prefieren restringir el uso compartido de direcciones a partes específicas. Sin embargo, este sistema de autorización basado en direcciones tiene varias limitaciones fundamentales:</p>
+<ol class="arabic simple">
+<li><p>Ausencia de mecanismo de revocación: una vez que se comparte una dirección, los destinatarios no pueden revocar la capacidad de un emisor de transferir fondos. Aunque es posible generar direcciones nuevas, el emisor todavía puede enviar fondos a direcciones antiguas, lo que puede provocar la pérdida de fondos.</p></li>
+<li><p>Falta de control detallado: compartir una dirección otorga una autorización de pago sin restricciones. Los destinatarios no pueden establecer condiciones sobre los pagos entrantes, como montos específicos o restricciones de temporalidad (por ejemplo, con fines fiscales).</p></li>
+<li><p>Transitividad no controlada: el uso compartido de direcciones es transitivo; si la destinataria Alicia comparte su dirección con Bob, y este luego la comparte con Charlie, Charlie adquiere las mismas capacidades de pago que Bob. Esto significa que los destinatarios pierden el control sobre quién puede en definitiva enviarles fondos, ya que su dirección puede ser compartida (de forma maliciosa o por compromiso de seguridad) con partes no deseadas.</p></li>
+</ol>
+<p>Actualmente, cualquier emisor que tenga la dirección de un destinatario puede iniciar transferencias de forma unilateral. Esta capacidad genera varios riesgos:</p>
+<ul class="simple">
+<li><p>Establecer vínculos no deseados entre destinatarios y un activo específico</p></li>
+<li><p>Asociar a destinatarios con fondos contaminados (por ejemplo, para chantaje o daño reputacional)</p></li>
+<li><p>Crear conexiones no deseadas entre destinatarios y otros usuarios o transacciones</p></li>
+</ul>
+<p>Esta capacidad de transferencia unilateral presenta desafíos prácticos en todo el ecosistema. Los intercambios centralizados (CEX) no pueden rechazar depósitos fraudulentos, lo que ha llevado a algunos a excluir de sus listas activos que preservan la privacidad como Zcash <a class="brackets" href="#zcash-delist" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>. Estas exclusiones afectan a toda la comunidad de Zcash al reducir la liquidez y la accesibilidad del activo.</p>
+<p>Además, dado que los destinatarios no participan activamente en las transferencias, el emisor asume la única responsabilidad de la exactitud de la transacción. Errores comunes, como errores tipográficos en las direcciones, provocan regularmente la pérdida de fondos. Si bien los sistemas de pago tradicionales (por ejemplo, CHAPS o Faster Payments en el Reino Unido) han desarrollado salvaguardas contra tales errores (por ejemplo, Confirmation of Payee <a class="brackets" href="#confirmation-of-payee" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>), las transferencias de criptomonedas carecen de protecciones similares.</p>
+<p>Este ZIP introduce un protocolo interactivo que requiere la aprobación del destinatario para las transferencias de activos. El destinatario genera una firma de aprobación para la Orchard Action y la devuelve al emisor, quien luego envía la transacción completa a la red. La red verifica la aprobación comprobando que la firma fue generada por el destinatario previsto.</p>
+<p>Este protocolo de doble consentimiento proporciona dos beneficios clave:</p>
+<ol class="arabic simple">
+<li><p>Prevención de la pérdida accidental de fondos (es decir, salvaguardia)</p></li>
+<li><p>Control del destinatario sobre las transferencias entrantes</p></li>
+</ol>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>La mayor parte del protocolo se mantiene igual que el protocolo Orchard publicado con NU5, excepto lo siguiente.</p>
+<h2 id="approval-signature"><a class="hanchor" href="#approval-signature" aria-hidden="true" tabindex="-1">#</a>Firma de aprobación</h2>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> la dirección de pago blindada de Orchard del destinatario de la nota de salida de una Orchard Action <a class="brackets" href="#protocol-raw-address" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>. Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+</math> derivado del diversificador <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>𝖽</mi>
+</math> como en el §5.4.1.6 de la especificación del protocolo <a class="brackets" href="#protocol-diversify-hash" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>. La firma de aprobación se deriva de la siguiente manera:</p>
+<ol class="arabic simple">
+<li><p>El emisor envía el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙾</mi>
+    <mi>𝚛</mi>
+    <mi>𝚌</mi>
+    <mi>𝚑</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+    <mi>𝚍</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝙳</mi>
+    <mi>𝚎</mi>
+    <mi>𝚜</mi>
+    <mi>𝚌</mi>
+    <mi>𝚛</mi>
+    <mi>𝚒</mi>
+    <mi>𝚙</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+  </mrow>
+</math> (la preimagen del mensaje que se firmará, según <a class="brackets" href="#protocol-actions" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>) para que lo firme el destinatario.</p></li>
+<li><dl class="simple">
+<dt>El destinatario ejecuta los siguientes pasos:</dt>
+<dd><ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>m</mi>
+  <mo>←</mo>
+  <mi>H</mi>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝙾</mi>
+    <mi>𝚛</mi>
+    <mi>𝚌</mi>
+    <mi>𝚑</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+    <mi>𝚍</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝙳</mi>
+    <mi>𝚎</mi>
+    <mi>𝚜</mi>
+    <mi>𝚌</mi>
+    <mi>𝚛</mi>
+    <mi>𝚒</mi>
+    <mi>𝚙</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>r</mi>
+  <mover>
+    <mo>←</mo>
+    <mi>R</mi>
+  </mover>
+  <msub>
+    <mi>ℤ</mi>
+    <msub>
+      <mi>r</mi>
+      <mi>ℙ</mi>
+    </msub>
+  </msub>
+</math>, donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>ℤ</mi>
+    <msub>
+      <mi>r</mi>
+      <mi>ℙ</mi>
+    </msub>
+  </msub>
+</math> es el campo escalar de Pallas <a class="brackets" href="#protocol-pallas-vesta" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>, y donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mover>
+    <mo>←</mo>
+    <mi>R</mi>
+  </mover>
+</math> denota una asignación de variables de manera uniforme y aleatoria a partir de un conjunto dado <a href="#system-message-2"><span class="problematic" id="footnote-reference-11">[#protocol-notation]_</span></a>.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>u</mi>
+  <mo>←</mo>
+  <mo stretchy="false">[</mo>
+  <mi>r</mi>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>C</mi>
+  <mo>←</mo>
+  <mi>H</mi>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mi>u</mi>
+  <mo stretchy="false">|</mo>
+  <mo stretchy="false">|</mo>
+  <mi>m</mi>
+  <mo stretchy="false">)</mo>
+  <mspace width="0.667em"></mspace>
+  <mi>mod</mi>
+  <mspace width="0.333em"></mspace>
+  <msub>
+    <mi>r</mi>
+    <mi>ℙ</mi>
+  </msub>
+</math>, un elemento del campo escalar de Pallas, y donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>H</mi>
+</math> es una función de hash segura (por ejemplo, SHA256 o Blake2)</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>s</mi>
+  <mo>←</mo>
+  <mi>r</mi>
+  <mo>+</mo>
+  <mi>C</mi>
+  <mo>⋅</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mspace width="0.667em"></mspace>
+  <mi>mod</mi>
+  <mspace width="0.333em"></mspace>
+  <msub>
+    <mi>r</mi>
+    <mi>ℙ</mi>
+  </msub>
+</math>, un elemento del campo escalar de Pallas</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+  <mo>←</mo>
+  <mo stretchy="false">(</mo>
+  <mi>u</mi>
+  <mo>,</mo>
+  <mi>s</mi>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ol>
+<p>, y envía <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+</math> al emisor (fuera de la cadena).</p>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+</math> es una tupla compuesta por un punto de Pallas y un elemento del campo escalar de Pallas. Por lo tanto, el tamaño de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+</math> es de 96 bytes.</p>
+<h3 id="rationale-for-approval-signature"><a class="hanchor" href="#rationale-for-approval-signature" aria-hidden="true" tabindex="-1">#</a>Justificación de la firma de aprobación</h3>
+<p>Para demostrar que el destinatario correcto de las notas de salida de una Orchard Action aprueba (la transferencia de fondos representada por) la Action, queremos mostrar que la firma de aprobación ha sido generada con una clave de firma derivada de la clave de gasto del destinatario de las notas de salida de la Action. En otras palabras, queremos demostrar que la firma de aprobación es generada por el usuario de la red que "conoce" la clave de gasto de las notas de salida de la Action. Hacerlo significa que solo el destinatario de la nota creada en la Orchard Action puede aprobar el pago.</p>
+<p>Para lograr esto, examinamos la estructura de claves de Zcash Orchard. Sabemos que la dirección de Orchard tiene la forma: <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>. Estos 2 campos, el diversificador y la dirección diversificada, son utilizados por el emisor al enviar notas.</p>
+<p>Observando las derivaciones de los componentes de claves de Orchard, sabemos que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> se deriva como: <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo>=</mo>
+  <mi>m</mi>
+  <mi>a</mi>
+  <mi>t</mi>
+  <mi>h</mi>
+  <mi>s</mi>
+  <mi>f</mi>
+  <mrow>
+    <mi>K</mi>
+    <mi>A</mi>
+    <mi>O</mi>
+    <mi>r</mi>
+    <mi>c</mi>
+    <mi>h</mi>
+    <mi>a</mi>
+    <mi>r</mi>
+    <mi>d</mi>
+    <mo>.</mo>
+    <mi>D</mi>
+    <mi>e</mi>
+    <mi>r</mi>
+    <mi>i</mi>
+    <mi>v</mi>
+    <mi>e</mi>
+    <mi>P</mi>
+    <mi>u</mi>
+    <mi>b</mi>
+    <mi>l</mi>
+    <mi>i</mi>
+    <mi>c</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+</math> <a class="brackets" href="#protocol-orchard-keys" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p>
+<p>Dado que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> se deriva de la clave de gasto del destinatario de los fondos, podemos demostrar que el destinatario de los fondos en una Orchard Action aprueba la recepción de los fondos, mediante el uso de una prueba de conocimiento de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>. Dicha prueba de conocimiento de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> puede obtenerse usando el Protocolo Schnorr No Interactivo.</p>
+<p>De hecho, dicha prueba de conocimiento de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> puede obtenerse usando una Firma Schnorr sobre la Action (el mensaje) con <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> como clave de firma/secreta y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+</math> como generador del grupo.</p>
+<p><strong>Nota:</strong> Zcash Orchard ya usa un esquema de firma basado en Schnorr instanciado con la curva Pallas, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math> <a class="brackets" href="#protocol-redpallas" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a>. A partir de NU6, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖱</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖯</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math> se usa para instanciar <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝖾</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝖠</mi>
+    <mi>𝗎</mi>
+    <mi>𝗍</mi>
+    <mi>𝗁</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <msup>
+      <mi>𝗀</mi>
+      <mrow>
+        <mi>𝖮</mi>
+        <mi>𝗋</mi>
+        <mi>𝖼</mi>
+        <mi>𝗁</mi>
+        <mi>𝖺</mi>
+        <mi>𝗋</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖡</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖽</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <msup>
+      <mi>𝗀</mi>
+      <mrow>
+        <mi>𝖮</mi>
+        <mi>𝗋</mi>
+        <mi>𝖼</mi>
+        <mi>𝗁</mi>
+        <mi>𝖺</mi>
+        <mi>𝗋</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math>.</p>
+
+
+<h2 id="modifications-to-the-orchard-statement-circuit"><a class="hanchor" href="#modifications-to-the-orchard-statement-circuit" aria-hidden="true" tabindex="-1">#</a>Modificaciones al enunciado/circuito de Orchard</h2>
+<p>Los siguientes pasos se añaden al enunciado de la Orchard Action:</p>
+<p>Instancia:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙾</mi>
+    <mi>𝚛</mi>
+    <mi>𝚌</mi>
+    <mi>𝚑</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+    <mi>𝚍</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝙳</mi>
+    <mi>𝚎</mi>
+    <mi>𝚜</mi>
+    <mi>𝚌</mi>
+    <mi>𝚛</mi>
+    <mi>𝚒</mi>
+    <mi>𝚙</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+  </mrow>
+</math></p></li>
+</ul>
+<p>Testigo:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+</math></p></li>
+</ul>
+<p>Circuito:</p>
+<ul class="simple">
+<li><p><tt class="math">C’ \gets H(g_d || pk_d || \sigma_{approval}.u || H(\mathtt{OrchardActionDescription}))</tt></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>L</mi>
+  <mi>H</mi>
+  <mi>S</mi>
+  <mo>←</mo>
+  <mo stretchy="false">[</mo>
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+  <mo>.</mo>
+  <mi>s</mi>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+  <mi>H</mi>
+  <mi>S</mi>
+  <mo>←</mo>
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+  <mo>.</mo>
+  <mi>u</mi>
+  <mo>+</mo>
+  <mo stretchy="false">[</mo>
+  <mi>C</mi>
+  <mo>'</mo>
+  <mo stretchy="false">]</mo>
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+</math></p></li>
+<li><p>$LHS - RHS = 0$</p></li>
+</ul>
+<p><strong>Nota:</strong> También es posible mover estos pasos a un circuito separado. En este caso, la estructura de la transacción debe modificarse para dar cabida a una prueba adicional por acción.</p>
+<h3 id="rationale-for-the-modifications-to-the-orchard-statement-circuit"><a class="hanchor" href="#rationale-for-the-modifications-to-the-orchard-statement-circuit" aria-hidden="true" tabindex="-1">#</a>Justificación de las modificaciones al enunciado/circuito de Orchard</h3>
+<p>Tras recibir la firma de aprobación por parte del destinatario de los fondos, el emisor podría incluir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+</math> junto con <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+</math> en la transacción que se enviará a la cadena. En efecto, tanto <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math> como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+</math> del destinatario son necesarios para que los validadores/mineros de Zcash verifiquen la firma Schnorr de aprobación en la cadena.</p>
+<p>En este caso, los mineros de Zcash podrían verificar la aprobación del destinatario haciendo (por cada Action en la transacción):</p>
+<ol class="arabic simple">
+<li><p><tt class="math">C’ \gets H(g_d || pk_d || \sigma_{approval}.u || H(\mathtt{OrchardActionDescription}))</tt></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>L</mi>
+  <mi>H</mi>
+  <mi>S</mi>
+  <mo>←</mo>
+  <mo stretchy="false">[</mo>
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+  <mo>.</mo>
+  <mi>s</mi>
+  <mi>i</mi>
+  <mi>g</mi>
+  <mi>m</mi>
+  <mi>a</mi>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+  <mi>H</mi>
+  <mi>S</mi>
+  <mo>←</mo>
+  <msub>
+    <mi>σ</mi>
+    <mrow>
+      <mi>a</mi>
+      <mi>p</mi>
+      <mi>p</mi>
+      <mi>r</mi>
+      <mi>o</mi>
+      <mi>v</mi>
+      <mi>a</mi>
+      <mi>l</mi>
+    </mrow>
+  </msub>
+  <mo>.</mo>
+  <mi>u</mi>
+  <mo>+</mo>
+  <mo stretchy="false">[</mo>
+  <mi>C</mi>
+  <mo>'</mo>
+  <mo stretchy="false">]</mo>
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+</math></p></li>
+<li><p><tt class="math">LHS \stackrel{?}{=} RHS</tt>. Si no, rechazar la transacción.</p></li>
+</ol>
+<p>Si la firma fue generada correctamente, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>L</mi>
+  <mi>H</mi>
+  <mi>S</mi>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mi>r</mi>
+  <mo>+</mo>
+  <mi>C</mi>
+  <mo>*</mo>
+  <mi>i</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+  <mi>H</mi>
+  <mi>S</mi>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mi>r</mi>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+  <mo>+</mo>
+  <mo stretchy="false">[</mo>
+  <mi>C</mi>
+  <mo stretchy="false">]</mo>
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+</math>, dado que un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+</math> bien derivado es igual a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mi>i</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math>, obtenemos <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+  <mi>H</mi>
+  <mi>S</mi>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mi>r</mi>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+  <mo>+</mo>
+  <mo stretchy="false">[</mo>
+  <mi>C</mi>
+  <mo stretchy="false">]</mo>
+  <mo stretchy="false">[</mo>
+  <mi>i</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+  <mo>⟹</mo>
+  <mi>R</mi>
+  <mi>H</mi>
+  <mi>S</mi>
+  <mo>=</mo>
+  <mo stretchy="false">[</mo>
+  <mi>r</mi>
+  <mo>+</mo>
+  <mi>C</mi>
+  <mo>*</mo>
+  <mi>i</mi>
+  <mi>v</mi>
+  <mi>k</mi>
+  <mo stretchy="false">]</mo>
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math>. Por lo tanto, si todos los pasos se siguen correctamente, $LHS = RHS$ y la verificación de la firma tiene éxito.</p>
+<p>Sin embargo, para verificar la firma, los mineros de Zcash necesitan saber cuáles <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+</math> usar para verificar las firmas de aprobación en cada Action. Revelar estos valores filtra "qué dirección de Orchard" es la destinataria de las notas de salida de una Action. Por lo tanto, la desvinculabilidad se ve afectada.</p>
+<p>Aquí, el emisor necesita incluir la dirección de Orchard del destinatario para que los mineros verifiquen la aprobación del destinatario. Para resolver esto, incluimos la verificación de la firma Schnorr directamente en el circuito de la Orchard Action. Esto mantiene los <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>g</mi>
+    <mi>d</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>p</mi>
+  <msub>
+    <mi>k</mi>
+    <mi>d</mi>
+  </msub>
+</math> del destinatario en conocimiento solo de las partes de la transacción (es decir, los valores permanecen como parte del testigo, como se hace actualmente en el protocolo NU5). Los mineros de Zcash solo necesitan verificar la prueba de la Orchard Action para asegurarse de que la firma de aprobación fue:</p>
+<ul class="simple">
+<li><p>Generada correctamente por el destinatario de las notas en las Orchard Actions</p></li>
+<li><p>Verificada correctamente por el emisor de los fondos</p></li>
+</ul>
+
+
+<h2 id="modifications-to-the-transaction-format"><a class="hanchor" href="#modifications-to-the-transaction-format" aria-hidden="true" tabindex="-1">#</a>Modificaciones al formato de transacción</h2>
+<p>Para dar soporte a este ZIP, el formato de transacción, como se especifica en <a class="brackets" href="#protocol-tx-encoding" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a>, debe extenderse para añadir las firmas de aprobación, de la siguiente manera:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Nombre</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>96 * nActionsOrchard</p></td>
+<td><p>vApprovalSigs</p></td>
+<td><p>byte[96][nActionsOrchard]</p></td>
+<td><p>Firmas de aprobación para cada Orchard Action</p></td>
+</tr>
+</tbody>
+</table>
+
+
+<h1 id="other-considerations"><a class="hanchor" href="#other-considerations" aria-hidden="true" tabindex="-1">#</a>Otras consideraciones</h1>
+<h2 id="transaction-fees"><a class="hanchor" href="#transaction-fees" aria-hidden="true" tabindex="-1">#</a>Comisiones de transacción</h2>
+<p>Dada la modificación de la estructura de la transacción (y los bytes adicionales), podría ser necesario aumentar ligeramente las comisiones de transacción predeterminadas en Zcash si este ZIP se implementa.</p>
+
+<h2 id="malicious-recipients"><a class="hanchor" href="#malicious-recipients" aria-hidden="true" tabindex="-1">#</a>Destinatarios malintencionados</h2>
+<p>Al otorgar a los destinatarios la capacidad de aprobar (o no) transacciones entrantes, también les damos la capacidad de retener su aprobación. Esto podría hacerse malintencionadamente para, por ejemplo:</p>
+<ol class="arabic simple">
+<li><p>Bloquear un pago y negar haber recibido la "solicitud de aprobación", y luego acusar al emisor de haber incumplido una obligación contractual.</p></li>
+<li><p>Obtener información: al recibir el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝙾</mi>
+    <mi>𝚛</mi>
+    <mi>𝚌</mi>
+    <mi>𝚑</mi>
+    <mi>𝚊</mi>
+    <mi>𝚛</mi>
+    <mi>𝚍</mi>
+    <mi>𝙰</mi>
+    <mi>𝚌</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+    <mi>𝙳</mi>
+    <mi>𝚎</mi>
+    <mi>𝚜</mi>
+    <mi>𝚌</mi>
+    <mi>𝚛</mi>
+    <mi>𝚒</mi>
+    <mi>𝚙</mi>
+    <mi>𝚝</mi>
+    <mi>𝚒</mi>
+    <mi>𝚘</mi>
+    <mi>𝚗</mi>
+  </mrow>
+</math> para aprobar, los destinatarios llegan a ver el nullifier de la nota de entrada de la Orchard Action antes que el resto de la red.</p></li>
+</ol>
+
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.html">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0209" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0209.html">ZIP 209: Prohibit Negative Shielded Chain Value Pool Balances</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0224" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0224.html">ZIP 224: Orchard</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0227" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0227.html">ZIP 227: Issuance of Zcash Shielded Assets</a></p>
+</aside>
+<aside class="footnote brackets" id="confirmation-of-payee" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">6</a><span class="fn-bracket">]</span></span>
+<p><cite>Confirmation of Payee</cite> &#x3C;<a class="reference external" href="https://www.wearepay.uk/what-we-do/overlay-services/confirmation-of-payee/">https://www.wearepay.uk/what-we-do/overlay-services/confirmation-of-payee/</a>></p>
+</aside>
+<aside class="footnote brackets" id="zcash-delist" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">7</a><span class="fn-bracket">]</span></span>
+<p><cite>Important: Potential Binance Delisting</cite> &#x3C;<a class="reference external" href="https://forum.zcashcommunity.com/t/important-potential-binance-delisting/45954">https://forum.zcashcommunity.com/t/important-potential-binance-delisting/45954</a>></p>
+</aside>
+<aside class="footnote brackets" id="protocol-actions" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">8</a><span class="fn-bracket">]</span></span>
+<p><cite>Zcash Protocol Specification, Version 2024.5.1 [NU6]. Section 7.5: Action Description Encoding and Consensus</cite> &#x3C;<a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#actionencodingandconsensus">https://zips.z.cash/protocol/protocol.pdf#actionencodingandconsensus</a>></p>
+</aside>
+<aside class="footnote brackets" id="protocol-raw-address" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">9</a><span class="fn-bracket">]</span></span>
+<p><cite>Zcash Protocol Specification, Version 2024.5.1 [NU6]. 5.6.4.2 Orchard Raw Payment Addresses</cite> &#x3C;<a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#orchardpaymentaddrencoding">https://zips.z.cash/protocol/protocol.pdf#orchardpaymentaddrencoding</a>></p>
+</aside>
+<aside class="footnote brackets" id="protocol-diversify-hash" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">10</a><span class="fn-bracket">]</span></span>
+<p><cite>Zcash Protocol Specification, Version 2024.5.1 [NU6]. 5.4.1.6 DiversifyHashSapling and DiversifyHashOrchard Hash Functions</cite> &#x3C;<a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#concretediversifyhash">https://zips.z.cash/protocol/protocol.pdf#concretediversifyhash</a>></p>
+</aside>
+<aside class="footnote brackets" id="protocol-pallas-vesta" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">11</a><span class="fn-bracket">]</span></span>
+<p><cite>Zcash Protocol Specification, Version 2024.5.1 [NU6]. 5.4.9.6 Pallas and Vesta</cite> &#x3C;<a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#pallasandvesta">https://zips.z.cash/protocol/protocol.pdf#pallasandvesta</a>></p>
+</aside>
+<aside class="footnote brackets" id="protocol-orchard-keys" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">12</a><span class="fn-bracket">]</span></span>
+<p><cite>Zcash Protocol Specification, Version 2024.5.1 [NU6]. 4.2.3 Orchard Key Components</cite> &#x3C;<a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#orchardkeycomponents">https://zips.z.cash/protocol/protocol.pdf#orchardkeycomponents</a>></p>
+</aside>
+<aside class="footnote brackets" id="protocol-key-agreement" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></span>
+<p><cite>Zcash Protocol Specification, Version 2024.5.1 [NU6]. 5.4.5.5 Orchard Key Agreement</cite> &#x3C;<a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#concreteorchardkeyagreement">https://zips.z.cash/protocol/protocol.pdf#concreteorchardkeyagreement</a>></p>
+</aside>
+<aside class="footnote brackets" id="protocol-tx-encoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-14">14</a><span class="fn-bracket">]</span></span>
+<p><cite>Zcash Protocol Specification, Version 2024.5.1 [NU6]. 7.1 Transaction Encoding and Consensus</cite> &#x3C;<a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#txnencoding">https://zips.z.cash/protocol/protocol.pdf#txnencoding</a>></p>
+</aside>
+<aside class="footnote brackets" id="protocol-redpallas" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">15</a><span class="fn-bracket">]</span></span>
+<p><cite>Zcash Protocol Specification, Version 2024.5.1 [NU6]. 5.4.7 RedDSA, RedJubjub, and RedPallas</cite> &#x3C;<a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#concretereddsa">https://zips.z.cash/protocol/protocol.pdf#concretereddsa</a>></p>
+</aside>
+</aside>
+
+<section class="system-messages">
+<h1>Mensajes del sistema Docutils</h1>
+<aside class="system-message" id="system-message-1">
+<p class="system-message-title">Mensaje del sistema: ERROR/3 (<span class="docutils literal">&#x3C;string></span>, línea 67)</p>
+<p>Demasiadas referencias de notas al pie autonumeradas: solo hay 0 notas al pie correspondientes disponibles.</p>
+</aside>
+<aside class="system-message" id="system-message-2">
+<p class="system-message-title">Mensaje del sistema: ERROR/3 (<span class="docutils literal">&#x3C;string></span>, línea 67); <em><a href="#footnote-reference-11">backlink</a></em></p>
+<p>Nombre de destino desconocido: "protocol-notation".</p>
+</aside>
+</section>

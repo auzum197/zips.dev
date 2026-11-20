@@ -1,0 +1,123 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)", "PUEDE (MAY)" y "RECOMENDADO (RECOMMENDED)" en este documento se interpretarán como se describe en BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparezcan en mayúsculas.</p>
+<p><strong>Fase stem:</strong> La fase de retransmisión unidifusión del protocolo Dandelion++ <sup><a href="#user-content-fn-dpplusplus" id="user-content-fnref-dpplusplus" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> en la que una transacción se reenvía a un único par seleccionado aleatoriamente por época antes de entrar en la fase fluff.</p>
+<p><strong>Fase fluff:</strong> La fase estándar de difusión por inundación de la propagación de transacciones que sigue a la fase stem.</p>
+<p><strong>Par stem:</strong> El único par P2P al que un nodo Dandelion++ retransmite las transacciones en fase stem durante una época determinada.</p>
+<p><strong>Correlación IP-transacción:</strong> La capacidad de un observador de la red de determinar qué dirección IP originó una transacción determinada observando cuándo y dónde apareció por primera vez la transacción en la red P2P.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP especifica cómo los nodos completos de Zcash DEBERÍAN (SHOULD) implementar la propagación de transacciones Dandelion++ <sup><a href="#user-content-fn-dpplusplus" id="user-content-fnref-dpplusplus-2" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>. En Dandelion++, una transacción recién recibida viaja primero a través de un "stem" de pares seleccionado aleatoriamente (unidifusión por época) antes de entrar en una difusión por inundación estándar (fase "fluff"). Esto hace significativamente más difícil que los observadores de la red determinen qué nodo originó una transacción, reduciendo la correlación IP-transacción.</p>
+<p>Este ZIP cubre únicamente el <strong>comportamiento de retransmisión P2P de nodos completos</strong> (a veces llamado "Componente B"). Un mecanismo complementario para que las billeteras envíen transacciones directamente a un nodo mediante P2P en lugar de a través de un servidor de bloques compactos se describe en draft-zodl-dandelion-wallet (PR <a href="https://github.com/zcash/zips/pull/1380">#1380</a>). <sup><a href="#user-content-fn-draft-zodl-dandelion-wallet" id="user-content-fnref-draft-zodl-dandelion-wallet" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Actualmente, las transacciones de Zcash se difunden por inundación de inmediato a todos los pares conectados en cuanto entran en el mempool de un nodo. Un adversario pasivo de la red puede observar el momento de aparición de las transacciones desde muchos puntos de observación para identificar el nodo de origen con alta confianza, incluso en el caso de transacciones blindadas cuyo contenido está protegido criptográficamente.</p>
+<p>Dandelion++ aborda esto introduciendo una fase intermedia "stem" durante la cual la transacción se retransmite a un solo par. El nodo de origen queda oculto en el conjunto de anonimato de todos los nodos a lo largo de la ruta stem.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ol>
+<li>
+<p>Cada nodo Dandelion++ DEBE (MUST) mantener una <strong>época</strong> con una duración elegida aleatoriamente en el rango de [600, 720] segundos (10 minutos ± 120 segundos de fluctuación).</p>
+</li>
+<li>
+<p>Al comienzo de cada época, el nodo DEBE (MUST) seleccionar un único <strong>par stem</strong> de manera uniforme y aleatoria entre sus pares salientes actualmente conectados. Si no hay pares salientes disponibles, el nodo opera en modo fluff durante esa época.</p>
+</li>
+<li>
+<p>Para cada transacción recibida localmente (mediante RPC, envío directo por P2P o retransmitida por un par), el nodo DEBE (MUST):</p>
+<p>a. Ingresar la transacción en la <strong>fase stem</strong>: enrutarla exclusivamente al par stem mediante un mensaje P2P de unidifusión. b. Registrar la hora de inicio de la fase stem. Si la transacción no ha entrado en fluff dentro de <strong>30 segundos</strong>, el nodo DEBE (MUST) promoverla a la fase fluff. c. Si el par stem se desconecta o deja de estar disponible antes de que la transacción sea confirmada, el nodo DEBE (MUST) promover inmediatamente la transacción a la fase fluff en lugar de descartarla silenciosamente.</p>
+</li>
+<li>
+<p>Durante la fase stem, el nodo NO DEBE (MUST NOT) anunciar la transacción a ningún otro par. Específicamente:</p>
+<p>a. La transacción NO DEBE (MUST NOT) incluirse en respuestas a solicitudes P2P <code>mempool</code> de pares remotos. b. La transacción NO DEBE (MUST NOT) ser devuelta por ningún RPC que exponga el contenido del mempool (p. ej. <code>getrawmempool</code>, <code>getrawtransaction</code> con <code>verbose=0</code> sobre transacciones no confirmadas) hasta que entre en la fase fluff.</p>
+</li>
+<li>
+<p>Una vez que la transacción entra en la fase fluff, DEBE (MUST) difundirse normalmente mediante el mecanismo de inundación <code>inv</code>/<code>tx</code> existente.</p>
+</li>
+</ol>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="epoch-management"><a class="hanchor" href="#epoch-management" aria-hidden="true" tabindex="-1">#</a>Gestión de épocas</h2>
+<p>Una nueva <strong>época</strong> comienza inmediatamente cuando el nodo se inicia y cada vez que expira la época anterior. La duración de la época es:</p>
+<pre><code>epoch_duration = BASE_EPOCH_DURATION + uniform_random(0, MAX_EPOCH_JITTER)
+</code></pre>
+<p>donde <code>BASE_EPOCH_DURATION</code> = 600 s y <code>MAX_EPOCH_JITTER</code> = 120 s.</p>
+<p>El par stem para una época se selecciona de manera uniforme y aleatoria entre las direcciones de los pares salientes actualmente conectados en el momento en que comienza la época. Si no hay pares salientes conectados, el par stem es <code>None</code> y el nodo opera en <strong>modo fluff</strong> durante toda la época (todas las transacciones se difunden inmediatamente por inundación).</p>
+<h2 id="stem-phase-forwarding"><a class="hanchor" href="#stem-phase-forwarding" aria-hidden="true" tabindex="-1">#</a>Reenvío en fase stem</h2>
+<p>Cuando un nodo ingresa una nueva transacción en la fase stem, DEBERÍA (SHOULD) enviar el identificador de la transacción al par stem mediante el mensaje P2P estándar <code>inv</code> con tipo <code>MSG_TX</code>. Se espera que el par stem solicite la transacción completa mediante <code>getdata</code> y continúe la retransmisión stem usando su propio par stem para la época actual.</p>
+<blockquote>
+<p><strong>Nota:</strong> El artículo de Dandelion++ define una convención separada de «<code>tx</code> no anunciado» (enviar el mensaje <code>tx</code> sin procesar al par stem sin un <code>inv</code> previo) como señal de que el destinatario debe tratar la transacción como fase stem. Esta convención es OPCIONAL (OPTIONAL) bajo este ZIP. Los nodos que no la implementen DEBEN (MUST) recurrir de manera tolerante al reenvío estándar mediante <code>inv</code>, que proporciona la misma propiedad de privacidad en el nodo que reenvía. Un ZIP futuro PUEDE (MAY) estandarizar la convención de <code>tx</code> no anunciado cuando las implementaciones converjan.</p>
+</blockquote>
+<h2 id="stem-phase-mempool-filtering"><a class="hanchor" href="#stem-phase-mempool-filtering" aria-hidden="true" tabindex="-1">#</a>Filtrado del mempool en fase stem</h2>
+<p>Las implementaciones DEBEN (MUST) garantizar que las transacciones en fase stem no sean observables por pares remotos antes de entrar en fluff. Esto aplica a:</p>
+<ol>
+<li>
+<p>Las respuestas a solicitudes P2P <code>mempool</code>: el nodo DEBE (MUST) filtrar los identificadores de transacciones en fase stem de la lista devuelta a cualquier par remoto.</p>
+</li>
+<li>
+<p>Los RPC relacionados con transacciones: el nodo DEBERÍA (SHOULD) suprimir las transacciones en fase stem de cualquier RPC que devuelva el contenido del mempool. Las implementaciones PUEDEN (MAY) posponer esto para una versión posterior.</p>
+</li>
+</ol>
+<h2 id="fail-closed-routing"><a class="hanchor" href="#fail-closed-routing" aria-hidden="true" tabindex="-1">#</a>Enrutamiento con falla cerrada</h2>
+<p>Si el par stem no es alcanzable en el momento en que una transacción en fase stem debería reenviarse (p. ej., el par fue expulsado del conjunto de pares listos), el nodo DEBE (MUST) promover inmediatamente la transacción a fluff. El nodo NO DEBE (MUST NOT) descartar silenciosamente la transacción, y NO DEBE (MUST NOT) recurrir a enrutarla a un par diferente sin actualizar el estado de propagación (lo que resultaría en que la transacción sea anunciada a un par que no es el par stem durante lo que el nodo todavía registra como fase stem).</p>
+<h2 id="fluff-phase"><a class="hanchor" href="#fluff-phase" aria-hidden="true" tabindex="-1">#</a>Fase fluff</h2>
+<p>Después del tiempo de espera de 30 segundos de la fase stem, o cuando una falla del par stem provoca una promoción anticipada, la transacción entra en la fase fluff y DEBE (MUST) difundirse a todos los pares conectados mediante el mecanismo normal de <code>inv</code> + <code>getdata</code> + <code>tx</code>.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<h2 id="why-per-epoch-rather-than-per-transaction-stem-peer-selection"><a class="hanchor" href="#why-per-epoch-rather-than-per-transaction-stem-peer-selection" aria-hidden="true" tabindex="-1">#</a>¿Por qué selección de par stem por época en lugar de por transacción?</h2>
+<p>El artículo de Dandelion++ recomienda la selección por transacción para un anonimato máximo. Sin embargo, la selección por época tiene una ventaja importante: un adversario que controla varios pares no puede determinar qué par reenvía de manera consistente las transacciones de un remitente dado comparando qué par las vio primero para cada transacción. Con la selección por época, un adversario aprende solo una identidad stem por ventana de 10 minutos. Esta compensación de privacidad está bien documentada en <sup><a href="#user-content-fn-dpplusplus" id="user-content-fnref-dpplusplus-3" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</p>
+<h2 id="why-30-seconds-for-the-stem-timeout"><a class="hanchor" href="#why-30-seconds-for-the-stem-timeout" aria-hidden="true" tabindex="-1">#</a>¿Por qué 30 segundos para el tiempo de espera de la fase stem?</h2>
+<p>El artículo de Dandelion++ recomienda un tiempo de espera de la fase stem en el rango de 30 a 60 segundos. Aquí se usa el límite inferior para minimizar el retraso de propagación de transacciones en condiciones normales. Si una transacción es rechazada por el par stem (p. ej., por política), el tiempo de espera de 30 segundos garantiza que no se descarte silenciosamente.</p>
+<h2 id="why-not-a-new-p2p-message-type"><a class="hanchor" href="#why-not-a-new-p2p-message-type" aria-hidden="true" tabindex="-1">#</a>¿Por qué no un nuevo tipo de mensaje P2P?</h2>
+<p>Definir un nuevo tipo de mensaje P2P requeriría una actualización de red y coordinación entre todas las implementaciones de nodos completos de Zcash. Usar el mensaje <code>inv</code> existente para el reenvío stem logra el mismo comportamiento de enrutamiento sin cambios a nivel de protocolo, lo que permite un despliegue incremental. Los nodos que no implementan este ZIP procesan el <code>inv</code> con normalidad y difunden la transacción por inundación, lo cual es la alternativa segura.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<h2 id="component-b--full-node-dandelion-relay-zebra"><a class="hanchor" href="#component-b--full-node-dandelion-relay-zebra" aria-hidden="true" tabindex="-1">#</a>Componente B — Retransmisión Dandelion++ en nodo completo (Zebra)</h2>
+<p>Implementación de referencia propuesta en el repositorio original: <a href="https://github.com/zcashfoundation/zebra/pull/10928">zcashfoundation/zebra#10928</a>.</p>
+<p>Verificada de extremo a extremo en una red regtest de 3 nodos (2026-07-09). Véase <code>docs/dandelion-e2e-regtest.md</code> en ese PR para el procedimiento de prueba completo, las banderas de compilación y la evidencia de resultados (txid aceptado, retención stem de 30 s confirmada, un observador adversario no vio ningún <code>inv</code> durante la ventana stem).</p>
+<p>Implementado:</p>
+<ul>
+<li>Gestión de épocas con 10 min de base + hasta 2 min de jitter (<code>zebra-network/src/dandelion/epoch.rs</code>)</li>
+<li>Estado de propagación por transacción, tiempo de espera stem de 30 s, <code>stem_txids()</code> (<code>zebra-network/src/dandelion/state.rs</code>)</li>
+<li>Unidifusión stem en modo de falla cerrada mediante <code>PeerSet::route_to_peer</code> con <code>PeerError::NoReadyPeers</code> (<code>zebra-network/src/peer_set/set.rs</code>)</li>
+<li>Tarea de gossip integrada en el inicio de <code>zebrad</code>; <code>MempoolChangeKind::StemAdded</code> enruta las transacciones enviadas localmente a través de stem; el <code>Added</code> retransmitido por pares va directamente a fluff (<code>zebrad/src/components/mempool/dandelion_gossip.rs</code>, <code>mempool.rs</code>)</li>
+<li>Fase 4 — ocultamiento de la fase stem en todas las superficies de exposición:
+<ul>
+<li>Respuesta P2P <code>MempoolTransactionIds</code> (manejador de entrantes)</li>
+<li>Manejador P2P getdata <code>TransactionsById</code> (un adversario no puede obtener la transacción completa durante la fase stem)</li>
+<li>RPC <code>getrawmempool</code> (verboso y no verboso)</li>
+<li>RPC <code>getrawtransaction</code></li>
+<li>Flujo gRPC <code>mempool_change</code> del indexador de Zebra (suprime los eventos de <code>StemAdded</code>; Zaino/lightwalletd solo ve la transacción cuando entra en la fase fluff)</li>
+</ul>
+</li>
+<li>10 pruebas unitarias (época, estado de propagación, filtro de Fase 4) + 2 pruebas de enrutamiento</li>
+</ul>
+<p>Restante (opcional / coordinación futura): convención de cable unadvertised-<code>tx</code> (requiere que otras implementaciones reconozcan la señal).</p>
+<h2 id="component-a--wallet-direct-p2p-submission"><a class="hanchor" href="#component-a--wallet-direct-p2p-submission" aria-hidden="true" tabindex="-1">#</a>Componente A — Envío directo P2P desde la billetera</h2>
+<p>Propuesto upstream a los SDK de billetera de Zcash:</p>
+<ul>
+<li><strong>Android</strong>: <a href="https://github.com/zcash/zcash-android-wallet-sdk/pull/2010">zcash/zcash-android-wallet-sdk#2010</a></li>
+<li><strong>iOS (Swift)</strong>: <a href="https://github.com/zcash/zcash-swift-wallet-sdk/pull/1804">zcash/zcash-swift-wallet-sdk#1804</a></li>
+</ul>
+<p>Ambos SDK agregan una opción de activación <code>DandelionSubmitConfig</code> (<code>DirectP2P</code> / <code>directP2P</code>) que:</p>
+<ol>
+<li>Resuelve pares mediante los sembradores DNS del mainnet de Zcash (el mismo conjunto que los valores predeterminados de Zebra).</li>
+<li>Abre una conexión TCP directamente a un nodo completo.</li>
+<li>Realiza el intercambio version/verack del protocolo P2P de Zcash.</li>
+<li>Envía el mensaje <code>tx</code> en bruto <strong>sin un <code>inv</code> previo</strong> (la convención de transacción no anunciada descrita en §Reenvío en fase stem más arriba).</li>
+<li>Se desconecta.</li>
+</ol>
+<p>La sincronización de la cadena siempre usa el punto de conexión de lightwalletd, independientemente de este ajuste. Hay una alternativa de envío por lwd disponible cuando no se puede acceder a ningún par P2P.</p>
+<p>La especificación del lado de la billetera (descubrimiento de pares, formato del mensaje tx, manejo de errores) está en el borrador complementario (PR <a href="https://github.com/zcash/zips/pull/1380">#1380</a>). <sup><a href="#user-content-fn-draft-zodl-dandelion-wallet" id="user-content-fnref-draft-zodl-dandelion-wallet-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<h1 id="changelog"><a class="hanchor" href="#changelog" aria-hidden="true" tabindex="-1">#</a>Registro de cambios</h1>
+<ul>
+<li>2026-07-09: Borrador inicial. Implementación de referencia del Componente B completa (Zebra).</li>
+<li>2026-07-09: Implementaciones de referencia del Componente A agregadas (SDK de Android + iOS). Se actualizó la sección Implementación de referencia para listar todos los PR.</li>
+<li>2026-07-09: Implementaciones de referencia propuestas upstream — Componente B de Zebra a <code>zcashfoundation/zebra</code>, y Componente A a <code>zcash/zcash-android-wallet-sdk#2010</code> y <code>zcash/zcash-swift-wallet-sdk#1804</code>.</li>
+</ul>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Key words for use in RFCs to Indicate Requirement Levels</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-dpplusplus">
+<p>Venkatakrishnan, S.B., Fanti, G., Viswanath, P. "Dandelion++: Lightweight Cryptocurrency Networking with Formal Anonymity Guarantees." ACM SIGMETRICS 2018. <a href="https://arxiv.org/abs/1805.11060">https://arxiv.org/abs/1805.11060</a> <a href="#user-content-fnref-dpplusplus" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-dpplusplus-2" data-footnote-backref="" aria-label="Back to reference 2-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-dpplusplus-3" data-footnote-backref="" aria-label="Back to reference 2-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-draft-zodl-dandelion-wallet">
+<p>draft-zodl-dandelion-wallet: Direct Wallet Transaction Submission via Dandelion++ P2P Relay. PR: <a href="https://github.com/zcash/zips/pull/1380">https://github.com/zcash/zips/pull/1380</a> (En preparación — véase zcash/zips#1380.) <a href="#user-content-fnref-draft-zodl-dandelion-wallet" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-zodl-dandelion-wallet-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+</ol>
+</section>
