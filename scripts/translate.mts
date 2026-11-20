@@ -348,7 +348,7 @@ export function glossaryFor(g: Glossary, text: string): { keep: string[]; terms:
     const has = (term: string): boolean => countTerm(text, term) > 0;
     return {
         keep: (g.keep ?? []).filter(has),
-        terms: Object.fromEntries(Object.entries(g.terms ?? {}).filter(([en]) => has(en) || has(en.toLowerCase()))),
+        terms: Object.fromEntries(Object.entries(g.terms ?? {}).filter(([en]) => has(en))),
     };
 }
 
