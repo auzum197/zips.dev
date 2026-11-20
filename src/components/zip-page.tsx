@@ -1,17 +1,16 @@
-import { useLocale, useTranslations } from "next-intl";
-import Link from "@/i18n/link";
+import { useLocale } from "next-intl";
 import { getCrossrefs, getMeta, getZipBySlug, getZipHtml, getZipTranslation, prsForDraft, prsForZip, upgradeNameForZip } from "@/lib/data";
 import { statusGroup, type ZipMeta } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DEFAULT_LOCALE } from "@/i18n/config";
 import MetaPanel from "@/components/meta-panel";
+import TranslationNotice from "@/components/translation-notice";
 import StatusBadge from "@/components/status-badge";
 import TocSidebar from "@/components/toc-sidebar";
 import ZipToc from "@/components/zip-toc";
 import { Badge } from "@/components/ui/badge";
 import { isRevisionList } from "@/lib/zip-status";
 const badgesRow = "inline-flex flex-wrap items-center gap-1.5 [&>span]:whitespace-normal";
-const notice = "mb-8 rounded-md border border-border-subtle bg-muted/50 px-4 py-3 text-[0.875rem] leading-[1.6] text-muted-foreground";
 /** A numbered ZIP or a draft, in the language of the page. Outside English,
  *  the text is the translation when a current one exists (getZipTranslation),
  *  else the English text with a note. */
@@ -19,7 +18,6 @@ export default function ZipPage({ zip }: {
     zip: ZipMeta;
 }) {
     const locale = useLocale();
-    const t = useTranslations("Doc");
     const foreign = locale !== DEFAULT_LOCALE;
     const translation = foreign ? getZipTranslation(zip.slug) : null;
     const html = translation?.html ?? getZipHtml(zip.slug);
@@ -45,24 +43,7 @@ export default function ZipPage({ zip }: {
             <ZipToc headings={headings} floating/>
           </div>
         </header>
-        {translation && (<aside lang={locale} className={notice} data-pagefind-ignore>
-            <p className="m-0">
-              <strong className="font-semibold text-foreground">{t("machineTitle")}</strong>{" "}
-              {t.rich("machineBody", {
-                model: translation.model,
-                // a plain anchor: this link leaves the reader's language on purpose
-                link: (chunks) => <a href={english} hrefLang={DEFAULT_LOCALE}>{chunks}</a>,
-            })}
-            </p>
-            <p className="m-0 mt-2">
-              {t.rich("keywords", { kw: (chunks) => <span className="font-mono text-[0.8125rem]">{chunks}</span> })}
-            </p>
-          </aside>)}
-        {foreign && !translation && (<aside lang={locale} className={notice} data-pagefind-ignore>
-            <p className="m-0">
-              <strong className="font-semibold text-foreground">{t("untranslatedTitle")}</strong> {t("untranslatedBody")}
-            </p>
-          </aside>)}
+        <TranslationNotice model={translation?.model ?? null} english={english}/>
         <div className="prose" dangerouslySetInnerHTML={{ __html: html }}/>
       </article>
 

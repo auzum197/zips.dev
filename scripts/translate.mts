@@ -1,6 +1,8 @@
 /* Translate rendered ZIP HTML to Spanish with GLM.
  *
- *   pnpm translate zip-0200 zip-0317        translate the given slugs
+ *   pnpm translate zip-0200 zip-0317        translate the given documents
+ *   pnpm translate pr-1437-zip-0223         a document of a pull request
+ *   pnpm translate --all                    every document that is missing or out of date
  *   pnpm translate --force zip-0200         ignore the cache
  *
  * Reads  content/rendered/<slug>.html
@@ -671,14 +673,76 @@ function headingText(el: Element): string {
     return out.replace(/\s+/g, " ").trim();
 }
 
-async function translateDoc(slug: string, glossary: Glossary, system: string, reviewSystem: string, promptSha: string, force: boolean): Promise<void> {
+interface Entry {
+    /** File name in content/rendered/, with no extension. */
+    key: string;
+    /** The document it is a version of: "zip-0317", "draft-…". */
+    slug: string;
+    title: string;
+    headings: { level: number; id: string; text: string }[];
+}
+/** Every document of the site: ZIPs and drafts of zcash/zips, and the
+ *  documents inside pull requests, of zcash/zips and of the watched
+ *  repositories. A pull request document is "pr-<number>-<slug>", or
+ *  "pr-<source>-<number>-<slug>" for a watched repository. */
+export function catalog(): Map<string, Entry> {
+    function read<T>(file: string): T {
+        return JSON.parse(fs.readFileSync(path.join(CONTENT, file), "utf8")) as T;
+    }
+    const out = new Map<string, Entry>();
+    for (const z of read<{ zips: Omit<Entry, "key">[] }>("zips.json").zips)
+        out.set(z.slug, { key: z.slug, slug: z.slug, title: z.title, headings: z.headings });
+    interface Preview {
+        filename: string;
+        slug?: string;
+        title: string;
+        headings?: Entry["headings"];
+    }
+    interface Pr {
+        source: string | null;
+        number: number;
+        previews?: Preview[];
+        preview?: Preview | null;
+    }
+    for (const pr of [...read<{ prs: Pr[] }>("prs.json").prs, ...read<{ prs: Pr[] }>("external.json").prs]) {
+        const previews = pr.previews?.length ? pr.previews : pr.preview ? [pr.preview] : [];
+        for (const pv of previews) {
+            const slug = pv.slug ?? pv.filename.replace(/^.*\//, "").replace(/\.(md|rst)$/i, "");
+            const key = `pr-${pr.source ? `${pr.source}-${pr.number}` : pr.number}-${slug}`;
+            if (fs.existsSync(path.join(RENDERED, `${key}.html`)))
+                out.set(key, { key, slug, title: pv.title, headings: pv.headings ?? [] });
+        }
+    }
+    return out;
+}
+
+/** Reviewed translations of the same paragraphs in other versions of the
+ *  document. A pull request changes a few paragraphs of a ZIP; the others
+ *  are already translated and reviewed in the ZIP itself, or in another pull
+ *  request that touches it. Returns the number of paragraphs taken. */
+export function seedMemory(entry: Entry, wanted: Map<string, Segment>, memory: Record<string, string>, reviews: Record<string, Review>, dir: string = OUT): number {
+    if (!fs.existsSync(dir))
+        return 0;
+    const own = `${entry.key}.tm.json`;
+    const related = fs.readdirSync(dir).filter((f) => f !== own && (f === `${entry.slug}.tm.json` || (f.startsWith("pr-") && f.endsWith(`-${entry.slug}.tm.json`)))).sort();
+    let taken = 0;
+    for (const file of related) {
+        const other = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")) as { segments?: Record<string, string>; reviews?: Record<string, Review> };
+        for (const [source, text] of Object.entries(other.segments ?? {})) {
+            if (source in memory || !wanted.has(source) || !other.reviews?.[source]?.passed)
+                continue;
+            memory[source] = text;
+            reviews[source] = other.reviews[source];
+            taken++;
+        }
+    }
+    return taken;
+}
+
+async function translateDoc(entry: Entry, glossary: Glossary, system: string, reviewSystem: string, promptSha: string, force: boolean): Promise<void> {
+    const slug = entry.key;
     const srcPath = path.join(RENDERED, `${slug}.html`);
-    if (!fs.existsSync(srcPath))
-        throw new Error(`no rendered document: ${srcPath}`);
-    const zips = (JSON.parse(fs.readFileSync(path.join(CONTENT, "zips.json"), "utf8")) as { zips: { slug: string; title: string; headings: { level: number; id: string; text: string }[] }[] }).zips;
-    const meta = zips.find((z) => z.slug === slug);
-    if (!meta)
-        throw new Error(`${slug} is not in zips.json`);
+    const meta = entry;
     const html = fs.readFileSync(srcPath, "utf8");
     const sourceSha = sha(`${html}\n${meta.title}`);
     const metaPath = path.join(OUT, `${slug}.json`);
@@ -709,8 +773,9 @@ async function translateDoc(slug: string, glossary: Glossary, system: string, re
     const stored = !force && fs.existsSync(tmPath) ? JSON.parse(fs.readFileSync(tmPath, "utf8")) as { segments?: Record<string, string>; reviews?: Record<string, Review> } : {};
     const memory: Record<string, string> = stored.segments ?? {};
     const reviews: Record<string, Review> = stored.reviews ?? {};
+    const seeded = force ? 0 : seedMemory(entry, wanted, memory, reviews);
     const reused = [...wanted.keys()].filter((s) => s in memory).length;
-    console.log(`  ${segments.length} segments, ${wanted.size} unique, ${reused} from memory`);
+    console.log(`  ${segments.length} segments, ${wanted.size} unique, ${reused} from memory${seeded ? ` (${seeded} from other versions of the document)` : ""}`);
     fs.mkdirSync(OUT, { recursive: true });
     const checkpoint = () => fs.writeFileSync(tmPath, JSON.stringify({ segments: memory, reviews }, null, 1));
     const { failed } = await translateAll(system, doc, wanted, memory, checkpoint);
@@ -779,9 +844,10 @@ async function main(): Promise<void> {
     loadEnv();
     const args = process.argv.slice(2);
     const force = args.includes("--force");
-    const slugs = args.filter((a) => !a.startsWith("--"));
+    const all = catalog();
+    const slugs = args.includes("--all") ? [...all.keys()] : args.filter((a) => !a.startsWith("--"));
     if (slugs.length === 0) {
-        console.error("usage: pnpm translate [--force] <slug> [<slug> …]   e.g. pnpm translate zip-0200");
+        console.error("usage: pnpm translate [--force] --all | <document> [<document> …]   e.g. pnpm translate zip-0200 pr-1437-zip-0223");
         process.exit(1);
     }
     if (!process.env.GLM_KEY) {
@@ -794,8 +860,12 @@ async function main(): Promise<void> {
     const reviewSystem = reviewPrompt(glossary);
     // the glossary is sent with each request, so it is part of the identity too
     const promptSha = sha(`${MODEL}\n${system}\n${REVIEW_MODEL}\n${REVIEW_EFFORT}\n${reviewSystem}\n${JSON.stringify(glossary)}`).slice(0, 16);
-    for (const slug of slugs)
-        await translateDoc(slug, glossary, system, reviewSystem, promptSha, force);
+    for (const slug of slugs) {
+        const entry = all.get(slug);
+        if (!entry)
+            throw new Error(`${slug} is not a document of the site`);
+        await translateDoc(entry, glossary, system, reviewSystem, promptSha, force);
+    }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
