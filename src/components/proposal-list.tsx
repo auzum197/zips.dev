@@ -1,8 +1,8 @@
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import Link from "@/i18n/link";
 import { Badge } from "@/components/ui/badge";
 import { dateSlice } from "@/lib/date";
-import { getExternalSource, prBaseHref, prPreviews } from "@/lib/data";
+import { getExternalSource, localPreviewTitle, prBaseHref, prPreviews } from "@/lib/data";
 import type { NewProposal } from "@/lib/types";
 function ProposalRow({ p }: {
     p: NewProposal;
@@ -11,7 +11,8 @@ function ProposalRow({ p }: {
     const pr = p.pr;
     // Link each proposal to its own document page when the PR rendered one.
     const preview = prPreviews(pr).find((pv) => pv.slug === p.slug) ?? null;
-    const title = preview?.title ?? pr.title;
+    const locale = useLocale();
+    const title = preview ? localPreviewTitle(pr, preview, locale) : pr.title;
     const href = preview ? `${prBaseHref(pr)}/${preview.slug}/` : pr.url;
     const source = pr.source ? getExternalSource(pr.source) : undefined;
     return (<li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle py-2.5">

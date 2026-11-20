@@ -49,11 +49,29 @@ export function localTitle(zip: ZipMeta, locale: string): string {
     return locale === "es" ? (getZipTranslation(zip.slug)?.title ?? zip.title) : zip.title;
 }
 function readZipTranslation(slug: string): ZipTranslation | null {
-    const dir = path.join(CONTENT, "rendered-es");
-    const metaPath = path.join(dir, `${slug}.json`);
-    const htmlPath = path.join(dir, `${slug}.html`);
     const zip = getZipBySlug(slug);
-    if (!zip || !fs.existsSync(metaPath) || !fs.existsSync(htmlPath))
+    return zip ? readTranslation(slug, zip.title, getZipHtml(slug)) : null;
+}
+/** The translation of a document in a pull request, with the same rule as
+ *  getZipTranslation: null when there is none or when it is out of date. */
+export function getPrPreviewTranslation(pr: PrMeta, preview: PrPreview): ZipTranslation | null {
+    const html = getPrPreviewHtml(pr, preview.slug);
+    const key = `pr-${pr.source ? `${pr.source}-${pr.number}` : pr.number}-${preview.slug}`;
+    if (html === null)
+        return null;
+    if (!translations.has(key))
+        translations.set(key, readTranslation(key, preview.title, html));
+    return translations.get(key) ?? null;
+}
+/** A preview's title in a language. */
+export function localPreviewTitle(pr: PrMeta, preview: PrPreview, locale: string): string {
+    return locale === "es" ? (getPrPreviewTranslation(pr, preview)?.title ?? preview.title) : preview.title;
+}
+function readTranslation(key: string, title: string, sourceHtml: string): ZipTranslation | null {
+    const dir = path.join(CONTENT, "rendered-es");
+    const metaPath = path.join(dir, `${key}.json`);
+    const htmlPath = path.join(dir, `${key}.html`);
+    if (!fs.existsSync(metaPath) || !fs.existsSync(htmlPath))
         return null;
     const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
         sourceSha: string;
@@ -61,7 +79,7 @@ function readZipTranslation(slug: string): ZipTranslation | null {
         title: string;
         headings: ZipHeading[];
     };
-    const sourceSha = crypto.createHash("sha256").update(`${getZipHtml(slug)}\n${zip.title}`).digest("hex");
+    const sourceSha = crypto.createHash("sha256").update(`${sourceHtml}\n${title}`).digest("hex");
     if (meta.sourceSha !== sourceSha)
         return null;
     return { title: meta.title, headings: meta.headings, model: meta.model, html: fs.readFileSync(htmlPath, "utf8") };
