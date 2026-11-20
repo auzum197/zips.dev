@@ -1,0 +1,798 @@
+{
+ "segments": {
+  "Bech32 Format": "Formato Bech32",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", and \"SHOULD NOT\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"NO DEBE (MUST NOT)\", \"DEBERÍA (SHOULD)\" y \"NO DEBERÍA (SHOULD NOT)\" en este documento se interpretarán como se describe en BCP 14 <x1/> cuando, y solo cuando, aparezcan en mayúsculas.",
+  "The term \"network upgrade\" in this document is to be interpreted as described in ZIP 200. <x1/>": "El término \"actualización de red\" en este documento debe interpretarse como se describe en ZIP 200. <x1/>",
+  "The term \"Sapling\" in this document is to be interpreted as described in ZIP 205. <x1/>": "El término \"Sapling\" en este documento debe interpretarse como se describe en ZIP 205. <x1/>",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This document proposes a checksummed base32 format, \"Bech32\", and a standard for Sapling addresses and keys using it.": "Este documento propone un formato base32 con suma de verificación, \"Bech32\", y un estándar para direcciones y claves de Sapling que lo utiliza.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "Since launch, Zcash has relied on Base58 addresses with a truncated double-SHA256 checksum, inherited from Bitcoin. They were part of the original Bitcoin software and their scope was extended in BIP 13 <x1/> for P2SH (Pay-to-Script-Hash) addresses. However, both the character set and the checksum algorithm have limitations:": "Desde su lanzamiento, Zcash ha dependido de direcciones Base58 con una suma de verificación de doble SHA256 truncada, heredadas de Bitcoin. Formaban parte del software original de Bitcoin y su alcance se amplió en BIP 13 <x1/> para las direcciones P2SH (Pay-to-Script-Hash). Sin embargo, tanto el conjunto de caracteres como el algoritmo de suma de verificación tienen limitaciones:",
+  "Base58 needs a lot of space in QR codes, as it cannot use the ''alphanumeric mode''.": "Base58 requiere mucho espacio en códigos QR, ya que no puede usar el ''modo alfanumérico''.",
+  "The mixed case in Base58 makes it inconvenient to reliably write down, type on mobile keyboards, or read out loud.": "El uso de mayúsculas y minúsculas mezcladas en Base58 hace que sea inconveniente escribirlo de forma fiable, tipearlo en teclados de dispositivos móviles o leerlo en voz alta.",
+  "The double-SHA256 checksum is slow and has no error-detection guarantees.": "La suma de verificación de doble SHA256 es lenta y no ofrece garantías de detección de errores.",
+  "Most of the research on error-detecting codes only applies to character-set sizes that are a <g1>prime power</g1>, which 58 is not.": "La mayor parte de la investigación sobre códigos detectores de errores solo se aplica a tamaños de conjuntos de caracteres que son una <g1>potencia de primo</g1>, y 58 no lo es.",
+  "Base58 decoding is complicated and relatively slow.": "La decodificación de Base58 es complicada y relativamente lenta.",
+  "To address these issues, Bitcoin adopted a new encoding called Bech32 <x1/>, for use with address types added by its Segregated Witness proposal. Zcash does not implement Segregated Witness, but it reuses Bech32 with address and key types introduced by the Sapling network upgrade <x2/>.": "Para abordar estos problemas, Bitcoin adoptó una nueva codificación llamada Bech32 <x1/>, para su uso con tipos de direcciones añadidos por su propuesta de Segregated Witness. Zcash no implementa Segregated Witness, pero reutiliza Bech32 con tipos de direcciones y claves introducidos por la actualización de red de Sapling <x2/>.",
+  "Since the description of Bech32 in <x1/> is partially entangled with Segregated Witness address formats, we have found it clearer to write this ZIP to specify Bech32 separately. This specification should be read in conjunction with section 5.6 (\"Encodings of Addresses and Keys\") of the Zcash Sapling protocol specification <x2/>, and with ZIP 32 which specifies additional key types for support of shielded hierarchical deterministic wallets <x3/>.": "Dado que la descripción de Bech32 en <x1/> está parcialmente entrelazada con los formatos de direcciones de Segregated Witness, hemos considerado más claro escribir este ZIP para especificar Bech32 por separado. Esta especificación debería leerse junto con la sección 5.6 (\"Encodings of Addresses and Keys\") de la especificación del protocolo Sapling de Zcash <x2/>, y con ZIP 32, que especifica tipos de claves adicionales para el soporte de billeteras jerárquicas determinísticas blindadas <x3/>.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "We describe the general checksummed base32 format called ''Bech32''. Its use for Sapling payment addresses and keys is defined in the Sapling protocol specification <x1/>.": "Describimos el formato base32 general con suma de verificación llamado ''Bech32''. Su uso para direcciones de pago y claves de Sapling está definido en la especificación del protocolo Sapling <x1/>.",
+  "A Bech32 string consists of:": "Una cadena Bech32 consta de:",
+  "The <g1>human-readable part</g1>, which is intended to convey the type of data, or anything else that is relevant to the reader. This part MUST contain 1 to 83 US-ASCII characters, with each character having a value in the range [33-126]. HRP validity may be further restricted by specific applications.": "La <g1>parte legible por humanos</g1>, que tiene como propósito transmitir el tipo de datos, o cualquier otra cosa que sea relevante para el lector. Esta parte DEBE (MUST) contener de 1 a 83 caracteres US-ASCII, y cada carácter debe tener un valor en el rango [33-126]. La validez del HRP puede estar más restringida por aplicaciones específicas.",
+  "The <g1>separator</g1>, which is always \"1\". In case \"1\" is allowed inside the human-readable part, the last one in the string is the separator.": "El <g1>separador</g1>, que siempre es \"1\". En caso de que \"1\" esté permitido dentro de la parte legible para humanos, el último de la cadena es el separador.",
+  "The <g1>data part</g1>, which is at least 6 characters long and only consists of alphanumeric characters excluding \"1\", \"b\", \"i\", and \"o\".": "La <g1>parte de datos</g1>, que tiene al menos 6 caracteres de longitud y solo consta de caracteres alfanuméricos, excluyendo \"1\", \"b\", \"i\" y \"o\".",
+  "<x1/>Checksum": "<x1/>Suma de verificación",
+  "The last six characters of the data part form a checksum and contain no information. Valid strings MUST pass the criteria for validity specified by the Python3 code snippet below. The checksum is defined so that the function <x1/> returns true when its arguments are:": "Los últimos seis caracteres de la parte de datos forman una suma de verificación y no contienen información. Las cadenas válidas DEBEN (MUST) cumplir los criterios de validez especificados por el fragmento de código Python3 siguiente. La suma de verificación está definida de modo que la función <x1/> devuelve verdadero cuando sus argumentos son:",
+  "<x1/>: the human-readable part as a string;": "<x1/>: la parte legible para humanos como una cadena;",
+  "<x1/>: the data part as a list of integers representing the characters after conversion using the table above.": "<x1/>: la parte de datos como una lista de enteros que representan los caracteres después de la conversión usando la tabla anterior.",
+  "This implements a <g1>BCH code</g1>; in the case where the encoded string is at most 90 characters, this code guarantees detection of <g2>any error affecting at most 4 characters</g2> and has less than a 1 in 10<g3>9</g3> chance of failing to detect more errors. More details about the properties can be found in the Checksum Design section. The human-readable part is processed by first feeding the higher 3 bits of each character's US-ASCII value into the checksum calculation followed by a zero and then the lower 5 bits of each US-ASCII value.": "Esto implementa un <g1>código BCH</g1>; en el caso de que la cadena codificada tenga como máximo 90 caracteres, este código garantiza la detección de <g2>cualquier error que afecte como máximo a 4 caracteres</g2> y tiene menos de 1 entre 10<g3>9</g3> probabilidad de no detectar más errores. Se pueden encontrar más detalles sobre las propiedades en la sección de diseño de la suma de verificación. La parte legible para humanos se procesa alimentando primero los 3 bits superiores del valor US-ASCII de cada carácter en el cálculo de la suma de verificación, seguidos de un cero y luego los 5 bits inferiores de cada valor US-ASCII.",
+  "To construct a valid checksum given the human-readable part and (non-checksum) values of the data-part characters, the code below can be used:": "Para construir una suma de verificación válida dada la parte legible para humanos y los valores (que no son de la suma de verificación) de los caracteres de la parte de datos, se puede usar el código siguiente:",
+  "<x1/>Error correction": "<x1/>Corrección de errores",
+  "One of the properties of these BCH codes is that they can be used for error correction. An unfortunate side effect of error correction is that it erodes error detection: correction changes invalid inputs into valid inputs, but if more than a few errors were made then the valid input may not be the correct input. Use of an incorrect but valid input can cause funds to be lost irrecoverably. Because of this, implementations SHOULD NOT implement correction beyond potentially suggesting to the user where in the string an error might be found, without suggesting the correction to make.": "Una de las propiedades de estos códigos BCH es que pueden usarse para la corrección de errores. Un efecto secundario desafortunado de la corrección de errores es que erosiona la detección de errores: la corrección convierte entradas inválidas en entradas válidas, pero si se cometieron más de unos pocos errores, entonces la entrada válida puede no ser la entrada correcta. El uso de una entrada incorrecta pero válida puede causar la pérdida irreversible de fondos. Debido a esto, las implementaciones NO DEBERÍAN (SHOULD NOT) implementar corrección más allá de sugerir potencialmente al usuario dónde en la cadena podría encontrarse un error, sin sugerir la corrección a realizar.",
+  "<x1/>Uppercase/lowercase": "<x1/>Mayúsculas/minúsculas",
+  "The lowercase form is used when determining a character's value for checksum purposes.": "La forma en minúsculas se usa al determinar el valor de un carácter para fines de la suma de verificación.",
+  "Encoders MUST always output an all-lowercase Bech32 string. If an uppercase version of the encoding result is desired (e.g. for presentation purposes, or QR code use), then an uppercasing procedure can be performed external to the encoding process.": "Los codificadores DEBEN (MUST) generar siempre una cadena Bech32 completamente en minúsculas. Si se desea una versión en mayúsculas del resultado de la codificación (p. ej., para fines de presentación o uso de códigos QR), se puede realizar un procedimiento de conversión a mayúsculas externo al proceso de codificación.",
+  "Decoders MUST NOT accept strings where some characters are uppercase and some are lowercase (such strings are referred to as mixed-case strings).": "Los decodificadores NO DEBEN (MUST NOT) aceptar cadenas en las que algunos caracteres estén en mayúsculas y otros en minúsculas (tales cadenas se denominan cadenas con mayúsculas y minúsculas mixtas).",
+  "For presentation, lowercase is usually preferable, but inside QR codes uppercase SHOULD be used, as those permit the use of <g1>alphanumeric mode</g1>, which is 45% more compact than the <g2>byte mode</g2> that would otherwise be used.": "Para la presentación, normalmente es preferible el uso de minúsculas, pero dentro de los códigos QR DEBERÍA (SHOULD) usarse mayúsculas, ya que estos permiten el uso del <g1>modo alfanumérico</g1>, que es un 45 % más compacto que el <g2>modo de bytes</g2> que se usaría de otro modo.",
+  "<x1/>Encoding": "<x1/>Codificación",
+  "Start with the bits of the raw encoding of the appropriate address or key type, most significant bit per byte first.": "Comience con los bits de la codificación cruda del tipo de dirección o clave apropiado, el bit más significativo por byte primero.",
+  "Re-arrange those bits into groups of 5, and pad with zeroes at the end if needed.": "Reorganice esos bits en grupos de 5, y rellene con ceros al final si es necesario.",
+  "Translate those bits, most significant bit first, to characters using the table above.": "Traduzca esos bits, el bit más significativo primero, a caracteres usando la tabla anterior.",
+  "<x1/>Decoding": "<x1/>Decodificación",
+  "Software interpreting a Bech32-encoded address MUST first verify that the human-readable part matches that of a specified address type, and similarly for keys.": "El software que interpreta una dirección codificada en Bech32 DEBE (MUST) verificar primero que la parte legible por humanos coincida con la de un tipo de dirección especificado, y de igual manera para las claves.",
+  "If this check passes, convert the rest of the data to bytes:": "Si esta verificación pasa, convierta el resto de los datos a bytes:",
+  "Translate the values using the table above to 5 bits, most significant bit first.": "Traduzca los valores usando la tabla anterior a 5 bits, el bit más significativo primero.",
+  "Re-arrange those bits into groups of 8 bits. Any incomplete group at the end MUST be 4 bits or fewer, MUST be all zeroes, and is discarded.": "Reorganice esos bits en grupos de 8 bits. Todo grupo incompleto al final DEBE (MUST) tener 4 bits o menos, DEBE (MUST) ser todo ceros y se descarta.",
+  "The resulting groups are interpreted as the raw encoding of the appropriate address or key type, with the most significant bit first in each byte.": "Los grupos resultantes se interpretan como la codificación cruda del tipo de dirección o clave apropiado, con el bit más significativo primero en cada byte.",
+  "Decoders SHOULD enforce known-length restrictions on address and key types.": "Los decodificadores DEBERÍAN (SHOULD) imponer las restricciones de longitud conocidas sobre los tipos de dirección y clave.",
+  "For example, <x1/> specifies that the length of the raw encoding of a Sapling payment address is 43 bytes (88 + 256 bits). This results in a Bech32-encoded Sapling payment address being 78 characters long.": "Por ejemplo, <x1/> especifica que la longitud de la codificación cruda de una dirección de pago de Sapling es de 43 bytes (88 + 256 bits). Esto da como resultado que una dirección de pago de Sapling codificada en Bech32 tenga 78 caracteres de longitud.",
+  "<x1/>Compatibility": "<x1/>Compatibilidad",
+  "Only software supporting the Sapling network upgrade is able to use these addresses.": "Solo el software que admite la actualización de red de Sapling puede usar estas direcciones.",
+  "There is no effect on support for transparent addresses and keys, or for Sprout z-addresses and keys; these will continue to be encoded using Base58Check, and MUST NOT be encoded using Bech32.": "No hay ningún efecto en la compatibilidad con direcciones y claves transparentes, ni con z-addresses y claves de Sprout; estas seguirán codificándose usando Base58Check y NO DEBEN (MUST NOT) codificarse usando Bech32.",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "<x1/>Why use base32 at all?": "<x1/>¿Por qué usar base32 en absoluto?",
+  "The lack of mixed case makes it more efficient to read out loud or to put into QR codes. It does come with a 15% length increase. However, the length of a Bech32-encoded Sapling payment address remains below 80 characters, which reduces the likelihood of line splitting in terminals or email. Thus, cutting-and-pasting of addresses is still reliable.": "La falta de mayúsculas y minúsculas mezcladas hace que sea más eficiente leerlo en voz alta o ponerlo en códigos QR. Esto sí implica un aumento del 15 % en la longitud. Sin embargo, la longitud de una dirección de pago de Sapling codificada en Bech32 se mantiene por debajo de 80 caracteres, lo que reduce la probabilidad de división de líneas en terminales o correos electrónicos. Por lo tanto, cortar y pegar direcciones sigue siendo confiable.",
+  "<x1/>Why call it Bech32?": "<x1/>¿Por qué llamarlo Bech32?",
+  "\"Bech\" contains the characters BCH (the error detection algorithm used) and sounds a bit like \"base\". The term Bech32 is established for Bitcoin and there was no reason to use a different name for it in Zcash Sapling.": "\"Bech\" contiene los caracteres BCH (el algoritmo de detección de errores usado) y suena un poco como \"base\". El término Bech32 está establecido para Bitcoin y no había razón para usar un nombre diferente para él en Zcash Sapling.",
+  "<x1/>Why not support Bech32 encoding of Sprout or transparent addresses?": "<x1/>¿Por qué no admitir la codificación Bech32 de direcciones Sprout o transparentes?",
+  "This was not considered to be sufficiently well-motivated given the compatibility issues that would arise from having two formats for these address types, with pre-Sapling software not supporting the new format.": "Esto no se consideró suficientemente bien motivado, dados los problemas de compatibilidad que surgirían de tener dos formatos para estos tipos de dirección, con software anterior a Sapling que no admitiría el nuevo formato.",
+  "<x1/>Why include a separator in addresses?": "<x1/>¿Por qué incluir un separador en las direcciones?",
+  "That way the human-readable part is unambiguously separated from the data part, avoiding potential collisions with other human-readable parts that share a prefix. It also allows us to avoid having character-set restrictions on the human-readable part. The separator is ''1'' because using a non-alphanumeric character would complicate copy-pasting of addresses (with no double-click selection in several applications). Therefore an alphanumeric character outside the normal character set was chosen.": "De esa manera la parte legible por humanos queda separada de manera inequívoca de la parte de datos, evitando posibles colisiones con otras partes legibles por humanos que comparten un prefijo. También nos permite evitar tener restricciones de conjunto de caracteres en la parte legible por humanos. El separador es ''1'' porque usar un carácter no alfanumérico complicaría el copiado y pegado de direcciones (sin selección por doble clic en varias aplicaciones). Por lo tanto, se eligió un carácter alfanumérico fuera del conjunto de caracteres normal.",
+  "<x1/>Why not use an existing base32 character set?": "<x1/>¿Por qué no usar un conjunto de caracteres base32 existente?",
+  "Existing character sets for base-32 encodings include <g1>RFC 3548</g1> and <g2>z-base-32</g2>. The set used for Bech32 was chosen to minimize ambiguity according to <g3>this</g3> visual similarity data, and the ordering is chosen to minimize the number of pairs of similar characters (according to the same data) that differ in more than 1 bit. As the checksum is chosen to maximize detection capabilities for low numbers of bit errors, this choice improves its performance under some error models.": "Los conjuntos de caracteres existentes para codificaciones base-32 incluyen <g1>RFC 3548</g1> y <g2>z-base-32</g2>. El conjunto usado para Bech32 fue elegido para minimizar la ambigüedad según <g3>estos</g3> datos de similitud visual, y el ordenamiento fue elegido para minimizar el número de pares de caracteres similares (según los mismos datos) que difieren en más de 1 bit. Como la suma de verificación fue elegida para maximizar las capacidades de detección para números bajos de errores de bits, esta elección mejora su desempeño bajo algunos modelos de error.",
+  "<x1/>Why are the high bits of the human-readable part processed first?": "<x1/>¿Por qué se procesan primero los bits altos de la parte legible por humanos?",
+  "This design choice had a rationale for Bitcoin Segregated Witness addresses (see <x1/>) that does not apply to Zcash Sapling addresses. It is retained for compatibility with Bech32 encoders/decoders written for Bitcoin.": "Esta decisión de diseño tenía una justificación para las direcciones de Bitcoin Segregated Witness (véase <x1/>) que no aplica a las direcciones de Zcash Sapling. Se conserva por compatibilidad con los codificadores/decodificadores Bech32 escritos para Bitcoin.",
+  "<x1/>Reference implementations": "<x1/>Implementaciones de referencia",
+  "The encoder/decoder used by <x1/>:": "El codificador/decodificador usado por <x1/>:",
+  "<g1>In C++</g1>": "<g1>En C++</g1>",
+  "Encoders and decoders written specifically for Zcash:": "Codificadores y decodificadores escritos específicamente para Zcash:",
+  "<g1>For C#</g1> (Bech32 and Bech32m)": "<g1>Para C#</g1> (Bech32 y Bech32m)",
+  "Encoders and decoders written for Bitcoin:": "Codificadores y decodificadores escritos para Bitcoin:",
+  "<g1>For C</g1>": "<g1>Para C</g1>",
+  "<g1>For C++</g1>": "<g1>Para C++</g1>",
+  "<g1>For Javascript</g1>": "<g1>Para Javascript</g1>",
+  "<g1>For Go</g1>": "<g1>Para Go</g1>",
+  "<g1>For Python</g1>": "<g1>Para Python</g1>",
+  "<g1>For Haskell</g1>": "<g1>Para Haskell</g1>",
+  "<g1>For Ruby</g1>": "<g1>Para Ruby</g1>",
+  "<g1>For Rust</g1>": "<g1>Para Rust</g1>",
+  "Fancy decoder written for Bitcoin that localizes errors:": "Decodificador sofisticado escrito para Bitcoin que localiza errores:",
+  "<g1>Fancy decoder for Javascript</g1> (<g2>demo website</g2>)": "<g1>Decodificador sofisticado para Javascript</g1> (<g2>sitio web de demostración</g2>)",
+  "Note that the encoders written for Bitcoin may make assumptions specific to Segregated Witness address formats that do not apply to Zcash. Only the Python one has been tested with Zcash at the time of writing.": "Nótese que los codificadores escritos para Bitcoin pueden hacer suposiciones específicas de los formatos de dirección de Segregated Witness que no aplican a Zcash. Solo el de Python ha sido probado con Zcash al momento de escribir esto.",
+  "<x1/>Examples": "<x1/>Ejemplos",
+  "TODO: add valid Sapling payment addresses and keys, and their corresponding raw encodings.": "POR HACER: añadir direcciones de pago y claves válidas de Sapling, y sus codificaciones crudas correspondientes.",
+  "<x1/>Test vectors": "<x1/>Vectores de prueba",
+  "The following strings are valid Bech32:": "Las siguientes cadenas son Bech32 válidas:",
+  "The following strings are not valid Bech32 (with reason for invalidity):": "Las siguientes cadenas no son Bech32 válidas (con la razón de la invalidez):",
+  "0x20 + <x1/>: HRP character out of range": "0x20 + <x1/>: carácter del HRP fuera de rango",
+  "0x7F + <x1/>: HRP character out of range": "0x7F + <x1/>: carácter del HRP fuera de rango",
+  "0x80 + <x1/>: HRP character out of range": "0x80 + <x1/>: carácter del HRP fuera de rango",
+  "<x1/>: No separator character": "<x1/>: Sin carácter separador",
+  "<x1/>: Empty HRP": "<x1/>: HRP vacío",
+  "<x1/>: Invalid data character": "<x1/>: Carácter de datos no válido",
+  "<x1/>: Too short checksum": "<x1/>: Suma de verificación demasiado corta",
+  "<x1/> + 0xFF: Invalid character in checksum": "<x1/> + 0xFF: Carácter no válido en la suma de verificación",
+  "<x1/>: checksum calculated with uppercase form of HRP": "<x1/>: suma de verificación calculada con la forma en mayúsculas del HRP",
+  "<x1/>: empty HRP": "<x1/>: HRP vacío",
+  "<x1/>: Invalid checksum": "<x1/>: Suma de verificación no válida",
+  "<x1/>: Mixed case": "<x1/>: Mayúsculas y minúsculas mezcladas",
+  "<x1/>: Zero padding of more than 4 bits": "<x1/>: Relleno de ceros de más de 4 bits",
+  "<x1/>: Non-zero padding in 8-to-5 conversion": "<x1/>: Relleno distinto de cero en la conversión de 8 a 5",
+  "<x1/>Checksum design": "<x1/>Diseño de la suma de verificación",
+  "<x1/>Design choices": "<x1/>Elecciones de diseño",
+  "BCH codes can be constructed over any prime-power alphabet and can be chosen to have a good trade-off between size and error-detection capabilities. Unlike <g1>Reed-Solomon codes</g1>, they are not restricted in length to one less than the alphabet size. While they also support efficient error correction, the implementation of just error detection is very simple.": "Los códigos BCH pueden construirse sobre cualquier alfabeto de potencia prima y pueden elegirse para tener un buen equilibrio entre el tamaño y las capacidades de detección de errores. A diferencia de los <g1>códigos de Reed-Solomon</g1>, no están restringidos en longitud a uno menos que el tamaño del alfabeto. Aunque también admiten corrección de errores eficiente, la implementación de solo la detección de errores es muy simple.",
+  "We pick 6 checksum characters as a trade-off between length of the addresses and the error-detection capabilities, as 6 characters is the lowest number sufficient for a random failure chance below 1 per billion. For the length of data we're most interested in protecting (up to 77 bytes excluding the separator, for a Sapling payment address), BCH codes can be constructed that guarantee detecting up to 4 errors. Longer data is also supported with slightly weaker error detection.": "Elegimos 6 caracteres de suma de verificación como un equilibrio entre la longitud de las direcciones y las capacidades de detección de errores, ya que 6 caracteres es el número mínimo suficiente para una probabilidad de fallo aleatorio inferior a 1 por mil millones. Para la longitud de datos que más nos interesa proteger (hasta 77 bytes excluyendo el separador, para una dirección de pago de Sapling), se pueden construir códigos BCH que garanticen la detección de hasta 4 errores. Los datos más largos también son compatibles con una detección de errores ligeramente más débil.",
+  "<x1/>Selected properties": "<x1/>Propiedades seleccionadas",
+  "Many of these codes perform badly when dealing with more errors than they are designed to detect, but not all. For that reason, we consider codes that are designed to detect only 3 errors as well as 4 errors, and analyse how well they perform in practice.": "Muchos de estos códigos tienen un desempeño deficiente cuando se trata de más errores de los que están diseñados para detectar, pero no todos. Por esa razón, consideramos códigos diseñados para detectar únicamente 3 errores, así como 4 errores, y analizamos qué tan bien se desempeñan en la práctica.",
+  "The specific code chosen here is the result of:": "El código específico elegido aquí es el resultado de:",
+  "Starting with an exhaustive list of 159605 BCH codes designed to detect 3 or 4 errors up to length 93, 151, 165, 341, 1023, and 1057.": "Comenzar con una lista exhaustiva de 159605 códigos BCH diseñados para detectar 3 o 4 errores hasta una longitud de 93, 151, 165, 341, 1023 y 1057.",
+  "From those, requiring the detection of 4 errors up to length 71, resulting in 28825 remaining codes.": "De esos, requerir la detección de 4 errores hasta una longitud de 71, lo que resulta en 28825 códigos restantes.",
+  "From those, choosing the codes with the best worst-case window for 5-character errors, resulting in 310 remaining codes.": "De esos, elegir los códigos con la mejor ventana en el peor caso para errores de 5 caracteres, lo que resulta en 310 códigos restantes.",
+  "From those, picking the code with the lowest chance for not detecting small numbers of ''bit'' errors.": "De esos, seleccionar el código con la menor probabilidad de no detectar números pequeños de errores de ''bit''.",
+  "As a naive search would require over 6.5 * 10<g1>19</g1> checksum evaluations, a collision-search approach was used for analysis. The code can be found <g2>here</g2>.": "Dado que una búsqueda ingenua requeriría más de 6.5 * 10<g1>19</g1> evaluaciones de sumas de verificación, se utilizó un enfoque de búsqueda de colisiones para el análisis. El código se puede encontrar <g2>aquí</g2>.",
+  "<x1/>Properties": "<x1/>Propiedades",
+  "The following table summarizes the chances for detection failure (as multiples of 1 in 10<g1>9</g1>).": "La siguiente tabla resume las probabilidades de fallo de detección (como múltiplos de 1 en 10<g1>9</g1>).",
+  "Window length": "Longitud de ventana",
+  "Number of wrong characters": "Número de caracteres erróneos",
+  "Length": "Longitud",
+  "Description": "Descripción",
+  "Longest detecting 6 errors": "La más larga que detecta 6 errores",
+  "Longest detecting 5 errors": "La más larga que detecta 5 errores",
+  "Worst case for 6 errors": "Peor caso para 6 errores",
+  "Length ≤ 39 characters": "Longitud ≤ 39 caracteres",
+  "Length ≤ 59 characters": "Longitud ≤ 59 caracteres",
+  "Length ≤ 71 characters": "Longitud ≤ 71 caracteres",
+  "Longest detecting 4 errors": "La más larga que detecta 4 errores",
+  "TODO: fill in table for a Sapling payment address, and check the following paragraph.": "PENDIENTE: completar la tabla para una dirección de pago de Sapling, y verificar el párrafo siguiente.",
+  "This means that when 5 changed characters occur randomly distributed in the 77 characters (excluding the separator) of a Sapling payment address, there is a chance of at most 0.867 per billion that it will go undetected. When those 5 changes occur randomly within a 19-character window, that chance goes down to 0.093 per billion. As the number of errors goes up, the chance converges towards 1 in 2<g1>30</g1> = 0.931 per billion.": "Esto significa que cuando ocurren 5 caracteres cambiados distribuidos aleatoriamente en los 77 caracteres (excluyendo el separador) de una dirección de pago de Sapling, hay una probabilidad de como máximo 0,867 por mil millones de que pase inadvertido. Cuando esos 5 cambios ocurren aleatoriamente dentro de una ventana de 19 caracteres, esa probabilidad baja a 0,093 por mil millones. A medida que aumenta el número de errores, la probabilidad converge hacia 1 en 2<g1>30</g1> = 0,931 por mil millones.",
+  "The chosen code performs reasonably well up to 1023 characters, but is best for lengths up to 89 characters (excluding the separator). Since the search for suitable codes was based on the requirements for Bitcoin P2WPKH and P2WSH addresses, it is not quite optimal for the address lengths used by Sapling, but the advantages of compatibility with existing Bitcoin libraries were considered to outweigh this consideration.": "El código elegido tiene un desempeño razonablemente bueno hasta 1023 caracteres, pero es óptimo para longitudes de hasta 89 caracteres (excluyendo el separador). Dado que la búsqueda de códigos adecuados se basó en los requisitos de las direcciones P2WPKH y P2WSH de Bitcoin, no es del todo óptimo para las longitudes de dirección usadas por Sapling, pero se consideró que las ventajas de la compatibilidad con las bibliotecas existentes de Bitcoin superaban esta consideración.",
+  "<x1/>Acknowledgements": "<x1/>Agradecimientos",
+  "This document is closely based on BIP 173 written by Pieter Wuille and Greg Maxwell, which was inspired by the <g1>address proposal</g1> by Rusty Russell and the <g2>base32</g2> proposal by Mark Friedenbach. BIP 173 also had input from Luke Dashjr, Johnson Lau, Eric Lombrozo, Peter Todd, and various other reviewers.": "Este documento se basa estrechamente en el BIP 173 escrito por Pieter Wuille y Greg Maxwell, que se inspiró en la <g1>propuesta de direcciones</g1> de Rusty Russell y la propuesta <g2>base32</g2> de Mark Friedenbach. El BIP 173 también recibió aportes de Luke Dashjr, Johnson Lau, Eric Lombrozo, Peter Todd y varios otros revisores.",
+  "<x1/>References": "<x1/>Referencias"
+ },
+ "reviews": {
+  "Bech32 Format": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", and \"SHOULD NOT\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The term \"network upgrade\" in this document is to be interpreted as described in ZIP 200. <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The term \"Sapling\" in this document is to be interpreted as described in ZIP 205. <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This document proposes a checksummed base32 format, \"Bech32\", and a standard for Sapling addresses and keys using it.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Since launch, Zcash has relied on Base58 addresses with a truncated double-SHA256 checksum, inherited from Bitcoin. They were part of the original Bitcoin software and their scope was extended in BIP 13 <x1/> for P2SH (Pay-to-Script-Hash) addresses. However, both the character set and the checksum algorithm have limitations:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Base58 needs a lot of space in QR codes, as it cannot use the ''alphanumeric mode''.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The mixed case in Base58 makes it inconvenient to reliably write down, type on mobile keyboards, or read out loud.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The double-SHA256 checksum is slow and has no error-detection guarantees.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Most of the research on error-detecting codes only applies to character-set sizes that are a <g1>prime power</g1>, which 58 is not.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Base58 decoding is complicated and relatively slow.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "To address these issues, Bitcoin adopted a new encoding called Bech32 <x1/>, for use with address types added by its Segregated Witness proposal. Zcash does not implement Segregated Witness, but it reuses Bech32 with address and key types introduced by the Sapling network upgrade <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Since the description of Bech32 in <x1/> is partially entangled with Segregated Witness address formats, we have found it clearer to write this ZIP to specify Bech32 separately. This specification should be read in conjunction with section 5.6 (\"Encodings of Addresses and Keys\") of the Zcash Sapling protocol specification <x2/>, and with ZIP 32 which specifies additional key types for support of shielded hierarchical deterministic wallets <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We describe the general checksummed base32 format called ''Bech32''. Its use for Sapling payment addresses and keys is defined in the Sapling protocol specification <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A Bech32 string consists of:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <g1>human-readable part</g1>, which is intended to convey the type of data, or anything else that is relevant to the reader. This part MUST contain 1 to 83 US-ASCII characters, with each character having a value in the range [33-126]. HRP validity may be further restricted by specific applications.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word \"caracter\" is misspelled; it should be \"carácter\"."
+   ],
+   "first": "La <g1>parte legible por humanos</g1>, que tiene como propósito transmitir el tipo de datos, o cualquier otra cosa que sea relevante para el lector. Esta parte DEBE (MUST) contener de 1 a 83 caracteres US-ASCII, y cada caracter debe tener un valor en el rango [33-126]. La validez del HRP puede estar más restringida por aplicaciones específicas."
+  },
+  "The <g1>separator</g1>, which is always \"1\". In case \"1\" is allowed inside the human-readable part, the last one in the string is the separator.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <g1>data part</g1>, which is at least 6 characters long and only consists of alphanumeric characters excluding \"1\", \"b\", \"i\", and \"o\".": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Checksum": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The last six characters of the data part form a checksum and contain no information. Valid strings MUST pass the criteria for validity specified by the Python3 code snippet below. The checksum is defined so that the function <x1/> returns true when its arguments are:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: the human-readable part as a string;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: the data part as a list of integers representing the characters after conversion using the table above.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This implements a <g1>BCH code</g1>; in the case where the encoded string is at most 90 characters, this code guarantees detection of <g2>any error affecting at most 4 characters</g2> and has less than a 1 in 10<g3>9</g3> chance of failing to detect more errors. More details about the properties can be found in the Checksum Design section. The human-readable part is processed by first feeding the higher 3 bits of each character's US-ASCII value into the checksum calculation followed by a zero and then the lower 5 bits of each US-ASCII value.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "To construct a valid checksum given the human-readable part and (non-checksum) values of the data-part characters, the code below can be used:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Error correction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "One of the properties of these BCH codes is that they can be used for error correction. An unfortunate side effect of error correction is that it erodes error detection: correction changes invalid inputs into valid inputs, but if more than a few errors were made then the valid input may not be the correct input. Use of an incorrect but valid input can cause funds to be lost irrecoverably. Because of this, implementations SHOULD NOT implement correction beyond potentially suggesting to the user where in the string an error might be found, without suggesting the correction to make.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Uppercase/lowercase": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The lowercase form is used when determining a character's value for checksum purposes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Encoders MUST always output an all-lowercase Bech32 string. If an uppercase version of the encoding result is desired (e.g. for presentation purposes, or QR code use), then an uppercasing procedure can be performed external to the encoding process.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Decoders MUST NOT accept strings where some characters are uppercase and some are lowercase (such strings are referred to as mixed-case strings).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For presentation, lowercase is usually preferable, but inside QR codes uppercase SHOULD be used, as those permit the use of <g1>alphanumeric mode</g1>, which is 45% more compact than the <g2>byte mode</g2> that would otherwise be used.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Encoding": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Start with the bits of the raw encoding of the appropriate address or key type, most significant bit per byte first.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Re-arrange those bits into groups of 5, and pad with zeroes at the end if needed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Translate those bits, most significant bit first, to characters using the table above.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Decoding": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Software interpreting a Bech32-encoded address MUST first verify that the human-readable part matches that of a specified address type, and similarly for keys.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If this check passes, convert the rest of the data to bytes:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Translate the values using the table above to 5 bits, most significant bit first.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Re-arrange those bits into groups of 8 bits. Any incomplete group at the end MUST be 4 bits or fewer, MUST be all zeroes, and is discarded.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The resulting groups are interpreted as the raw encoding of the appropriate address or key type, with the most significant bit first in each byte.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Decoders SHOULD enforce known-length restrictions on address and key types.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For example, <x1/> specifies that the length of the raw encoding of a Sapling payment address is 43 bytes (88 + 256 bits). This results in a Bech32-encoded Sapling payment address being 78 characters long.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Compatibility": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Only software supporting the Sapling network upgrade is able to use these addresses.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "There is no effect on support for transparent addresses and keys, or for Sprout z-addresses and keys; these will continue to be encoded using Base58Check, and MUST NOT be encoded using Bech32.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Why use base32 at all?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The lack of mixed case makes it more efficient to read out loud or to put into QR codes. It does come with a 15% length increase. However, the length of a Bech32-encoded Sapling payment address remains below 80 characters, which reduces the likelihood of line splitting in terminals or email. Thus, cutting-and-pasting of addresses is still reliable.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Why call it Bech32?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "\"Bech\" contains the characters BCH (the error detection algorithm used) and sounds a bit like \"base\". The term Bech32 is established for Bitcoin and there was no reason to use a different name for it in Zcash Sapling.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Why not support Bech32 encoding of Sprout or transparent addresses?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This was not considered to be sufficiently well-motivated given the compatibility issues that would arise from having two formats for these address types, with pre-Sapling software not supporting the new format.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The plural 'compatibility issues' is rendered as a singular total 'incompatibility', changing the meaning."
+   ],
+   "first": "Esto no se consideró suficientemente bien motivado, dada la incompatibilidad que surgiría de tener dos formatos para estos tipos de dirección, con software anterior a Sapling que no admitiría el nuevo formato."
+  },
+  "<x1/>Why include a separator in addresses?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "That way the human-readable part is unambiguously separated from the data part, avoiding potential collisions with other human-readable parts that share a prefix. It also allows us to avoid having character-set restrictions on the human-readable part. The separator is ''1'' because using a non-alphanumeric character would complicate copy-pasting of addresses (with no double-click selection in several applications). Therefore an alphanumeric character outside the normal character set was chosen.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Why not use an existing base32 character set?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Existing character sets for base-32 encodings include <g1>RFC 3548</g1> and <g2>z-base-32</g2>. The set used for Bech32 was chosen to minimize ambiguity according to <g3>this</g3> visual similarity data, and the ordering is chosen to minimize the number of pairs of similar characters (according to the same data) that differ in more than 1 bit. As the checksum is chosen to maximize detection capabilities for low numbers of bit errors, this choice improves its performance under some error models.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "'checksum' is left in English with no reason; it is not a glossary keep term."
+   ],
+   "first": "Los conjuntos de caracteres existentes para codificaciones base-32 incluyen <g1>RFC 3548</g1> y <g2>z-base-32</g2>. El conjunto usado para Bech32 fue elegido para minimizar la ambigüedad según <g3>estos</g3> datos de similitud visual, y el ordenamiento fue elegido para minimizar el número de pares de caracteres similares (según los mismos datos) que difieren en más de 1 bit. Como el checksum fue elegido para maximizar las capacidades de detección para números bajos de errores de bits, esta elección mejora su desempeño bajo algunos modelos de error."
+  },
+  "<x1/>Why are the high bits of the human-readable part processed first?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This design choice had a rationale for Bitcoin Segregated Witness addresses (see <x1/>) that does not apply to Zcash Sapling addresses. It is retained for compatibility with Bech32 encoders/decoders written for Bitcoin.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Reference implementations": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The encoder/decoder used by <x1/>:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>In C++</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Encoders and decoders written specifically for Zcash:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>For C#</g1> (Bech32 and Bech32m)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Encoders and decoders written for Bitcoin:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>For C</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>For C++</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>For Javascript</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>For Go</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>For Python</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>For Haskell</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>For Ruby</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>For Rust</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Fancy decoder written for Bitcoin that localizes errors:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Fancy decoder for Javascript</g1> (<g2>demo website</g2>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Note that the encoders written for Bitcoin may make assumptions specific to Segregated Witness address formats that do not apply to Zcash. Only the Python one has been tested with Zcash at the time of writing.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Examples": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "TODO: add valid Sapling payment addresses and keys, and their corresponding raw encodings.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Test vectors": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The following strings are valid Bech32:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The following strings are not valid Bech32 (with reason for invalidity):": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "0x20 + <x1/>: HRP character out of range": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "0x7F + <x1/>: HRP character out of range": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "0x80 + <x1/>: HRP character out of range": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: No separator character": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Empty HRP": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Invalid data character": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Too short checksum": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> + 0xFF: Invalid character in checksum": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: checksum calculated with uppercase form of HRP": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: empty HRP": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Invalid checksum": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Mixed case": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Zero padding of more than 4 bits": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>: Non-zero padding in 8-to-5 conversion": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Checksum design": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Design choices": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "BCH codes can be constructed over any prime-power alphabet and can be chosen to have a good trade-off between size and error-detection capabilities. Unlike <g1>Reed-Solomon codes</g1>, they are not restricted in length to one less than the alphabet size. While they also support efficient error correction, the implementation of just error detection is very simple.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We pick 6 checksum characters as a trade-off between length of the addresses and the error-detection capabilities, as 6 characters is the lowest number sufficient for a random failure chance below 1 per billion. For the length of data we're most interested in protecting (up to 77 bytes excluding the separator, for a Sapling payment address), BCH codes can be constructed that guarantee detecting up to 4 errors. Longer data is also supported with slightly weaker error detection.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Selected properties": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Many of these codes perform badly when dealing with more errors than they are designed to detect, but not all. For that reason, we consider codes that are designed to detect only 3 errors as well as 4 errors, and analyse how well they perform in practice.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The translation says each code detects both 3 and 4 errors and drops 'only', changing which codes are considered."
+   ],
+   "first": "Muchos de estos códigos tienen un desempeño deficiente cuando se trata de más errores de los que están diseñados para detectar, pero no todos. Por esa razón, consideramos códigos diseñados para detectar tanto 3 errores como 4 errores, y analizamos qué tan bien se desempeñan en la práctica."
+  },
+  "The specific code chosen here is the result of:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Starting with an exhaustive list of 159605 BCH codes designed to detect 3 or 4 errors up to length 93, 151, 165, 341, 1023, and 1057.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "From those, requiring the detection of 4 errors up to length 71, resulting in 28825 remaining codes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "From those, choosing the codes with the best worst-case window for 5-character errors, resulting in 310 remaining codes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "From those, picking the code with the lowest chance for not detecting small numbers of ''bit'' errors.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "As a naive search would require over 6.5 * 10<g1>19</g1> checksum evaluations, a collision-search approach was used for analysis. The code can be found <g2>here</g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Properties": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The following table summarizes the chances for detection failure (as multiples of 1 in 10<g1>9</g1>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Window length": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Number of wrong characters": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Length": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Description": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Longest detecting 6 errors": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Longest detecting 5 errors": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Worst case for 6 errors": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Length ≤ 39 characters": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Length ≤ 59 characters": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Length ≤ 71 characters": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Longest detecting 4 errors": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "TODO: fill in table for a Sapling payment address, and check the following paragraph.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This means that when 5 changed characters occur randomly distributed in the 77 characters (excluding the separator) of a Sapling payment address, there is a chance of at most 0.867 per billion that it will go undetected. When those 5 changes occur randomly within a 19-character window, that chance goes down to 0.093 per billion. As the number of errors goes up, the chance converges towards 1 in 2<g1>30</g1> = 0.931 per billion.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The chosen code performs reasonably well up to 1023 characters, but is best for lengths up to 89 characters (excluding the separator). Since the search for suitable codes was based on the requirements for Bitcoin P2WPKH and P2WSH addresses, it is not quite optimal for the address lengths used by Sapling, but the advantages of compatibility with existing Bitcoin libraries were considered to outweigh this consideration.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Acknowledgements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This document is closely based on BIP 173 written by Pieter Wuille and Greg Maxwell, which was inspired by the <g1>address proposal</g1> by Rusty Russell and the <g2>base32</g2> proposal by Mark Friedenbach. BIP 173 also had input from Luke Dashjr, Johnson Lau, Eric Lombrozo, Peter Todd, and various other reviewers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  }
+ }
+}

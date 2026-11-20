@@ -1,0 +1,56 @@
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este es un ZIP informativo que describe una especificación propuesta para un protocolo estandarizado de realización de transacciones atómicas entre cadenas (XCAT) entre Zcash y Bitcoin, u otras criptomonedas derivadas de Bitcoin.</p>
+
+<h1 id="status"><a class="hanchor" href="#status" aria-hidden="true" tabindex="-1">#</a>Estado</h1>
+<p>Esta propuesta solo admite intercambios transparentes entre cadenas y depende del sistema de scripting heredado de Bitcoin. Al momento de escribir esto (septiembre de 2020), no ha logrado una adopción generalizada.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Un estándar bien definido para realizar transacciones entre cadenas mejoraría la liquidez de las criptomonedas y sería útil para servicios de terceros, como exchanges descentralizados.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>El protocolo propuesto para XCAT es un conjunto de contratos con bloqueo temporal por hash a través de ambas cadenas, creados por dos partes que desean realizar un intercambio entre cadenas.</p>
+<p>Para realizar un intercambio, ambas partes necesitan tener las claves públicas de la otra, en ambas cadenas. La parte que desea iniciar el intercambio (el «vendedor») construye dos contratos con bloqueo temporal por hash generando direcciones pay-to-script-hash (P2SH) usando el protocolo XCAT y la clave pública de su contraparte (el «comprador»).</p>
+<p>Para los propósitos de este ejemplo, el vendedor que inicia el intercambio se llamará «Alice», y el comprador que acepta completar el intercambio se llamará «Bob».</p>
+<p>Alice desea iniciar un intercambio XCAT de Bitcoin a Zcash. Ella elige un número aleatorio R, le calcula el hash y crea una dirección P2SH en la blockchain de Zcash usando sus claves públicas y las de Bob, en la que esperará que Bob deposite el monto que desea intercambiar. (El acuerdo sobre el monto a intercambiar y la tasa de cambio está fuera del alcance de este protocolo, y podría determinarse fuera de banda, o dentro de la interfaz de usuario de una aplicación que use XCAT por debajo)</p>
+<p>El script en la dirección P2SH toma la siguiente forma:</p>
+<pre class="literal-block">OP_IF
+    [HASHOP] &#x3C;hash digest of R> OP_EQUALVERIFY OP_DUP OP_HASH160 &#x3C;Alice's pubkey hash>
+OP_ELSE
+    &#x3C;time-out duration (24 hours)> CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 &#x3C;Bob's pubkey hash>
+OP_ENDIF
+OP_EQUALVERIFY
+OP_CHECKSIG</pre>
+<p>Hay dos escenarios para gastar fondos desde esta dirección P2SH. El primero es un intercambio atómico exitoso que le da a Alice el dinero que solicitó, y le da a Bob acceso al secreto R, que puede usar para redimir sus fondos en la otra blockchain. El segundo es un caso de fallo que reembolsa el dinero de Bob si Alice no cumple.</p>
+<ol class="arabic simple">
+<li><p>Caso de éxito: Alice gasta los fondos enviados a la dirección, revelando en el proceso el número aleatorio R al que calculó el hash para crear el script.</p></li>
+<li><p>Caso de fallo: Alice no gasta los fondos enviados a la dirección dentro del período de espera, por lo que Bob devuelve sus fondos a sí mismo, cancelando la transacción.</p></li>
+</ol>
+<p>Al mismo tiempo que Alice crea esta dirección P2SH en la blockchain de Zcash, también debe crear una dirección P2SH en la blockchain de Bitcoin, la cual ella misma financia con el monto de BTC que desea intercambiar.</p>
+<p>El script para esta segunda transacción toma la siguiente forma:</p>
+<pre class="literal-block">OP_IF
+    [HASHOP] &#x3C;hash digest of R> OP_EQUALVERIFY OP_DUP OP_HASH160 &#x3C;Bob's pubkey hash>
+OP_ELSE
+    &#x3C;time-out duration (48 hours)> CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 &#x3C;Alice's pubkey hash>
+OP_ENDIF
+OP_EQUALVERIFY
+OP_CHECKSIG</pre>
+<p>Los dos escenarios para gastar fondos desde esta segunda dirección P2SH son los siguientes:</p>
+<ol class="arabic simple">
+<li><p>Caso de éxito: Bob usa R para gastar los fondos de esta dirección P2SH, ya que Alice ya le reveló R a Bob en el proceso de gastar desde la dirección P2SH a la que envió ZEC en la blockchain de Zcash. La transacción atómica entre cadenas ahora está completa, y ambas partes tienen los fondos que solicitaron.</p></li>
+<li><p>Caso de fallo: Bob no ha cumplido su parte del intercambio dentro del período de espera, por lo que Alice devuelve sus fondos a sí misma, cancelando la transacción.</p></li>
+</ol>
+<h2 id="timeout-periods"><a class="hanchor" href="#timeout-periods" aria-hidden="true" tabindex="-1">#</a>Períodos de espera</h2>
+<p>Tener períodos de espera en ambas transacciones permite que el protocolo XCAT funcione al habilitar reembolsos en caso de que una contraparte se comporte de manera incorrecta. El ejemplo anterior usa un período de espera de 24 horas para la primera transacción y de 48 horas para la segunda, pero estos son simplemente sugerencias. Los períodos de espera reales deberían considerarse variables que dependen de los siguientes factores para cualquier implementación dada de XCAT:</p>
+<h3 id="duration"><a class="hanchor" href="#duration" aria-hidden="true" tabindex="-1">#</a>Duración</h3>
+<p>El período de bloqueo temporal en la transacción en la que la parte iniciadora revela R debe ser significativamente más corto que el período de bloqueo temporal en la segunda transacción, en la que la otra parte usa el R revelado, con el fin de darle tiempo suficiente para usar R y redimir sus fondos.</p>
+<p>Por ejemplo, una vez que Alice revela R al gastar lo que Bob envió a su dirección P2SH, Bob debe tener tiempo suficiente para usar R y redimir sus fondos en la otra blockchain antes de que a Alice se le permita reembolsarse a sí misma. Si hubiera un retraso de tiempo insuficiente entre el primer y el segundo período de espera, Alice podría gastar los fondos de Bob en el último minuto y luego reembolsarse rápidamente en la otra blockchain antes de que Bob tenga la oportunidad de redimir su parte usando el R que ella revela.</p>
+<p>Téngase en cuenta que usar bloqueos temporales largos en los scripts P2SH no significa necesariamente que las transacciones en sí mismas tarden mucho tiempo. Si ambas partes responden de inmediato y ejecutan sus intercambios de manera oportuna, proporcionando la información correcta, el intercambio atómico entre cadenas completo puede realizarse rápidamente. La duración completa del período de espera de cada transacción solo transcurre en el caso de fallo, cuando Alice o Bob incumplen su acuerdo de intercambio.</p>
+
+<h3 id="block-times"><a class="hanchor" href="#block-times" aria-hidden="true" tabindex="-1">#</a>Tiempos de bloque</h3>
+<p>La protección proporcionada por el período de espera debe tener en cuenta los tiempos de bloque relativos entre las dos blockchains.</p>
+
+
+
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<p>Los usuarios son libres de idear sus propios protocolos para transacciones atómicas entre cadenas, pero tener un protocolo bien definido ayudaría a la adopción y daría soporte a servicios de terceros que deseen proporcionar dicha funcionalidad.</p>
+

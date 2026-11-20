@@ -1,0 +1,471 @@
+{
+ "segments": {
+  "Sapling Address Signatures": "Firmas de dirección Sapling",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\" and \"SHOULD\" in this document is to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\" y \"DEBERÍA (SHOULD)\" en este documento deben interpretarse según lo descrito en BCP 14 <x1/> cuando, y solo cuando, aparezcan en mayúsculas.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This proposal describes a mechanism for creating signatures with Sapling addresses, suitable for use by the <x1/> and <x2/> RPC methods in <x3/>.": "Esta propuesta describe un mecanismo para crear firmas con direcciones Sapling, apto para su uso por los métodos RPC <x1/> y <x2/> en <x3/>.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "There are a variety of situations where it is useful for a user to be able to prove that they control a given payment address. For example, before a high-value transfer of funds, the sender may want to verify that the recipient will definitely be able to spend them, to ensure that the funds won't be stuck in an invalid or unusable address.": "Existen diversas situaciones en las que resulta útil que un usuario pueda demostrar que controla una dirección de pago determinada. Por ejemplo, antes de una transferencia de fondos de alto valor, el remitente puede querer verificar que el destinatario realmente podrá gastarlos, para asegurarse de que los fondos no queden atascados en una dirección inválida o inutilizable.",
+  "A payment address is analogous (in some cases, identical) to a public key in a signature scheme. A transaction that spends funds received by the address, is authorized by making (the equivalent of) a signature with the corresponding spending key. This authorization protocol can be repurposed to instead sign a message provided by a third party.": "Una dirección de pago es análoga (en algunos casos, idéntica) a una clave pública en un esquema de firmas. Una transacción que gasta fondos recibidos por la dirección se autoriza mediante (el equivalente de) una firma con la clave de gasto correspondiente. Este protocolo de autorización puede reutilizarse para firmar en su lugar un mensaje proporcionado por un tercero.",
+  "Bitcoin Core's <x1/> provides a <x2/> RPC method that implements message signing for Bitcoin addresses, leveraging the fact that a Bitcoin private key is just a <x3/> private key, and a Bitcoin transaction authorizes spends with a signature. <x4/> inherited this RPC method, and it can be used to make signatures for transparent Zcash addresses.": "El <x1/> de Bitcoin Core proporciona un método RPC <x2/> que implementa la firma de mensajes para direcciones Bitcoin, aprovechando el hecho de que una clave privada de Bitcoin es simplemente una clave privada <x3/>, y que una transacción de Bitcoin autoriza los gastos con una firma. <x4/> heredó este método RPC, y puede usarse para crear firmas de direcciones transparentes de Zcash.",
+  "However, support for signing messages with shielded addresses was not possible when Zcash launched, because of the design of the Sprout protocol (and the state of zero-knowledge proof R&amp;D at the time). Shielded transactions, by design, do not expose the payment address of the sender when creating a transaction; in Sprout, this meant that the spending key was a private input to the zero-knowledge proof, and not a key that could be used to create a signature.": "Sin embargo, no fue posible admitir la firma de mensajes con direcciones blindadas cuando se lanzó Zcash, debido al diseño del protocolo Sprout (y al estado de la I+D de pruebas de conocimiento cero en aquel entonces). Las transacciones blindadas, por diseño, no exponen la dirección de pago del remitente al crear una transacción; en Sprout, esto significaba que la clave de gasto era una entrada privada de la prueba de conocimiento cero, y no una clave que pudiera usarse para crear una firma.",
+  "One of the R&amp;D achievements behind the Sapling protocol was the ability to use elliptic curves inside a circuit. With this primitive available, Sapling keys and payment addresses could be designed such that transaction authorization involved a signature. While this was designed to enable hardware wallets (which lack the power to create zero-knowledge proofs, but can easily create signatures), it also enables the creation of a mechanism for signing arbitrary messages. That mechanism is the subject of this ZIP.": "Uno de los logros de I+D detrás del protocolo Sapling fue la capacidad de usar curvas elípticas dentro de un circuito. Con esta primitiva disponible, las claves y direcciones de pago de Sapling pudieron diseñarse de modo que la autorización de transacciones involucrara una firma. Aunque esto se diseñó para habilitar las billeteras de hardware (que carecen de la capacidad de crear pruebas de conocimiento cero, pero pueden crear firmas fácilmente), también posibilita la creación de un mecanismo para firmar mensajes arbitrarios. Ese mecanismo es el tema de este ZIP.",
+  "<x1/>Conventions": "<x1/>Convenciones",
+  "The following constants and functions used in this ZIP are defined in the Zcash protocol specification: <x1/>": "Las siguientes constantes y funciones usadas en este ZIP están definidas en la especificación del protocolo de Zcash: <x1/>",
+  "<x1/> and <x2/> <x3/>": "<x1/> y <x2/> <x3/>",
+  "<x1/>, <x2/>, <x3/>, and <x4/> <x5/>": "<x1/>, <x2/>, <x3/> y <x4/> <x5/>",
+  "We also reproduce some notation and functions here for convenience:": "También reproducimos aquí parte de la notación y algunas funciones por conveniencia:",
+  "<x1/> means the concatenation of sequences <x2/> then <x3/>.": "<x1/> significa la concatenación de las secuencias <x2/> y luego <x3/>.",
+  "<x1/> is the representation of the Jubjub elliptic curve point <x2/> as a bit sequence, defined in <x3/>.": "<x1/> es la representación del punto de la curva elíptica Jubjub <x2/> como una secuencia de bits, definida en <x3/>.",
+  "<x1/> refers to unkeyed BLAKE2b-256 in sequential mode, with an output digest length of 32 bytes, 16-byte personalization string <x2/>, and input <x3/>.": "<x1/> se refiere a BLAKE2b-256 sin clave en modo secuencial, con una longitud de resumen de salida de 32 bytes, una cadena de personalización de 16 bytes <x2/> y entrada <x3/>.",
+  "<x1/>Requirements": "<x1/>Requisitos",
+  "Given a payment address, a message, and a valid signature, the following properties should hold:": "Dada una dirección de pago, un mensaje y una firma válida, deberían cumplirse las siguientes propiedades:",
+  "<g1>Authentication:</g1> the signature will not verify with any other payment address.": "<g1>Autenticación:</g1> la firma no se verificará con ninguna otra dirección de pago.",
+  "<g1>Binding:</g1> the signature will not verify with any modification, extension, or truncation of the message.": "<g1>Vinculación:</g1> la firma no se verificará con ninguna modificación, extensión o truncamiento del mensaje.",
+  "<g1>Non-malleability:</g1> it should not be possible to obtain a second valid signature (with a different encoding) for the same payment address and message without access to the spending key for that payment address.": "<g1>No maleabilidad:</g1> no debería ser posible obtener una segunda firma válida (con una codificación distinta) para la misma dirección de pago y el mismo mensaje sin acceso a la clave de gasto de esa dirección de pago.",
+  "<x1/>Non-requirements": "<x1/>No requisitos",
+  "Multiple signatures by a single payment addresses are not required to be unlinkable.": "No se requiere que múltiples firmas de una misma dirección de pago sean no vinculables.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "A Sapling address signature is created by taking the process for creating a Sapling Spend description, and running it with fixed inputs:": "Una firma de dirección Sapling se crea tomando el proceso para crear una descripción de Spend de Sapling y ejecutándolo con entradas fijas:",
+  "A fake Sapling note with a value of <x1/> zatoshi and <x2/>.": "Una nota Sapling falsa con un valor de <x1/> zatoshi y <x2/>.",
+  "A Sapling commitment tree that is empty except for the commitment for the fake note.": "Un árbol de compromisos de Sapling que está vacío excepto por el compromiso de la nota falsa.",
+  "<x1/>Signature algorithm": "<x1/>Algoritmo de firma",
+  "The inputs to the signature algorithm are:": "Las entradas del algoritmo de firma son:",
+  "The payment address <x1/>,": "La dirección de pago <x1/>,",
+  "Its corresponding expanded spending key <x1/>,": "Su correspondiente clave de gasto expandida <x1/>,",
+  "The SLIP-44 <x1/> coin type, and": "El tipo de moneda SLIP-44 <x1/>, y",
+  "The message $msg$ to be signed.": "El mensaje $msg$ que se va a firmar.",
+  "The signature is created as follows:": "La firma se crea de la siguiente manera:",
+  "Derive the full viewing key <x1/> from the expanded spending key.": "Derivar la clave de visualización completa <x1/> a partir de la clave de gasto expandida.",
+  "Let <x1/>.": "Sea <x1/>.",
+  "Let $mathsf{cm} = mathsf{NoteCommit}^mathsf{Sapling}_0(mathsf{repr}_mathbb{J}(mathsf{g_d}), mathsf{repr}_mathbb{J}(mathsf{pk_d}), 1)$.": "Sea $mathsf{cm} = mathsf{NoteCommit}^mathsf{Sapling}_0(mathsf{repr}_mathbb{J}(mathsf{g_d}), mathsf{repr}_mathbb{J}(mathsf{pk_d}), 1)$.",
+  "Let <x1/> be the root of a Merkle tree with depth <x2/> and hashing function <x3/>, containing <x4/> at position 0, and <x5/> at all other positions.": "Sea <x1/> la raíz de un árbol Merkle con profundidad <x2/> y función de hash <x3/>, que contenga <x4/> en la posición 0, y <x5/> en todas las demás posiciones.",
+  "Let $path$ be the Merkle path from position 0 to <x1/>. <x2/>": "Sea $path$ el camino Merkle desde la posición 0 hasta <x1/>. <x2/>",
+  "This is a constant and may be pre-computed.": "Este valor es constante y puede precalcularse.",
+  "Let $mathsf{nf} = mathsf{PRF}^mathsf{nfSapling}_{mathsf{repr}_mathbb{J}(mathsf{nk})}(mathsf{repr}_mathbb{J}(mathsf{MixingPedersenHash}(mathsf{cm}, 0)))$.": "Sea $mathsf{nf} = mathsf{PRF}^mathsf{nfSapling}_{mathsf{repr}_mathbb{J}(mathsf{nk})}(mathsf{repr}_mathbb{J}(mathsf{MixingPedersenHash}(mathsf{cm}, 0)))$.",
+  "Select a random $α$.": "Seleccionar un $α$ aleatorio.",
+  "Let $zkproof$ be the byte sequence representation of a Sapling spend proof with primary input <x1/> and auxiliary input <x2/>. <x3/>": "Sea $zkproof$ la representación como secuencia de bytes de una prueba de gasto de Sapling con entrada primaria <x1/> y entrada auxiliar <x2/>. <x3/>",
+  "Let $coinType$ be the 4-byte little-endian encoding of the coin type in its index form, not its hardened form (i.e. 133 for mainnet Zcash).": "Sea $coinType$ la codificación de 4 bytes en little-endian del tipo de moneda en su forma de índice, no en su forma endurecida (es decir, 133 para Zcash en mainnet).",
+  "Return <x1/>.": "Devolver <x1/>.",
+  "<x1/>Verification algorithm": "<x1/>Algoritmo de verificación",
+  "The inputs to the verification algorithm are:": "Las entradas del algoritmo de verificación son:",
+  "The SLIP-44 <x1/> coin type,": "El tipo de moneda SLIP-44 <x1/>,",
+  "The message $msg$ that is claimed to be signed, and": "El mensaje $msg$ que se afirma haber firmado, y",
+  "The ZIP 304 signature <x1/>.": "La firma ZIP 304 <x1/>.",
+  "The signature MUST be verified as follows:": "La firma DEBE (MUST) verificarse de la siguiente manera:",
+  "If <x1/>, return false.": "Si <x1/>, devolver false.",
+  "Let $mathsf{cm} = mathsf{NoteCommit}^mathsf{Sapling}_0(mathsf{repr}_mathbb{J}(mathsf{DiversifyHash}(mathsf{d})), mathsf{repr}_mathbb{J}(mathsf{pk_d}), 1)$.": "Sea $mathsf{cm} = mathsf{NoteCommit}^mathsf{Sapling}_0(mathsf{repr}_mathbb{J}(mathsf{DiversifyHash}(mathsf{d})), mathsf{repr}_mathbb{J}(mathsf{pk_d}), 1)$.",
+  "Decode and verify $zkproof$ as a Sapling spend proof with primary input <x1/>. <x2/> If verification fails, return false.": "Decodificar y verificar $zkproof$ como una prueba de gasto de Sapling con entrada primaria <x1/>. <x2/> Si la verificación falla, devolver false.",
+  "Return true.": "Devolver true.",
+  "<x1/>Signature encoding": "<x1/>Codificación de la firma",
+  "The raw form of a ZIP 304 signature is <x1/>, for a total size of 320 bytes.": "La forma cruda de una firma ZIP 304 es <x1/>, para un tamaño total de 320 bytes.",
+  "When encoding a ZIP 304 signature in a human-readable format, implementations <g1>SHOULD</g1> use standard Base64 for compatibility with the <x2/> and <x3/> RPC methods in <x4/>. ZIP 304 signatures in this form are 428 bytes. The encoded form is the string <x5/> followed by the result of Base64-encoding <x6/> the raw form of the signature.": "Al codificar una firma ZIP 304 en un formato legible por humanos, las implementaciones <g1>DEBERÍAN (SHOULD)</g1> usar Base64 estándar por compatibilidad con los métodos RPC <x2/> y <x3/> en <x4/>. Las firmas ZIP 304 en esta forma tienen 428 bytes. La forma codificada es la cadena <x5/> seguida del resultado de codificar en Base64 <x6/> la forma cruda de la firma.",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "We use a fake note within the signature scheme in order to reuse the Sapling Spend circuit and its parameters. It is possible to construct a signature scheme with a smaller encoded signature, but this would require a new circuit and another parameter-generation ceremony (if Groth16 were used).": "Usamos una nota falsa dentro del esquema de firma para reutilizar el circuito de gasto de Sapling y sus parámetros. Es posible construir un esquema de firma con una firma codificada más pequeña, pero esto requeriría un circuito nuevo y otra ceremonia de generación de parámetros (si se usara Groth16).",
+  "We use a note value of <x1/> zatoshi instead of zero to ensure that the payment address is fully bound to $zkproof$. Notes with zero value have certain constraints disabled inside the circuit.": "Usamos un valor de nota de <x1/> zatoshi en lugar de cero para asegurar que la dirección de pago quede totalmente vinculada a $zkproof$. Las notas con valor cero tienen ciertas restricciones deshabilitadas dentro del circuito.",
+  "We set <x1/> and <x2/> to zero because we do not need the hiding properties of the note commitment or value commitment schemes (as we are using a fixed-value fake note), and can thus omit both <x3/> and <x4/> from the signature.": "Fijamos <x1/> y <x2/> en cero porque no necesitamos las propiedades de ocultamiento de los esquemas de compromiso de nota y de compromiso de valor (ya que usamos una nota falsa de valor fijo), y por lo tanto podemos omitir tanto <x3/> como <x4/> de la firma.",
+  "<x1/>Security and Privacy Considerations": "<x1/>Consideraciones de seguridad y privacidad",
+  "A normal (and desired) property of signature schemes is that all signatures for a specific public key are linkable if the public key is known. ZIP 304 signatures have the additional property that all signatures for a specific payment address are linkable without knowing the payment address, as the first 32 bytes of each signature will be identical.": "Una propiedad normal (y deseada) de los esquemas de firma es que todas las firmas de una clave pública específica son vinculables si la clave pública es conocida. Las firmas ZIP 304 tienen la propiedad adicional de que todas las firmas de una dirección de pago específica son vinculables sin conocer la dirección de pago, ya que los primeros 32 bytes de cada firma serán idénticos.",
+  "A signature is bound to a specific diversified address of the spending key. Signatures for different diversified addresses of the same spending key are unlinkable, as long as $α$ is never re-used across signatures.": "Una firma está vinculada a una dirección diversificada específica de la clave de gasto. Las firmas de direcciones diversificadas distintas de la misma clave de gasto no son vinculables, siempre que $α$ nunca se reutilice entre firmas.",
+  "Most of the data within a ZIP 304 signature is inherently non-malleable:": "La mayor parte de los datos de una firma ZIP 304 es inherentemente no maleable:",
+  "<x1/> is a binary public input to $zkproof$.": "<x1/> es una entrada pública binaria de $zkproof$.",
+  "<x1/> is internally bound to $spendAuthSig$ by the design of RedJubjub.": "<x1/> está internamente vinculado a $spendAuthSig$ por el diseño de RedJubjub.",
+  "RedJubjub signatures are themselves non-malleable.": "Las firmas de RedJubjub son en sí mismas no maleables.",
+  "The one component that is inherently malleable is $zkproof$. The zero-knowledge property of a Groth16 proof implies that anyone can take a valid proof, and re-randomize it to obtain another valid proof with a different encoding. We prevent this by binding the encoding of $zkproof$ to $spendAuthSig$, by including $zkproof$ in the message digest.": "El único componente inherentemente maleable es $zkproof$. La propiedad de conocimiento cero de una prueba Groth16 implica que cualquiera puede tomar una prueba válida y realeatorizarla para obtener otra prueba válida con una codificación distinta. Evitamos esto vinculando la codificación de $zkproof$ a $spendAuthSig$, mediante la inclusión de $zkproof$ en el resumen del mensaje.",
+  "<x1/>Reference implementation": "<x1/>Implementación de referencia",
+  "<g1>https://github.com/zcash/librustzcash/pull/210</g1>": "<g1>https://github.com/zcash/librustzcash/pull/210</g1>",
+  "<x1/>References": "<x1/>Referencias"
+ },
+ "reviews": {
+  "Sapling Address Signatures": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The key words \"MUST\" and \"SHOULD\" in this document is to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "BCP 14 key words are given in plural instead of the citation forms DEBE and DEBERÍA."
+   ],
+   "first": "Las palabras clave \"DEBEN (MUST)\" y \"DEBERÍAN (SHOULD)\" en este documento deben interpretarse según lo descrito en BCP 14 <x1/> cuando, y solo cuando, aparezcan en mayúsculas."
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This proposal describes a mechanism for creating signatures with Sapling addresses, suitable for use by the <x1/> and <x2/> RPC methods in <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "There are a variety of situations where it is useful for a user to be able to prove that they control a given payment address. For example, before a high-value transfer of funds, the sender may want to verify that the recipient will definitely be able to spend them, to ensure that the funds won't be stuck in an invalid or unusable address.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A payment address is analogous (in some cases, identical) to a public key in a signature scheme. A transaction that spends funds received by the address, is authorized by making (the equivalent of) a signature with the corresponding spending key. This authorization protocol can be repurposed to instead sign a message provided by a third party.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "Missing reflexive 'se': 'puede reutilizar' says the protocol reuses something instead of being repurposed."
+   ],
+   "first": "Una dirección de pago es análoga (en algunos casos, idéntica) a una clave pública en un esquema de firmas. Una transacción que gasta fondos recibidos por la dirección se autoriza mediante (el equivalente de) una firma con la clave de gasto correspondiente. Este protocolo de autorización puede reutilizar para firmar en su lugar un mensaje proporcionado por un tercero."
+  },
+  "Bitcoin Core's <x1/> provides a <x2/> RPC method that implements message signing for Bitcoin addresses, leveraging the fact that a Bitcoin private key is just a <x3/> private key, and a Bitcoin transaction authorizes spends with a signature. <x4/> inherited this RPC method, and it can be used to make signatures for transparent Zcash addresses.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "However, support for signing messages with shielded addresses was not possible when Zcash launched, because of the design of the Sprout protocol (and the state of zero-knowledge proof R&amp;D at the time). Shielded transactions, by design, do not expose the payment address of the sender when creating a transaction; in Sprout, this meant that the spending key was a private input to the zero-knowledge proof, and not a key that could be used to create a signature.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "One of the R&amp;D achievements behind the Sapling protocol was the ability to use elliptic curves inside a circuit. With this primitive available, Sapling keys and payment addresses could be designed such that transaction authorization involved a signature. While this was designed to enable hardware wallets (which lack the power to create zero-knowledge proofs, but can easily create signatures), it also enables the creation of a mechanism for signing arbitrary messages. That mechanism is the subject of this ZIP.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Conventions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The following constants and functions used in this ZIP are defined in the Zcash protocol specification: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> and <x2/> <x3/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>, <x2/>, <x3/>, and <x4/> <x5/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We also reproduce some notation and functions here for convenience:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> means the concatenation of sequences <x2/> then <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is the representation of the Jubjub elliptic curve point <x2/> as a bit sequence, defined in <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> refers to unkeyed BLAKE2b-256 in sequential mode, with an output digest length of 32 bytes, 16-byte personalization string <x2/>, and input <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Given a payment address, a message, and a valid signature, the following properties should hold:": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "English 'should hold' is rendered as obligation 'deben', overstating the degree of obligation."
+   ],
+   "first": "Dada una dirección de pago, un mensaje y una firma válida, deben cumplirse las siguientes propiedades:"
+  },
+  "<g1>Authentication:</g1> the signature will not verify with any other payment address.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Binding:</g1> the signature will not verify with any modification, extension, or truncation of the message.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Non-malleability:</g1> it should not be possible to obtain a second valid signature (with a different encoding) for the same payment address and message without access to the spending key for that payment address.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Non-requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Multiple signatures by a single payment addresses are not required to be unlinkable.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A Sapling address signature is created by taking the process for creating a Sapling Spend description, and running it with fixed inputs:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A fake Sapling note with a value of <x1/> zatoshi and <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A Sapling commitment tree that is empty except for the commitment for the fake note.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Signature algorithm": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The inputs to the signature algorithm are:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The payment address <x1/>,": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Its corresponding expanded spending key <x1/>,": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The SLIP-44 <x1/> coin type, and": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The message $msg$ to be signed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The signature is created as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Derive the full viewing key <x1/> from the expanded spending key.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let $mathsf{cm} = mathsf{NoteCommit}^mathsf{Sapling}_0(mathsf{repr}_mathbb{J}(mathsf{g_d}), mathsf{repr}_mathbb{J}(mathsf{pk_d}), 1)$.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let <x1/> be the root of a Merkle tree with depth <x2/> and hashing function <x3/>, containing <x4/> at position 0, and <x5/> at all other positions.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let $path$ be the Merkle path from position 0 to <x1/>. <x2/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This is a constant and may be pre-computed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let $mathsf{nf} = mathsf{PRF}^mathsf{nfSapling}_{mathsf{repr}_mathbb{J}(mathsf{nk})}(mathsf{repr}_mathbb{J}(mathsf{MixingPedersenHash}(mathsf{cm}, 0)))$.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Select a random $α$.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let $zkproof$ be the byte sequence representation of a Sapling spend proof with primary input <x1/> and auxiliary input <x2/>. <x3/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let $coinType$ be the 4-byte little-endian encoding of the coin type in its index form, not its hardened form (i.e. 133 for mainnet Zcash).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Return <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Verification algorithm": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The inputs to the verification algorithm are:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The SLIP-44 <x1/> coin type,": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The message $msg$ that is claimed to be signed, and": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The ZIP 304 signature <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The signature MUST be verified as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If <x1/>, return false.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let $mathsf{cm} = mathsf{NoteCommit}^mathsf{Sapling}_0(mathsf{repr}_mathbb{J}(mathsf{DiversifyHash}(mathsf{d})), mathsf{repr}_mathbb{J}(mathsf{pk_d}), 1)$.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Decode and verify $zkproof$ as a Sapling spend proof with primary input <x1/>. <x2/> If verification fails, return false.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Return true.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Signature encoding": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The raw form of a ZIP 304 signature is <x1/>, for a total size of 320 bytes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "When encoding a ZIP 304 signature in a human-readable format, implementations <g1>SHOULD</g1> use standard Base64 for compatibility with the <x2/> and <x3/> RPC methods in <x4/>. ZIP 304 signatures in this form are 428 bytes. The encoded form is the string <x5/> followed by the result of Base64-encoding <x6/> the raw form of the signature.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We use a fake note within the signature scheme in order to reuse the Sapling Spend circuit and its parameters. It is possible to construct a signature scheme with a smaller encoded signature, but this would require a new circuit and another parameter-generation ceremony (if Groth16 were used).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We use a note value of <x1/> zatoshi instead of zero to ensure that the payment address is fully bound to $zkproof$. Notes with zero value have certain constraints disabled inside the circuit.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We set <x1/> and <x2/> to zero because we do not need the hiding properties of the note commitment or value commitment schemes (as we are using a fixed-value fake note), and can thus omit both <x3/> and <x4/> from the signature.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Security and Privacy Considerations": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A normal (and desired) property of signature schemes is that all signatures for a specific public key are linkable if the public key is known. ZIP 304 signatures have the additional property that all signatures for a specific payment address are linkable without knowing the payment address, as the first 32 bytes of each signature will be identical.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A signature is bound to a specific diversified address of the spending key. Signatures for different diversified addresses of the same spending key are unlinkable, as long as $α$ is never re-used across signatures.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Most of the data within a ZIP 304 signature is inherently non-malleable:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is a binary public input to $zkproof$.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is internally bound to $spendAuthSig$ by the design of RedJubjub.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "RedJubjub signatures are themselves non-malleable.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The one component that is inherently malleable is $zkproof$. The zero-knowledge property of a Groth16 proof implies that anyone can take a valid proof, and re-randomize it to obtain another valid proof with a different encoding. We prevent this by binding the encoding of $zkproof$ to $spendAuthSig$, by including $zkproof$ in the message digest.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Reference implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>https://github.com/zcash/librustzcash/pull/210</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  }
+ }
+}

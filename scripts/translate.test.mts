@@ -92,6 +92,16 @@ test("every number of the source is in the translation", () => {
     assert.doesNotThrow(() => rebuild(seg, "10 desde la Revisión 2, o 0,00001 ZEC (1.000 zatoshis), que es el 8 %."));
 });
 
+test("the full run: three checks that rejected correct text", () => {
+    // "MUST-understand" is a term of ZIP 316, not a key word
+    assert.doesNotThrow(() => rebuild(plain("Items in the MUST-understand range are kept."), "Los elementos del rango MUST-understand se conservan."));
+    // a key word that the source puts in quotation marks
+    assert.doesNotThrow(() => rebuild(plain('The key word "MUST" is normative.'), 'La palabra clave "DEBE" (MUST) es normativa.'));
+    // Spanish writes 2,550 with no separator
+    assert.doesNotThrow(() => rebuild(plain("It spans 2,550 seconds."), "Abarca 2550 segundos."));
+    assert.throws(() => rebuild(plain("It spans 2,550 seconds."), "Abarca 2560 segundos."), /numbers differ/);
+});
+
 test("a kept term of the source is in the translation", () => {
     setKeep(["Major Grants", "fork", "Tor"]);
     assert.throws(() => rebuild(plain("The Major Grants slice."), "La parte de las subvenciones mayores."), /"Major Grants" stays in English/);
@@ -210,6 +220,25 @@ test("a correction that breaks a check is not published", async () => {
     const r = await review("Pay 2 zatoshis.", "Pague 2 zatoshis.", [{ ok: false, issue: "style", es: "Pague 3 zatoshis." }, { ok: true }]);
     assert.equal(r.text, "Pague 2 zatoshis.");
     assert.match(r.review.issues[1], /correction rejected: the numbers differ/);
+});
+
+test("the work of each batch is saved, so a stopped run loses none", async () => {
+    // the first full run was stopped after 50 minutes and two large documents lost all their work
+    const sources = Array.from({ length: 25 }, (_, i) => `Sentence number ${i}.`);
+    const wanted = new Map(sources.map((s) => [s, plain(s)]));
+    const memory = Object.fromEntries(sources.map((s, i) => [s, `Frase número ${i}.`]));
+    const reviews: Record<string, Review> = {};
+    setModel(async (_system, payload) => Object.fromEntries(Object.keys((payload as { segments: object }).segments).map((k) => [k, { ok: true }])));
+    const saved: number[] = [];
+    const write = process.stdout.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    try {
+        await reviewAll("", DOC, wanted, memory, reviews, () => saved.push(Object.values(reviews).filter((r) => r.passed).length));
+    }
+    finally {
+        process.stdout.write = write;
+    }
+    assert.deepEqual(saved, [10, 20, 25]); // 25 segments are 3 batches of 10: one save after each
 });
 
 test("a segment that never passes stays in English", async () => {

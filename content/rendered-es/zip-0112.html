@@ -1,0 +1,274 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>La palabra clave "DEBE (MUST)" en este documento se interpreta como se describe en RFC 2119. <a class="brackets" href="#rfc2119" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a></p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP describe un nuevo opcode (<span class="docutils literal">CHECKSEQUENCEVERIFY</span>) para el sistema de scripting de Zcash que, en combinación con el ZIP 68, permite restringir las rutas de ejecución de un script basándose en la antigüedad de la salida que se está gastando.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>El ZIP 68 redefine el significado del campo <span class="docutils literal">nSequence</span> de la transacción otorgando a los números de secuencia nuevas semánticas impuestas por consenso como un lock-time relativo. Sin embargo, no existe forma de construir scripts de Zcash que tomen decisiones basándose en este campo.</p>
+<p>Al hacer accesible el campo <span class="docutils literal">nSequence</span> al script, es posible construir rutas de código que solo se vuelvan accesibles cierto tiempo mínimo después de la prueba de publicación. Esto habilita una amplia variedad de aplicaciones en protocolos por fases, como depósitos en garantía, canales de pago o pegs bidireccionales.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p><span class="docutils literal">CHECKSEQUENCEVERIFY</span> redefine el opcode <span class="docutils literal">NOP3</span> existente. Al ejecutarse, si alguna de las siguientes condiciones es verdadera, el intérprete de script DEBE (MUST) terminar con un error:</p>
+<ul class="simple">
+<li><p>la pila está vacía; o</p></li>
+<li><p>el elemento superior de la pila es menor que 0; o</p></li>
+<li><p>el elemento superior de la pila tiene la marca de deshabilitación (1 &#x3C;&#x3C; 31) sin activar; y se cumple alguna de las siguientes condiciones:</p>
+<ul>
+<li><p>la versión de la transacción es menor que 2; o</p></li>
+<li><p>la marca de deshabilitación (1 &#x3C;&#x3C; 31) del número de secuencia de la entrada de la transacción está activada; o</p></li>
+<li><p>el tipo de tiempo de bloqueo relativo no es el mismo; o</p></li>
+<li><p>el elemento superior de la pila es mayor que la secuencia de la entrada de la transacción (cuando se enmascara según <a class="brackets" href="#zip-0068" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>;</p></li>
+</ul>
+</li>
+</ul>
+<p>En caso contrario, la ejecución del script DEBE (MUST) continuar como si se hubiera ejecutado un <span class="docutils literal">NOP</span>.</p>
+<p>El ZIP 68 impide que una transacción no final sea seleccionada para su inclusión en un bloque hasta que la entrada correspondiente haya alcanzado la antigüedad especificada, medida en altura de bloque o tiempo de bloque. Al comparar el argumento de <span class="docutils literal">CHECKSEQUENCEVERIFY</span> con el campo <span class="docutils literal">nSequence</span>, verificamos indirectamente una antigüedad mínima deseada de la salida que se está gastando; hasta que se haya alcanzado esa antigüedad relativa, cualquier ruta de ejecución del script que incluya <span class="docutils literal">CHECKSEQUENCEVERIFY</span> fallará en la validación, lo que impide que la transacción sea seleccionada para su inclusión en un bloque.</p>
+
+<h1 id="use-cases"><a class="hanchor" href="#use-cases" aria-hidden="true" tabindex="-1">#</a>Casos de uso</h1>
+<h2 id="contracts-with-expiration-deadlines"><a class="hanchor" href="#contracts-with-expiration-deadlines" aria-hidden="true" tabindex="-1">#</a>Contratos con plazos de expiración</h2>
+<h3 id="escrow-with-timeout"><a class="hanchor" href="#escrow-with-timeout" aria-hidden="true" tabindex="-1">#</a>Custodia con tiempo de espera</h3>
+<p>Se puede establecer una custodia que expira automáticamente 30 días después de recibir los fondos de la siguiente manera. Alice, Bob y Escrow crean una dirección 2-de-3 con el siguiente script de redención:</p>
+<pre class="literal-block">IF
+    2 &#x3C;Alice's pubkey> &#x3C;Bob's pubkey> &#x3C;Escrow's pubkey> 3 CHECKMULTISIG
+ELSE
+    "30d" CHECKSEQUENCEVERIFY DROP
+    &#x3C;Alice's pubkey> CHECKSIG
+ENDIF</pre>
+<p>En cualquier momento, los fondos pueden gastarse utilizando firmas de cualesquiera dos de Alice, Bob o Escrow.</p>
+<p>Después de 30 días, Alice puede firmar sola.</p>
+<p>El reloj no empieza a correr hasta que el pago a la dirección de custodia confirma.</p>
+
+
+<h2 id="retroactive-invalidation"><a class="hanchor" href="#retroactive-invalidation" aria-hidden="true" tabindex="-1">#</a>Invalidación retroactiva</h2>
+<p>En muchos casos, nos gustaría crear contratos que puedan revocarse en caso de algún evento futuro. Sin embargo, dada la naturaleza inmutable de la block chain, es prácticamente imposible invalidar retroactivamente un compromiso previo que ya ha confirmado. El único mecanismo que realmente tenemos para la invalidación retroactiva es la reorganización de la block chain, la cual, por razones fundamentales de seguridad, está diseñada para ser muy difícil y muy costosa de realizar.</p>
+<p>A pesar de esta limitación, sí tenemos una manera de proporcionar algo funcionalmente similar a la invalidación retroactiva conservando la irreversibilidad de los compromisos pasados mediante <span class="docutils literal">CHECKSEQUENCEVERIFY</span>. Al construir scripts con múltiples ramas de ejecución en las que una o más de las ramas están diferidas, proporcionamos una ventana de tiempo en la que alguien puede suministrar una condición de invalidación que permite gastar la salida, invalidando efectivamente la rama que habría estado diferida y potencialmente desalentando a la otra parte de difundir la transacción en primer lugar. Si la condición de invalidación no ocurre antes del tiempo de espera, la rama diferida se vuelve gastable, honrando el contrato original.</p>
+<p>Algunas aplicaciones más específicas de esta idea:</p>
+<h3 id="hash-time-locked-contracts"><a class="hanchor" href="#hash-time-locked-contracts" aria-hidden="true" tabindex="-1">#</a>Contratos bloqueados por hash y tiempo</h3>
+<p>Los contratos bloqueados por hash y tiempo (HTLC) proporcionan un mecanismo general para la negociación de contratos fuera de cadena. Una ruta de ejecución puede hacerse que requiera el conocimiento de un secreto (una preimagen del hash) que puede presentarse dentro de una ventana de tiempo de invalidación. Al compartir el secreto, es posible garantizarle a la contraparte que la transacción nunca será difundida, ya que esto le permitiría a la contraparte reclamar la salida de inmediato mientras que uno tendría que esperar a que pase la ventana de tiempo. Si el secreto no se ha compartido, la contraparte no podrá usar la ruta instantánea y deberá usarse la ruta diferida en su lugar.</p>
+
+<h3 id="bidirectional-payment-channels"><a class="hanchor" href="#bidirectional-payment-channels" aria-hidden="true" tabindex="-1">#</a>Canales de pago bidireccionales</h3>
+<p>El locktime relativo programable proporciona una cantidad predecible de tiempo para responder en caso de que una contraparte difunda una transacción revocada: el locktime absoluto obliga a cerrar el canal y reabrirlo cuando se acerca al tiempo de espera, mientras que con el locktime relativo, el reloj empieza a correr en el momento en que la transacción confirma en un bloque. También proporciona un medio para saber exactamente cuánto esperar (en número de bloques) antes de que los fondos puedan retirarse del canal en caso de una contraparte no cooperativa.</p>
+
+<h3 id="lightning-network"><a class="hanchor" href="#lightning-network" aria-hidden="true" tabindex="-1">#</a>Red Lightning</h3>
+<p>El protocolo de la red lightning <a class="brackets" href="#lightning" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> extiende la idea de los canales de pago bidireccionales para permitir que los pagos se enruten a través de múltiples saltos de canales de pago bidireccionales.</p>
+<p>Estos canales se basan en una transacción ancla que requiere una multisig 2-de-2 de Alice y Bob, y una serie de transacciones de compromiso revocables que gastan la transacción ancla. La transacción de compromiso reparte los fondos del ancla entre Alice y Bob, y la transacción de compromiso más reciente puede ser publicada por cualquiera de las partes en cualquier momento, finalizando el canal.</p>
+<p>Idealmente, entonces, una transacción de compromiso revocada nunca podría gastarse con éxito; y la transacción de compromiso más reciente podría gastarse muy rápidamente.</p>
+<p>Para permitir que una transacción de compromiso se revoque efectivamente, Alice y Bob tienen versiones ligeramente diferentes de la transacción de compromiso más reciente. En la versión de Alice, cualquier salida en la transacción de compromiso que pague a Alice incluye también un retraso forzado, y una rama alternativa que permite a Bob gastar la salida si conoce el código de revocación de esa transacción. En la versión de Bob, los pagos a Bob están gravados de manera similar. Cuando Alice y Bob negocian nuevos saldos y nuevas transacciones de compromiso, también revelan el código de revocación antiguo, comprometiéndose así a no retransmitir la transacción antigua.</p>
+<p>Una salida simple que pague a Alice podría entonces verse así:</p>
+<pre class="literal-block">HASH160 &#x3C;revokehash> EQUAL
+IF
+    &#x3C;Bob's pubkey>
+ELSE
+    "24h" CHECKSEQUENCEVERIFY DROP
+    &#x3C;Alice's pubkey>
+ENDIF
+CHECKSIG</pre>
+<p>Esto permite a Alice publicar la transacción de compromiso más reciente en cualquier momento y gastar los fondos después de 24 horas, pero también asegura que si Alice retransmite una transacción revocada, Bob tenga 24 horas para reclamar los fondos.</p>
+<p>Con <span class="docutils literal">CHECKLOCKTIMEVERIFY</span>, esto se vería así:</p>
+<pre class="literal-block">HASH160 &#x3C;revokehash> EQUAL
+IF
+    &#x3C;Bob's pubkey>
+ELSE
+    "2015/12/15" CHECKLOCKTIMEVERIFY DROP
+    &#x3C;Alice's pubkey>
+ENDIF
+CHECKSIG</pre>
+<p>Esta forma de transacción significaría que si el ancla no se ha gastado el 2015/12/16, Alice puede usar este compromiso aunque haya sido revocado, simplemente gastándolo de inmediato, sin darle tiempo a Bob para reclamarlo.</p>
+<p>Esto significa que el canal tiene una fecha límite que no puede posponerse sin afectar la blockchain; y también que los fondos podrían no estar disponibles hasta que se alcance la fecha límite. <span class="docutils literal">CHECKSEQUENCEVERIFY</span> permite evitar tal disyuntiva.</p>
+<p>Los contratos de tiempo bloqueados por hash (HTLC) complican esto un poco más, ya que en principio pueden pagar a Alice o a Bob, dependiendo de si Alice descubre un secreto R, o si se alcanza un tiempo de espera, pero el mismo principio se aplica: la rama que paga a Alice en la transacción de compromiso de Alice recibe un retraso, y la salida completa puede ser reclamada por la otra parte si se conoce el secreto de revocación. Con <span class="docutils literal">CHECKSEQUENCEVERIFY</span>, un HTLC pagadero a Alice podría verse así en la transacción de compromiso de Alice:</p>
+<pre class="literal-block">HASH160 DUP &#x3C;R-HASH> EQUAL
+IF
+    "24h" CHECKSEQUENCEVERIFY
+    2DROP
+    &#x3C;Alice's pubkey>
+ELSE
+    &#x3C;Commit-Revocation-Hash> EQUAL
+    NOTIF
+        "2015/10/20 10:33" CHECKLOCKTIMEVERIFY DROP
+    ENDIF
+    &#x3C;Bob's pubkey>
+ENDIF
+CHECKSIG</pre>
+<p>y correspondientemente en la transacción de compromiso de Bob:</p>
+<pre class="literal-block">HASH160 DUP &#x3C;R-HASH> EQUAL
+SWAP &#x3C;Commit-Revocation-Hash> EQUAL ADD
+IF
+    &#x3C;Alice's pubkey>
+ELSE
+    "2015/10/20 10:33" CHECKLOCKTIMEVERIFY
+    "24h" CHECKSEQUENCEVERIFY
+    2DROP
+    &#x3C;Bob's pubkey>
+ENDIF
+CHECKSIG</pre>
+<p>Nótese que tanto <span class="docutils literal">CHECKSEQUENCEVERIFY</span> como <span class="docutils literal">CHECKLOCKTIMEVERIFY</span> se usan en la rama final anterior para asegurar que Bob no pueda gastar la salida hasta que se haya cumplido el tiempo de espera y Alice haya tenido tiempo de revelar el secreto de revocación.</p>
+<p>Véase también el artículo 'Deployable Lightning' <a class="brackets" href="#deployable-lightning" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p>
+
+
+<h2 id="way-pegged-sidechains"><a class="hanchor" href="#way-pegged-sidechains" aria-hidden="true" tabindex="-1">#</a>Cadenas laterales ancladas en dos sentidos (2-Way Pegged Sidechains)</h2>
+<p>The 2-way pegged sidechain requires a new <span class="docutils literal">REORGPROOFVERIFY</span> opcode, the semantics of which
+are outside the scope of this ZIP. <span class="docutils literal">CHECKSEQUENCEVERIFY</span> is used to make sure that sufficient
+time has passed since the return peg was posted to publish a reorg proof:</p>
+<pre class="literal-block">IF
+    lockTxHeight &#x3C;lockTxHash> nlocktxOut [&#x3C;workAmount>] reorgBounty Hash160(&#x3C;...>) &#x3C;genesisHash> REORGPROOFVERIFY
+ELSE
+    withdrawLockTime CHECKSEQUENCEVERIFY DROP HASH160 p2shWithdrawDest EQUAL
+ENDIF</pre>
+
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<!-- highlight::c++
+
+/* Below flags apply in the context of ZIP 68 */
+/* If this flag set, CTxIn::nSequence is NOT interpreted as a
+ * relative lock-time. */
+static const uint32_t SEQUENCE_LOCKTIME_DISABLE_FLAG = (1 << 31);
+
+/* If CTxIn::nSequence encodes a relative lock-time and this flag
+ * is set, the relative lock-time has units of 512 seconds,
+ * otherwise it specifies blocks with a granularity of 1. */
+static const uint32_t SEQUENCE_LOCKTIME_TYPE_FLAG = (1 << 22);
+
+/* If CTxIn::nSequence encodes a relative lock-time, this mask is
+ * applied to extract that lock-time from the sequence field. */
+static const uint32_t SEQUENCE_LOCKTIME_MASK = 0x0000ffff;
+
+case OP_NOP3:
+{
+    if (!(flags & SCRIPT_VERIFY_CHECKSEQUENCEVERIFY)) {
+        // not enabled; treat as a NOP3
+        if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) {
+            return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+        }
+        break;
+    }
+
+    if (stack.size() < 1)
+       return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+    // Note that elsewhere numeric opcodes are limited to
+    // operands in the range -2**31+1 to 2**31-1, however it is
+    // legal for opcodes to produce results exceeding that
+    // range. This limitation is implemented by CScriptNum's
+    // default 4-byte limit.
+    //
+    // Thus as a special case we tell CScriptNum to accept up
+    // to 5-byte bignums, which are good until 2**39-1, well
+    // beyond the 2**32-1 limit of the nSequence field itself.
+    const CScriptNum nSequence(stacktop(-1), fRequireMinimal, 5);
+
+    // In the rare event that the argument may be < 0 due to
+    // some arithmetic being done first, you can always use
+    // 0 MAX CHECKSEQUENCEVERIFY.
+    if (nSequence < 0)
+        return set_error(serror, SCRIPT_ERR_NEGATIVE_LOCKTIME);
+
+    // To provide for future soft-fork extensibility, if the
+    // operand has the disabled lock-time flag set,
+    // CHECKSEQUENCEVERIFY behaves as a NOP.
+    if ((nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG) != 0)
+        break;
+
+    // Compare the specified sequence number with the input.
+    if (!checker.CheckSequence(nSequence))
+        return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+
+    break;
+}
+
+bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) const
+{
+    // Relative lock times are supported by comparing the passed
+    // in operand to the sequence number of the input.
+    const int64_t txToSequence = (int64_t)txTo->vin[nIn].nSequence;
+
+    // Fail if the transaction's version number is not set high
+    // enough to trigger ZIP 68 rules.
+    if (static_cast<uint32_t>(txTo->nVersion) < 2)
+        return false;
+
+    // Sequence numbers with their most significant bit set are not
+    // consensus constrained. Testing that the transaction's sequence
+    // number do not have this bit set prevents using this property
+    // to get around a CHECKSEQUENCEVERIFY check.
+    if (txToSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG)
+        return false;
+
+    // Mask off any bits that do not have consensus-enforced meaning
+    // before doing the integer comparisons
+    const uint32_t nLockTimeMask = CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG | CTxIn::SEQUENCE_LOCKTIME_MASK;
+    const int64_t txToSequenceMasked = txToSequence & nLockTimeMask;
+    const CScriptNum nSequenceMasked = nSequence & nLockTimeMask;
+
+    // There are two kinds of nSequence: lock-by-blockheight
+    // and lock-by-blocktime, distinguished by whether
+    // nSequenceMasked < CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG.
+    //
+    // We want to compare apples to apples, so fail the script
+    // unless the type of nSequenceMasked being tested is the same as
+    // the nSequenceMasked in the transaction.
+    if (!(
+        (txToSequenceMasked <  CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG && nSequenceMasked <  CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG) ||
+        (txToSequenceMasked >= CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG && nSequenceMasked >= CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG)
+    ))
+        return false;
+
+    // Now that we know we're comparing apples-to-apples, the
+    // comparison is a simple numeric one.
+    if (nSequenceMasked > txToSequenceMasked)
+        return false;
+
+    return true;
+} -->
+
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Al momento de escribir esto, no se ha decidido qué actualización de red (si alguna) implementará esta propuesta.</p>
+<p>Este ZIP debe implementarse simultáneamente con el ZIP 68 <a class="brackets" href="#zip-0068" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Reconocimientos</h1>
+<p>Este ZIP se basa estrechamente en el BIP 112, redactado por BtcDrak.</p>
+<p>Mark Friedenbach inventó la aplicación de los números de secuencia para lograr un bloqueo de tiempo relativo, y escribió la implementación de referencia de <span class="docutils literal">CHECKSEQUENCEVERIFY</span> para Bitcoin.</p>
+<p>La implementación de referencia de Bitcoin y el BIP 112 se basaron en gran medida en el trabajo realizado por Peter Todd para el BIP 65, estrechamente relacionado. Eric Lombrozo y Anthony Towns contribuyeron casos de uso de ejemplo.</p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="rfc2119" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://tools.ietf.org/html/rfc2119">Key words for use in RFCs to Indicate Requirement Levels</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/blob/master/protocol/protocol.pdf">Zcash Protocol Specification, Version 2019.0.1 or later [Overwinter+Sapling]</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0065" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki">BIP 65: OP_CHECKLOCKTIMEVERIFY</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0068" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-5">2</a>)</span>
+<p><a class="reference external" href="https://github.com/zcash/zips/blob/op-csv/zip-0068.rst">ZIP 68: Relative lock-time through consensus-enforced sequence numbers</a></p>
+</aside>
+<aside class="footnote brackets" id="deployable-lightning" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/ElementsProject/lightning/blob/master/doc/deployable-lightning.pdf">Deployable Lightning</a></p>
+</aside>
+<aside class="footnote brackets" id="lightning" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="http://lightning.network/lightning-network-paper.pdf">Lightning Network paper</a></p>
+</aside>
+<aside class="footnote brackets" id="htlcs" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="http://lists.linuxfoundation.org/pipermail/lightning-dev/2015-July/000021.html">HTLCs using OP_CHECKSEQUENCEVERIFY/OP_LOCKTIMEVERIFY and revocation hashes</a></p>
+</aside>
+<aside class="footnote brackets" id="scaling" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="http://diyhpl.us/diyhpluswiki/transcripts/sf-bitcoin-meetup/2015-02-23-scaling-bitcoin-to-billions-of-transactions-per-day/">Scaling Bitcoin to Billions of Transactions Per Day</a></p>
+</aside>
+<aside class="footnote brackets" id="micropayments" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2013-April/002433.html">Jeremy Spilman, Micropayment Channels</a></p>
+</aside>
+</aside>
+

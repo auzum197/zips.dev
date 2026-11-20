@@ -1,0 +1,534 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)" y "NO DEBE (MUST NOT)" en este documento se interpretan como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos "rama de consenso", "época" y "actualización de red" de este documento deben interpretarse como se describe en el ZIP 200. <a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<p>El término "codificación de campo" se refiere a la forma serializada binaria de un campo de una transacción de Zcash, según lo especificado en la sección 7.1 de la especificación del protocolo de Zcash <a class="brackets" href="#protocol-txnencoding" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta define un nuevo algoritmo de digest de transacción para la actualización de red NU5 en adelante, con el fin de introducir identificadores de transacción no maleables que se comprometen a todos los datos de la transacción, excepto las atestaciones de la validez de la transacción.</p>
+<p>Esta propuesta también define un nuevo algoritmo de digest de transacción para la validación de firmas, que comparte toda la estructura disponible producida durante la construcción de los identificadores de transacción, con el fin de minimizar el hashing redundante de datos en la validación.</p>
+<p>Esta propuesta también define un nuevo nombre y una nueva semántica para el campo <span class="docutils literal">hashLightClientRoot</span> del encabezado de bloque, a fin de permitir que se representen compromisos adicionales en este hash y de proveer un mecanismo para la extensibilidad futura del conjunto de compromisos representados.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>En todos los casos, pero en particular para permitir el uso de transacciones en protocolos de nivel superior, cualquier modificación de la transacción que no haya sido permitida explícitamente (por ejemplo, mediante entradas anyone-can-spend) debería invalidar las atestaciones de autoridad de gasto o de las salidas incluidas. Tras la activación de este cambio propuesto, los identificadores de transacción serán estables independientemente de cualquier posible maleación de los "datos de testigo", como las pruebas y las firmas de transacción.</p>
+<p>Además, al especificar un identificador de transacción y un algoritmo de firma que están desacoplados del formato serializado de la transacción en su conjunto, este cambio hace que el formato de transmisión de las transacciones ya no sea crítico para el consenso.</p>
+
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ul class="simple">
+<li><p>Seguir admitiendo la funcionalidad existente del protocolo (multifirma, modos de firma para entradas transparentes).</p></li>
+<li><p>Permitir el uso de identificadores de transacción, y de pares de la forma (identificador de transacción, índice de salida) como identificadores estables.</p></li>
+<li><p>Un emisor debe poder reconocer su propia transacción, incluso dadas las formas permitidas de maleabilidad, como la recomputación de las firmas de transacción.</p></li>
+<li><p>En el caso de las entradas transparentes, debería ser posible crear una transacción (B) que gaste las salidas de una transacción anterior (A) incluso antes de que (A) haya sido minada. Esto también debería ser posible en el caso de que el creador de (B) no espere confirmaciones de (A). Es decir, (B) debería seguir siendo válida siempre que cualquier variante de (A) sea minada eventualmente.</p></li>
+<li><p>No debería ser posible que un atacante malee una transacción de una manera que resulte en que la transacción se interprete como un doble gasto.</p></li>
+<li><p>Debería ser posible en el futuro actualizar el protocolo de manera que solo se acepten transacciones no maleables.</p></li>
+<li><p>Debería ser posible usar el identificador de transacción sin modificar como el valor que se utiliza para producir un hash de firma en el caso de que la transacción no contenga entradas transparentes.</p></li>
+</ul>
+
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<p>Para dar soporte a la compatibilidad con versiones anteriores de las partes del ecosistema que aún no se han actualizado al formato de transacción no maleable, no es un requisito inicial que todas las transacciones sean no maleables.</p>
+<p>No se requiere que los formatos de transacción heredados (Sapling V4 y anteriores) permitan la construcción de identificadores de transacción no maleables, aunque pueden seguir siendo aceptados por la red después de la actualización a NU5.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="digests"><a class="hanchor" href="#digests" aria-hidden="true" tabindex="-1">#</a>Resúmenes</h2>
+<p>Todos los resúmenes son hashes BLAKE2b-256 personalizados. En los casos en que no haya elementos disponibles para calcular el hash (por ejemplo, si no hay entradas de transacción transparentes o no hay acciones de Orchard), se usará un hash personalizado del arreglo de bytes vacío. Por lo tanto, la cadena de personalización proporciona separación de dominio para los hashes incluso de campos de datos vacíos.</p>
+<p>La notación <span class="docutils literal"><span class="pre">BLAKE2b-256(personalization_string,</span> [])</span> se utiliza para referirse a hashes construidos de esta manera.</p>
+<h3 id="txid-digest"><a class="hanchor" href="#txid-digest" aria-hidden="true" tabindex="-1">#</a>Resumen TxId</h3>
+<p>Se define un nuevo algoritmo de resumen de transacción que construye el identificador de una transacción a partir de un árbol de hashes. Cada rama del árbol de hashes corresponderá a un subconjunto específico de datos de la transacción. La estructura general del hash es la siguiente; cada nombre referido aquí se describirá en detalle más adelante:</p>
+<pre class="literal-block">txid_digest
+├── header_digest
+├── transparent_digest
+│   ├── prevouts_digest
+│   ├── sequence_digest
+│   └── outputs_digest
+├── sapling_digest
+│   ├── sapling_spends_digest
+│   │   ├── sapling_spends_compact_digest
+│   │   └── sapling_spends_noncompact_digest
+│   ├── sapling_outputs_digest
+│   │   ├── sapling_outputs_compact_digest
+│   │   ├── sapling_outputs_memos_digest
+│   │   └── sapling_outputs_noncompact_digest
+│   └── valueBalance
+└── orchard_digest
+    ├── orchard_actions_compact_digest
+    ├── orchard_actions_memos_digest
+    ├── orchard_actions_noncompact_digest
+    ├── flagsOrchard
+    ├── valueBalanceOrchard
+    └── anchorOrchard</pre>
+<p>Cada nodo escrito como <span class="docutils literal">snake_case</span> en este árbol es un hash BLAKE2b-256 de sus hijos, inicializado con una cadena de personalización específica de esa rama del árbol. Los nodos que no son en sí mismos resúmenes se escriben en <span class="docutils literal">camelCase</span>. En la especificación siguiente, los nodos del árbol se presentan en orden de profundidad primero.</p>
+<h4 id="txid-digest-1"><a class="hanchor" href="#txid-digest-1" aria-hidden="true" tabindex="-1">#</a>txid_digest</h4>
+<p>Un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">T.1: header_digest       (32-byte hash output)
+T.2: transparent_digest  (32-byte hash output)
+T.3: sapling_digest      (32-byte hash output)
+T.4: orchard_digest      (32-byte hash output)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZcashTxHash_" || CONSENSUS_BRANCH_ID</pre>
+<p><span class="docutils literal">ZcashTxHash_</span> tiene 1 carácter de guion bajo.</p>
+<p>Como en el ZIP 143 <a class="brackets" href="#zip-0143" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>, CONSENSUS_BRANCH_ID es la codificación little-endian de 4 bytes del identificador de rama de consenso para la época del bloque que contiene la transacción. La separación de dominio del hash del identificador de transacción entre ramas de consenso paralelas proporciona protección contra repetición: las transacciones dirigidas a una rama de consenso no tendrán el mismo identificador de transacción en otras ramas de consenso.</p>
+<p>Este prefijo de personalización del hash de firma ha sido cambiado para reflejar el nuevo rol de este hash (en relación con <span class="docutils literal">ZcashSigHash</span> según lo especificado en el ZIP 143) como un identificador de transacción en lugar de un compromiso utilizado exclusivamente para fines de firma. El cálculo anterior del identificador de transacción era un hash SHA256d del contenido serializado de la transacción, y no estaba personalizado.</p>
+<h5 id="t-1-header-digest">T.1: header_digest</h5>
+<p>Un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">T.1a: version             (4-byte little-endian version identifier including overwinter flag)
+T.1b: version_group_id    (4-byte little-endian version group identifier)
+T.1c: consensus_branch_id (4-byte little-endian consensus branch id)
+T.1d: lock_time           (4-byte little-endian nLockTime value)
+T.1e: expiry_height       (4-byte little-endian block height)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdHeadersHash"</pre>
+
+<h5 id="t-2-transparent-digest">T.2: transparent_digest</h5>
+<p>En el caso de que haya presentes entradas o salidas transparentes, el resumen transparente consiste en un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">T.2a: prevouts_digest (32-byte hash)
+T.2b: sequence_digest (32-byte hash)
+T.2c: outputs_digest  (32-byte hash)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdTranspaHash"</pre>
+<p>En el caso de que la transacción no tenga componentes transparentes, <span class="docutils literal">transparent_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxIdTranspaHash", [])</pre>
+<h6 id="t-2a-prevouts-digest">T.2a: prevouts_digest</h6>
+<p>Un hash BLAKE2b-256 de la codificación de campo de todos los valores del campo <span class="docutils literal">outpoint</span> de las entradas transparentes de la transacción.</p>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdPrevoutHash"</pre>
+<p>En el caso de que la transacción tenga salidas transparentes pero no entradas transparentes, <span class="docutils literal">prevouts_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxIdPrevoutHash", [])</pre>
+
+<h6 id="t-2b-sequence-digest">T.2b: sequence_digest</h6>
+<p>Un hash BLAKE2b-256 de la representación little-endian de 32 bits de todos los valores del campo <span class="docutils literal">nSequence</span> de las entradas transparentes de la transacción.</p>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdSequencHash"</pre>
+<p>En el caso de que la transacción tenga salidas transparentes pero no entradas transparentes, <span class="docutils literal">sequence_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxIdSequencHash", [])</pre>
+
+<h6 id="t-2c-outputs-digest">T.2c: outputs_digest</h6>
+<p>Un hash BLAKE2b-256 de las codificaciones de campo concatenadas de todos los valores de salida transparentes de la transacción. La codificación de campo de dicha salida consiste en el <span class="docutils literal">amount</span> de salida codificado (little-endian de 8 bytes) seguido del arreglo de bytes <span class="docutils literal">scriptPubKey</span> (serializado como script de Bitcoin).</p>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdOutputsHash"</pre>
+<p>En el caso de que la transacción tenga entradas transparentes pero no salidas transparentes, <span class="docutils literal">outputs_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxIdOutputsHash", [])</pre>
+
+
+<h5 id="t-3-sapling-digest">T.3: sapling_digest</h5>
+<p>En el caso de que haya presentes gastos o salidas de Sapling, el resumen de los componentes de Sapling se compone de dos subárboles que están organizados para permitir una interoperabilidad sencilla con la representación <span class="docutils literal">CompactBlock</span> de los datos de Sapling especificada por el protocolo de cliente ligero ZIP 307 <a class="brackets" href="#zip-0307" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+<p>Este resumen es un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">T.3a: sapling_spends_digest  (32-byte hash)
+T.3b: sapling_outputs_digest (32-byte hash)
+T.3c: valueBalance           (64-bit signed little-endian)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdSaplingHash"</pre>
+<p>En el caso de que la transacción no tenga gastos ni salidas de Sapling, <span class="docutils literal">sapling_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxIdSaplingHash", [])</pre>
+<h6 id="t-3a-sapling-spends-digest">T.3a: sapling_spends_digest</h6>
+<p>En el caso de que haya presentes gastos de Sapling, este resumen es un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">T.3a.i:  sapling_spends_compact_digest    (32-byte hash)
+T.3a.ii: sapling_spends_noncompact_digest (32-byte hash)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdSSpendsHash"</pre>
+<p>En el caso de que la transacción tenga salidas de Sapling pero no gastos de Sapling, <span class="docutils literal">sapling_spends_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxIdSSpendsHash", [])</pre>
+<h6 aria-level="7" id="t-3a-i-sapling-spends-compact-digest">T.3a.i: sapling_spends_compact_digest</h6>
+<p>Un hash BLAKE2b-256 de la codificación de campo de todos los valores del campo <span class="docutils literal">nullifier</span> de los gastos blindados de Sapling pertenecientes a la transacción.</p>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdSSpendCHash"</pre>
+
+<h6 aria-level="7" id="t-3a-ii-sapling-spends-noncompact-digest">T.3a.ii: sapling_spends_noncompact_digest</h6>
+<p>Un hash BLAKE2b-256 de la información distinta del nullifier para todos los gastos blindados de Sapling pertenecientes a la transacción, excluyendo tanto los datos de zkproof como las firmas de autorización de gasto. Para cada gasto, los siguientes elementos se incluyen en el hash:</p>
+<pre class="literal-block">T.3a.ii.1: cv     (field encoding bytes)
+T.3a.ii.2: anchor (field encoding bytes)
+T.3a.ii.3: rk     (field encoding bytes)</pre>
+<p>En la versión 5 de Transacción, los Spends de Sapling tienen un ancla compartida, la cual se incluye en el hash sapling_spends_noncompact_digest para <em>cada</em> Spend.</p>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdSSpendNHash"</pre>
+
+
+<h6 id="t-3b-sapling-outputs-digest">T.3b: sapling_outputs_digest</h6>
+<p>En el caso de que haya salidas de Sapling presentes, este digest es un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">T.3b.i:   sapling_outputs_compact_digest    (32-byte hash)
+T.3b.ii:  sapling_outputs_memos_digest      (32-byte hash)
+T.3b.iii: sapling_outputs_noncompact_digest (32-byte hash)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdSOutputHash"</pre>
+<p>En el caso de que la transacción tenga gastos de Sapling pero no salidas de Sapling, <span class="docutils literal">sapling_outputs_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxIdSOutputHash", [])</pre>
+<h6 aria-level="7" id="t-3b-i-sapling-outputs-compact-digest">T.3b.i: sapling_outputs_compact_digest</h6>
+<p>Un hash BLAKE2b-256 del subconjunto de información de salidas de Sapling incluido en el formato <a class="brackets" href="#zip-0307" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> <span class="docutils literal">CompactBlock</span> del ZIP-307 para todas las salidas blindadas de Sapling pertenecientes a la transacción. Para cada salida, los siguientes elementos se incluyen en el hash:</p>
+<pre class="literal-block">T.3b.i.1: cmu                  (field encoding bytes)
+T.3b.i.2: ephemeral_key        (field encoding bytes)
+T.3b.i.3: enc_ciphertext[..52] (First 52 bytes of field encoding)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdSOutC__Hash" (2 underscore characters)</pre>
+
+<h6 aria-level="7" id="t-3b-ii-sapling-outputs-memos-digest">T.3b.ii: sapling_outputs_memos_digest</h6>
+<p>Un hash BLAKE2b-256 del subconjunto de datos del campo memo blindado de Sapling para todas las salidas blindadas de Sapling pertenecientes a la transacción. Para cada salida, los siguientes elementos se incluyen en el hash:</p>
+<pre class="literal-block">T.3b.ii.1: enc_ciphertext[52..564] (contents of the encrypted memo field)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdSOutM__Hash" (2 underscore characters)</pre>
+
+<h6 aria-level="7" id="t-3b-iii-sapling-outputs-noncompact-digest">T.3b.iii: sapling_outputs_noncompact_digest</h6>
+<p>Un hash BLAKE2b-256 del subconjunto restante de información de salidas de Sapling <strong>no</strong> incluido en el formato <a class="brackets" href="#zip-0307" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> <span class="docutils literal">CompactBlock</span> del ZIP 307, excluyendo los datos de zkproof, para todas las salidas blindadas de Sapling pertenecientes a la transacción. Para cada salida, los siguientes elementos se incluyen en el hash:</p>
+<pre class="literal-block">T.3b.iii.1: cv                    (field encoding bytes)
+T.3b.iii.2: enc_ciphertext[564..] (post-memo Poly1305 AEAD tag of field encoding)
+T.3b.iii.3: out_ciphertext        (field encoding bytes)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdSOutN__Hash" (2 underscore characters)</pre>
+
+
+
+<h5 id="t-4-orchard-digest">T.4: orchard_digest</h5>
+<p>En el caso de que haya acciones de Orchard presentes en la transacción, este digest es un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">T.4a: orchard_actions_compact_digest      (32-byte hash output)
+T.4b: orchard_actions_memos_digest        (32-byte hash output)
+T.4c: orchard_actions_noncompact_digest   (32-byte hash output)
+T.4d: flagsOrchard                        (1 byte)
+T.4e: valueBalanceOrchard                 (64-bit signed little-endian)
+T.4f: anchorOrchard                       (32 bytes)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdOrchardHash"</pre>
+<p>En el caso de que la transacción no tenga acciones de Orchard, <span class="docutils literal">orchard_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxIdOrchardHash", [])</pre>
+<h6 id="t-4a-orchard-actions-compact-digest">T.4a: orchard_actions_compact_digest</h6>
+<p>Un hash BLAKE2b-256 del subconjunto de información de las acciones de Orchard destinado a ser incluido en una versión actualizada del formato <a class="brackets" href="#zip-0307" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> <span class="docutils literal">CompactBlock</span> del ZIP-307 para todas las acciones de Orchard pertenecientes a la transacción. Para cada acción, los siguientes elementos se incluyen en el hash:</p>
+<pre class="literal-block">T.4a.i  : nullifier            (field encoding bytes)
+T.4a.ii : cmx                  (field encoding bytes)
+T.4a.iii: ephemeralKey         (field encoding bytes)
+T.4a.iv : encCiphertext[..52]  (First 52 bytes of field encoding)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdOrcActCHash"</pre>
+
+<h6 id="t-4b-orchard-actions-memos-digest">T.4b: orchard_actions_memos_digest</h6>
+<p>Un hash BLAKE2b-256 del subconjunto de datos del campo memo blindado de Orchard para todas las acciones de Orchard pertenecientes a la transacción. Para cada acción, los siguientes elementos se incluyen en el hash:</p>
+<pre class="literal-block">T.4b.i: encCiphertext[52..564] (contents of the encrypted memo field)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdOrcActMHash"</pre>
+
+<h6 id="t-4c-orchard-actions-noncompact-digest">T.4c: orchard_actions_noncompact_digest</h6>
+<p>Un hash BLAKE2b-256 del subconjunto restante de información de las acciones de Orchard <strong>no</strong> destinado a ser incluido en una versión actualizada del formato <a class="brackets" href="#zip-0307" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> <span class="docutils literal">CompactBlock</span> del ZIP 307, para todas las acciones de Orchard pertenecientes a la transacción. Para cada acción, los siguientes elementos se incluyen en el hash:</p>
+<pre class="literal-block">T.4c.i  : cv                    (field encoding bytes)
+T.4c.ii : rk                    (field encoding bytes)
+T.4c.iii: encCiphertext[564..]  (post-memo suffix of field encoding)
+T.4c.iv : outCiphertext         (field encoding bytes)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdOrcActNHash"</pre>
+
+
+
+
+<h3 id="signature-digest"><a class="hanchor" href="#signature-digest" aria-hidden="true" tabindex="-1">#</a>Digest de firma</h3>
+<p>Se define un nuevo algoritmo de digest de transacción por entrada que construye un hash que puede ser firmado por un creador de transacción para comprometerse a los efectos de la transacción. Se produce un digest de firma para cada entrada transparente, cada entrada de Sapling y cada acción de Orchard. Esto sigue de cerca los algoritmos del ZIP 143 <a class="brackets" href="#zip-0143" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> y del ZIP 243 <a class="brackets" href="#zip-0243" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>. Para las transacciones sin entradas transparentes, este algoritmo tiene exactamente la misma salida que el algoritmo de digest de transacción, por lo que el txid puede ser firmado directamente.</p>
+<p>La estructura general del hash es la siguiente; cada nombre referido aquí se describirá en detalle más abajo:</p>
+<pre class="literal-block">signature_digest
+├── header_digest
+├── transparent_sig_digest
+├── sapling_digest
+└── orchard_digest</pre>
+<h4 id="signature-digest-1"><a class="hanchor" href="#signature-digest-1" aria-hidden="true" tabindex="-1">#</a>signature_digest</h4>
+<p>Un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">S.1: header_digest          (32-byte hash output)
+S.2: transparent_sig_digest (32-byte hash output)
+S.3: sapling_digest         (32-byte hash output)
+S.4: orchard_digest         (32-byte hash output)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZcashTxHash_" || CONSENSUS_BRANCH_ID</pre>
+<p><span class="docutils literal">ZcashTxHash_</span> tiene 1 carácter de guion bajo.</p>
+<p>Este valor tiene la misma personalización que el hash de nivel superior del árbol de digest del identificador de transacción, de modo que lo que se firma en el caso de que no haya entradas transparentes es simplemente el identificador de transacción.</p>
+<h5 id="s-1-header-digest">S.1: header_digest</h5>
+<p>Idéntico al especificado para el identificador de transacción.</p>
+
+<h5 id="s-2-transparent-sig-digest">S.2: transparent_sig_digest</h5>
+<p>Si producimos un hash para una transacción coinbase, o para una transacción que no es coinbase y que no tiene entradas transparentes, el valor de <span class="docutils literal">transparent_sig_digest</span> es idéntico al valor especificado en la sección <a class="reference external" href="#t-2-transparent-digest">T.2</a>.</p>
+<p>Si producimos un hash para una transacción que no es coinbase y que tiene entradas transparentes, el valor de <span class="docutils literal">transparent_sig_digest</span> depende del valor de una bandera <span class="docutils literal">hash_type</span>, como sigue.</p>
+<p>La construcción de cada componente a continuación depende de los valores de los bits de la bandera <span class="docutils literal">hash_type</span>. Cada componente se describirá por separado.</p>
+<p>Este resumen es un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">S.2a: hash_type                (1 byte)
+S.2b: prevouts_sig_digest      (32-byte hash)
+S.2c: amounts_sig_digest       (32-byte hash)
+S.2d: scriptpubkeys_sig_digest (32-byte hash)
+S.2e: sequence_sig_digest      (32-byte hash)
+S.2f: outputs_sig_digest       (32-byte hash)
+S.2g: txin_sig_digest          (32-byte hash)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxIdTranspaHash"</pre>
+<h6 id="s-2a-hash-type">S.2a: hash_type</h6>
+<p>Este es un valor sin signo de 8 bits. Se reutilizan las codificaciones <span class="docutils literal">SIGHASH</span> del sistema de scripts heredado: uno de <span class="docutils literal">SIGHASH_ALL</span> (0x01), <span class="docutils literal">SIGHASH_NONE</span> (0x02) y <span class="docutils literal">SIGHASH_SINGLE</span> (0x03), con o sin la bandera <span class="docutils literal">SIGHASH_ANYONECANPAY</span> (0x80). Se aplican las siguientes restricciones, que causan un fallo de validación si se incumplen:</p>
+<ul class="simple">
+<li><p>Usar un <span class="docutils literal">hash_type</span> no definido (no 0x01, 0x02, 0x03, 0x81, 0x82 ni 0x83).</p></li>
+<li><p>Usar <span class="docutils literal">SIGHASH_SINGLE</span> sin una "salida correspondiente" (una salida con el mismo índice que la entrada que se verifica).</p></li>
+</ul>
+<p>Si producimos un hash para la firma sobre una entrada transparente, el valor de <span class="docutils literal">hash_type</span> se obtiene del <span class="docutils literal">scriptSig</span> de la entrada tal como está codificado en la transacción. Si producimos un hash para la firma sobre un Spend de Sapling o una acción de Orchard, <span class="docutils literal">hash_type</span> se establece en <span class="docutils literal">SIGHASH_ALL</span>.</p>
+
+<h6 id="s-2b-prevouts-sig-digest">S.2b: prevouts_sig_digest</h6>
+<p>Este es un hash BLAKE2b-256 inicializado con el valor de campo de personalización <span class="docutils literal">ZTxIdPrevoutHash</span>.</p>
+<p>Si la bandera <span class="docutils literal">SIGHASH_ANYONECANPAY</span> no está establecida:</p>
+<pre class="literal-block">identical to the value of ``prevouts_digest`` as specified for the
+transaction identifier in section T.2a.</pre>
+<p>de lo contrario:</p>
+<pre class="literal-block">BLAKE2b-256(``ZTxIdPrevoutHash``, [])</pre>
+
+<h6 id="s-2c-amounts-sig-digest">S.2c: amounts_sig_digest</h6>
+<p>Si la bandera <span class="docutils literal">SIGHASH_ANYONECANPAY</span> no está establecida, el valor de <span class="docutils literal">amounts_sig_digest</span> es un hash BLAKE2b-256 de la concatenación de las representaciones con signo de 8 bytes en little-endian de todos los campos <span class="docutils literal">value</span> <a class="brackets" href="#bdr-txout" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a> de las monedas gastadas por las entradas transparentes de la transacción.</p>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxTrAmountsHash"</pre>
+<p>Si la bandera <span class="docutils literal">SIGHASH_ANYONECANPAY</span> está establecida, <span class="docutils literal">amounts_sig_digest</span> es:</p>
+<pre class="literal-block">BLAKE2b-256("ZTxTrAmountsHash", [])</pre>
+
+<h6 id="s-2d-scriptpubkeys-sig-digest">S.2d: scriptpubkeys_sig_digest</h6>
+<p>Si la bandera <span class="docutils literal">SIGHASH_ANYONECANPAY</span> no está establecida, el valor de <span class="docutils literal">scriptpubkeys_sig_digest</span> es un hash BLAKE2b-256 de la concatenación de las codificaciones de campo (cada una incluye un <span class="docutils literal">CompactSize</span> inicial) de todos los campos <span class="docutils literal">pk_script</span> <a class="brackets" href="#bdr-txout" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a> de las monedas gastadas por las entradas transparentes de la transacción.</p>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxTrScriptsHash"</pre>
+<p>Si la bandera <span class="docutils literal">SIGHASH_ANYONECANPAY</span> está establecida, <span class="docutils literal">scriptpubkeys_sig_digest</span> es:</p>
+<pre class="literal-block">BLAKE2b-256("ZTxTrScriptsHash", [])</pre>
+
+<h6 id="s-2e-sequence-sig-digest">S.2e: sequence_sig_digest</h6>
+<p>Este es un hash BLAKE2b-256 inicializado con el valor de campo de personalización <span class="docutils literal">ZTxIdSequencHash</span>.</p>
+<p>Si la bandera <span class="docutils literal">SIGHASH_ANYONECANPAY</span> no está establecida:</p>
+<pre class="literal-block">identical to the value of ``sequence_digest`` as specified for the
+transaction identifier in section T.2b.</pre>
+<p>de lo contrario:</p>
+<pre class="literal-block">BLAKE2b-256(``ZTxIdSequencHash``, [])</pre>
+
+<h6 id="s-2f-outputs-sig-digest">S.2f: outputs_sig_digest</h6>
+<p>Este es un hash BLAKE2b-256 inicializado con el valor de campo de personalización <span class="docutils literal">ZTxIdOutputsHash</span>.</p>
+<p>Si el tipo de sighash no es ni <span class="docutils literal">SIGHASH_SINGLE</span> ni <span class="docutils literal">SIGHASH_NONE</span>:</p>
+<pre class="literal-block">identical to the value of ``outputs_digest`` as specified for the
+transaction identifier in section T.2c.</pre>
+<p>Si el tipo de sighash es <span class="docutils literal">SIGHASH_SINGLE</span> y el hash de firma se está calculando para la entrada transparente en un índice particular, y una salida transparente aparece en la transacción en ese índice:</p>
+<pre class="literal-block">the hash is over the transaction serialized form of the transparent output at that
+index</pre>
+<p>de lo contrario:</p>
+<pre class="literal-block">BLAKE2b-256(``ZTxIdOutputsHash``, [])</pre>
+
+<h6 id="s-2g-txin-sig-digest">S.2g: txin_sig_digest</h6>
+<p>Si estamos produciendo un hash para la firma sobre una entrada transparente, el valor de <span class="docutils literal">txin_sig_digest</span> es un hash BLAKE2b-256 de las siguientes propiedades de la entrada transparente que se firma, inicializado con el valor de campo de personalización <span class="docutils literal">Zcash___TxInHash</span> (3 guiones bajos):</p>
+<pre class="literal-block">S.2g.i:   prevout      (field encoding)
+S.2g.ii:  value        (8-byte signed little-endian)
+S.2g.iii: scriptPubKey (field encoding)
+S.2g.iv:  nSequence    (4-byte unsigned little-endian)</pre>
+<p>Notas:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">value</span> está definido en las reglas de consenso como un valor no negativo &#x3C;= <span class="docutils literal">MAX_MONEY</span>, pero todas las implementaciones existentes analizan este valor como con signo y aplican la restricción de no negatividad como una verificación de consenso. Se define como con signo aquí por consistencia con esas implementaciones existentes.</p></li>
+<li><p><span class="docutils literal">scriptPubKey</span> es la codificación de campo (incluido un <span class="docutils literal">CompactSize</span> inicial) del campo <span class="docutils literal">pk_script</span> <a class="brackets" href="#bdr-txout" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a> de la moneda gastada por la entrada transparente. Para monedas P2SH, esto difiere del <span class="docutils literal">redeemScript</span> comprometido en el ZIP 243 <a class="brackets" href="#zip-0243" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+<p>Si estamos produciendo un hash para la firma sobre un Sapling Spend o una Orchard Action, <span class="docutils literal">txin_sig_digest</span> es:</p>
+<pre class="literal-block">BLAKE2b-256("Zcash___TxInHash", [])</pre>
+
+
+<h5 id="s-3-sapling-digest">S.3: sapling_digest</h5>
+<p>Idéntico al especificado para el identificador de transacción.</p>
+
+<h5 id="s-4-orchard-digest">S.4: orchard_digest</h5>
+<p>Idéntico al especificado para el identificador de transacción.</p>
+
+
+
+<h3 id="authorizing-data-commitment"><a class="hanchor" href="#authorizing-data-commitment" aria-hidden="true" tabindex="-1">#</a>Compromiso de datos de autorización</h3>
+<p>Se define un nuevo algoritmo de resumen de transacción que construye un resumen que compromete los datos de autorización de una transacción a partir de un árbol de hashes BLAKE2b-256. Para las transacciones v5, la estructura general del hash es la siguiente:</p>
+<pre class="literal-block">auth_digest
+├── transparent_scripts_digest
+├── sapling_auth_digest
+└── orchard_auth_digest</pre>
+<p>Cada nodo escrito como <span class="docutils literal">snake_case</span> en este árbol es un hash BLAKE2b-256 de datos de autorización de la transacción.</p>
+<p>Para versiones de transacción anteriores a v5, se usa un valor marcador de posición que consiste en 32 bytes de <span class="docutils literal">0xFF</span> en lugar del compromiso de datos de autorización. Esto solo se usa en el árbol comprometido por <span class="docutils literal">hashAuthDataRoot</span>, como se define en <a class="reference internal" href="#block-header-changes">Cambios en el encabezado de bloque</a>.</p>
+<p>El par (identificador de transacción, Auth Commitment) constituye un compromiso con todos los datos de una transacción serializada que puede incluirse en un bloque.</p>
+<h4 id="auth-digest"><a class="hanchor" href="#auth-digest" aria-hidden="true" tabindex="-1">#</a>auth_digest</h4>
+<p>Un hash BLAKE2b-256 de los siguientes valores</p>
+<pre class="literal-block">A.1: transparent_scripts_digest (32-byte hash output)
+A.2: sapling_auth_digest        (32-byte hash output)
+A.3: orchard_auth_digest        (32-byte hash output)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxAuthHash_" || CONSENSUS_BRANCH_ID</pre>
+<p><span class="docutils literal">ZTxAuthHash_</span> tiene 1 carácter de guion bajo.</p>
+<h5 id="a-1-transparent-scripts-digest">A.1: transparent_scripts_digest</h5>
+<p>En el caso de que la transacción contenga entradas transparentes, este es un hash BLAKE2b-256 de la codificación de campos de los valores concatenados de los valores de script de Bitcoin asociados con cada entrada transparente perteneciente a la transacción.</p>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxAuthTransHash"</pre>
+<p>En el caso de que la transacción no tenga entradas transparentes, <span class="docutils literal">transparent_scripts_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxAuthTransHash", [])</pre>
+
+<h5 id="a-2-sapling-auth-digest">A.2: sapling_auth_digest</h5>
+<p>En el caso de que haya Sapling Spends o Sapling Outputs, este es un hash BLAKE2b-256 de la codificación de campos del valor <span class="docutils literal">zkproof</span> de Sapling de cada Spend Description de Sapling, seguido de la codificación de campos del valor <span class="docutils literal">spend_auth_sig</span> de cada Spend Description de Sapling perteneciente a la transacción, seguido de la codificación de campos del campo <span class="docutils literal">zkproof</span> de cada Output Description de Sapling perteneciente a la transacción, seguido de la codificación de campos de la firma de vinculación:</p>
+<pre class="literal-block">A.2a: spend_zkproofs           (field encoding bytes)
+A.2b: spend_auth_sigs          (field encoding bytes)
+A.2c: output_zkproofs          (field encoding bytes)
+A.2d: binding_sig              (field encoding bytes)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxAuthSapliHash"</pre>
+<p>En el caso de que la transacción no tenga Sapling Spends ni Sapling Outputs, <span class="docutils literal">sapling_auth_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxAuthSapliHash", [])</pre>
+
+<h5 id="a-3-orchard-auth-digest">A.3: orchard_auth_digest</h5>
+<p>En el caso de que haya Orchard Actions, este es un hash BLAKE2b-256 de la codificación de campos de los campos <span class="docutils literal">zkProofsOrchard</span>, <span class="docutils literal">spendAuthSigsOrchard</span> y <span class="docutils literal">bindingSigOrchard</span> de la transacción:</p>
+<pre class="literal-block">A.3a: proofsOrchard            (field encoding bytes)
+A.3b: vSpendAuthSigsOrchard    (field encoding bytes)
+A.3c: bindingSigOrchard        (field encoding bytes)</pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre class="literal-block">"ZTxAuthOrchaHash"</pre>
+<p>En el caso de que la transacción no tenga Orchard Actions, <span class="docutils literal">orchard_auth_digest</span> es</p>
+<pre class="literal-block">BLAKE2b-256("ZTxAuthOrchaHash", [])</pre>
+
+
+
+
+<h2 id="block-header-changes"><a class="hanchor" href="#block-header-changes" aria-hidden="true" tabindex="-1">#</a>Cambios en el encabezado de bloque</h2>
+<p>El identificador de transacción no maleable especificado por este ZIP se usará en lugar del identificador de transacción maleable actual dentro del árbol Merkle comprometido por el valor <span class="docutils literal">hashMerkleRoot</span>. Sin embargo, este cambio implica ahora que <span class="docutils literal">hashMerkleRoot</span> no es suficiente para comprometer plenamente los datos de la transacción, incluidos los testigos, que aparecen dentro del bloque.</p>
+<p>Como consecuencia, ahora es necesario agregar un nuevo compromiso al encabezado de bloque. Este compromiso será la raíz de un árbol Merkle cuyas hojas son compromisos de datos de autorización de transacciones, producidos según la parte <a class="reference internal" href="#authorizing-data-commitment">Compromiso de datos de autorización</a> de esta especificación. El orden de inserción de este árbol Merkle DEBE (MUST) ser idéntico al orden de inserción de los identificadores de transacción en el árbol Merkle que se usa para construir <span class="docutils literal">hashMerkleRoot</span>, de modo que una ruta a través de este árbol Merkle hacia una transacción identifique la misma transacción que esa ruta alcanza en el árbol con raíz en <span class="docutils literal">hashMerkleRoot</span>.</p>
+<p>Este nuevo compromiso se denomina <span class="docutils literal">hashAuthDataRoot</span> y es la raíz de un árbol Merkle binario de compromisos de datos de autorización de transacciones de altura <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+    <mi>𝗂</mi>
+    <mi>𝗅</mi>
+    <mo stretchy="false">(</mo>
+    <mi>𝗅</mi>
+    <mi>𝗈</mi>
+    <msub>
+      <mi>𝗀</mi>
+      <mn>𝟤</mn>
+    </msub>
+    <mo stretchy="false">(</mo>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mi>_</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mo stretchy="false">)</mo>
+    <mo stretchy="false">)</mo>
+  </mrow>
+</math>, rellenado con hojas que tienen el valor hash "nulo" <span class="docutils literal">[0u8; 32]</span>. Nótese que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝗈</mi>
+    <msub>
+      <mi>𝗀</mi>
+      <mn>𝟤</mn>
+    </msub>
+    <mo stretchy="false">(</mo>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mi>_</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mo stretchy="false">)</mo>
+  </mrow>
+</math> está bien definido porque <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗍</mi>
+    <mi>𝗑</mi>
+    <mi>_</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>></mo>
+  <mn>0</mn>
+</math>, debido a la transacción coinbase en cada bloque. Los hashes de los nodos no hoja en este árbol son hashes BLAKE2b-256 personalizados con la cadena <span class="docutils literal">"ZcashAuthDatHash"</span>.</p>
+<p>Cambiar el formato del encabezado de bloque para permitir espacio para un compromiso adicional es algo invasivo. En su lugar, se cambian el nombre y el significado del campo <span class="docutils literal">hashLightClientRoot</span>, descrito en el ZIP 221 <a class="brackets" href="#zip-0221" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+<p><span class="docutils literal">hashLightClientRoot</span> se renombra a <span class="docutils literal">hashBlockCommitments</span>. El valor de este hash es el hash BLAKE2b-256 personalizado con la cadena <span class="docutils literal">"ZcashBlockCommit"</span> de los siguientes elementos:</p>
+<pre class="literal-block">hashLightClientRoot (as described in ZIP 221)
+hashAuthDataRoot    (as described below)
+terminator          [0u8;32]</pre>
+<p>Esta representación trata el valor <span class="docutils literal">hashBlockCommitments</span> como una lista enlazada de hashes terminada por datos arbitrarios. En el caso de actualizaciones del protocolo en las que sea necesario incluir compromisos adicionales en el encabezado de bloque, es posible reemplazar este terminador por el hash de una estructura recién definida que termina en un terminador similar. Los nodos de validación completa DEBEN (MUST) usar siempre la estructura completa definida por la última versión del protocolo activada que admitan.</p>
+<p>La estructura enlazada de este hash tiene como objetivo proporcionar extensibilidad para su uso por clientes ligeros que pueden estar conectados a un servidor de terceros que admite una versión posterior del protocolo. Dicho tercero DEBERÍA (SHOULD) proporcionar un valor que pueda usarse en lugar del terminador de solo ceros para permitir que el cliente ligero realice la validación de las partes de la estructura que necesita.</p>
+<p>A diferencia del cambio en <span class="docutils literal">hashLightClientRoot</span>, el cambio en <span class="docutils literal">hashBlockCommitments</span> ocurre en el bloque que activa este ZIP.</p>
+<p>El formato de bytes y la versión del encabezado de bloque no son alterados por este ZIP.</p>
+
+
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<p>En S.2 usamos las mismas cadenas de personalización para los campos que tienen campos correspondientes en T.2, con el fin de facilitar la reutilización de sus resúmenes. En particular, el caso "sin entradas ni salidas transparentes" de S.2 es idéntico al caso equivalente en T.2; por lo tanto, para las transacciones totalmente blindadas, <span class="docutils literal">signature_digest</span> es igual a <span class="docutils literal">txid_digest</span>.</p>
+<p>Varios cambios en este ZIP (con respecto al ZIP 243 <a class="brackets" href="#zip-0243" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>) se realizaron para alinearse con el BIP 341 <a class="brackets" href="#bip-0341" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>:</p>
+<ul class="simple">
+<li><p>El campo <span class="docutils literal">hash_type</span> ahora está restringido, mediante una nueva regla de consenso, a ser uno de un conjunto específico de codificaciones de tipos de sighash. La justificación de este cambio se hereda del BIP 341 <a class="brackets" href="#bip-0341-hash-type" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>.</p>
+<ul>
+<li><p>Nótese, sin embargo, que no definimos <span class="docutils literal">SIGHASH_DEFAULT</span>, ya que es equivalente a <span class="docutils literal">SIGHASH_ALL</span>, y preferimos que las codificaciones sean canónicas.</p></li>
+</ul>
+</li>
+<li><p>Se agregaron dos nuevos compromisos (<span class="docutils literal">amounts_sig_digest</span> y <span class="docutils literal">scriptpubkeys_sig_digest</span>), para abordar dificultades en el caso de una billetera de hardware que firma entradas transparentes. <span class="docutils literal">scriptpubkeys_sig_digest</span> ayuda a la billetera de hardware a determinar el subconjunto de entradas que le pertenecen <a class="brackets" href="#bip-0341-scriptpubkey" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>. <span class="docutils literal">amounts_sig_digest</span> impide que el creador de la transacción mienta a la billetera de hardware sobre la comisión de transacción <a class="brackets" href="#bip-0341-amount" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>. Sin estos compromisos, sería necesario enviar a la billetera de hardware todas las transacciones que contengan un outpoint referenciado en la transacción que se está firmando.</p></li>
+<li><p>Las semánticas de <span class="docutils literal">sequence_sig_digest</span> se cambiaron, para comprometerse a <span class="docutils literal">nSequence</span> incluso si <span class="docutils literal">SIGHASH_SINGLE</span> o <span class="docutils literal">SIGHASH_NONE</span> está establecido. La justificación de este cambio se hereda del BIP 341 <a class="brackets" href="#bip-0341-nsequence" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Las semánticas de <span class="docutils literal">outputs_sig_digest</span> se cambiaron, mediante una nueva regla de consenso que rechaza las entradas transparentes para las que <span class="docutils literal">SIGHASH_SINGLE</span> está establecido sin una salida transparente correspondiente en el mismo índice. El BIP 341 no da una justificación para este cambio, pero sin él estas entradas usaban efectivamente <span class="docutils literal">SIGHASH_NONE</span>, lo cual es engañoso de manera silenciosa.</p></li>
+<li><p>Las semánticas de <span class="docutils literal">txin_sig_digest</span> se cambiaron, para comprometerse siempre al campo <span class="docutils literal">scriptPubKey</span> de la moneda transparente que se está gastando, en lugar del script que realmente se ejecuta en el momento en que se calcula <span class="docutils literal">signature_digest</span>.</p>
+<ul>
+<li><p>Esto asegura que la firma se comprometa al script comprometido en su totalidad. En Taproot, esto hace posible demostrar a una billetera de hardware qué rutas de ejecución (no usadas) existen <a class="brackets" href="#bip-0341-scriptpubkey" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>. No existen rutas de ejecución alternativas para P2PKH (donde el script ejecutado es <span class="docutils literal">scriptPubKey</span>) ni para P2SH (donde <span class="docutils literal">scriptPubKey</span> se ejecuta completamente antes de <span class="docutils literal">redeemScript</span>).</p></li>
+<li><p>Para P2SH, esto significa que nos comprometemos al resumen Hash160 de <span class="docutils literal">redeemScript</span> en lugar del script real. Nótese que el diseño P2SH de Bitcoin depende enteramente de que Hash160 sea resistente a preimágenes, porque de lo contrario cualquiera podría gastar el UTXO P2SH de otra persona usando una preimagen. Sí necesitamos asegurar que no haya un ataque de colisión; esto se cumple porque incluso si un adversario pudiera encontrar una colisión de Hash160, esto solo le permitiría alterar el campo <span class="docutils literal">scriptSig</span> de la entrada. Hacerlo no altera los datos efectivos de la transacción, lo cual, por definición, significa que la transacción tiene el mismo efecto bajo consenso (gasta las mismas entradas y produce las mismas salidas).</p></li>
+</ul>
+</li>
+</ul>
+<p>Las firmas sobre Spends de Sapling o Actions de Orchard, en transacciones que contienen entradas transparentes, se comprometen a los mismos datos que las entradas transparentes, incluidos todos los valores de las entradas transparentes. Sin este compromiso, habría una dificultad similar para una billetera de hardware en el caso en que solo firme entradas blindadas, cuando la transacción también contenga entradas transparentes de otra parte maliciosa, porque esa parte podría mentir sobre los valores de sus monedas.</p>
+<p>En contraste, las firmas de vinculación para transacciones coinbase blindadas continúan siendo sobre el identificador de transacción, al igual que para las transacciones que no son coinbase sin entradas transparentes. Esto es necesario porque las transacciones coinbase tienen un único elemento de entrada transparente "ficticio" que no tiene una salida previa correspondiente a la cual comprometerse. También es suficiente porque los datos de esa entrada transparente ya están vinculados en otra parte (a saber, la altura de bloque, colocada en <span class="docutils literal">expiry_height</span> desde la activación de NU5), o no necesitan estar vinculados a las salidas blindadas (p. ej., información que identifica al minero).</p>
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/librustzcash/pull/319/files">https://github.com/zcash/librustzcash/pull/319/files</a></p></li>
+</ul>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2021.2.16 [NU5 proposal]. Section 7.1: Transaction Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0221" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-16">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0221.rst">ZIP 221: FlyClient - Consensus Layer Changes</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0076" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0076.rst">ZIP 76: Transaction Signature Validation before Overwinter</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0143" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-10">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0143.rst">ZIP 143: Transaction Signature Validation for Overwinter</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0243" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-11">1</a>,<a role="doc-backlink" href="#footnote-reference-15">2</a>,<a role="doc-backlink" href="#footnote-reference-17">3</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0243.rst">ZIP 243: Transaction Signature Validation for Sapling</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0307" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-6">2</a>,<a role="doc-backlink" href="#footnote-reference-7">3</a>,<a role="doc-backlink" href="#footnote-reference-8">4</a>,<a role="doc-backlink" href="#footnote-reference-9">5</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0307.rst">ZIP 307: Light Client Protocol for Payment Detection</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0341" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-18">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki">BIP 341: Taproot: SegWit version 1 spending rules</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0341-hash-type" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-19">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-13">Why reject unknown hash_type values?</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0341-scriptpubkey" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-20">1</a>,<a role="doc-backlink" href="#footnote-reference-23">2</a>)</span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-17">Why does the signature message commit to the scriptPubKey?</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0341-amount" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-21">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-18">Why does the signature message commit to the amounts of all transaction inputs?</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0341-nsequence" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-22">13</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-19">Why does the signature message commit to all input nSequence if SIGHASH_SINGLE or SIGHASH_NONE are set?</a></p>
+</aside>
+<aside class="footnote brackets" id="bdr-txout" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-12">1</a>,<a role="doc-backlink" href="#footnote-reference-13">2</a>,<a role="doc-backlink" href="#footnote-reference-14">3</a>)</span>
+<p><a class="reference external" href="https://developer.bitcoin.org/reference/transactions.html#txout-a-transaction-output">Bitcoin Developer Reference. TxOut: A Transaction Output</a></p>
+</aside>
+</aside>
+

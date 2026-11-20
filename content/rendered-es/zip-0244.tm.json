@@ -1,0 +1,946 @@
+{
+ "segments": {
+  "Transaction Identifier Non-Malleability": "No maleabilidad de los identificadores de transacción",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\" and \"MUST NOT\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\" y \"NO DEBE (MUST NOT)\" en este documento se interpretan como se describe en BCP 14 <x1/> cuando, y solo cuando, aparecen en mayúsculas.",
+  "The terms \"consensus branch\", \"epoch\", and \"network upgrade\" in this document are to be interpreted as described in ZIP 200. <x1/>": "Los términos \"rama de consenso\", \"época\" y \"actualización de red\" de este documento deben interpretarse como se describe en el ZIP 200. <x1/>",
+  "The term \"field encoding\" refers to the binary serialized form of a Zcash transaction field, as specified in section 7.1 of the Zcash protocol specification <x1/>.": "El término \"codificación de campo\" se refiere a la forma serializada binaria de un campo de una transacción de Zcash, según lo especificado en la sección 7.1 de la especificación del protocolo de Zcash <x1/>.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This proposal defines a new transaction digest algorithm for the NU5 network upgrade onward, in order to introduce non-malleable transaction identifiers that commit to all transaction data except for attestations to transaction validity.": "Esta propuesta define un nuevo algoritmo de digest de transacción para la actualización de red NU5 en adelante, con el fin de introducir identificadores de transacción no maleables que se comprometen a todos los datos de la transacción, excepto las atestaciones de la validez de la transacción.",
+  "This proposal also defines a new transaction digest algorithm for signature validation, which shares all available structure produced during the construction of transaction identifiers, in order to minimize redundant data hashing in validation.": "Esta propuesta también define un nuevo algoritmo de digest de transacción para la validación de firmas, que comparte toda la estructura disponible producida durante la construcción de los identificadores de transacción, con el fin de minimizar el hashing redundante de datos en la validación.",
+  "This proposal also defines a new name and semantics for the <x1/> field of the block header, to enable additional commitments to be represented in this hash and to provide a mechanism for future extensibility of the set of commitments represented.": "Esta propuesta también define un nuevo nombre y una nueva semántica para el campo <x1/> del encabezado de bloque, a fin de permitir que se representen compromisos adicionales en este hash y de proveer un mecanismo para la extensibilidad futura del conjunto de compromisos representados.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "In all cases, but particularly in order to support the use of transactions in higher-level protocols, any modification of the transaction that has not been explicitly permitted (such as via anyone-can-spend inputs) should invalidate attestations to spend authority or to the included outputs. Following the activation of this proposed change, transaction identifiers will be stable irrespective of any possible malleation of \"witness data\" such as proofs and transaction signatures.": "En todos los casos, pero en particular para permitir el uso de transacciones en protocolos de nivel superior, cualquier modificación de la transacción que no haya sido permitida explícitamente (por ejemplo, mediante entradas anyone-can-spend) debería invalidar las atestaciones de autoridad de gasto o de las salidas incluidas. Tras la activación de este cambio propuesto, los identificadores de transacción serán estables independientemente de cualquier posible maleación de los \"datos de testigo\", como las pruebas y las firmas de transacción.",
+  "In addition, by specifying a transaction identifier and signature algorithm that is decoupled from the serialized format of the transaction as a whole, this change makes it so that the wire format of transactions is no longer consensus-critical.": "Además, al especificar un identificador de transacción y un algoritmo de firma que están desacoplados del formato serializado de la transacción en su conjunto, este cambio hace que el formato de transmisión de las transacciones ya no sea crítico para el consenso.",
+  "<x1/>Requirements": "<x1/>Requisitos",
+  "Continue to support existing functionality of the protocol (multisig, signing modes for transparent inputs).": "Seguir admitiendo la funcionalidad existente del protocolo (multifirma, modos de firma para entradas transparentes).",
+  "Allow the use of transaction ids, and pairs of the form (transaction id, output index) as stable identifiers.": "Permitir el uso de identificadores de transacción, y de pares de la forma (identificador de transacción, índice de salida) como identificadores estables.",
+  "A sender must be able to recognize their own transaction, even given allowed forms of malleability such as recomputation of transaction signatures.": "Un emisor debe poder reconocer su propia transacción, incluso dadas las formas permitidas de maleabilidad, como la recomputación de las firmas de transacción.",
+  "In the case of transparent inputs, it should be possible to create a transaction (B) that spends the outputs from a previous transaction (A) even before (A) has been mined. This should also be possible in the case that the creator of (B) does not wait for confirmations of (A). That is, (B) should remain valid so long as any variant of (A) is eventually mined.": "En el caso de las entradas transparentes, debería ser posible crear una transacción (B) que gaste las salidas de una transacción anterior (A) incluso antes de que (A) haya sido minada. Esto también debería ser posible en el caso de que el creador de (B) no espere confirmaciones de (A). Es decir, (B) debería seguir siendo válida siempre que cualquier variante de (A) sea minada eventualmente.",
+  "It should not be possible for an attacker to malleate a transaction in a fashion that would result in the transaction being interpreted as a double-spend.": "No debería ser posible que un atacante malee una transacción de una manera que resulte en que la transacción se interprete como un doble gasto.",
+  "It should be possible in the future to upgrade the protocol in such a fashion that only non-malleable transactions are accepted.": "Debería ser posible en el futuro actualizar el protocolo de manera que solo se acepten transacciones no maleables.",
+  "It should be possible to use the transaction id unmodified as the value that is used to produce a signature hash in the case that the transaction contains no transparent inputs.": "Debería ser posible usar el identificador de transacción sin modificar como el valor que se utiliza para producir un hash de firma en el caso de que la transacción no contenga entradas transparentes.",
+  "<x1/>Non-requirements": "<x1/>No requisitos",
+  "In order to support backwards-compatibility with parts of the ecosystem that have not yet upgraded to the non-malleable transaction format, it is not an initial requirement that all transactions be non-malleable.": "Para dar soporte a la compatibilidad con versiones anteriores de las partes del ecosistema que aún no se han actualizado al formato de transacción no maleable, no es un requisito inicial que todas las transacciones sean no maleables.",
+  "It is not required that legacy (Sapling V4 and earlier) transaction formats support construction of non-malleable transaction identifiers, even though they may continue to be accepted by the network after the NU5 upgrade.": "No se requiere que los formatos de transacción heredados (Sapling V4 y anteriores) permitan la construcción de identificadores de transacción no maleables, aunque pueden seguir siendo aceptados por la red después de la actualización a NU5.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "<x1/>Digests": "<x1/>Resúmenes",
+  "All digests are personalized BLAKE2b-256 hashes. In cases where no elements are available for hashing (for example, if there are no transparent transaction inputs or no Orchard actions), a personalized hash of the empty byte array will be used. The personalization string therefore provides domain separation for the hashes of even empty data fields.": "Todos los resúmenes son hashes BLAKE2b-256 personalizados. En los casos en que no haya elementos disponibles para calcular el hash (por ejemplo, si no hay entradas de transacción transparentes o no hay acciones de Orchard), se usará un hash personalizado del arreglo de bytes vacío. Por lo tanto, la cadena de personalización proporciona separación de dominio para los hashes incluso de campos de datos vacíos.",
+  "The notation <x1/> is used to refer to hashes constructed in this manner.": "La notación <x1/> se utiliza para referirse a hashes construidos de esta manera.",
+  "<x1/>TxId Digest": "<x1/>Resumen TxId",
+  "A new transaction digest algorithm is defined that constructs the identifier for a transaction from a tree of hashes. Each branch of the tree of hashes will correspond to a specific subset of transaction data. The overall structure of the hash is as follows; each name referenced here will be described in detail below:": "Se define un nuevo algoritmo de resumen de transacción que construye el identificador de una transacción a partir de un árbol de hashes. Cada rama del árbol de hashes corresponderá a un subconjunto específico de datos de la transacción. La estructura general del hash es la siguiente; cada nombre referido aquí se describirá en detalle más adelante:",
+  "Each node written as <x1/> in this tree is a BLAKE2b-256 hash of its children, initialized with a personalization string specific to that branch of the tree. Nodes that are not themselves digests are written in <x2/>. In the specification below, nodes of the tree are presented in depth-first order.": "Cada nodo escrito como <x1/> en este árbol es un hash BLAKE2b-256 de sus hijos, inicializado con una cadena de personalización específica de esa rama del árbol. Los nodos que no son en sí mismos resúmenes se escriben en <x2/>. En la especificación siguiente, los nodos del árbol se presentan en orden de profundidad primero.",
+  "<x1/>txid_digest": "<x1/>txid_digest",
+  "A BLAKE2b-256 hash of the following values": "Un hash BLAKE2b-256 de los siguientes valores",
+  "The personalization field of this hash is set to:": "El campo de personalización de este hash se establece en:",
+  "<x1/> has 1 underscore character.": "<x1/> tiene 1 carácter de guion bajo.",
+  "As in ZIP 143 <x1/>, CONSENSUS_BRANCH_ID is the 4-byte little-endian encoding of the consensus branch ID for the epoch of the block containing the transaction. Domain separation of the transaction id hash across parallel consensus branches provides replay protection: transactions targeted for one consensus branch will not have the same transaction identifier on other consensus branches.": "Como en el ZIP 143 <x1/>, CONSENSUS_BRANCH_ID es la codificación little-endian de 4 bytes del identificador de rama de consenso para la época del bloque que contiene la transacción. La separación de dominio del hash del identificador de transacción entre ramas de consenso paralelas proporciona protección contra repetición: las transacciones dirigidas a una rama de consenso no tendrán el mismo identificador de transacción en otras ramas de consenso.",
+  "This signature hash personalization prefix has been changed to reflect the new role of this hash (relative to <x1/> as specified in ZIP 143) as a transaction identifier rather than a commitment that is exclusively used for signature purposes. The previous computation of the transaction identifier was a SHA256d hash of the serialized transaction contents, and was not personalized.": "Este prefijo de personalización del hash de firma ha sido cambiado para reflejar el nuevo rol de este hash (en relación con <x1/> según lo especificado en el ZIP 143) como un identificador de transacción en lugar de un compromiso utilizado exclusivamente para fines de firma. El cálculo anterior del identificador de transacción era un hash SHA256d del contenido serializado de la transacción, y no estaba personalizado.",
+  "T.1: header_digest": "T.1: header_digest",
+  "T.2: transparent_digest": "T.2: transparent_digest",
+  "In the case that transparent inputs or outputs are present, the transparent digest consists of a BLAKE2b-256 hash of the following values": "En el caso de que haya presentes entradas o salidas transparentes, el resumen transparente consiste en un hash BLAKE2b-256 de los siguientes valores",
+  "In the case that the transaction has no transparent components, <x1/> is": "En el caso de que la transacción no tenga componentes transparentes, <x1/> es",
+  "T.2a: prevouts_digest": "T.2a: prevouts_digest",
+  "A BLAKE2b-256 hash of the field encoding of all <x1/> field values of transparent inputs to the transaction.": "Un hash BLAKE2b-256 de la codificación de campo de todos los valores del campo <x1/> de las entradas transparentes de la transacción.",
+  "In the case that the transaction has transparent outputs but no transparent inputs, <x1/> is": "En el caso de que la transacción tenga salidas transparentes pero no entradas transparentes, <x1/> es",
+  "T.2b: sequence_digest": "T.2b: sequence_digest",
+  "A BLAKE2b-256 hash of the 32-bit little-endian representation of all <x1/> field values of transparent inputs to the transaction.": "Un hash BLAKE2b-256 de la representación little-endian de 32 bits de todos los valores del campo <x1/> de las entradas transparentes de la transacción.",
+  "T.2c: outputs_digest": "T.2c: outputs_digest",
+  "A BLAKE2b-256 hash of the concatenated field encodings of all transparent output values of the transaction. The field encoding of such an output consists of the encoded output <x1/> (8-byte little endian) followed by the <x2/> byte array (serialized as Bitcoin script).": "Un hash BLAKE2b-256 de las codificaciones de campo concatenadas de todos los valores de salida transparentes de la transacción. La codificación de campo de dicha salida consiste en el <x1/> de salida codificado (little-endian de 8 bytes) seguido del arreglo de bytes <x2/> (serializado como script de Bitcoin).",
+  "In the case that the transaction has transparent inputs but no transparent outputs, <x1/> is": "En el caso de que la transacción tenga entradas transparentes pero no salidas transparentes, <x1/> es",
+  "T.3: sapling_digest": "T.3: sapling_digest",
+  "In the case that Sapling spends or outputs are present, the digest of Sapling components is composed of two subtrees which are organized to permit easy interoperability with the <x1/> representation of Sapling data specified by the ZIP 307 Light Client Protocol <x2/>.": "En el caso de que haya presentes gastos o salidas de Sapling, el resumen de los componentes de Sapling se compone de dos subárboles que están organizados para permitir una interoperabilidad sencilla con la representación <x1/> de los datos de Sapling especificada por el protocolo de cliente ligero ZIP 307 <x2/>.",
+  "This digest is a BLAKE2b-256 hash of the following values": "Este resumen es un hash BLAKE2b-256 de los siguientes valores",
+  "In the case that the transaction has no Sapling spends or outputs, <x1/> is": "En el caso de que la transacción no tenga gastos ni salidas de Sapling, <x1/> es",
+  "T.3a: sapling_spends_digest": "T.3a: sapling_spends_digest",
+  "In the case that Sapling spends are present, this digest is a BLAKE2b-256 hash of the following values": "En el caso de que haya presentes gastos de Sapling, este resumen es un hash BLAKE2b-256 de los siguientes valores",
+  "In the case that the transaction has Sapling outputs but no Sapling spends, <x1/> is": "En el caso de que la transacción tenga salidas de Sapling pero no gastos de Sapling, <x1/> es",
+  "T.3a.i: sapling_spends_compact_digest": "T.3a.i: sapling_spends_compact_digest",
+  "A BLAKE2b-256 hash of the field encoding of all <x1/> field values of Sapling shielded spends belonging to the transaction.": "Un hash BLAKE2b-256 de la codificación de campo de todos los valores del campo <x1/> de los gastos blindados de Sapling pertenecientes a la transacción.",
+  "T.3a.ii: sapling_spends_noncompact_digest": "T.3a.ii: sapling_spends_noncompact_digest",
+  "A BLAKE2b-256 hash of the non-nullifier information for all Sapling shielded spends belonging to the transaction, excluding both zkproof data and spend authorization signature(s). For each spend, the following elements are included in the hash:": "Un hash BLAKE2b-256 de la información distinta del nullifier para todos los gastos blindados de Sapling pertenecientes a la transacción, excluyendo tanto los datos de zkproof como las firmas de autorización de gasto. Para cada gasto, los siguientes elementos se incluyen en el hash:",
+  "In Transaction version 5, Sapling Spends have a shared anchor, which is hashed into the sapling_spends_noncompact_digest for <g1>each</g1> Spend.": "En la versión 5 de Transacción, los Spends de Sapling tienen un ancla compartida, la cual se incluye en el hash sapling_spends_noncompact_digest para <g1>cada</g1> Spend.",
+  "T.3b: sapling_outputs_digest": "T.3b: sapling_outputs_digest",
+  "In the case that Sapling outputs are present, this digest is a BLAKE2b-256 hash of the following values": "En el caso de que haya salidas de Sapling presentes, este digest es un hash BLAKE2b-256 de los siguientes valores",
+  "In the case that the transaction has Sapling spends but no Sapling outputs, <x1/> is": "En el caso de que la transacción tenga gastos de Sapling pero no salidas de Sapling, <x1/> es",
+  "T.3b.i: sapling_outputs_compact_digest": "T.3b.i: sapling_outputs_compact_digest",
+  "A BLAKE2b-256 hash of the subset of Sapling output information included in the ZIP-307 <x1/> <x2/> format for all Sapling shielded outputs belonging to the transaction. For each output, the following elements are included in the hash:": "Un hash BLAKE2b-256 del subconjunto de información de salidas de Sapling incluido en el formato <x1/> <x2/> del ZIP-307 para todas las salidas blindadas de Sapling pertenecientes a la transacción. Para cada salida, los siguientes elementos se incluyen en el hash:",
+  "T.3b.ii: sapling_outputs_memos_digest": "T.3b.ii: sapling_outputs_memos_digest",
+  "A BLAKE2b-256 hash of the subset of Sapling shielded memo field data for all Sapling shielded outputs belonging to the transaction. For each output, the following elements are included in the hash:": "Un hash BLAKE2b-256 del subconjunto de datos del campo memo blindado de Sapling para todas las salidas blindadas de Sapling pertenecientes a la transacción. Para cada salida, los siguientes elementos se incluyen en el hash:",
+  "T.3b.iii: sapling_outputs_noncompact_digest": "T.3b.iii: sapling_outputs_noncompact_digest",
+  "A BLAKE2b-256 hash of the remaining subset of Sapling output information <g1>not</g1> included in the ZIP 307 <x2/> <x3/> format, excluding zkproof data, for all Sapling shielded outputs belonging to the transaction. For each output, the following elements are included in the hash:": "Un hash BLAKE2b-256 del subconjunto restante de información de salidas de Sapling <g1>no</g1> incluido en el formato <x2/> <x3/> del ZIP 307, excluyendo los datos de zkproof, para todas las salidas blindadas de Sapling pertenecientes a la transacción. Para cada salida, los siguientes elementos se incluyen en el hash:",
+  "T.4: orchard_digest": "T.4: orchard_digest",
+  "In the case that Orchard actions are present in the transaction, this digest is a BLAKE2b-256 hash of the following values": "En el caso de que haya acciones de Orchard presentes en la transacción, este digest es un hash BLAKE2b-256 de los siguientes valores",
+  "In the case that the transaction has no Orchard actions, <x1/> is": "En el caso de que la transacción no tenga acciones de Orchard, <x1/> es",
+  "T.4a: orchard_actions_compact_digest": "T.4a: orchard_actions_compact_digest",
+  "A BLAKE2b-256 hash of the subset of Orchard Action information intended to be included in an updated version of the ZIP-307 <x1/> <x2/> format for all Orchard Actions belonging to the transaction. For each Action, the following elements are included in the hash:": "Un hash BLAKE2b-256 del subconjunto de información de las acciones de Orchard destinado a ser incluido en una versión actualizada del formato <x1/> <x2/> del ZIP-307 para todas las acciones de Orchard pertenecientes a la transacción. Para cada acción, los siguientes elementos se incluyen en el hash:",
+  "T.4b: orchard_actions_memos_digest": "T.4b: orchard_actions_memos_digest",
+  "A BLAKE2b-256 hash of the subset of Orchard shielded memo field data for all Orchard Actions belonging to the transaction. For each Action, the following elements are included in the hash:": "Un hash BLAKE2b-256 del subconjunto de datos del campo memo blindado de Orchard para todas las acciones de Orchard pertenecientes a la transacción. Para cada acción, los siguientes elementos se incluyen en el hash:",
+  "T.4c: orchard_actions_noncompact_digest": "T.4c: orchard_actions_noncompact_digest",
+  "A BLAKE2b-256 hash of the remaining subset of Orchard Action information <g1>not</g1> intended for inclusion in an updated version of the the ZIP 307 <x2/> <x3/> format, for all Orchard Actions belonging to the transaction. For each Action, the following elements are included in the hash:": "Un hash BLAKE2b-256 del subconjunto restante de información de las acciones de Orchard <g1>no</g1> destinado a ser incluido en una versión actualizada del formato <x2/> <x3/> del ZIP 307, para todas las acciones de Orchard pertenecientes a la transacción. Para cada acción, los siguientes elementos se incluyen en el hash:",
+  "<x1/>Signature Digest": "<x1/>Digest de firma",
+  "A new per-input transaction digest algorithm is defined that constructs a hash that may be signed by a transaction creator to commit to the effects of the transaction. A signature digest is produced for each transparent input, each Sapling input, and each Orchard action. This follows closely the algorithms from ZIP 143 <x1/> and ZIP 243 <x2/>. For transactions without transparent inputs, this algorithm has the exact same output as the transaction digest algorithm, thus the txid may be signed directly.": "Se define un nuevo algoritmo de digest de transacción por entrada que construye un hash que puede ser firmado por un creador de transacción para comprometerse a los efectos de la transacción. Se produce un digest de firma para cada entrada transparente, cada entrada de Sapling y cada acción de Orchard. Esto sigue de cerca los algoritmos del ZIP 143 <x1/> y del ZIP 243 <x2/>. Para las transacciones sin entradas transparentes, este algoritmo tiene exactamente la misma salida que el algoritmo de digest de transacción, por lo que el txid puede ser firmado directamente.",
+  "The overall structure of the hash is as follows; each name referenced here will be described in detail below:": "La estructura general del hash es la siguiente; cada nombre referido aquí se describirá en detalle más abajo:",
+  "<x1/>signature_digest": "<x1/>signature_digest",
+  "This value has the same personalization as the top hash of the transaction identifier digest tree, so that what is being signed in the case that there are no transparent inputs is just the transaction id.": "Este valor tiene la misma personalización que el hash de nivel superior del árbol de digest del identificador de transacción, de modo que lo que se firma en el caso de que no haya entradas transparentes es simplemente el identificador de transacción.",
+  "S.1: header_digest": "S.1: header_digest",
+  "Identical to that specified for the transaction identifier.": "Idéntico al especificado para el identificador de transacción.",
+  "S.2: transparent_sig_digest": "S.2: transparent_sig_digest",
+  "If we are producing a hash for either a coinbase transaction, or a non-coinbase transaction that has no transparent inputs, the value of <x1/> is identical to the value specified in section <g2>T.2</g2>.": "Si producimos un hash para una transacción coinbase, o para una transacción que no es coinbase y que no tiene entradas transparentes, el valor de <x1/> es idéntico al valor especificado en la sección <g2>T.2</g2>.",
+  "If we are producing a hash for a non-coinbase transaction that has transparent inputs, the value of <x1/> depends upon the value of a <x2/> flag, as follows.": "Si producimos un hash para una transacción que no es coinbase y que tiene entradas transparentes, el valor de <x1/> depende del valor de una bandera <x2/>, como sigue.",
+  "The construction of each component below depends upon the values of the <x1/> flag bits. Each component will be described separately.": "La construcción de cada componente a continuación depende de los valores de los bits de la bandera <x1/>. Cada componente se describirá por separado.",
+  "S.2a: hash_type": "S.2a: hash_type",
+  "This is an 8-bit unsigned value. The <x1/> encodings from the legacy script system are reused: one of <x2/> (0x01), <x3/> (0x02), and <x4/> (0x03), with or without the <x5/> flag (0x80). The following restrictions apply, which cause validation failure if violated:": "Este es un valor sin signo de 8 bits. Se reutilizan las codificaciones <x1/> del sistema de scripts heredado: uno de <x2/> (0x01), <x3/> (0x02) y <x4/> (0x03), con o sin la bandera <x5/> (0x80). Se aplican las siguientes restricciones, que causan un fallo de validación si se incumplen:",
+  "Using any undefined <x1/> (not 0x01, 0x02, 0x03, 0x81, 0x82, or 0x83).": "Usar un <x1/> no definido (no 0x01, 0x02, 0x03, 0x81, 0x82 ni 0x83).",
+  "Using <x1/> without a \"corresponding output\" (an output with the same index as the input being verified).": "Usar <x1/> sin una \"salida correspondiente\" (una salida con el mismo índice que la entrada que se verifica).",
+  "If we are producing a hash for the signature over a transparent input, the value of <x1/> is obtained from the input's <x2/> as encoded in the transaction. If we are producing a hash for the signature over a Sapling Spend or an Orchard Action, <x3/> is set to <x4/>.": "Si producimos un hash para la firma sobre una entrada transparente, el valor de <x1/> se obtiene del <x2/> de la entrada tal como está codificado en la transacción. Si producimos un hash para la firma sobre un Spend de Sapling o una acción de Orchard, <x3/> se establece en <x4/>.",
+  "S.2b: prevouts_sig_digest": "S.2b: prevouts_sig_digest",
+  "This is a BLAKE2b-256 hash initialized with the personalization field value <x1/>.": "Este es un hash BLAKE2b-256 inicializado con el valor de campo de personalización <x1/>.",
+  "If the <x1/> flag is not set:": "Si la bandera <x1/> no está establecida:",
+  "otherwise:": "de lo contrario:",
+  "S.2c: amounts_sig_digest": "S.2c: amounts_sig_digest",
+  "If the <x1/> flag is not set, the value of <x2/> is a BLAKE2b-256 hash of the concatenation of the 8-byte signed little-endian representations of all <x3/> fields <x4/> for the coins spent by the transparent inputs to the transaction.": "Si la bandera <x1/> no está establecida, el valor de <x2/> es un hash BLAKE2b-256 de la concatenación de las representaciones con signo de 8 bytes en little-endian de todos los campos <x3/> <x4/> de las monedas gastadas por las entradas transparentes de la transacción.",
+  "If the <x1/> flag is set, <x2/> is:": "Si la bandera <x1/> está establecida, <x2/> es:",
+  "S.2d: scriptpubkeys_sig_digest": "S.2d: scriptpubkeys_sig_digest",
+  "If the <x1/> flag is not set, the value of <x2/> is a BLAKE2b-256 hash of the concatenation of the field encodings (each including a leading <x3/>) of all <x4/> fields <x5/> for the coins spent by the transparent inputs to the transaction.": "Si la bandera <x1/> no está establecida, el valor de <x2/> es un hash BLAKE2b-256 de la concatenación de las codificaciones de campo (cada una incluye un <x3/> inicial) de todos los campos <x4/> <x5/> de las monedas gastadas por las entradas transparentes de la transacción.",
+  "S.2e: sequence_sig_digest": "S.2e: sequence_sig_digest",
+  "S.2f: outputs_sig_digest": "S.2f: outputs_sig_digest",
+  "If the sighash type is neither <x1/> nor <x2/>:": "Si el tipo de sighash no es ni <x1/> ni <x2/>:",
+  "If the sighash type is <x1/> and the signature hash is being computed for the transparent input at a particular index, and a transparent output appears in the transaction at that index:": "Si el tipo de sighash es <x1/> y el hash de firma se está calculando para la entrada transparente en un índice particular, y una salida transparente aparece en la transacción en ese índice:",
+  "S.2g: txin_sig_digest": "S.2g: txin_sig_digest",
+  "If we are producing a hash for the signature over a transparent input, the value of <x1/> is a BLAKE2b-256 hash of the following properties of the transparent input being signed, initialized with the personalization field value <x2/> (3 underscores):": "Si estamos produciendo un hash para la firma sobre una entrada transparente, el valor de <x1/> es un hash BLAKE2b-256 de las siguientes propiedades de la entrada transparente que se firma, inicializado con el valor de campo de personalización <x2/> (3 guiones bajos):",
+  "Notes:": "Notas:",
+  "<x1/> is defined in the consensus rules to be a nonnegative value &lt;= <x2/>, but all existing implementations parse this value as signed and enforce the nonnegative constraint as a consensus check. It is defined as signed here for consistency with those existing implementations.": "<x1/> está definido en las reglas de consenso como un valor no negativo &lt;= <x2/>, pero todas las implementaciones existentes analizan este valor como con signo y aplican la restricción de no negatividad como una verificación de consenso. Se define como con signo aquí por consistencia con esas implementaciones existentes.",
+  "<x1/> is the field encoding (including a leading <x2/>) of the <x3/> field <x4/> for the coin spent by the transparent input. For P2SH coins, this differs from the <x5/> committed to in ZIP 243 <x6/>.": "<x1/> es la codificación de campo (incluido un <x2/> inicial) del campo <x3/> <x4/> de la moneda gastada por la entrada transparente. Para monedas P2SH, esto difiere del <x5/> comprometido en el ZIP 243 <x6/>.",
+  "If we are producing a hash for the signature over a Sapling Spend or an Orchard Action, <x1/> is:": "Si estamos produciendo un hash para la firma sobre un Sapling Spend o una Orchard Action, <x1/> es:",
+  "S.3: sapling_digest": "S.3: sapling_digest",
+  "S.4: orchard_digest": "S.4: orchard_digest",
+  "<x1/>Authorizing Data Commitment": "<x1/>Compromiso de datos de autorización",
+  "A new transaction digest algorithm is defined that constructs a digest which commits to the authorizing data of a transaction from a tree of BLAKE2b-256 hashes. For v5 transactions, the overall structure of the hash is as follows:": "Se define un nuevo algoritmo de resumen de transacción que construye un resumen que compromete los datos de autorización de una transacción a partir de un árbol de hashes BLAKE2b-256. Para las transacciones v5, la estructura general del hash es la siguiente:",
+  "Each node written as <x1/> in this tree is a BLAKE2b-256 hash of authorizing data of the transaction.": "Cada nodo escrito como <x1/> en este árbol es un hash BLAKE2b-256 de datos de autorización de la transacción.",
+  "For transaction versions before v5, a placeholder value consisting of 32 bytes of <x1/> is used in place of the authorizing data commitment. This is only used in the tree committed to by <x2/>, as defined in <g3>Block Header Changes</g3>.": "Para versiones de transacción anteriores a v5, se usa un valor marcador de posición que consiste en 32 bytes de <x1/> en lugar del compromiso de datos de autorización. Esto solo se usa en el árbol comprometido por <x2/>, como se define en <g3>Cambios en el encabezado de bloque</g3>.",
+  "The pair (Transaction Identifier, Auth Commitment) constitutes a commitment to all the data of a serialized transaction that may be included in a block.": "El par (identificador de transacción, Auth Commitment) constituye un compromiso con todos los datos de una transacción serializada que puede incluirse en un bloque.",
+  "<x1/>auth_digest": "<x1/>auth_digest",
+  "A.1: transparent_scripts_digest": "A.1: transparent_scripts_digest",
+  "In the case that the transaction contains transparent inputs, this is a BLAKE2b-256 hash of the field encoding of the concatenated values of the Bitcoin script values associated with each transparent input belonging to the transaction.": "En el caso de que la transacción contenga entradas transparentes, este es un hash BLAKE2b-256 de la codificación de campos de los valores concatenados de los valores de script de Bitcoin asociados con cada entrada transparente perteneciente a la transacción.",
+  "In the case that the transaction has no transparent inputs, <x1/> is": "En el caso de que la transacción no tenga entradas transparentes, <x1/> es",
+  "A.2: sapling_auth_digest": "A.2: sapling_auth_digest",
+  "In the case that Sapling Spends or Sapling Outputs are present, this is a BLAKE2b-256 hash of the field encoding of the Sapling <x1/> value of each Sapling Spend Description, followed by the field encoding of the <x2/> value of each Sapling Spend Description belonging to the transaction, followed by the field encoding of the <x3/> field of each Sapling Output Description belonging to the transaction, followed by the field encoding of the binding signature:": "En el caso de que haya Sapling Spends o Sapling Outputs, este es un hash BLAKE2b-256 de la codificación de campos del valor <x1/> de Sapling de cada Spend Description de Sapling, seguido de la codificación de campos del valor <x2/> de cada Spend Description de Sapling perteneciente a la transacción, seguido de la codificación de campos del campo <x3/> de cada Output Description de Sapling perteneciente a la transacción, seguido de la codificación de campos de la firma de vinculación:",
+  "In the case that the transaction has no Sapling Spends or Sapling Outputs, <x1/> is": "En el caso de que la transacción no tenga Sapling Spends ni Sapling Outputs, <x1/> es",
+  "A.3: orchard_auth_digest": "A.3: orchard_auth_digest",
+  "In the case that Orchard Actions are present, this is a BLAKE2b-256 hash of the field encoding of the <x1/>, <x2/>, and <x3/> fields of the transaction:": "En el caso de que haya Orchard Actions, este es un hash BLAKE2b-256 de la codificación de campos de los campos <x1/>, <x2/> y <x3/> de la transacción:",
+  "In the case that the transaction has no Orchard Actions, <x1/> is": "En el caso de que la transacción no tenga Orchard Actions, <x1/> es",
+  "<x1/>Block Header Changes": "<x1/>Cambios en el encabezado de bloque",
+  "The nonmalleable transaction identifier specified by this ZIP will be used in the place of the current malleable transaction identifier within the Merkle tree committed to by the <x1/> value. However, this change now means that <x2/> is not sufficient to fully commit to the transaction data, including witnesses, that appear within the block.": "El identificador de transacción no maleable especificado por este ZIP se usará en lugar del identificador de transacción maleable actual dentro del árbol Merkle comprometido por el valor <x1/>. Sin embargo, este cambio implica ahora que <x2/> no es suficiente para comprometer plenamente los datos de la transacción, incluidos los testigos, que aparecen dentro del bloque.",
+  "As a consequence, we now need to add a new commitment to the block header. This commitment will be the root of a Merkle tree having leaves that are transaction authorizing data commitments, produced according to the <g1>Authorizing Data Commitment</g1> part of this specification. The insertion order for this Merkle tree MUST be identical to the insertion order of transaction identifiers into the Merkle tree that is used to construct <x2/>, such that a path through this Merkle tree to a transaction identifies the same transaction as that path reaches in the tree rooted at <x3/>.": "Como consecuencia, ahora es necesario agregar un nuevo compromiso al encabezado de bloque. Este compromiso será la raíz de un árbol Merkle cuyas hojas son compromisos de datos de autorización de transacciones, producidos según la parte <g1>Compromiso de datos de autorización</g1> de esta especificación. El orden de inserción de este árbol Merkle DEBE (MUST) ser idéntico al orden de inserción de los identificadores de transacción en el árbol Merkle que se usa para construir <x2/>, de modo que una ruta a través de este árbol Merkle hacia una transacción identifique la misma transacción que esa ruta alcanza en el árbol con raíz en <x3/>.",
+  "This new commitment is named <x1/> and is the root of a binary Merkle tree of transaction authorizing data commitments having height <x2/>, padded with leaves having the \"null\" hash value <x3/>. Note that <x4/> is well-defined because <x5/>, due to the coinbase transaction in each block. Non-leaf hashes in this tree are BLAKE2b-256 hashes personalized by the string <x6/>.": "Este nuevo compromiso se denomina <x1/> y es la raíz de un árbol Merkle binario de compromisos de datos de autorización de transacciones de altura <x2/>, rellenado con hojas que tienen el valor hash \"nulo\" <x3/>. Nótese que <x4/> está bien definido porque <x5/>, debido a la transacción coinbase en cada bloque. Los hashes de los nodos no hoja en este árbol son hashes BLAKE2b-256 personalizados con la cadena <x6/>.",
+  "Changing the block header format to allow space for an additional commitment is somewhat invasive. Instead, the name and meaning of the <x1/> field, described in ZIP 221 <x2/>, is changed.": "Cambiar el formato del encabezado de bloque para permitir espacio para un compromiso adicional es algo invasivo. En su lugar, se cambian el nombre y el significado del campo <x1/>, descrito en el ZIP 221 <x2/>.",
+  "<x1/> is renamed to <x2/>. The value of this hash is the BLAKE2b-256 hash personalized by the string <x3/> of the following elements:": "<x1/> se renombra a <x2/>. El valor de este hash es el hash BLAKE2b-256 personalizado con la cadena <x3/> de los siguientes elementos:",
+  "This representation treats the <x1/> value as a linked list of hashes terminated by arbitrary data. In the case of protocol upgrades where additional commitments need to be included in the block header, it is possible to replace this terminator with the hash of a newly defined structure which ends in a similar terminator. Fully validating nodes MUST always use the entire structure defined by the latest activated protocol version that they support.": "Esta representación trata el valor <x1/> como una lista enlazada de hashes terminada por datos arbitrarios. En el caso de actualizaciones del protocolo en las que sea necesario incluir compromisos adicionales en el encabezado de bloque, es posible reemplazar este terminador por el hash de una estructura recién definida que termina en un terminador similar. Los nodos de validación completa DEBEN (MUST) usar siempre la estructura completa definida por la última versión del protocolo activada que admitan.",
+  "The linked structure of this hash is intended to provide extensibility for use by light clients which may be connected to a third-party server that supports a later protocol version. Such a third party SHOULD provide a value that can be used instead of the all-zeros terminator to permit the light client to perform validation of the parts of the structure it needs.": "La estructura enlazada de este hash tiene como objetivo proporcionar extensibilidad para su uso por clientes ligeros que pueden estar conectados a un servidor de terceros que admite una versión posterior del protocolo. Dicho tercero DEBERÍA (SHOULD) proporcionar un valor que pueda usarse en lugar del terminador de solo ceros para permitir que el cliente ligero realice la validación de las partes de la estructura que necesita.",
+  "Unlike the <x1/> change, the change to <x2/> happens in the block that activates this ZIP.": "A diferencia del cambio en <x1/>, el cambio en <x2/> ocurre en el bloque que activa este ZIP.",
+  "The block header byte format and version are not altered by this ZIP.": "El formato de bytes y la versión del encabezado de bloque no son alterados por este ZIP.",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "In S.2, we use the same personalization strings for fields that have matching fields in T.2, in order to facilitate reuse of their digests. In particular, the \"no transparent inputs or outputs\" case of S.2 is identical to the equivalent case in T.2; thus for fully shielded transactions, <x1/> is equal to <x2/>.": "En S.2 usamos las mismas cadenas de personalización para los campos que tienen campos correspondientes en T.2, con el fin de facilitar la reutilización de sus resúmenes. En particular, el caso \"sin entradas ni salidas transparentes\" de S.2 es idéntico al caso equivalente en T.2; por lo tanto, para las transacciones totalmente blindadas, <x1/> es igual a <x2/>.",
+  "Several changes in this ZIP (relative to ZIP 243 <x1/>) were made to align with BIP 341 <x2/>:": "Varios cambios en este ZIP (con respecto al ZIP 243 <x1/>) se realizaron para alinearse con el BIP 341 <x2/>:",
+  "The <x1/> field is now restricted via a new consensus rule to be one of a specific set of sighash type encodings. The rationale for this change is inherited from BIP 341 <x2/>.": "El campo <x1/> ahora está restringido, mediante una nueva regla de consenso, a ser uno de un conjunto específico de codificaciones de tipos de sighash. La justificación de este cambio se hereda del BIP 341 <x2/>.",
+  "Note however that we do not define <x1/>, as it is equivalent to <x2/>, and we prefer the encodings to be canonical.": "Nótese, sin embargo, que no definimos <x1/>, ya que es equivalente a <x2/>, y preferimos que las codificaciones sean canónicas.",
+  "Two new commitments (<x1/> and <x2/>) were added, to address difficulties in the case of a hardware wallet signing transparent inputs. <x3/> helps the hardware wallet to determine the subset of inputs belonging to it <x4/>. <x5/> prevents the transaction creator from lying to the hardware wallet about the transaction fee <x6/>. Without these commitments, the hardware wallet would need to be sent every transaction containing an outpoint referenced in the transaction being signed.": "Se agregaron dos nuevos compromisos (<x1/> y <x2/>), para abordar dificultades en el caso de una billetera de hardware que firma entradas transparentes. <x3/> ayuda a la billetera de hardware a determinar el subconjunto de entradas que le pertenecen <x4/>. <x5/> impide que el creador de la transacción mienta a la billetera de hardware sobre la comisión de transacción <x6/>. Sin estos compromisos, sería necesario enviar a la billetera de hardware todas las transacciones que contengan un outpoint referenciado en la transacción que se está firmando.",
+  "The semantics of <x1/> were changed, to commit to <x2/> even if <x3/> or <x4/> is set. The rationale for this change is inherited from BIP 341 <x5/>.": "Las semánticas de <x1/> se cambiaron, para comprometerse a <x2/> incluso si <x3/> o <x4/> está establecido. La justificación de este cambio se hereda del BIP 341 <x5/>.",
+  "The semantics of <x1/> were changed, via a new consensus rule that rejects transparent inputs for which <x2/> is set without a corresponding transparent output at the same index. BIP 341 does not give a rationale for this change, but without it these inputs were effectively using <x3/>, which is silently misleading.": "Las semánticas de <x1/> se cambiaron, mediante una nueva regla de consenso que rechaza las entradas transparentes para las que <x2/> está establecido sin una salida transparente correspondiente en el mismo índice. El BIP 341 no da una justificación para este cambio, pero sin él estas entradas usaban efectivamente <x3/>, lo cual es engañoso de manera silenciosa.",
+  "The semantics of <x1/> were changed, to always commit to the <x2/> field of the transparent coin being spent, instead of the script actually being executed at the time <x3/> is calculated.": "Las semánticas de <x1/> se cambiaron, para comprometerse siempre al campo <x2/> de la moneda transparente que se está gastando, en lugar del script que realmente se ejecuta en el momento en que se calcula <x3/>.",
+  "This ensures that the signature commits to the entire committed script. In Taproot, this makes it possible to prove to a hardware wallet what (unused) execution paths exist <x1/>. Alternate execution paths don't exist for P2PKH (where the executed script is <x2/>) or P2SH (where <x3/> is fully executed prior to <x4/>).": "Esto asegura que la firma se comprometa al script comprometido en su totalidad. En Taproot, esto hace posible demostrar a una billetera de hardware qué rutas de ejecución (no usadas) existen <x1/>. No existen rutas de ejecución alternativas para P2PKH (donde el script ejecutado es <x2/>) ni para P2SH (donde <x3/> se ejecuta completamente antes de <x4/>).",
+  "For P2SH, this means we commit to the Hash160 digest of <x1/> instead of the actual script. Note that the Bitcoin P2SH design depends entirely on Hash160 being preimage-resistant, because otherwise anyone would be able to spend someone else's P2SH UTXO using a preimage. We do need to ensure that there is no collision attack; this holds because even if an adversary could find a Hash160 collision, it would only enable them to alter the input's <x2/> field. Doing so doesn't alter the effecting data of the transaction, which by definition means the transaction has the same effect under consensus (spends the same inputs and produces the same outputs).": "Para P2SH, esto significa que nos comprometemos al resumen Hash160 de <x1/> en lugar del script real. Nótese que el diseño P2SH de Bitcoin depende enteramente de que Hash160 sea resistente a preimágenes, porque de lo contrario cualquiera podría gastar el UTXO P2SH de otra persona usando una preimagen. Sí necesitamos asegurar que no haya un ataque de colisión; esto se cumple porque incluso si un adversario pudiera encontrar una colisión de Hash160, esto solo le permitiría alterar el campo <x2/> de la entrada. Hacerlo no altera los datos efectivos de la transacción, lo cual, por definición, significa que la transacción tiene el mismo efecto bajo consenso (gasta las mismas entradas y produce las mismas salidas).",
+  "Signatures over Sapling Spends or Orchard Actions, in transactions containing transparent inputs, commit to the same data that the transparent inputs do, including all of the transparent input values. Without this commitment, there would be a similar difficulty for a hardware wallet in the case where it is only signing shielded inputs, when the transaction also contains transparent inputs from a malicious other party, because that party could lie about their coins' values.": "Las firmas sobre Spends de Sapling o Actions de Orchard, en transacciones que contienen entradas transparentes, se comprometen a los mismos datos que las entradas transparentes, incluidos todos los valores de las entradas transparentes. Sin este compromiso, habría una dificultad similar para una billetera de hardware en el caso en que solo firme entradas blindadas, cuando la transacción también contenga entradas transparentes de otra parte maliciosa, porque esa parte podría mentir sobre los valores de sus monedas.",
+  "By contrast, binding signatures for shielded coinbase transactions continue to be over the transaction ID, as for non-coinbase transactions without transparent inputs. This is necessary because coinbase transactions have a single \"dummy\" transparent input element that has no corresponding previous output to commit to. It is also sufficient because the data in that transparent input either is already bound elsewhere (namely the block height, placed in <x1/> from NU5 activation), or does not need to be bound to the shielded outputs (e.g. miner-identifying information).": "En contraste, las firmas de vinculación para transacciones coinbase blindadas continúan siendo sobre el identificador de transacción, al igual que para las transacciones que no son coinbase sin entradas transparentes. Esto es necesario porque las transacciones coinbase tienen un único elemento de entrada transparente \"ficticio\" que no tiene una salida previa correspondiente a la cual comprometerse. También es suficiente porque los datos de esa entrada transparente ya están vinculados en otra parte (a saber, la altura de bloque, colocada en <x1/> desde la activación de NU5), o no necesitan estar vinculados a las salidas blindadas (p. ej., información que identifica al minero).",
+  "<x1/>Reference implementation": "<x1/>Implementación de referencia",
+  "<g1>https://github.com/zcash/librustzcash/pull/319/files</g1>": "<g1>https://github.com/zcash/librustzcash/pull/319/files</g1>",
+  "<x1/>References": "<x1/>Referencias"
+ },
+ "reviews": {
+  "Transaction Identifier Non-Malleability": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The key words \"MUST\" and \"MUST NOT\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The terms \"consensus branch\", \"epoch\", and \"network upgrade\" in this document are to be interpreted as described in ZIP 200. <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The term \"field encoding\" refers to the binary serialized form of a Zcash transaction field, as specified in section 7.1 of the Zcash protocol specification <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This proposal defines a new transaction digest algorithm for the NU5 network upgrade onward, in order to introduce non-malleable transaction identifiers that commit to all transaction data except for attestations to transaction validity.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This proposal also defines a new transaction digest algorithm for signature validation, which shares all available structure produced during the construction of transaction identifiers, in order to minimize redundant data hashing in validation.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This proposal also defines a new name and semantics for the <x1/> field of the block header, to enable additional commitments to be represented in this hash and to provide a mechanism for future extensibility of the set of commitments represented.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In all cases, but particularly in order to support the use of transactions in higher-level protocols, any modification of the transaction that has not been explicitly permitted (such as via anyone-can-spend inputs) should invalidate attestations to spend authority or to the included outputs. Following the activation of this proposed change, transaction identifiers will be stable irrespective of any possible malleation of \"witness data\" such as proofs and transaction signatures.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In addition, by specifying a transaction identifier and signature algorithm that is decoupled from the serialized format of the transaction as a whole, this change makes it so that the wire format of transactions is no longer consensus-critical.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Continue to support existing functionality of the protocol (multisig, signing modes for transparent inputs).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Allow the use of transaction ids, and pairs of the form (transaction id, output index) as stable identifiers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A sender must be able to recognize their own transaction, even given allowed forms of malleability such as recomputation of transaction signatures.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case of transparent inputs, it should be possible to create a transaction (B) that spends the outputs from a previous transaction (A) even before (A) has been mined. This should also be possible in the case that the creator of (B) does not wait for confirmations of (A). That is, (B) should remain valid so long as any variant of (A) is eventually mined.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "It should not be possible for an attacker to malleate a transaction in a fashion that would result in the transaction being interpreted as a double-spend.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "It should be possible in the future to upgrade the protocol in such a fashion that only non-malleable transactions are accepted.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "It should be possible to use the transaction id unmodified as the value that is used to produce a signature hash in the case that the transaction contains no transparent inputs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Non-requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In order to support backwards-compatibility with parts of the ecosystem that have not yet upgraded to the non-malleable transaction format, it is not an initial requirement that all transactions be non-malleable.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "It is not required that legacy (Sapling V4 and earlier) transaction formats support construction of non-malleable transaction identifiers, even though they may continue to be accepted by the network after the NU5 upgrade.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Digests": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "All digests are personalized BLAKE2b-256 hashes. In cases where no elements are available for hashing (for example, if there are no transparent transaction inputs or no Orchard actions), a personalized hash of the empty byte array will be used. The personalization string therefore provides domain separation for the hashes of even empty data fields.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The notation <x1/> is used to refer to hashes constructed in this manner.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>TxId Digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A new transaction digest algorithm is defined that constructs the identifier for a transaction from a tree of hashes. Each branch of the tree of hashes will correspond to a specific subset of transaction data. The overall structure of the hash is as follows; each name referenced here will be described in detail below:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each node written as <x1/> in this tree is a BLAKE2b-256 hash of its children, initialized with a personalization string specific to that branch of the tree. Nodes that are not themselves digests are written in <x2/>. In the specification below, nodes of the tree are presented in depth-first order.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>txid_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the following values": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The personalization field of this hash is set to:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> has 1 underscore character.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "As in ZIP 143 <x1/>, CONSENSUS_BRANCH_ID is the 4-byte little-endian encoding of the consensus branch ID for the epoch of the block containing the transaction. Domain separation of the transaction id hash across parallel consensus branches provides replay protection: transactions targeted for one consensus branch will not have the same transaction identifier on other consensus branches.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This signature hash personalization prefix has been changed to reflect the new role of this hash (relative to <x1/> as specified in ZIP 143) as a transaction identifier rather than a commitment that is exclusively used for signature purposes. The previous computation of the transaction identifier was a SHA256d hash of the serialized transaction contents, and was not personalized.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.1: header_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.2: transparent_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that transparent inputs or outputs are present, the transparent digest consists of a BLAKE2b-256 hash of the following values": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has no transparent components, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.2a: prevouts_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the field encoding of all <x1/> field values of transparent inputs to the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has transparent outputs but no transparent inputs, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.2b: sequence_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the 32-bit little-endian representation of all <x1/> field values of transparent inputs to the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.2c: outputs_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the concatenated field encodings of all transparent output values of the transaction. The field encoding of such an output consists of the encoded output <x1/> (8-byte little endian) followed by the <x2/> byte array (serialized as Bitcoin script).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has transparent inputs but no transparent outputs, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.3: sapling_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that Sapling spends or outputs are present, the digest of Sapling components is composed of two subtrees which are organized to permit easy interoperability with the <x1/> representation of Sapling data specified by the ZIP 307 Light Client Protocol <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This digest is a BLAKE2b-256 hash of the following values": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has no Sapling spends or outputs, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.3a: sapling_spends_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that Sapling spends are present, this digest is a BLAKE2b-256 hash of the following values": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has Sapling outputs but no Sapling spends, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.3a.i: sapling_spends_compact_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the field encoding of all <x1/> field values of Sapling shielded spends belonging to the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.3a.ii: sapling_spends_noncompact_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the non-nullifier information for all Sapling shielded spends belonging to the transaction, excluding both zkproof data and spend authorization signature(s). For each spend, the following elements are included in the hash:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In Transaction version 5, Sapling Spends have a shared anchor, which is hashed into the sapling_spends_noncompact_digest for <g1>each</g1> Spend.": {
+   "passed": true,
+   "rounds": 3,
+   "issues": [
+    "\"Hashed into the sapling_spends_noncompact_digest\" is rendered as \"included in the hash of the sapling_spends_noncompact_digest\", wrongly implying a second hash of the digest instead of the anchor being an input to it.",
+    "The glossary term 'transaction' is left untranslated as 'Transaction'."
+   ],
+   "first": "En la versión 5 de Transaction, los Spends de Sapling tienen un ancla compartida, la cual se incluye en el hash del sapling_spends_noncompact_digest para <g1>cada</g1> Spend."
+  },
+  "T.3b: sapling_outputs_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that Sapling outputs are present, this digest is a BLAKE2b-256 hash of the following values": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has Sapling spends but no Sapling outputs, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.3b.i: sapling_outputs_compact_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the subset of Sapling output information included in the ZIP-307 <x1/> <x2/> format for all Sapling shielded outputs belonging to the transaction. For each output, the following elements are included in the hash:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.3b.ii: sapling_outputs_memos_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the subset of Sapling shielded memo field data for all Sapling shielded outputs belonging to the transaction. For each output, the following elements are included in the hash:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.3b.iii: sapling_outputs_noncompact_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the remaining subset of Sapling output information <g1>not</g1> included in the ZIP 307 <x2/> <x3/> format, excluding zkproof data, for all Sapling shielded outputs belonging to the transaction. For each output, the following elements are included in the hash:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.4: orchard_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that Orchard actions are present in the transaction, this digest is a BLAKE2b-256 hash of the following values": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has no Orchard actions, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.4a: orchard_actions_compact_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the subset of Orchard Action information intended to be included in an updated version of the ZIP-307 <x1/> <x2/> format for all Orchard Actions belonging to the transaction. For each Action, the following elements are included in the hash:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.4b: orchard_actions_memos_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the subset of Orchard shielded memo field data for all Orchard Actions belonging to the transaction. For each Action, the following elements are included in the hash:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "T.4c: orchard_actions_noncompact_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A BLAKE2b-256 hash of the remaining subset of Orchard Action information <g1>not</g1> intended for inclusion in an updated version of the the ZIP 307 <x2/> <x3/> format, for all Orchard Actions belonging to the transaction. For each Action, the following elements are included in the hash:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Signature Digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A new per-input transaction digest algorithm is defined that constructs a hash that may be signed by a transaction creator to commit to the effects of the transaction. A signature digest is produced for each transparent input, each Sapling input, and each Orchard action. This follows closely the algorithms from ZIP 143 <x1/> and ZIP 243 <x2/>. For transactions without transparent inputs, this algorithm has the exact same output as the transaction digest algorithm, thus the txid may be signed directly.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The overall structure of the hash is as follows; each name referenced here will be described in detail below:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>signature_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This value has the same personalization as the top hash of the transaction identifier digest tree, so that what is being signed in the case that there are no transparent inputs is just the transaction id.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.1: header_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Identical to that specified for the transaction identifier.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.2: transparent_sig_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If we are producing a hash for either a coinbase transaction, or a non-coinbase transaction that has no transparent inputs, the value of <x1/> is identical to the value specified in section <g2>T.2</g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If we are producing a hash for a non-coinbase transaction that has transparent inputs, the value of <x1/> depends upon the value of a <x2/> flag, as follows.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The construction of each component below depends upon the values of the <x1/> flag bits. Each component will be described separately.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.2a: hash_type": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This is an 8-bit unsigned value. The <x1/> encodings from the legacy script system are reused: one of <x2/> (0x01), <x3/> (0x02), and <x4/> (0x03), with or without the <x5/> flag (0x80). The following restrictions apply, which cause validation failure if violated:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Using any undefined <x1/> (not 0x01, 0x02, 0x03, 0x81, 0x82, or 0x83).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Using <x1/> without a \"corresponding output\" (an output with the same index as the input being verified).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If we are producing a hash for the signature over a transparent input, the value of <x1/> is obtained from the input's <x2/> as encoded in the transaction. If we are producing a hash for the signature over a Sapling Spend or an Orchard Action, <x3/> is set to <x4/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.2b: prevouts_sig_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This is a BLAKE2b-256 hash initialized with the personalization field value <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the <x1/> flag is not set:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "otherwise:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.2c: amounts_sig_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the <x1/> flag is not set, the value of <x2/> is a BLAKE2b-256 hash of the concatenation of the 8-byte signed little-endian representations of all <x3/> fields <x4/> for the coins spent by the transparent inputs to the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the <x1/> flag is set, <x2/> is:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.2d: scriptpubkeys_sig_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the <x1/> flag is not set, the value of <x2/> is a BLAKE2b-256 hash of the concatenation of the field encodings (each including a leading <x3/>) of all <x4/> fields <x5/> for the coins spent by the transparent inputs to the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.2e: sequence_sig_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.2f: outputs_sig_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the sighash type is neither <x1/> nor <x2/>:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the sighash type is <x1/> and the signature hash is being computed for the transparent input at a particular index, and a transparent output appears in the transaction at that index:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.2g: txin_sig_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If we are producing a hash for the signature over a transparent input, the value of <x1/> is a BLAKE2b-256 hash of the following properties of the transparent input being signed, initialized with the personalization field value <x2/> (3 underscores):": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Notes:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is defined in the consensus rules to be a nonnegative value &lt;= <x2/>, but all existing implementations parse this value as signed and enforce the nonnegative constraint as a consensus check. It is defined as signed here for consistency with those existing implementations.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is the field encoding (including a leading <x2/>) of the <x3/> field <x4/> for the coin spent by the transparent input. For P2SH coins, this differs from the <x5/> committed to in ZIP 243 <x6/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If we are producing a hash for the signature over a Sapling Spend or an Orchard Action, <x1/> is:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.3: sapling_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "S.4: orchard_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Authorizing Data Commitment": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A new transaction digest algorithm is defined that constructs a digest which commits to the authorizing data of a transaction from a tree of BLAKE2b-256 hashes. For v5 transactions, the overall structure of the hash is as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each node written as <x1/> in this tree is a BLAKE2b-256 hash of authorizing data of the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For transaction versions before v5, a placeholder value consisting of 32 bytes of <x1/> is used in place of the authorizing data commitment. This is only used in the tree committed to by <x2/>, as defined in <g3>Block Header Changes</g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The pair (Transaction Identifier, Auth Commitment) constitutes a commitment to all the data of a serialized transaction that may be included in a block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>auth_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A.1: transparent_scripts_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction contains transparent inputs, this is a BLAKE2b-256 hash of the field encoding of the concatenated values of the Bitcoin script values associated with each transparent input belonging to the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has no transparent inputs, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A.2: sapling_auth_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that Sapling Spends or Sapling Outputs are present, this is a BLAKE2b-256 hash of the field encoding of the Sapling <x1/> value of each Sapling Spend Description, followed by the field encoding of the <x2/> value of each Sapling Spend Description belonging to the transaction, followed by the field encoding of the <x3/> field of each Sapling Output Description belonging to the transaction, followed by the field encoding of the binding signature:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has no Sapling Spends or Sapling Outputs, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A.3: orchard_auth_digest": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that Orchard Actions are present, this is a BLAKE2b-256 hash of the field encoding of the <x1/>, <x2/>, and <x3/> fields of the transaction:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the case that the transaction has no Orchard Actions, <x1/> is": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Block Header Changes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The nonmalleable transaction identifier specified by this ZIP will be used in the place of the current malleable transaction identifier within the Merkle tree committed to by the <x1/> value. However, this change now means that <x2/> is not sufficient to fully commit to the transaction data, including witnesses, that appear within the block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "As a consequence, we now need to add a new commitment to the block header. This commitment will be the root of a Merkle tree having leaves that are transaction authorizing data commitments, produced according to the <g1>Authorizing Data Commitment</g1> part of this specification. The insertion order for this Merkle tree MUST be identical to the insertion order of transaction identifiers into the Merkle tree that is used to construct <x2/>, such that a path through this Merkle tree to a transaction identifies the same transaction as that path reaches in the tree rooted at <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This new commitment is named <x1/> and is the root of a binary Merkle tree of transaction authorizing data commitments having height <x2/>, padded with leaves having the \"null\" hash value <x3/>. Note that <x4/> is well-defined because <x5/>, due to the coinbase transaction in each block. Non-leaf hashes in this tree are BLAKE2b-256 hashes personalized by the string <x6/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Changing the block header format to allow space for an additional commitment is somewhat invasive. Instead, the name and meaning of the <x1/> field, described in ZIP 221 <x2/>, is changed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is renamed to <x2/>. The value of this hash is the BLAKE2b-256 hash personalized by the string <x3/> of the following elements:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This representation treats the <x1/> value as a linked list of hashes terminated by arbitrary data. In the case of protocol upgrades where additional commitments need to be included in the block header, it is possible to replace this terminator with the hash of a newly defined structure which ends in a similar terminator. Fully validating nodes MUST always use the entire structure defined by the latest activated protocol version that they support.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The linked structure of this hash is intended to provide extensibility for use by light clients which may be connected to a third-party server that supports a later protocol version. Such a third party SHOULD provide a value that can be used instead of the all-zeros terminator to permit the light client to perform validation of the parts of the structure it needs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Unlike the <x1/> change, the change to <x2/> happens in the block that activates this ZIP.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The block header byte format and version are not altered by this ZIP.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In S.2, we use the same personalization strings for fields that have matching fields in T.2, in order to facilitate reuse of their digests. In particular, the \"no transparent inputs or outputs\" case of S.2 is identical to the equivalent case in T.2; thus for fully shielded transactions, <x1/> is equal to <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Several changes in this ZIP (relative to ZIP 243 <x1/>) were made to align with BIP 341 <x2/>:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <x1/> field is now restricted via a new consensus rule to be one of a specific set of sighash type encodings. The rationale for this change is inherited from BIP 341 <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Note however that we do not define <x1/>, as it is equivalent to <x2/>, and we prefer the encodings to be canonical.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Two new commitments (<x1/> and <x2/>) were added, to address difficulties in the case of a hardware wallet signing transparent inputs. <x3/> helps the hardware wallet to determine the subset of inputs belonging to it <x4/>. <x5/> prevents the transaction creator from lying to the hardware wallet about the transaction fee <x6/>. Without these commitments, the hardware wallet would need to be sent every transaction containing an outpoint referenced in the transaction being signed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The semantics of <x1/> were changed, to commit to <x2/> even if <x3/> or <x4/> is set. The rationale for this change is inherited from BIP 341 <x5/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The semantics of <x1/> were changed, via a new consensus rule that rejects transparent inputs for which <x2/> is set without a corresponding transparent output at the same index. BIP 341 does not give a rationale for this change, but without it these inputs were effectively using <x3/>, which is silently misleading.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The semantics of <x1/> were changed, to always commit to the <x2/> field of the transparent coin being spent, instead of the script actually being executed at the time <x3/> is calculated.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ensures that the signature commits to the entire committed script. In Taproot, this makes it possible to prove to a hardware wallet what (unused) execution paths exist <x1/>. Alternate execution paths don't exist for P2PKH (where the executed script is <x2/>) or P2SH (where <x3/> is fully executed prior to <x4/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For P2SH, this means we commit to the Hash160 digest of <x1/> instead of the actual script. Note that the Bitcoin P2SH design depends entirely on Hash160 being preimage-resistant, because otherwise anyone would be able to spend someone else's P2SH UTXO using a preimage. We do need to ensure that there is no collision attack; this holds because even if an adversary could find a Hash160 collision, it would only enable them to alter the input's <x2/> field. Doing so doesn't alter the effecting data of the transaction, which by definition means the transaction has the same effect under consensus (spends the same inputs and produces the same outputs).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Signatures over Sapling Spends or Orchard Actions, in transactions containing transparent inputs, commit to the same data that the transparent inputs do, including all of the transparent input values. Without this commitment, there would be a similar difficulty for a hardware wallet in the case where it is only signing shielded inputs, when the transaction also contains transparent inputs from a malicious other party, because that party could lie about their coins' values.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "By contrast, binding signatures for shielded coinbase transactions continue to be over the transaction ID, as for non-coinbase transactions without transparent inputs. This is necessary because coinbase transactions have a single \"dummy\" transparent input element that has no corresponding previous output to commit to. It is also sufficient because the data in that transparent input either is already bound elsewhere (namely the block height, placed in <x1/> from NU5 activation), or does not need to be bound to the shielded outputs (e.g. miner-identifying information).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Reference implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>https://github.com/zcash/librustzcash/pull/319/files</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  }
+ }
+}

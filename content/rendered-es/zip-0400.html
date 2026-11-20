@@ -1,0 +1,397 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)" y "PUEDE (MAY)" en este documento se interpretan como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta define el formato actual utilizado en zcashd para el almacenamiento persistente de la billetera, conocido comúnmente como <span class="docutils literal">wallet.dat</span>.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>El proceso de guardar los datos de la billetera en el disco actualmente no está especificado. Las claves-valores utilizados en la implementación actual no están documentados, y su estructura y funcionalidad son desconocidas sin un análisis profundo del código fuente involucrado. Este documento detalla el esquema y la mecánica de la base de datos de la billetera. Este es un documento informativo; no se harán cambios al código fuente.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Zcash almacena la información de la billetera en una base de datos Berkeley (BDB) <a class="brackets" href="#bdb" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> conocida comúnmente como <span class="docutils literal">wallet.dat</span>. El propósito principal de esta es la persistencia de las claves públicas y privadas que el usuario creó y la capacidad de recuperar el estado de la billetera después de un reinicio del nodo. Este archivo también permite la migración de la información del usuario de un nodo a otro moviendo la base de datos al nuevo directorio de datos correspondiente, asumiendo que ambas instancias de zcashd ejecutan la misma versión o una similar. Puede ser necesaria una reindexación después de esta operación.</p>
+<p>La base de datos actual es un almacén de claves y valores donde las claves y los valores pueden tener múltiples tipos de datos en formato binario. El primer dato que se encuentra en una clave de la base de datos es siempre el nombre de la propiedad; el resto de la clave generalmente se usa para identificar un registro, por ejemplo:</p>
+<pre class="literal-block">&#x3C;------ KEY ----+- VALUE ->
+---------------------------
+| zkey | pubkey | privkey |
+---------------------------</pre>
+<p>Aquí <span class="docutils literal">zkey</span> es el nombre de la propiedad ubicado en la primera posición de la clave de la base de datos; la clave pública también forma parte de la clave de la base de datos y está ubicada en la segunda posición; la clave privada se guarda en la columna de valores de la base de datos, en la primera posición.</p>
+<h2 id="schema"><a class="hanchor" href="#schema" aria-hidden="true" tabindex="-1">#</a>Esquema</h2>
+<p>Según Zcash v3.0.0-rc1 se pueden encontrar las siguientes claves-valores: los nombres de propiedad en <strong>negrita</strong> significan que solo puede existir una instancia de este tipo en toda la base de datos, mientras que los demás, con el sufijo '*', pueden tener múltiples instancias. Las columnas de Claves y Valores de la tabla contienen los tipos que representan los datos almacenados. También se incluyen allí los nombres de las variables, con la esperanza de que esto añada algo de claridad sobre lo que representan los datos almacenados.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Nombre</p></th>
+<th class="head"><p>Descripción</p></th>
+<th class="head"><p>Claves</p></th>
+<th class="head"><p>Valores</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>acc*</p></td>
+<td><p>Datos de cuenta</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAccount</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CAccount account</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>acentry*</p></td>
+<td><p>Realiza un seguimiento de las transferencias internas entre cuentas en la misma billetera</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAccount</span></p></li>
+<li><p><span class="docutils literal">uint64_t nNumber</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CAccountingEntry acentry</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>bestblock</strong></p></td>
+<td><p>El mejor bloque actual de la blockchain.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CBlockLocator locator</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>chdseed</strong></p></td>
+<td><p>Semilla HD cifrada</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint256 seedFp</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">vector&#x3C;unsigned char> vchCryptedSecret</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>ckey*</p></td>
+<td><p>Clave pública y clave privada transparentes cifradas.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">vector&#x3C;unsigned char> vchPubKey</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">vector&#x3C;unsigned char> vchPrivKey</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>csapzkey*</p></td>
+<td><p>Clave pública y clave privada de Sapling cifradas.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingIncomingViewingKey</span> ivk</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingExtendedFullViewingKey</span> extfvk</span></p></li>
+<li><p><span class="docutils literal">vector&#x3C;unsigned char> vchCryptedSecret</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>cscript</strong></p></td>
+<td><p>Script serializado, usado dentro de las entradas y salidas de las transacciones</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint160 hash</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CScript script</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>czkey*</p></td>
+<td><p>Clave pública y clave privada de Sprout cifradas.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutPaymentAddress</span> addr</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint256 rkValue</span></p></li>
+<li><p><span class="docutils literal">vector&#x3C;unsigned char> vchCryptedSecret</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>defaultkey</strong></p></td>
+<td><p>Clave transparente predeterminada.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CPubKey <span class="pre">CWallet::vchDefaultKey</span></span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>destdata*</p></td>
+<td><p>Añade una tupla de datos de destino al almacén.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">std::string</span> strAddress</span></p></li>
+<li><p><span class="docutils literal"><span class="pre">std::string</span> strKey</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">std::string</span> strValue</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>hdchain</strong></p></td>
+<td><p>Código de cadena jerárquico determinista, derivado de la semilla.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CHDChain chain</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>hdseed*</p></td>
+<td><p>Semilla jerárquica determinista. <a class="brackets" href="#zip-0032" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint256 seedFp</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">RawHDSeed rawSeed</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>key*</p></td>
+<td><p>Clave pública y clave privada transparentes.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CPubKey vchPubKey</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CPrivKey pkey</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>keymeta*</p></td>
+<td><p>Metadatos de clave transparente.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CPubKey vchPubKey</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CKeyMetadata keyMeta</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>minversion</strong></p></td>
+<td><p>Versión mínima requerida de la billetera.</p></td>
+<td></td>
+<td></td>
+</tr>
+<tr><td><p><strong>mkey</strong></p></td>
+<td><p>Clave maestra, usada para cifrar las claves públicas y privadas de la base de datos.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">unsigned int nID</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CMasterKey kMasterKey</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>name*</p></td>
+<td><p>Nombre de una dirección para insertar en la libreta de direcciones.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAddress</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAddress</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>orderposnext</strong></p></td>
+<td><p>Índice de la siguiente transacción.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">int64_t nOrderPosNext</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>pool*</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">int64_t nIndex</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CKeyPool keypool</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>purpose*</p></td>
+<td><p>Descripción breve o identificador de una dirección.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strAddress</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">string strPurpose</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>sapzaddr*</p></td>
+<td><p>Clave de visualización entrante y dirección de una z-addr de Sapling.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingPaymentAddress</span> addr</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingIncomingViewingKey</span> ivk</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>sapextfvk*</p></td>
+<td><p>Clave de visualización completa extendida de Sapling</p></td>
+<td></td>
+<td></td>
+</tr>
+<tr><td><p>sapzkey*</p></td>
+<td><p>Clave de visualización entrante de Sapling y clave de gasto extendida</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingIncomingViewingKey</span> ivk</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SaplingExtendedSpendingKey</span> key</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>tx*</p></td>
+<td><p>Almacena todas las transacciones que están relacionadas con la billetera.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">uint256 hash</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CWalletTx wtx</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>version</strong></p></td>
+<td><p>El <span class="docutils literal">CLIENT_VERSION</span> de <span class="docutils literal">clientversion.h</span>.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">int nFileVersion</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>vkey*</p></td>
+<td><p>Claves de visualización de Sprout.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutViewingKey</span> vk</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">char fYes</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>watchs*</p></td>
+<td><p>t-addresses de solo lectura.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CScript script</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">char fYes</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p><strong>witnesscachesize</strong></p></td>
+<td><p>Tamaño de la caché de testigos de notas blindadas.</p></td>
+<td></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">int64_t nWitnessCacheSize</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>wkey*</p></td>
+<td><p>Clave de la billetera.</p></td>
+<td></td>
+<td></td>
+</tr>
+<tr><td><p>zkey*</p></td>
+<td><p>Dirección de pago y clave de gasto de Sprout.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutPaymentAddress</span> addr</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutSpendingKey</span> key</span></p></li>
+</ol>
+</td>
+</tr>
+<tr><td><p>zkeymeta*</p></td>
+<td><p>Dirección de pago de Sprout y metadatos de la clave.</p></td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal"><span class="pre">libzcash::SproutPaymentAddress</span> addr</span></p></li>
+</ol>
+</td>
+<td><ol class="arabic simple">
+<li><p><span class="docutils literal">CKeyMetadata keyMeta</span></p></li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="functionality"><a class="hanchor" href="#functionality" aria-hidden="true" tabindex="-1">#</a>Funcionalidad</h2>
+<p>Cuando se inicia por primera vez un nodo zcashd compilado con soporte de billetera, se crea una nueva base de datos de billetera. De forma predeterminada, el nodo ejecutará automáticamente acciones de billetera que se guardarán en la base de datos en el primer momento de vaciado.</p>
+<p>El siguiente flujo ocurrirá cuando se inicia por primera vez un nodo con soporte de billetera:</p>
+<ul class="simple">
+<li><p>Se agregarán al pool <span class="docutils literal">DEFAULT_KEYPOOL_SIZE</span> (100 de forma predeterminada) claves, creando 100 registros con <span class="docutils literal">pool</span> como nombre de propiedad (primer valor de la clave de la base de datos).</p></li>
+<li><p>También se agregarán 100 propiedades <span class="docutils literal">key</span>.</p></li>
+<li><p>100 <span class="docutils literal">keymeta</span>.</p></li>
+<li><p>La billetera creará una clave transparente predeterminada para recibir; esta también se agregará como propiedades <span class="docutils literal">key</span>, <span class="docutils literal">pool</span> y <span class="docutils literal">keymeta</span>.</p></li>
+<li><p>Esta clave predeterminada también se agrega como una propiedad <span class="docutils literal">defaultkey</span>.</p></li>
+<li><p>La última acción creó una entrada en la libreta de direcciones que se refleja en la base de datos mediante las propiedades <span class="docutils literal">name</span> y <span class="docutils literal">purpose</span>.</p></li>
+<li><p>Si la billetera se crea con soporte HD, tendrá propiedades adicionales <span class="docutils literal">hdseed</span> y <span class="docutils literal">hdchain</span> que se guardarán.</p></li>
+<li><p>Se agregan las propiedades <span class="docutils literal">version</span>, <span class="docutils literal">minversion</span>, <span class="docutils literal">witnesscachesize</span> y <span class="docutils literal">bestblock</span>. Estas son configuraciones e información de estado: la propiedad <span class="docutils literal">bestblock</span> es un buen ejemplo del llenado de la base de datos que ocurre sin ninguna interacción del usuario, pero simplemente se actualizará a medida que cambie el mejor bloque de la cadena actual.</p></li>
+</ul>
+<p>En cualquier momento después de crearse la base de datos, se pueden agregar nuevas propiedades a medida que los usuarios de la billetera realizan acciones. Por ejemplo, si el usuario crea una nueva dirección de Sapling con el comando RPC <span class="docutils literal">z_getnewaddress</span>, entonces se agregarán a la base de datos nuevos registros con las propiedades <cite>sapzkey</cite> y <cite>sapzkeymeta</cite>.</p>
+<p>En zcashd, los cambios en la base de datos no ocurren inmediatamente, sino que se vacían en su propio hilo mediante la función <span class="docutils literal">ThreadFlushWalletDB()</span> periódicamente para evitar sobrecarga. El contador interno <span class="docutils literal">nWalletDBUpdated</span> se incrementa cada vez que se realiza una nueva operación de escritura en la base de datos; este se compara con el último vaciado para confirmar los elementos nuevos.</p>
+<p>Cuando el nodo se detiene por cualquier motivo, la información en la base de datos de la billetera DEBERÍA (SHOULD) persistir en el disco; la próxima vez que el nodo se inicie, el software detectará el archivo de la base de datos, leerá de allí y agregará los valores a estructuras en memoria que garantizarán la funcionalidad de la billetera.</p>
+<h3 id="transactions"><a class="hanchor" href="#transactions" aria-hidden="true" tabindex="-1">#</a>Transacciones</h3>
+<p>La base de datos de la billetera no guardará todas las transacciones que ocurren en la blockchain; sin embargo, guardará todas las transacciones en las que estén involucradas claves de la billetera. Esto es necesario, por ejemplo, para obtener saldos. Por lo tanto, la billetera debe tener todas las transacciones relacionadas con una clave para computar el valor final de las monedas disponibles en la dirección derivada.</p>
+<p>La propiedad <span class="docutils literal">tx</span> contendrá los datos relacionados con las transacciones, con el hash de la transacción como clave y la transacción completa como valor.</p>
+
+<h3 id="wallet-state-and-transaction-reordering"><a class="hanchor" href="#wallet-state-and-transaction-reordering" aria-hidden="true" tabindex="-1">#</a>Estado de la billetera y reordenamiento de transacciones</h3>
+<p>Las transacciones se guardan en la clave <span class="docutils literal">tx</span> de la base de datos a medida que llegan; esto significa que las transacciones tienen una secuencia. El conjunto de todas las transacciones desde el inicio hasta un momento dado es el estado de la billetera en ese instante. El estado de la billetera es importante, entre otras cosas, para obtener el saldo actual de una billetera o dirección.</p>
+<p>En la blockchain, las transacciones pueden invalidarse por reversiones; el código de la billetera manejará esto actualizando las transacciones en la base de datos en memoria. El nuevo estado debe reflejarse en la base de datos en disco; esto se hace en zcashd mediante el indicador <span class="docutils literal">fAnyUnordered</span>, donde si es verdadero al momento del inicio, lanzará un reescaneo sobre todas las transacciones nuevamente.</p>
+
+<h3 id="wallet-recovery"><a class="hanchor" href="#wallet-recovery" aria-hidden="true" tabindex="-1">#</a>Recuperación de la billetera</h3>
+<p>El archivo de la base de datos de la billetera puede corromperse. Hay utilidades en el directorio <cite>zcutil/bin</cite> que pueden ayudar a recuperarlo si esto ocurre. Solicite ayuda en el foro de Zcash o en el Discord de la comunidad.</p>
+
+<h3 id="wallet-encryption"><a class="hanchor" href="#wallet-encryption" aria-hidden="true" tabindex="-1">#</a>Cifrado de la billetera</h3>
+<p>El cifrado no se tratará en detalle en este documento, ya que se espera que el algoritmo cambie en el futuro según el issue del ZIP sobre el formato de la billetera: <a class="brackets" href="#zip400issue" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>Para una comprensión más profunda del mecanismo de cifrado actual, consulte <a class="brackets" href="#cryptercode" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p>
+
+
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="bdb" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.oracle.com/database/berkeley-db/db.html">Oracle Berkeley Database</a></p>
+</aside>
+<aside class="footnote brackets" id="zip400issue" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/issues/350">ZIP 400 issue</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="cryptercode" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/blob/master/src/wallet/crypter.h">Database key encryption implementation</a></p>
+</aside>
+</aside>
+
