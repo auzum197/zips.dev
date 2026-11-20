@@ -75,7 +75,7 @@ function loadEnv(): void {
 
 /* ---------- segmentation ---------- */
 
-const BCP14 = /\b(MUST NOT|SHALL NOT|SHOULD NOT|NOT RECOMMENDED|MUST|REQUIRED|SHALL|SHOULD|RECOMMENDED|MAY|OPTIONAL)\b/g;
+const BCP14 = /\b(MUST NOT|SHALL NOT|SHOULD NOT|NOT RECOMMENDED|MUST|REQUIRED|SHALL|SHOULD|RECOMMENDED|MAY|OPTIONAL)\b(?!-\p{L})/gu;
 
 const INLINE = new Set([
     "a", "abbr", "b", "br", "cite", "code", "del", "em", "i", "img", "ins", "kbd", "mark", "math", "q", "s", "samp",
@@ -238,12 +238,12 @@ export function rebuild(seg: Segment, translated: string): ElementContent[] {
     // a title that comes back as it went in is not translated (a title made only
     // of names or identifiers, such as "CHECKSEQUENCEVERIFY", has no words to translate)
     if (seg.title && text === seg.source) {
-        const words = KEEP.reduce((t, term) => t.split(term).join(" "), seg.source).match(/\p{L}*\p{Ll}\p{L}{3,}/gu) ?? [];
+        const words = [...KEEP].sort((a, b) => b.length - a.length).reduce((t, term) => t.split(term).join(" "), seg.source).match(/\p{L}*\p{Ll}\p{L}{3,}/gu) ?? [];
         if (words.length >= 2)
             throw new Error("this is the title of the document and it is still in English; translate it");
     }
     // every number of the source is in the translation: "Revision 2" must not become "Revisión 3"
-    const digits = (t: string): string => (t.replace(/<\/?[gx]\d+\/?>/g, " ").match(/\d+/g) ?? []).sort().join(",");
+    const digits = (t: string): string => (t.replace(/<\/?[gx]\d+\/?>/g, " ").match(/\d/g) ?? []).sort().join("");
     if (digits(text) !== digits(seg.source))
         throw new Error(`the numbers differ from the source: the source has [${digits(seg.source)}], the translation has [${digits(text)}]`);
     // a term that stays in English must still be there
@@ -259,7 +259,7 @@ export function rebuild(seg: Segment, translated: string): ElementContent[] {
     // each key word is the parenthesised original after its Spanish form: "DEBE (MUST)"
     for (const m of text.matchAll(BCP14)) {
         const before = text.slice(0, m.index);
-        if (!/\p{Lu}{2,}\s*\($/u.test(before) || text[m.index + m[0].length] !== ")")
+        if (!/\p{Lu}{2,}["”»’']?\s*\($/u.test(before) || text[m.index + m[0].length] !== ")")
             throw new Error(`key word ${m[0]} must follow its Spanish translation in capitals, in parentheses, e.g. "DEBE (MUST)"`);
     }
     const root: ElementContent[] = [];
@@ -449,7 +449,7 @@ const PREVIOUS = 6;
  *  Spanish, so pronouns have their antecedent and terms stay the same in a
  *  document. A segment that never passes the checks is absent from the
  *  memory (the caller keeps English). */
-export async function translateAll(system: string, doc: Doc, wanted: Map<string, Segment>, memory: Record<string, string>): Promise<{ failed: Map<string, string> }> {
+export async function translateAll(system: string, doc: Doc, wanted: Map<string, Segment>, memory: Record<string, string>, checkpoint?: () => void): Promise<{ failed: Map<string, string> }> {
     const order = [...wanted.keys()];
     let pending = order.filter((s) => !(s in memory));
     const failed = new Map<string, string>();
@@ -490,6 +490,7 @@ export async function translateAll(system: string, doc: Doc, wanted: Map<string,
                     retry.push(s);
                 }
             });
+            checkpoint?.();
             done++;
             process.stdout.write(`\r  round ${round}: ${done}/${batches.length} batches`);
         }
@@ -536,7 +537,7 @@ function batchesOf(items: string[], maxSegments: number, maxChars: number, size:
  *  error is corrected in place and the corrected text is reviewed again. A
  *  segment with no accepted text after MAX_REVIEW_ROUNDS is removed from the
  *  memory: the page keeps the English text for it. */
-export async function reviewAll(system: string, doc: Doc, wanted: Map<string, Segment>, memory: Record<string, string>, reviews: Record<string, Review>): Promise<void> {
+export async function reviewAll(system: string, doc: Doc, wanted: Map<string, Segment>, memory: Record<string, string>, reviews: Record<string, Review>, checkpoint?: () => void): Promise<void> {
     let pending = [...wanted.keys()].filter((s) => s in memory && !reviews[s]?.passed);
     for (const s of pending)
         reviews[s] = { passed: false, rounds: 0, issues: [] };
@@ -585,6 +586,7 @@ export async function reviewAll(system: string, doc: Doc, wanted: Map<string, Se
                     review.issues.push(`correction rejected: ${(err as Error).message}`);
                 }
             });
+            checkpoint?.();
             done++;
             process.stdout.write(`\r  review ${round}: ${done}/${batches.length} batches`);
         });
@@ -709,8 +711,10 @@ async function translateDoc(slug: string, glossary: Glossary, system: string, re
     const reviews: Record<string, Review> = stored.reviews ?? {};
     const reused = [...wanted.keys()].filter((s) => s in memory).length;
     console.log(`  ${segments.length} segments, ${wanted.size} unique, ${reused} from memory`);
-    const { failed } = await translateAll(system, doc, wanted, memory);
-    await reviewAll(reviewSystem, doc, wanted, memory, reviews);
+    fs.mkdirSync(OUT, { recursive: true });
+    const checkpoint = () => fs.writeFileSync(tmPath, JSON.stringify({ segments: memory, reviews }, null, 1));
+    const { failed } = await translateAll(system, doc, wanted, memory, checkpoint);
+    await reviewAll(reviewSystem, doc, wanted, memory, reviews, checkpoint);
     for (const s of wanted.keys())
         if (!(s in memory) && reviews[s] && !reviews[s].passed)
             failed.set(s, `no text passed the review: ${reviews[s].issues.join(" | ")}`);

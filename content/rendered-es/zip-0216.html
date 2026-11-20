@@ -1,0 +1,1111 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>La palabra clave "DEBE (MUST)" en este documento debe interpretarse como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparece en mayúsculas.</p>
+<p>El término "actualización de red" en este documento debe interpretarse como se describe en el ZIP 200. <a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>21<span class="fn-bracket">]</span></a></p>
+<p>Los términos "settled" y "full validator" en este documento deben interpretarse como se describe en <a class="brackets" href="#protocol-blockchain" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>Los términos "Mainnet" y "Testnet" en este documento deben interpretarse como se describe en <a class="brackets" href="#protocol-networks" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP corrige una omisión en la implementación de las reglas de consenso de Sapling, al rechazar todas las representaciones no canónicas de puntos Jubjub.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>La especificación de Sapling fue escrita originalmente con la intención de que todos los valores, incluidos los puntos Jubjub, estén fuertemente tipados con representaciones canónicas. <a class="brackets" href="#protocol-jubjub" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> Esto tiene ventajas significativas para el análisis de seguridad, porque permite modelar el protocolo únicamente con los tipos abstractos.</p>
+<p>La intención de la implementación de Jubjub (tanto en el crate <cite>jubjub</cite> <a class="brackets" href="#jubjub-crate" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>26<span class="fn-bracket">]</span></a> como en sus implementaciones previas) era garantizar que la lógica de decodificación solo aceptara codificaciones canónicas de puntos. Sin embargo, una omisión en la implementación permitió que se escapara un caso límite: para cada punto de la curva donde la coordenada <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>u</mi>
+</math> es cero, hay dos codificaciones que serán aceptadas:</p>
+<pre class="code rust literal-block"><code>// Fix the sign of `u` if necessary
+let flip_sign = Choice::from((u.to_bytes()[0] ^ sign) &#x26; 1);
+let u_negated = -u;
+let final_u = Fq::conditional_select(&#x26;u, &#x26;u_negated, flip_sign);</code></pre>
+<p>Este código acepta cualquiera de los dos bits de signo, porque <span class="docutils literal">u_negated == u</span>.</p>
+<p>Hay dos puntos en la curva Jubjub con coordenada <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>u</mi>
+</math> igual a cero:</p>
+<ul class="simple">
+<li><p>$(0, 1)$, que es la identidad;</p></li>
+<li><p>$(0, -1)$, que es un punto de orden dos.</p></li>
+</ul>
+<p>Cada uno de estos tiene una única codificación no canónica en la que el valor del bit de signo es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>1</mn>
+</math>.</p>
+<p>Esto genera un problema de consenso porque (a diferencia de otras codificaciones no canónicas de puntos que se rechazan) cualquiera de las codificaciones anteriores puede decodificarse y luego recodificarse en una codificación <em>diferente</em>. Por ejemplo, si una codificación no canónica apareciera en un campo de una transacción, las implementaciones de nodos que almacenan los puntos internamente como puntos abstractos de la curva, y que usaran estos para derivar los identificadores de las transacciones, derivarían identificadores distintos de los nodos que almacenan las transacciones como bytes (como <cite>zcashd</cite>).</p>
+<p>No se conoce que este problema cause ninguna vulnerabilidad de seguridad, más allá del riesgo de incompatibilidad de consenso. De hecho, para algunos de los campos que de otro modo se verían afectados, el problema no ocurre porque ya existen reglas de consenso que prohíben los puntos de orden pequeño, y esto incidentalmente prohíbe las codificaciones no canónicas.</p>
+<p>Se hicieron ajustes a la especificación del protocolo en las versiones 2020.1.8, 2020.1.9, 2020.1.15, 2021.1.17 y 2023.4.0 para que coincidiera con la implementación de <cite>zcashd</cite>. También se hicieron cambios adicionales en la versión 2025.6.0. El hecho de que esto requirió seis revisiones de la especificación para hacerlo bien demuestra de manera concluyente el problema.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Sean <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝖻</mi>
+      <mi>𝗌</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+</math>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>q</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math> como se definen en <a class="brackets" href="#protocol-jubjub" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a>.</p>
+<p>Se define una codificación comprimida no canónica de un punto de Jubjub como una secuencia de $256$ bits, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>b</mi>
+</math>, tal que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝖻</mi>
+      <mi>𝗌</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi>b</mi>
+  <mo stretchy="false">)</mo>
+  <mo>≠</mo>
+  <mi>⊥</mi>
+</math> y <tt class="math">\mathsf{repr_{\mathbb{J}}}\big(\mathsf{abst}_{\mathbb{J}}(b)\big) \neq b</tt>.</p>
+<p>Nota no normativa: existen dos de tales secuencias de bits, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <msub>
+      <mi>ℓ</mi>
+      <mi>𝕁</mi>
+    </msub>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>255</mn>
+  </msup>
+  <mo>+</mo>
+  <mn>1</mn>
+  <mo stretchy="false">)</mo>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖨</mi>
+      <mn>𝟤</mn>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <msub>
+      <mi>ℓ</mi>
+      <mi>𝕁</mi>
+    </msub>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <msup>
+    <mn>2</mn>
+    <mn>255</mn>
+  </msup>
+  <mo>+</mo>
+  <msub>
+    <mi>q</mi>
+    <mi>𝕁</mi>
+  </msub>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo stretchy="false">)</mo>
+</math>. El protocolo de Sapling usa el orden little‑endian al convertir entre secuencias de bits y de bytes, por lo que la primera de estas secuencias corresponde a un byte <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟷</mn>
+  </mrow>
+</math>, seguido de $30$ bytes cero, y luego un byte <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟾𝟶</mn>
+  </mrow>
+</math>.</p>
+<p>Una vez que este ZIP se active, los siguientes lugares dentro del protocolo de consenso de Sapling donde ocurren puntos de Jubjub DEBEN (MUST) rechazar las codificaciones no canónicas de puntos de Jubjub.</p>
+<p>En las descripciones de gasto (Spend) de Sapling <a class="brackets" href="#protocol-spenddesc" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>:</p>
+<blockquote>
+<ul class="simple">
+<li><p>la componente <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <munder>
+    <mi>R</mi>
+    <mo>_</mo>
+  </munder>
+</math> (es decir, los primeros $32$ bytes) de la firma RedDSA <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚜</mi>
+    <mi>𝚙</mi>
+    <mi>𝚎</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝙰</mi>
+    <mi>𝚞</mi>
+    <mi>𝚝</mi>
+    <mi>𝚑</mi>
+    <mi>𝚂</mi>
+    <mi>𝚒</mi>
+    <mi>𝚐</mi>
+  </mrow>
+</math>.</p></li>
+</ul>
+</blockquote>
+<p>En las transacciones <a class="brackets" href="#protocol-txnencoding" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>16<span class="fn-bracket">]</span></a>:</p>
+<blockquote>
+<ul class="simple">
+<li><p>la componente <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <munder>
+    <mi>R</mi>
+    <mo>_</mo>
+  </munder>
+</math> (es decir, los primeros $32$ bytes) de la firma RedDSA <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚋</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚍</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚐</mi>
+    <mi>𝚂</mi>
+    <mi>𝚒</mi>
+    <mi>𝚐</mi>
+    <mi>𝚂</mi>
+    <mi>𝚊</mi>
+    <mi>𝚙</mi>
+    <mi>𝚕</mi>
+    <mi>𝚒</mi>
+    <mi>𝚗</mi>
+    <mi>𝚐</mi>
+  </mrow>
+</math>.</p></li>
+</ul>
+</blockquote>
+<p>En el texto plano obtenido al descifrar el campo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖢</mi>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗎</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msup>
+</math> de un texto cifrado de nota transmitida de Sapling (cifrado en <a class="brackets" href="#protocol-saplingandorchardencrypt" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> y descifrado en <a class="brackets" href="#protocol-decryptovk" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>):</p>
+<blockquote>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+    <msub>
+      <mo>⋆</mo>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math>.</p></li>
+</ul>
+</blockquote>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+    <msub>
+      <mo>⋆</mo>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> también DEBE (MUST) considerarse inválido si codifica el punto cero <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝒪</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>.</p>
+<p>Estos requisitos sobre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+    <msub>
+      <mo>⋆</mo>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> afectan el descifrado de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖢</mi>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗎</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msup>
+</math> en todos los casos, pero son críticos para el consenso solo en el caso del descifrado de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖢</mi>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗎</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msup>
+</math> para una salida blindada de Sapling en la coinbase. <a class="brackets" href="#protocol-txnconsensus" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a> <a class="brackets" href="#zip-0213" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>22<span class="fn-bracket">]</span></a></p>
+<p>Nota: cuando se descifra un texto cifrado de nota transmitida de Sapling usando una clave de visualización de entradas <a class="brackets" href="#protocol-decryptivk" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> se calcula como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖪</mi>
+    <msup>
+      <mi>𝖠</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+    <mo>.</mo>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+</math> <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">[</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">]</mo>
+  <mspace width="0.1667em"></mspace>
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+</math>. Dado que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+</math> es una salida de <tt class="math">\mathsf{DiversifyHash^{Sapling}} \;{\small ⦂}\; \mathbb{B}^{[\ell_d]} \rightarrow \mathbb{J}^{(r)*} \cup \{\bot\}</tt>, no puede ser <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝒪</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>. <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> no puede ser <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>0</mn>
+</math> para una clave de visualización de entradas de Sapling construida válidamente <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>, por lo que el valor calculado de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> no puede ser <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝒪</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>. Una implementación PUEDE (MAY) reforzar de manera redundante que el valor calculado de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> no sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝒪</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>.</p>
+<p>Hay algunos campos adicionales en el protocolo de consenso que codifican puntos de Jubjub, pero en los que las codificaciones no canónicas ya DEBEN (MUST) rechazarse como efecto secundario de reglas de consenso existentes.</p>
+<p>En las descripciones de gasto (Spend) de Sapling:</p>
+<blockquote>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚟</mi>
+  </mrow>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚛</mi>
+    <mi>𝚔</mi>
+  </mrow>
+</math>.</p></li>
+</ul>
+</blockquote>
+<p>En las descripciones de salida (Output) de Sapling <a class="brackets" href="#protocol-outputdesc" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>:</p>
+<blockquote>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚟</mi>
+  </mrow>
+</math></p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝚎</mi>
+    <mi>𝚙</mi>
+    <mi>𝚑</mi>
+    <mi>𝚎</mi>
+    <mi>𝚖</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝙺</mi>
+    <mi>𝚎</mi>
+    <mi>𝚢</mi>
+  </mrow>
+</math>.</p></li>
+</ul>
+</blockquote>
+<p>Por consenso, estos campos no pueden contener puntos de orden pequeño. Todos los puntos con codificaciones no canónicas son de orden pequeño.</p>
+<p>Las implementaciones PUEDEN (MAY) optar por rechazar las codificaciones no canónicas de los cuatro campos anteriores en una etapa temprana de la decodificación de una transacción. Esto elimina el riesgo de que partes de la transacción puedan reserializarse desde su representación interna a una secuencia de bytes distinta de la de la transacción original, por ejemplo, al calcular los identificadores de las transacciones.</p>
+<p>Además, las direcciones de Sapling y las claves de visualización completas DEBEN (MUST) considerarse inválidas al importarse si contienen codificaciones no canónicas de puntos de Jubjub, o codificaciones de puntos que no están en el subgrupo de orden primo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝕁</mi>
+    <mrow>
+      <mo stretchy="false">(</mo>
+      <mi>r</mi>
+      <mo stretchy="false">)</mo>
+    </mrow>
+  </msup>
+</math>. Estos requisitos PUEDEN (MAY) reforzarse antes de la activación de NU5. Esto afecta los campos que se enumeran a continuación.</p>
+<p>En las direcciones de pago de Sapling <a class="brackets" href="#protocol-saplingpaymentaddrencoding" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>:</p>
+<blockquote>
+<ul class="simple">
+<li><p>la codificación de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math>.</p></li>
+</ul>
+</blockquote>
+<p>En las claves de visualización completas de Sapling <a class="brackets" href="#protocol-saplingfullviewingkeyencoding" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>15<span class="fn-bracket">]</span></a> y las claves de visualización completas extendidas <a class="brackets" href="#zip-0032-extfvk" id="footnote-reference-19" role="doc-noteref"><span class="fn-bracket">[</span>20<span class="fn-bracket">]</span></a>:</p>
+<blockquote>
+<ul class="simple">
+<li><p>la codificación de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math></p></li>
+<li><p>la codificación de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗇</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>.</p></li>
+</ul>
+</blockquote>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖺</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> también DEBEN (MUST) considerarse inválidos si codifican el punto cero <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝒪</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>.</p>
+<p>Se pretende que los campos mencionados en esta especificación sean una lista completa de los lugares donde ocurren codificaciones comprimidas de puntos de Jubjub en el protocolo de consenso de Zcash y en formatos de texto plano, de direcciones o de claves.</p>
+<p>Nota: algunas versiones de la especificación del protocolo de Zcash permitían erróneamente que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> en una dirección de pago de Sapling, o <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+    <msub>
+      <mo>⋆</mo>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> en un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖢</mi>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗎</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msup>
+</math> descifrado, codificara el punto cero. El historial se explica en una nota añadida en la versión 2023.4.0 de la especificación del protocolo <a class="brackets" href="#protocol-2023-4-0" id="footnote-reference-20" role="doc-noteref"><span class="fn-bracket">[</span>18<span class="fn-bracket">]</span></a>:</p>
+<blockquote>
+<p>Una versión anterior de esta especificación no tenía el requisito de que el punto decodificado <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> de una nota de Sapling estuviera en el conjunto de puntos de orden primo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝕁</mi>
+    <mrow>
+      <mo stretchy="false">(</mo>
+      <mi>r</mi>
+      <mo stretchy="false">)</mo>
+      <mo>*</mo>
+    </mrow>
+  </msup>
+</math> (es decir, «si ... <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo>∉</mo>
+  <msup>
+    <mi>𝕁</mi>
+    <mrow>
+      <mo stretchy="false">(</mo>
+      <mi>r</mi>
+      <mo stretchy="false">)</mo>
+      <mo>*</mo>
+    </mrow>
+  </msup>
+</math>, devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+  <mspace width="-0.1667em"></mspace>
+</math>»). Eso no coincidía con la implementación en <cite>zcashd</cite>. De hecho, el historial es un poco más complicado. La especificación actual coincide con la implementación en <cite>librustzcash</cite> a partir de <a class="brackets" href="#librustzcash-pr109" id="footnote-reference-21" role="doc-noteref"><span class="fn-bracket">[</span>31<span class="fn-bracket">]</span></a>, que se ha usado en <cite>zcashd</cite> desde la versión v2.1.2. Sin embargo, hubo otra implementación del descifrado de notas de Sapling usada en <cite>zcashd</cite> para las verificaciones de consenso, específicamente la verificación de que una salida de coinbase blindada se descifra correctamente con el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> cero. Esto se corrigió para aplicar la misma restricción sobre el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> descifrado en <cite>zcashd</cite> v5.5.0, originalmente fijado para activarse en un soft fork a la altura de bloque 2121200 tanto en Mainnet como en Testnet <a class="brackets" href="#zcashd-pr6459" id="footnote-reference-22" role="doc-noteref"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></a>. (En Testnet esta altura estaba en el pasado a partir del lanzamiento de <cite>zcashd</cite> v5.5.0, por lo que el cambio se habría aplicado inmediatamente al actualizar.) Dado que se observó que el soft fork era retrospectivamente válido después de esa altura, la implementación se simplificó en <a class="brackets" href="#zcashd-pr6725" id="footnote-reference-23" role="doc-noteref"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></a> para usar la implementación de <cite>librustzcash</cite> en todos los casos, lo que refleja la especificación anterior. <cite>zebra</cite> siempre usó la implementación de <cite>librustzcash</cite>.</p>
+</blockquote>
+<p>La especificación del protocolo se actualizó aún más en la versión 2025.6.0 <a class="brackets" href="#protocol-2025-6-0" id="footnote-reference-24" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a>, para restringir el tipo de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> en Sapling a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>{</mo>
+  <mn>1</mn>
+  <mspace width="0.1667em"></mspace>
+  <mo>.</mo>
+  <mo>.</mo>
+  <mspace width="0.1667em"></mspace>
+  <msup>
+    <mn>2</mn>
+    <msubsup>
+      <mi>ℓ</mi>
+      <mrow>
+        <mi>𝗂</mi>
+        <mi>𝗏</mi>
+        <mi>𝗄</mi>
+      </mrow>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msubsup>
+  </msup>
+  <mspace width="-0.1667em"></mspace>
+  <mo>−</mo>
+  <mn>1</mn>
+  <mo>}</mo>
+</math> y el tipo de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> tanto en Sapling como en Orchard a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖪</mi>
+    <msup>
+      <mi>𝖠</mi>
+      <mrow>
+        <mi>𝗉</mi>
+        <mi>𝗋</mi>
+        <mi>𝗈</mi>
+        <mi>𝗍</mi>
+        <mi>𝗈</mi>
+        <mi>𝖼</mi>
+        <mi>𝗈</mi>
+        <mi>𝗅</mi>
+      </mrow>
+    </msup>
+    <mo>.</mo>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+</math>, con el fin de hacer más evidente la exclusión del punto cero <a class="brackets" href="#zips-issue664" id="footnote-reference-25" role="doc-noteref"><span class="fn-bracket">[</span>32<span class="fn-bracket">]</span></a>. Esto también tiene el efecto de que una clave de visualización de entrada de Sapling <a class="brackets" href="#protocol-saplinginviewingkeyencoding" id="footnote-reference-26" role="doc-noteref"><span class="fn-bracket">[</span>14<span class="fn-bracket">]</span></a> o una codificación de IVK de Sapling en una Unified Incoming Viewing Key <a class="brackets" href="#zip-0316" id="footnote-reference-27" role="doc-noteref"><span class="fn-bracket">[</span>25<span class="fn-bracket">]</span></a> que codifique el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> cero DEBE (MUST) considerarse inválida al importarse. También se añadió otra nota que cubre explícitamente la codificación de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> en las direcciones de pago de Sapling <a class="brackets" href="#protocol-saplingpaymentaddrencoding" id="footnote-reference-28" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>:</p>
+<blockquote>
+<p>La restricción sobre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> refleja su tipo actual <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖪</mi>
+    <msup>
+      <mi>𝖠</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+    <mo>.</mo>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝖮</mi>
+    <mi>𝗋</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo>=</mo>
+  <msup>
+    <mi>𝕁</mi>
+    <mrow>
+      <mo stretchy="false">(</mo>
+      <mi>r</mi>
+      <mo stretchy="false">)</mo>
+      <mo>*</mo>
+    </mrow>
+  </msup>
+</math>. En versiones de esta especificación anteriores a 2025.6.0, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> tenía el tipo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖪</mi>
+    <msup>
+      <mi>𝖠</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+    <mo>.</mo>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+    <mi>𝖯</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗆</mi>
+    <mi>𝖾</mi>
+    <mi>𝖲</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗀</mi>
+    <mi>𝗋</mi>
+    <mi>𝗈</mi>
+    <mi>𝗎</mi>
+    <mi>𝗉</mi>
+  </mrow>
+  <mo>=</mo>
+  <msup>
+    <mi>𝕁</mi>
+    <mrow>
+      <mo stretchy="false">(</mo>
+      <mi>r</mi>
+      <mo stretchy="false">)</mo>
+    </mrow>
+  </msup>
+</math>, es decir, incluyendo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝒪</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>. Es posible que las implementaciones de consumidores de esta codificación deban actualizarse para excluir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝒪</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math>, y deberían verificarse para garantizar su consistencia con la versión actual de [ZIP-216].</p>
+</blockquote>
+<h2 id="retroactive-applicability"><a class="hanchor" href="#retroactive-applicability" aria-hidden="true" tabindex="-1">#</a>Aplicabilidad retroactiva</h2>
+<p>Como se especificó originalmente, este ZIP requería que las nuevas reglas de validez se aplicaran solo después de la activación de NU5. Esto era necesario porque una transacción que contuviera una codificación no canónica de un punto de Jubjub podría haberse incluido en cualquier bloque antes de la activación de NU5.</p>
+<p>Sin embargo, ahora que NU5 es una actualización asentada en las cadenas Mainnet y Testnet de Zcash <a class="brackets" href="#protocol-blockchain" id="footnote-reference-29" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> <a class="brackets" href="#protocol-networks" id="footnote-reference-30" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, se puede observar que no hubo tales codificaciones no canónicas en campos de transacciones públicamente visibles antes de las activaciones de NU5 en Mainnet y Testnet. Por lo tanto, un validador completo PUEDE (MAY) aplicar la especificación anterior de manera retroactiva.</p>
+<p>Sigue siendo posible que haya codificaciones no canónicas de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+    <msub>
+      <mo>⋆</mo>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> en textos planos obtenidos al descifrar el campo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖢</mi>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗎</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msup>
+</math> de un texto cifrado de nota transmitida de Sapling. Tales codificaciones DEBEN (MUST) rechazarse mediante el procedimiento de descifrado en <a class="brackets" href="#protocol-decryptovk" id="footnote-reference-31" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a> tal como está especificado actualmente. En la versión 2025.6.0 de la especificación del protocolo <a class="brackets" href="#protocol-2025-6-0" id="footnote-reference-32" role="doc-noteref"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></a> este procedimiento se modificó para rechazarlas incondicionalmente, no solo después de la activación de NU5. (Esto no tiene ningún efecto sobre el consenso respecto de la versión anterior, porque solo los puntos de la curva de Jubjub de orden pequeño tienen codificaciones no canónicas, por lo que la verificación que devuelve <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math> si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo>∉</mo>
+  <msup>
+    <mi>𝕁</mi>
+    <mrow>
+      <mo stretchy="false">(</mo>
+      <mi>r</mi>
+      <mo stretchy="false">)</mo>
+      <mo>*</mo>
+    </mrow>
+  </msup>
+</math> detectaría todos estos casos.)</p>
+<p>Rechazar las codificaciones no canónicas de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+    <msub>
+      <mo>⋆</mo>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> no puede provocar la pérdida de fondos enviados a una dirección de Sapling que haya sido generada correctamente según lo especificado en <a class="brackets" href="#protocol-saplingkeycomponents" id="footnote-reference-33" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>, porque tal dirección no puede tener <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>, que es el único caso en el que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+    <msub>
+      <mo>⋆</mo>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> podría ser no canónico. Estas son rechazadas en el reescaneo de billeteras por <cite>zcashd</cite> actual y por las billeteras ligeras basadas en <cite>librustzcash</cite>.</p>
+<p>Nota: no hay tales codificaciones no canónicas de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+    <msub>
+      <mo>⋆</mo>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+</math> en los componentes <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>𝖢</mi>
+    <mrow>
+      <mi>𝗈</mi>
+      <mi>𝗎</mi>
+      <mi>𝗍</mi>
+    </mrow>
+  </msup>
+</math> de las salidas de coinbase blindadas (que por consenso deben ser descifrables con un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗈</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> <a class="brackets" href="#protocol-txnconsensus" id="footnote-reference-34" role="doc-noteref"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></a> de todo ceros).</p>
+
+
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<p>Zcash tenía previamente un problema similar con representaciones no canónicas de puntos en claves públicas y firmas Ed25519. En ese caso, dada la prevalencia de las firmas Ed25519 en el ecosistema más amplio, la decisión tomada en el ZIP 215 <a class="brackets" href="#zip-0215" id="footnote-reference-35" role="doc-noteref"><span class="fn-bracket">[</span>23<span class="fn-bracket">]</span></a> (que se activó con la actualización de red Canopy <a class="brackets" href="#zip-0251" id="footnote-reference-36" role="doc-noteref"><span class="fn-bracket">[</span>24<span class="fn-bracket">]</span></a>) fue permitir las representaciones no canónicas de puntos.</p>
+<p>En Sapling, en cambio, tenemos la motivación de rechazar estos puntos no canónicos:</p>
+<ul class="simple">
+<li><p>La probabilidad de que el elemento identidad aparezca en cualquier parte de los componentes de Sapling de transacciones provenientes de implementaciones que siguen el protocolo estándar es criptográficamente despreciable.</p></li>
+<li><p>Esto vuelve a habilitar el análisis de seguridad más simple de Sapling mencionado anteriormente.</p></li>
+<li><p>La curva de Jubjub tiene un alcance de uso vastamente menor en el ecosistema criptográfico general que Curve25519 y Ed25519.</p></li>
+</ul>
+<p>Las verificaciones necesarias son muy simples y no requieren operaciones criptográficas, por lo que el impacto en el rendimiento será despreciable.</p>
+<p>Las entradas públicas de puntos de Jubjub al circuito de Spend (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mspace width="-0.1667em"></mspace>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <msup>
+      <mi>𝗏</mi>
+      <mrow>
+        <mi>𝗈</mi>
+        <mi>𝗅</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math>) y al circuito de Output (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mspace width="-0.1667em"></mspace>
+  <mrow>
+    <mi>𝖼</mi>
+    <msup>
+      <mi>𝗏</mi>
+      <mrow>
+        <mi>𝗇</mi>
+        <mi>𝖾</mi>
+        <mi>𝗐</mi>
+      </mrow>
+    </msup>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖾</mi>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math>) no se ven afectadas porque están representadas en coordenadas afines como elementos del campo correcto (<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mspace width="-0.1667em"></mspace>
+  <msub>
+    <mi>𝔽</mi>
+    <msub>
+      <mi>r</mi>
+      <mi>𝕊</mi>
+    </msub>
+  </msub>
+  <mo>=</mo>
+  <msub>
+    <mi>𝔽</mi>
+    <msub>
+      <mi>q</mi>
+      <mi>𝕁</mi>
+    </msub>
+  </msub>
+</math>), por lo que no surge ningún problema de canonicidad de codificación.</p>
+<p>Las codificaciones de puntos de curva elíptica en Curve25519, BN‑254 <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝔾</mi>
+    <mn>1</mn>
+  </msub>
+</math>, BN‑254 <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝔾</mi>
+    <mn>2</mn>
+  </msub>
+</math>, BLS12‑381 <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝔾</mi>
+    <mn>1</mn>
+  </msub>
+</math> y BLS12‑381 <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝔾</mi>
+    <mn>2</mn>
+  </msub>
+</math> no se ven afectadas.</p>
+<p>Las codificaciones de puntos de curva elíptica en las curvas Pallas y Vesta <a class="brackets" href="#protocol-pallasandvesta" id="footnote-reference-37" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a> utilizadas por el protocolo blindado Orchard tampoco se ven afectadas.</p>
+
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de seguridad y privacidad</h1>
+<p>Este ZIP elimina una fuente potencial de divergencia de consenso entre distintas implementaciones de nodos completos. Desde febrero de 2023 en adelante, no existe ninguna divergencia conocida de este tipo para ninguna implementación de producción de Zcash, pero una versión alfa temprana de la implementación del nodo <cite>zebrad</cite> habría sido susceptible a este problema.</p>
+
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Este ZIP se activó con la actualización de red 5. Los requisitos sobre los puntos codificados en direcciones de pago y claves de visualización completas PUEDEN (MAY) aplicarse antes de la activación de NU5.</p>
+<p>Los PR #6000 <a class="brackets" href="#zcashd-pr6000" id="footnote-reference-38" role="doc-noteref"><span class="fn-bracket">[</span>27<span class="fn-bracket">]</span></a>, #6399 <a class="brackets" href="#zcashd-pr6399" id="footnote-reference-39" role="doc-noteref"><span class="fn-bracket">[</span>28<span class="fn-bracket">]</span></a>, #6459 <a class="brackets" href="#zcashd-pr6459" id="footnote-reference-40" role="doc-noteref"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></a> y #6725 <a class="brackets" href="#zcashd-pr6725" id="footnote-reference-41" role="doc-noteref"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></a> de <cite>zcashd</cite> aplican retroactivamente la codificación canónica de puntos de Jubjub para todo el historial de la cadena, como se describe en la sección <a class="reference internal" href="#retroactive-applicability">Aplicabilidad retroactiva</a>.</p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.1 [NU6.1] or later</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-blockchain" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-3">1</a>,<a role="doc-backlink" href="#footnote-reference-29">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#blockchain">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 3.3: The Block Chain</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-30">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingkeycomponents" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-15">1</a>,<a role="doc-backlink" href="#footnote-reference-33">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingkeycomponents">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.2.2: Sapling Key Components</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-spenddesc" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#spenddesc">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.4: Spend Descriptions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-outputdesc" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-16">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#outputdesc">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.5: Output Descriptions</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingandorchardencrypt" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-10">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingandorchardencrypt">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.20.1: Encryption (Sapling and Orchard)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-decryptivk" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-14">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#decryptivk">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.20.2: Decryption using an Incoming Viewing Key (Sapling and Orchard)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-decryptovk" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-11">1</a>,<a role="doc-backlink" href="#footnote-reference-31">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#decryptovk">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.20.3: Decryption using an Outgoing Viewing Key (Sapling and Orchard)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-jubjub" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-7">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#jubjub">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 5.4.9.3: Jubjub</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-pallasandvesta" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-37">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#pallasandvesta">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 5.4.9.6: Pallas and Vesta</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingpaymentaddrencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-17">1</a>,<a role="doc-backlink" href="#footnote-reference-28">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingpaymentaddrencoding">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 5.6.3.1: Sapling Payment Addresses</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplinginviewingkeyencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-26">14</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplinginviewingkeyencoding">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 5.6.3.2: Sapling Incoming Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingfullviewingkeyencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-18">15</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingfullviewingkeyencoding">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 5.6.3.3: Sapling Full Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">16</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 7.1: Transaction Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnconsensus" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>17<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-12">1</a>,<a role="doc-backlink" href="#footnote-reference-34">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnconsensus">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 7.1.2: Transaction Consensus Rules</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-2023-4-0" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-20">18</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#2023.4.0">Zcash Protocol Specification, Version 2023.4.0. Section 10: Change History — 2023.4.0</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-2025-6-0" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>19<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-24">1</a>,<a role="doc-backlink" href="#footnote-reference-32">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#2025.6.0">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 10: Change History — 2025.6.0</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-extfvk" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-19">20</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#sapling-extended-full-viewing-keys">ZIP 32: Shielded Hierarchical Deterministic Wallets. Sapling extended full viewing keys</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">21</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0213" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-13">22</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0213.rst">ZIP 213: Shielded Coinbase</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0215" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-35">23</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0215.rst">ZIP 215: Explicitly Defining and Modifying Ed25519 Validation Rules</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0251" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-36">24</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0251.rst">ZIP 251: Deployment of the Canopy Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0316" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-27">25</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="jubjub-crate" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">26</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zkcrypto/jubjub">jubjub Rust crate</a></p>
+</aside>
+<aside class="footnote brackets" id="zcashd-pr6000" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-38">27</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/pull/6000">zcash/zcash PR 6000: Enable ZIP 216 for blocks prior to NU5 activation</a></p>
+</aside>
+<aside class="footnote brackets" id="zcashd-pr6399" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-39">28</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/pull/6399">zcash/zcash PR 6399: Retroactively enable ZIP 216 before NU5 activation</a></p>
+</aside>
+<aside class="footnote brackets" id="zcashd-pr6459" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>29<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-22">1</a>,<a role="doc-backlink" href="#footnote-reference-40">2</a>)</span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/pull/6459">zcash/zcash PR 6459: Migrate to zcash_primitives 0.10</a></p>
+</aside>
+<aside class="footnote brackets" id="zcashd-pr6725" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>30<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-23">1</a>,<a role="doc-backlink" href="#footnote-reference-41">2</a>)</span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/pull/6725">zcash/zcash PR 6725: Retroactively use Rust to decrypt shielded coinbase before soft fork</a></p>
+</aside>
+<aside class="footnote brackets" id="librustzcash-pr109" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-21">31</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/librustzcash/pull/109/files#diff-92d6b429f317a74bd65b2ad87d4f841e9fa9e334edab4199cdaba91172cd2d10R147-R151">zcash/librustzcash PR 109: PaymentAddress encapsulation</a></p>
+</aside>
+<aside class="footnote brackets" id="zips-issue664" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-25">32</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/issues/664">zcash/zips issue 664: Sapling pk_d should not allow the zero point</a></p>
+</aside>
+</aside>
+

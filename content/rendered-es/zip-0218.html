@@ -1,0 +1,742 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)" y "NO DEBERÍA (SHOULD NOT)" en este documento deben interpretarse como se describe en el BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos "block chain", "cambio de regla de consenso", "rama de consenso" y "actualización de red" deben interpretarse como se definen en el ZIP 200. <sup><a href="#user-content-fn-zip-0200" id="user-content-fnref-zip-0200" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>El término "espaciado objetivo de bloques" designa el intervalo de tiempo entre bloques que el algoritmo de ajuste de dificultad persigue en una rama de consenso determinada. Normalmente se mide en segundos. (También se le llama a veces "tiempo de bloque objetivo", pero "espaciado objetivo de bloques" es el término usado en la Zcash Protocol Specification (Especificación del Protocolo Zcash) <sup><a href="#user-content-fn-protocol-diffadjustment" id="user-content-fnref-protocol-diffadjustment" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.)</p>
+<p>El término "TPS" se refiere al número máximo de transacciones por segundo admitidas por un subprotocolo de Zcash, asumiendo el espaciado objetivo de bloques.</p>
+<p>El carácter § se usa para referirse a secciones de la Zcash Protocol Specification. <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>Los términos "Mainnet" y "Testnet" deben interpretarse como se describe en § 3.12 'Mainnet y Testnet'. <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup></p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta especifica un cambio en el espaciado objetivo de bloques, de 75 segundos a 25 segundos, en NU7, e introduce límites de acciones por pool para los pools blindados de Sapling, Orchard e Ironwood.</p>
+<p>Esto resuelve tres problemas.</p>
+<ul>
+<li>Mejora significativamente la experiencia de usuario para los actores que necesitan 1 o 2 confirmaciones, como Near Intents, y para pagos pequeños. La latencia perceptible por el usuario se reduce 3 veces.</li>
+<li>Aumenta el ancho de banda de consenso, lo que amplificaría el impacto de escalabilidad de cualquier pool blindado futuro que no requiera sincronización blindada.</li>
+<li>Introduce límites de acciones. Estos establecen límites sobre la cantidad de acciones que pueden entrar en un bloque. Existe un <em>presupuesto blindado global</em> para todos los pools blindados, así como límites por pool. Estos límites están configurados para más que duplicar las TPS del protocolo Orchard (2,9 → 6,6 TPS), a la vez que se reduce el impacto que un atacante de DoS puede imponer a las billeteras; por ejemplo, el ancho de banda máximo de sincronización blindada para clientes ligeros se reduce en un 37% (271 → 169 MB/día).</li>
+</ul>
+<p>Los límites de acciones disminuyen significativamente la cantidad de salidas de los pools Sprout y Sapling disponibles por bloque, para reducir la carga máxima de sincronización blindada ante intentos de DoS.</p>
+<p>El calendario de emisión de ZEC minados será el mismo en términos de ZEC/día, pero esto requiere que la emisión por bloque se ajuste para tener en cuenta el cambio en el espaciado objetivo de bloques.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Las motivaciones para disminuir el espaciado objetivo de bloques son:</p>
+<ul>
+<li>
+<p><strong>Menor latencia de transacciones.</strong> Actualmente, los usuarios deben esperar en promedio 75 segundos para obtener siquiera una confirmación, independientemente de la utilización de la red. Esto genera fricción en pagos en punto de venta, depósitos en exchanges y operaciones de puentes entre cadenas. Un espaciado objetivo de 25 segundos reduce la espera esperada para una primera confirmación a 25 segundos en promedio.</p>
+</li>
+<li>
+<p><strong>Mayor rendimiento.</strong> Con 3 veces más bloques por día y el mismo límite de tamaño de bloque de 2 MB, habremos asignado una mayor capacidad de ancho de banda de consenso. En el corto plazo, junto con los límites de acciones, más que duplicaremos las TPS de Ironwood para transacciones de 2 acciones. En el largo plazo, cuando tengamos un pool blindado sin carga de sincronización blindada, tendremos un rendimiento 3 veces mayor.</p>
+</li>
+</ul>
+<p>El objetivo de rendimiento por sí solo podría lograrse mediante un aumento del tamaño de bloque. Sin embargo, el objetivo de esta propuesta es ante todo mejorar la latencia de las transacciones.</p>
+<p>Esta propuesta es complementaria a los mecanismos de finalidad como Crosslink <sup><a href="#user-content-fn-crosslink" id="user-content-fnref-crosslink" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>, y no compite con ellos. Los tiempos de bloque más rápidos mejoran la capacidad de respuesta de la capa base independientemente de si también se despliega un mecanismo de finalidad adicional. El análisis del riesgo de reversión depende del modelo de amenaza. Para los modelos que limitan a un atacante por una fracción fija del poder de hash total, reducir el espaciado objetivo de bloques puede reducir la latencia de confirmación por casi el mismo factor, siempre que los tiempos de validación y propagación de bloques se mantengan pequeños en relación con el espaciado objetivo. Dado que eso se mantiene aquí, se espera que esta propuesta mejore la latencia de confirmación en algo menos de 3 veces para los usuarios que aplican la misma tolerancia al riesgo de reversión que la actual. Véase «On Slow and Fast Block Times» <sup><a href="#user-content-fn-slowfastblocks" id="user-content-fnref-slowfastblocks" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup> para un análisis bajo varios modelos de ataque.</p>
+<p>Los modelos económicos de reversión dan un resultado diferente. Para los destinatarios que esperan hasta que las recompensas de bloque construidas sobre su pago superen el valor del pago, los tiempos de bloque más cortos reducen significativamente la varianza de su tiempo de espera, mientras que la media se mantiene aproximadamente igual. Recuérdese que los tiempos de bloque de prueba de trabajo tienen una varianza alta, por lo que la reducción de la varianza es un beneficio sustancial. Este ZIP no argumenta a favor de que los clientes reduzcan los conteos de confirmación, pero sí espera que muchos usuarios vean un menor tiempo esperado hasta la recepción bajo políticas de confirmación comparables a las que usan hoy.</p>
+<h2 id="security"><a class="hanchor" href="#security" aria-hidden="true" tabindex="-1">#</a>Seguridad</h2>
+<p>El escalamiento y las reducciones de tiempo de bloque en Zcash imponen tres costos de seguridad: uno sobre la capacidad de los nodos completos y los mineros para verificar bloques, un segundo sobre los clientes por la sincronización blindada, y un tercero sobre toda la red por la tasa de bloques tío y la tasa de fork. En este ZIP se introducen límites de acciones para limitar los costos de procesamiento de bloques y los costos de sincronización blindada de los clientes. La parametrización propuesta reduce el peor caso de sincronización blindada y de los tiempos de procesamiento de los nodos en comparación con hoy, a la vez que produce TPS de Ironwood muy superiores. Evaluamos mediante benchmarks la <a href="#block-processing-time">verificación de bloques</a>, y la tasa de bloques tío tras la propuesta en redes más distribuidas que mainnet a carga máxima es muy inferior a la que tenía ETH-PoW, lo que lleva a la conclusión de que es seguro.</p>
+<p>Hoy en día, el peor caso de ataque DoS puede inducir 271 MB de descarga de sincronización de billetera a los clientes por día, y 4.8M descifrados de prueba por día <sup><a href="#user-content-fn-syncsimulator" id="user-content-fnref-syncsimulator" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>. Esto se logra utilizando por completo el espacio de bloque con transacciones Sapling que tienen pocas entradas y muchas salidas. El peor caso de DoS para el tiempo de verificación del nodo usa muchas entradas Sapling y una única salida transparente, totalizando 5,600 entradas y pruebas de conocimiento cero Sapling. Esto toma 3.2 segundos en una CPU de portátil AMD moderna con 4 hilos fijados. Los flujos de usuarios regulares imponen costos mucho menores a la red que este modelo de DoS.</p>
+<p>Proponemos introducir un presupuesto blindado global y límites de acciones por pool de la siguiente manera:</p>
+<ul>
+<li>
+<p>Un presupuesto blindado global de 330 entre todos los pools</p>
+</li>
+<li>
+<p>Un máximo de 330 acciones Orchard por bloque</p>
+</li>
+<li>
+<p>Un máximo de 330 acciones Ironwood por bloque</p>
+</li>
+<li>
+<p>Un máximo de 300 entradas + salidas Sapling. (Total de entradas + salidas &#x3C;= 300)</p>
+</li>
+<li>
+<p>Sin JoinSplits de Sprout (logrado desplegando este ZIP junto con el ZIP 2003 <sup><a href="#user-content-fn-zip-2003" id="user-content-fnref-zip-2003" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>, que deshabilita las transacciones v4).</p>
+</li>
+</ul>
+<p>Con estos límites, la carga máxima de los clientes pasa a ser de 169 MB de ancho de banda y 2,3M descifrados de prueba por día. Esto es una mejora del 37 % en el peor caso de ancho de banda de sincronización de billetera a pesar de 3 veces más bloques. Esto produce un aumento de 2,3 veces en las TPS de Ironwood, y mantiene las TPS de Sapling en un nivel más alto que las TPS de Ironwood actuales.</p>
+<p>Sin embargo, cada billetera sí tiene que descargar cada encabezado de bloque compacto, que es de 90 bytes. Esto lleva a 200 kB adicionales de ancho de banda de billetera por día a cambio de la mejora en la UX.</p>
+<p>El límite reducido de Sapling por bloque y la deshabilitación de Sprout se justifican por la distribución actual de fondos blindados entre los pools (otras motivaciones para deshabilitar Sprout se analizan en el ZIP 2003). Al 21 de octubre de 2026, según ZecBlock <sup><a href="#user-content-fn-zecblock-pools-20261021" id="user-content-fnref-zecblock-pools-20261021" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Pool</th><th>Saldo</th><th>Participación del suministro blindado</th></tr></thead><tbody><tr><td>Ironwood</td><td>aproximadamente 4.110.000 ZEC</td><td>83.0%</td></tr><tr><td>Sapling</td><td>aproximadamente 473.700 ZEC</td><td>9.6%</td></tr><tr><td>Orchard</td><td>aproximadamente 347.700 ZEC</td><td>7.0%</td></tr><tr><td>Sprout</td><td>aproximadamente 22.300 ZEC</td><td>0.4%</td></tr></tbody></table>
+<p>La gran mayoría de los fondos blindados ya se encuentran en los dos pools del protocolo Orchard, y la mayor parte está en el pool Ironwood, que NU6.3 introdujo <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>. Se espera que esta tendencia continúe. El límite de Sapling se establece de manera generosa en relación con el uso actual, a la vez que reduce sustancialmente el potencial de DoS. Además, este ZIP se activó junto con la deshabilitación de las transacciones v4 en NU7, lo que impide que se incluyan transacciones de Sprout en los bloques.</p>
+<h2 id="stale-block-rate"><a class="hanchor" href="#stale-block-rate" aria-hidden="true" tabindex="-1">#</a>Tasa de bloques obsoletos</h2>
+<p>La tasa de obsoletos es el porcentaje de bloques que quedan huérfanos, lo cual se relaciona con el riesgo de centralización de la minería, el retraso de propagación de bloques y los tiempos de verificación de bloques. Hoy la tasa de obsoletos es del 0,4 %, pero esta puede ser inferior a lo que el puro retraso de propagación de bloques podría implicar, debido a la centralización del poder de cómputo (hash-power) en los pools de minería.</p>
+<p>Con un espaciado objetivo de bloques de 25 segundos, la tasa teórica de bloques obsoletos es de aproximadamente el 3,26 %, derivada de los retrasos de propagación medidos en la red de Zcash. Un experimento en una devnet con 99 nodos de Zebra distribuidos geográficamente, que producían bloques de 2 MB con un espaciado objetivo de 25 segundos, midió una tasa de bloques obsoletos del 4,86 % y una tasa de forks del 0,37 %. Ambas cifras observadas están por debajo del umbral de seguridad del 5,4 % establecido por la tasa histórica de bloques obsoletos de Ethereum con prueba de trabajo. <sup><a href="#user-content-fn-forum-proposal" id="user-content-fnref-forum-proposal" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup> La única modificación necesaria para lograr estas tasas fue el ajuste de la configuración de TCP (más detalles en la nota al pie enlazada). La distribución de nodos de la devnet era significativamente más descentralizada que la de la mainnet actual, por lo que estas cifras representan un escenario casi en el peor de los casos. <sup><a href="#user-content-fn-devnet-blocktime-test" id="user-content-fnref-devnet-blocktime-test" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup></p>
+<h2 id="block-processing-time"><a class="hanchor" href="#block-processing-time" aria-hidden="true" tabindex="-1">#</a>Tiempo de procesamiento de bloques</h2>
+<p>Un requisito previo para reducir el espaciado objetivo de bloques es que la validación y propagación de bloques se mantengan pequeñas en relación con el espaciado objetivo. Los límites de acciones por pool introducidos por esta propuesta garantizan que el tiempo de procesamiento <em>por bloque</em> en el peor de los casos sea menor que el actual. El hecho de que haya tres veces más bloques en unidad de tiempo significa que la proporción <em>global</em> en el peor de los casos del tiempo dedicado al procesamiento, y el peor costo de sincronización tras un tiempo dado sin conexión para los nodos completos, aumentarán. Aceptamos este compromiso. Estos límites computacionales paralelizan bien. Con el límite de tamaño de bloque de 2.000.000 bytes y el espaciado objetivo de 25 segundos, la tasa bruta de carga útil de bloques es de 640 kbps, de modo que una conexión de 10 Mbps tiene aproximadamente 15 veces esa tasa, antes de la sobrecarga de transporte.</p>
+<p><strong>Peor caso actual:</strong> Un bloque completo de 2 MB hoy puede contener hasta ~617 acciones de Orchard o Ironwood, o ~2.107 salidas de Sapling, sin límites por pool. Un bloque completamente lleno del protocolo Orchard requiere verificar todas las pruebas de acción, autorizaciones de gasto y firmas de enlace (binding), y comprobar la validez de las codificaciones de puntos de curva, para esas ~617 acciones.</p>
+<p><strong>Peor caso propuesto:</strong> Con los límites de acciones, un bloque contiene como máximo 330 acciones entre todos los pools. También hay límites separados por pool:</p>
+<ul>
+<li>330 acciones de Orchard</li>
+<li>330 acciones de Ironwood</li>
+<li>300 entradas+salidas de Sapling.</li>
+</ul>
+<p>Esto significa que el nuevo tiempo de procesamiento de bloque en el peor caso, si domina Orchard o Ironwood, sería el 14 % del peor caso actual, y el de Sapling sería menos de la décima parte. El trabajo de verificación por bloque en el peor caso se reduce por lo tanto sustancialmente.</p>
+<p><strong>Verificación por lotes.</strong> La verificación de transacciones de Ironwood se beneficia de la validación por lotes, donde la verificación de pruebas y firmas se amortiza entre múltiples transacciones. Ironwood usa la misma codificación de Action y el mismo sistema de pruebas que Orchard. <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup> En el software de nodos actual, las transacciones de Orchard se verifican por lotes en grupos de hasta 64 transacciones (siendo el peor caso una sola acción). Zebra realiza verificación por lotes durante la sincronización en vivo de la red desde la versión 3.0.0. Con los límites de acciones, los paquetes del protocolo Orchard en un bloque del peor caso pueden verificarse por lotes completamente en un pequeño número de lotes.</p>
+<p><strong>Tiempos medidos.</strong> Evaluamos el rendimiento de la verificación de bloques en el peor caso con Zebra en una CPU moderna de portátil AMD con 4 hilos fijados.<sup><a href="#user-content-fn-verification-benchmark" id="user-content-fnref-verification-benchmark" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup> Las cifras reportan el tiempo transcurrido para verificar las pruebas de conocimiento cero y las firmas en un solo bloque, sin ninguna pre-verificación del mempool.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Caso</th><th>Composición del bloque</th><th>Media ± desviación estándar</th></tr></thead><tbody><tr><td>Límite completo de Orchard (propuesto)</td><td>330 acciones de Orchard</td><td>432,11 ± 11,03 ms</td></tr><tr><td>Límite completo de Sapling (propuesto)</td><td>300 gastos de Sapling, 0 salidas</td><td>271,51 ± 5,03 ms</td></tr><tr><td>Peor caso actual de Orchard</td><td>~617 acciones en transacciones densas de múltiples acciones en un bloque de 2 MB</td><td>769,85 ± 16,18 ms</td></tr><tr><td>Peor caso actual de Sapling</td><td>~5.600 gastos en transacciones densas de múltiples gastos en un bloque de 2 MB</td><td>3.174,90 ± 144,04 ms</td></tr></tbody></table>
+<ul>
+<li><strong>Límite completo de Orchard (propuesto)</strong> — peor caso vinculante de verificación posterior a NU7.</li>
+<li><strong>Límite completo de Sapling (propuesto)</strong> — el peor caso de verificación es todo gastos; el peor caso de ancho de banda (todo salidas) está en la <a href="#rationale">justificación</a>.</li>
+<li><strong>Peor caso actual de Orchard</strong> — denso de múltiples acciones (una sola acción subestimaría el límite de bytes).</li>
+<li><strong>Peor caso actual de Sapling</strong> — análogo, denso de múltiples gastos.</li>
+</ul>
+<p>Cuando las transacciones ya han sido pre-verificadas al entrar al mempool, la validación de bloques se reduce a comprobar firmas y actualizaciones de estado, lo cual es aún más barato. Este es el caso típico de un nodo que ha estado en línea bajo el uso normal de la red, pero bajo un ataque DoS no puede suponerse, porque el adversario puede enviar bloques con transacciones que nunca estuvieron en el mempool.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a> Implicaciones para la privacidad</h1>
+<p>Reducir el espaciado objetivo no cambia la información revelada por una transacción blindada individual. Sin embargo, sí cambia el momento en tiempo real de la creación, inclusión y confirmación de transacciones. Bloques más frecuentes dan a los observadores información de temporización más fina, que puede combinarse con observaciones de la capa de red o de la capa de aplicación. Los límites de acciones también pueden retrasar transacciones bajo una demanda sostenida de un determinado pool blindado, lo que hace que la temporización de transacciones y la congestión específica de cada pool sean relevantes para aplicaciones sensibles a la privacidad.</p>
+<p>Una profundidad de ancla fija medida en bloques se vuelve tres veces más corta en tiempo real. Si una billetera sigue seleccionando el treestate final a tres bloques detrás de la punta de la cadena, la distancia nominal baja de unos 3.75 minutos a unos 1.25 minutos. Si la cadena se revierte más allá del ancla de una transacción, la transacción queda inválida. Si ya fue difundida, sus nullifiers blindados han sido revelados de todos modos; una transacción posterior que gaste las mismas notas puede entonces vincularse a la transacción invalidada. Este compromiso entre fiabilidad y privacidad se describe en ZIP 315 <sup><a href="#user-content-fn-zip-0315" id="user-content-fnref-zip-0315" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>.</p>
+<p>Las mediciones de tasa de bloques obsoletos en <a href="#stale-block-rate">Tasa de bloques obsoletos</a> proporcionan evidencia sobre los fork ordinarios en las condiciones probadas, pero no acotan la profundidad de una reversión causada por una división de consenso, un defecto de implementación, un ataque o un gran cambio en el poder de hash. Por lo tanto, no establecen que una profundidad de ancla particular sea segura para todo modelo de amenazas de billetera.</p>
+<p>Los límites de acciones blindadas reducen los datos máximos de bloques compactos y el trabajo de descifrado por prueba que un adversario puede imponer a una billetera en sincronización por día. No evitan el análisis de tráfico ni eliminan el riesgo de denegación de servicio, y los límites por pool no revelan información más allá de los componentes de transacción y la composición de bloques ya públicos.</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a> Especificación</h1>
+<p>Los cambios descritos en esta sección se harán en la Zcash Protocol Specification <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, en relación con la especificación vigente a la activación de esta propuesta.</p>
+<h2 id="consensus-changes"><a class="hanchor" href="#consensus-changes" aria-hidden="true" tabindex="-1">#</a> Cambios de consenso</h2>
+<h3 id="block-target-spacing"><a class="hanchor" href="#block-target-spacing" aria-hidden="true" tabindex="-1">#</a> Espaciado objetivo de bloques</h3>
+<p>En § 2 'Notation', agregar <math><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></math> y <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow></math> a la lista de constantes enteras.</p>
+<p>En § 5.3 'Constants' <sup><a href="#user-content-fn-protocol-constants" id="user-content-fnref-protocol-constants" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup>, definir:</p>
+<p><math><mrow><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi></mrow></math>
+<math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>25</mn><mtext> 𝗌𝖾𝖼𝗈𝗇𝖽𝗌</mtext></mrow></math></p>
+<p>Para cada red, <math><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></math> es la altura a la que se activa esta actualización de red, según lo especificado en ZIP 259 <sup><a href="#user-content-fn-zip-0259" id="user-content-fnref-zip-0259" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup>.</p>
+<p>En Testnet, el umbral de dificultad mínima permanece en 450 segundos después de la activación de NU7; véase <a href="#minimum-difficulty-blocks-on-testnet">Bloques de dificultad mínima en Testnet</a>.</p>
+<p>En § 7.7.3 'Difficulty adjustment', definir:</p>
+<p><math><mrow><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖱</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mspace width="0.2778em"></mspace><mi>/</mi><mspace width="0.2778em"></mspace><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mo>=</mo><mn>3</mn></mrow></math></p>
+<p><math><mrow><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo>→</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mrow><mi>𝖿</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗌</mi><mi>𝖾</mi></mrow><mo separator="true">,</mo><mrow><mi>𝗍</mi><mi>𝗋</mi><mi>𝗎</mi><mi>𝖾</mi></mrow><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></mrow></math>
+<math><mrow><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>≥</mo><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p>Redefinir <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow></math> como una función de tipo <math><mrow><mi>ℕ</mi><mo>→</mo><mi>ℕ</mi></mrow></math>:</p>
+<math display="block" class="tml-display" style="display:block math;"><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mo fence="true" form="prefix" stretchy="true">{</mo><mtable><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mrow><mi>𝖯</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mtext>𝗂𝖿 𝗇𝗈𝗍 </mtext><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow></mrow></mtd><mtd class="tml-left" style="level:0;color:undefined;font:;font-family:;font-size:1;font-weight:;font-shape:;max-size:Infinity,Infinity;padding-left:1em;padding-right:0em;"></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mtext>𝗂𝖿 </mtext><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mtext> 𝖺𝗇𝖽 𝗇𝗈𝗍 </mtext><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow></mrow></mtd><mtd class="tml-left" style="level:0;color:undefined;font:;font-family:;font-size:1;font-weight:;font-shape:;max-size:Infinity,Infinity;padding-left:1em;padding-right:0em;"></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mtext>𝗈𝗍𝗁𝖾𝗋𝗐𝗂𝗌𝖾</mtext></mtd></mtr></mtable><mo fence="true" form="postfix" stretchy="true"></mo></mrow></mrow></math>
+<h3 id="averaging-window"><a class="hanchor" href="#averaging-window" aria-hidden="true" tabindex="-1">#</a> Ventana de promediado</h3>
+<p>En § 2 'Notation', reemplazar la constante entera <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></math> por las constantes enteras <math><mrow><mi>𝖯</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></math> y <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></math>.</p>
+<p>En § 5.3 'Constants', reemplazar la definición de la constante anterior por:</p>
+<p><math><mrow><mrow><mi>𝖯</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>17</mn></mrow></math>
+<math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>102</mn></mrow></math></p>
+<p>En § 7.7.3 'Difficulty adjustment', definir <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></math> como una función de tipo <math><mrow><mi>ℕ</mi><mo>→</mo><mi>ℕ</mi></mrow></math>:</p>
+<math display="block" class="tml-display" style="display:block math;"><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mo fence="true" form="prefix" stretchy="true">{</mo><mtable><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mrow><mi>𝖯</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mtext>𝗂𝖿 𝗇𝗈𝗍 </mtext><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow></mrow></mtd><mtd class="tml-left" style="level:0;color:undefined;font:;font-family:;font-size:1;font-weight:;font-shape:;max-size:Infinity,Infinity;padding-left:1em;padding-right:0em;"></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mtext>𝗈𝗍𝗁𝖾𝗋𝗐𝗂𝗌𝖾</mtext></mtd></mtr></mtable><mo fence="true" form="postfix" stretchy="true"></mo></mrow></mrow></math>
+<p>Para el bloque bajo consideración en <math><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></math>, reemplazar las tres fórmulas de esa sección que usan la constante anterior por:</p>
+<p><math><mrow><mrow><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi><mi>𝖳</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝗇</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo>→</mo><mi>ℕ</mi></mrow></math>
+<math><mrow><mrow><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi><mi>𝖳</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝗇</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>⋅</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p><math><mrow><mrow><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗎</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖳</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝗇</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo>→</mo><mi>ℤ</mi></mrow></math>
+<math><mrow><mrow><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗎</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖳</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗌</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝗇</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝗂</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖳</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>−</mo><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝗂</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖳</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝖾</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>−</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p><math><mrow><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo>→</mo><mi>ℚ</mi></mrow></math></p>
+<math display="block" class="tml-display" style="display:block math;"><mrow><mrow><mi>𝖬</mi><mi>𝖾</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mo fence="true" form="prefix" stretchy="true">{</mo><mtable><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mtext>𝗂𝖿 </mtext><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>≤</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow></mrow></mtd><mtd class="tml-left" style="level:0;color:undefined;font:;font-family:;font-size:1;font-weight:;font-shape:;max-size:Infinity,Infinity;padding-left:1em;padding-right:0em;"></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mrow><mi>𝗆</mi><mi>𝖾</mi><mi>𝖺</mi><mi>𝗇</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="true">(</mo><mrow><mo fence="true" form="prefix" stretchy="true">[</mo><mrow><mi>𝖳</mi><mi>𝗈</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗇</mi><mi>𝖡</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>i</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mspace width="0.2778em"></mspace><mo stretchy="true" form="infix" lspace="0.05em" rspace="0.05em">|</mo><mspace width="0.2778em"></mspace><mi>i</mi><mo>∈</mo><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>−</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mi>…</mi><mo separator="true">,</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow><mo fence="true" form="postfix" stretchy="true">]</mo></mrow><mo fence="true" form="postfix" stretchy="true">)</mo></mrow><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mtext>𝗈𝗍𝗁𝖾𝗋𝗐𝗂𝗌𝖾.</mtext></mtd></mtr></mtable><mo fence="true" form="postfix" stretchy="true"></mo></mrow></mrow></math>
+<p>Todas las demás menciones en § 7.7.3 de la constante anterior, incluida la nota sobre los primeros bloques de la ventana de promediado de la cadena, se reemplazan por una llamada a <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> para el bloque bajo consideración.</p>
+<h3 id="halving-interval-and-block-subsidy"><a class="hanchor" href="#halving-interval-and-block-subsidy" aria-hidden="true" tabindex="-1">#</a>Intervalo de halving y subsidio de bloque</h3>
+<p>En § 7.7.3 'Difficulty adjustment', definir:</p>
+<p><math><mrow><mrow><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖻</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖱</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖱</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi></mrow><mo>⋅</mo><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖱</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi></mrow><mo>=</mo><mn>6</mn></mrow></math>
+<math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖨</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mo fence="true" form="prefix" stretchy="false">⌊</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖨</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi></mrow><mo>⋅</mo><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖱</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi></mrow><mo fence="true" form="postfix" stretchy="false">⌋</mo></mrow><mo>=</mo><mn>5,040,000</mn></mrow></math></p>
+<p>En § 7.8 'Calculating Block Subsidy, Funding Streams, Lockbox Disbursement, and Founders' Reward' <sup><a href="#user-content-fn-protocol-subsidies" id="user-content-fnref-protocol-subsidies" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup>, definir:</p>
+<p><math><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝗃</mi><mi>𝗎</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℚ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>−</mo><mrow><mi>𝖲</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi><mi>𝖲</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗁</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗍</mi></mrow></mrow><mrow><mi>𝖯</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖨</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi></mrow></mfrac></mstyle></mrow></math>
+<math><mrow><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖽</mi><mi>𝗃</mi><mi>𝗎</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℚ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝗃</mi><mi>𝗎</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi></mrow><mo>+</mo><mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>−</mo><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖨</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi></mrow></mfrac></mstyle></mrow></math></p>
+<p><math><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝗃</mi><mi>𝗎</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi></mrow></math> es el primer término del caso Blossom existente de <math><mrow><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow></math>, que se reescribe para usarlo. Redefinir <math><mrow><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow></math> como una función de tipo <math><mrow><mi>ℕ</mi><mo>→</mo><mi>ℕ</mi></mrow></math>:</p>
+<math display="block" class="tml-display" style="display:block math;"><mrow><mrow><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mo fence="true" form="prefix" stretchy="true">{</mo><mtable><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mn>0</mn><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mtext>𝗂𝖿 </mtext><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>&#x3C;</mo><mrow><mi>𝖲</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi><mi>𝖲</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗁</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗍</mi></mrow></mrow></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow></mrow></mtd><mtd class="tml-left" style="level:0;color:undefined;font:;font-family:;font-size:1;font-weight:;font-shape:;max-size:Infinity,Infinity;padding-left:1em;padding-right:0em;"></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mrow><mo fence="true" form="prefix" stretchy="true">⌊</mo><mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>−</mo><mrow><mi>𝖲</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗐</mi><mi>𝖲</mi><mi>𝗍</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗁</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗍</mi></mrow></mrow><mrow><mi>𝖯</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖨</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi></mrow></mfrac></mstyle><mo fence="true" form="postfix" stretchy="true">⌋</mo></mrow><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mtext>𝗂𝖿 𝗇𝗈𝗍 </mtext><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow></mrow></mtd><mtd class="tml-left" style="level:0;color:undefined;font:;font-family:;font-size:1;font-weight:;font-shape:;max-size:Infinity,Infinity;padding-left:1em;padding-right:0em;"></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mrow><mo fence="true" form="prefix" stretchy="true">⌊</mo><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝗃</mi><mi>𝗎</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi></mrow><mo>+</mo><mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>−</mo><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖨</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi></mrow></mfrac></mstyle><mo fence="true" form="postfix" stretchy="true">⌋</mo></mrow><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mtext>𝗂𝖿 </mtext><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mtext> 𝖺𝗇𝖽 𝗇𝗈𝗍 </mtext><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow></mrow></mtd><mtd class="tml-left" style="level:0;color:undefined;font:;font-family:;font-size:1;font-weight:;font-shape:;max-size:Infinity,Infinity;padding-left:1em;padding-right:0em;"></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mrow><mo fence="true" form="prefix" stretchy="true">⌊</mo><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖽</mi><mi>𝗃</mi><mi>𝗎</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝗆</mi><mi>𝖾</mi><mi>𝗇</mi><mi>𝗍</mi></mrow><mo>+</mo><mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>−</mo><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖨</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗅</mi></mrow></mfrac></mstyle><mo fence="true" form="postfix" stretchy="true">⌋</mo></mrow><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mtext>𝗈𝗍𝗁𝖾𝗋𝗐𝗂𝗌𝖾</mtext></mtd></mtr></mtable><mo fence="true" form="postfix" stretchy="true"></mo></mrow></mrow></math>
+<p>Redefinir <math><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗒</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo>→</mo><mi>ℕ</mi></mrow></math> para agregar un caso para las alturas posteriores a la activación. El caso previo de Blossom en § 7.8 «Cálculo del subsidio de bloque, los flujos de financiación, el desembolso del lockbox y la recompensa a los fundadores» <sup><a href="#user-content-fn-protocol-subsidies" id="user-content-fnref-protocol-subsidies-2" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup>, actualmente escrito como "otherwise", debe modificarse a "if <math><mrow><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗌</mi><mi>𝗌</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> and not <math><mrow><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>":</p>
+<math display="block" class="tml-display" style="display:block math;"><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗒</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mo fence="true" form="prefix" stretchy="true">{</mo><mtable><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mi>…</mi></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mtext>(prior cases, with the Blossom case amended as above)</mtext></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow></mrow></mtd><mtd class="tml-left" style="level:0;color:undefined;font:;font-family:;font-size:1;font-weight:;font-shape:;max-size:Infinity,Infinity;padding-left:1em;padding-right:0em;"></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mrow><mrow><mi>𝖿</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="true">(</mo><mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mi>𝖬</mi><mi>𝖺</mi><mi>𝗑</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗒</mi></mrow><mrow><mrow><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝖻</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖱</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi></mrow><mo>⋅</mo><msup><mn>2</mn><mrow><mrow><mi>𝖧</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝗏</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></msup></mrow></mfrac></mstyle><mo fence="true" form="postfix" stretchy="true">)</mo></mrow><mo separator="true">,</mo></mrow></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mtext>𝗈𝗍𝗁𝖾𝗋𝗐𝗂𝗌𝖾</mtext></mtd></mtr></mtable><mo fence="true" form="postfix" stretchy="true"></mo></mrow></mrow></math>
+<p>Esto divide el subsidio por bloque por un factor adicional de 3 en relación con el subsidio posterior a Blossom. Como resultado de esta elección, la emisión total por unidad de tiempo de reloj de pared se vuelve ligeramente menor debido al redondeo, lo que se acumula con el tiempo en un cambio no despreciable de la curva de emisión original.</p>
+<details>
+<summary>
+<h4 id="rationale-for-altering-the-issuance-curve"><a class="hanchor" href="#rationale-for-altering-the-issuance-curve" aria-hidden="true" tabindex="-1">#</a>Justificación de la alteración de la curva de emisión</h4>
+</summary>
+<p>La elección de dividir el intervalo de bloque por 3 (que divide de manera exacta el intervalo de bloque posterior a Blossom, pero no el subsidio de bloque posterior a Blossom) significa que cada bloque pierde alguna fracción debido al redondeo en relación con la curva de emisión original. Durante el segundo período de halving, el subsidio de bloque posterior a Blossom es de 1.5625 ZEC. Con un espaciado de 25 segundos pasa a ser <math><mrow><mrow><mi>𝖿</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mn>156250000</mn><mi>/</mi><mn>3</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mn>52083333</mn></mrow></math> zatoshi (0.52083333 ZEC), de modo que tres bloques posteriores a NU7 emiten un zatoshi menos que un bloque anterior a NU7. Después del tercer halving, el subsidio es de <math><mrow><mrow><mi>𝖿</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mn>78125000</mn><mi>/</mi><mn>3</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mn>26041666</mn></mrow></math> zatoshi (0.26041666 ZEC), de modo que tres bloques posteriores a NU7 emiten dos zatoshi menos que un bloque anterior a NU7. Por bloque esto parece insignificante, pero a lo largo de la vida de toda la emisión puede acumularse, por lo que también es necesario determinar el cambio total en la oferta emitida.</p>
+<p>Sea <math><mi>A</mi></math> la altura de activación de NU7, y sea <math><msub><mi>H</mi><mn>3</mn></msub></math> la altura del tercer halving según el calendario de 75 segundos en la red correspondiente. Si NU7 se activa entre el segundo y el tercer halving, el déficit adicional en la emisión programada en relación con mantener bloques de 75 segundos es de <math><mrow><mn>0.4872</mn><mo>+</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mi>H</mi><mn>3</mn></msub><mo>−</mo><mi>A</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mi>/</mi><msup><mn>10</mn><mn>8</mn></msup></mrow></math> ZEC. El primer término es el déficit combinado por redondeo de los períodos de halving tercero y posteriores: 0.0336 ZEC por dos zatoshi cada intervalo de 75 segundos durante el tercer período, y 0.4536 ZEC de los períodos posteriores. El segundo término es el déficit de un zatoshi por cada bloque de 75 segundos restante en el segundo período. El calendario existente de 75 segundos queda por debajo de <math><mrow><mi>𝖬</mi><mi>𝖠</mi><mi>𝖷</mi><mi>_</mi><mi>𝖬</mi><mi>𝖮</mi><mi>𝖭</mi><mi>𝖤</mi><mi>𝖸</mi></mrow></math> en 0.1848 ZEC, de modo que el déficit programado posterior a NU7 es de <math><mrow><mn>0.6720</mn><mo>+</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mi>H</mi><mn>3</mn></msub><mo>−</mo><mi>A</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mi>/</mi><msup><mn>10</mn><mn>8</mn></msup></mrow></math> ZEC. Estas cifras excluyen cualquier reemisión bajo la Network Sustainability Mechanism (Mecanismo de Sostenibilidad de la Red) especificada en el ZIP 237 <sup><a href="#user-content-fn-zip-0237" id="user-content-fnref-zip-0237" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup>, que renombra esta <math><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗒</mi></mrow></math> a <math><mrow><mi>𝖲</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝗎</mi><mi>𝗅</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗒</mi></mrow></math> y añade <math><mrow><mi>𝖠</mi><mi>𝖽</mi><mi>𝖽</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗎</mi><mi>𝖻</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖽</mi><mi>𝗒</mi></mrow></math>.</p>
+<p>En mainnet, la altura de activación de NU7 es <math><mrow><mi>A</mi><mo>=</mo><mn>3,543,405</mn></mrow></math> <sup><a href="#user-content-fn-zip-0259" id="user-content-fnref-zip-0259-2" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup>. Entonces <math><mrow><msub><mi>H</mi><mn>3</mn></msub><mo>−</mo><mi>A</mi><mo>=</mo><mn>4,406,400</mn><mo>−</mo><mn>3,543,405</mn><mo>=</mo><mn>862,995</mn></mrow></math>. El déficit terminal adicional en relación con el calendario de 75 segundos es de <math><mrow><mn>0.4872</mn><mo>+</mo><mn>0.00862995</mn><mo>=</mo><mn>0.49582995</mn></mrow></math> ZEC. El déficit programado total desde <math><mrow><mi>𝖬</mi><mi>𝖠</mi><mi>𝖷</mi><mi>_</mi><mi>𝖬</mi><mi>𝖮</mi><mi>𝖭</mi><mi>𝖤</mi><mi>𝖸</mi></mrow></math> es de <math><mrow><mn>0.1848</mn><mo>+</mo><mn>0.49582995</mn><mo>=</mo><mn>0.68062995</mn></mrow></math> ZEC.</p>
+<p>Esto altera de manera perceptible la curva de emisión original, en un grado que no puede considerarse despreciable. Sin embargo, la introducción paralela de la Network Sustainability Mechanism <sup><a href="#user-content-fn-zip-0237" id="user-content-fnref-zip-0237-2" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup> significa que existe una vía para reemitir estos fondos si se desea en el futuro.</p>
+</details>
+<br>
+<h4 id="implications-for-active-funding-streams"><a class="hanchor" href="#implications-for-active-funding-streams" aria-hidden="true" tabindex="-1">#</a>Implicaciones para los flujos de financiación activos</h4>
+<p>La revisión 3 del ZIP 214 <sup><a href="#user-content-fn-zip-0214" id="user-content-fnref-zip-0214" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup> extiende los dos flujos de financiación hasta el tercer halving posterior a NU7. Con un espaciado de 75 segundos, cada bloque restante previo al halving paga 12,500,000 y 18,750,000 zatoshi a los flujos del 8 % y del 12 %. Los tres bloques de 25 segundos correspondientes pagan <math><mrow><mn>3</mn><mo>×</mo><mn>4,166,666</mn></mrow></math> y <math><mrow><mn>3</mn><mo>×</mo><mn>6,249,999</mn></mrow></math> zatoshi. Por lo tanto, los flujos reciben dos y tres zatoshi menos, respectivamente, mientras que el minero recibe cuatro zatoshi más. En este segundo período de halving, solo se emite en total un zatoshi menos. A lo largo de los <math><mrow><msub><mi>H</mi><mn>3</mn></msub><mo>−</mo><mi>A</mi></mrow></math> intervalos de 75 segundos restantes, los flujos reciben <math><mrow><mn>5</mn><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mi>H</mi><mn>3</mn></msub><mo>−</mo><mi>A</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> zatoshi menos, pero la emisión programada total disminuye solo en <math><mrow><msub><mi>H</mi><mn>3</mn></msub><mo>−</mo><mi>A</mi></mrow></math> zatoshi. Esto ya está incluido en el déficit terminal anterior; el redondeo de los flujos de financiación no crea un déficit separado en la emisión total.</p>
+<p>La revisión 2 del ZIP 207 <sup><a href="#user-content-fn-zip-0207" id="user-content-fnref-zip-0207" data-footnote-ref="" aria-describedby="footnote-label">22</a></sup> extiende el período de direcciones restante del flujo de financiación en la activación de NU7, y los períodos de direcciones subsiguientes, en proporción al cambio en el espaciado objetivo de bloque.</p>
+<h3 id="shielded-pool-action-limits"><a class="hanchor" href="#shielded-pool-action-limits" aria-hidden="true" tabindex="-1">#</a>Límites de acciones por grupo blindado</h3>
+<p>Definir las siguientes constantes en § 5.3 'Constants':</p>
+<p><math><mrow><mrow><mi>𝖦</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖻</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖲</mi><mi>𝗁</mi><mi>𝗂</mi><mi>𝖾</mi><mi>𝗅</mi><mi>𝖽</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖡</mi><mi>𝗎</mi><mi>𝖽</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>330</mn></mrow></math>
+<math><mrow><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>330</mn></mrow></math>
+<math><mrow><mrow><mi>𝖲</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖨</mi><mi>𝖮</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>300</mn></mrow></math>
+<math><mrow><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖩</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>0</mn></mrow></math></p>
+<p>En § 2 'Notation', añadir <math><mrow><mi>𝖦</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖻</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖲</mi><mi>𝗁</mi><mi>𝗂</mi><mi>𝖾</mi><mi>𝗅</mi><mi>𝖽</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖡</mi><mi>𝗎</mi><mi>𝖽</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi></mrow></math>, <math><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math>, <math><mrow><mi>𝖲</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖨</mi><mi>𝖮</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math> y <math><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖩</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math> a la lista de constantes enteras.</p>
+<p>En los límites siguientes, <math><mi>𝑛𝐴𝑐𝑡𝑖𝑜𝑛𝑠𝑂𝑟𝑐ℎ𝑎𝑟𝑑</mi></math>, <math><mi>𝑛𝑆𝑝𝑒𝑛𝑑𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi></math>, <math><mi>𝑛𝑂𝑢𝑡𝑝𝑢𝑡𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi></math> y <math><mi>𝑛𝐽𝑜𝑖𝑛𝑆𝑝𝑙𝑖𝑡</mi></math> son los campos de la transacción especificados en § 7.1 'Transaction Encoding and Consensus' <sup><a href="#user-content-fn-protocol-txnencoding" id="user-content-fnref-protocol-txnencoding" data-footnote-ref="" aria-describedby="footnote-label">23</a></sup>, y <math><mi>𝑛𝐴𝑐𝑡𝑖𝑜𝑛𝑠𝐼𝑟𝑜𝑛𝑤𝑜𝑜𝑑</mi></math> es el campo añadido por el ZIP 229 <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-2" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup>. Cada uno se toma como 0 para una versión de transacción que no tenga el campo.</p>
+<p>En § 7.6 'Block Header Encoding and Consensus' <sup><a href="#user-content-fn-protocol-blockheader" id="user-content-fnref-protocol-blockheader" data-footnote-ref="" aria-describedby="footnote-label">24</a></sup>, añadir una regla de consenso que establezca que para cada bloque a la altura <math><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></math> donde <math><mrow><mrow><mi>𝖨</mi><mi>𝗌</mi><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝖽</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>, los siguientes límites DEBEN (MUST) cumplirse:</p>
+<p><strong>Límites por grupo:</strong></p>
+<ul>
+<li>
+<p>El número total de acciones Orchard en todas las transacciones del bloque NO DEBE (MUST NOT) exceder <math><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math>. Es decir, <math><mrow><msub><mo movablelimits="false">∑</mo><mrow><mi>𝑡𝑥</mi><mo>∈</mo><mi>𝑏𝑙𝑜𝑐𝑘</mi></mrow></msub><mi>𝑛𝐴𝑐𝑡𝑖𝑜𝑛𝑠𝑂𝑟𝑐ℎ𝑎𝑟𝑑</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>≤</mo><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></mrow></math>.</p>
+</li>
+<li>
+<p>El número total de acciones Ironwood en todas las transacciones del bloque NO DEBE (MUST NOT) exceder <math><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math>. Es decir, <math><mrow><msub><mo movablelimits="false">∑</mo><mrow><mi>𝑡𝑥</mi><mo>∈</mo><mi>𝑏𝑙𝑜𝑐𝑘</mi></mrow></msub><mi>𝑛𝐴𝑐𝑡𝑖𝑜𝑛𝑠𝐼𝑟𝑜𝑛𝑤𝑜𝑜𝑑</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>≤</mo><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></mrow></math>.</p>
+</li>
+<li>
+<p>El número total de entradas y salidas Sapling en todas las transacciones del bloque NO DEBE (MUST NOT) exceder <math><mrow><mi>𝖲</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖨</mi><mi>𝖮</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math>. Es decir, <math><mrow><msub><mo movablelimits="false">∑</mo><mrow><mi>𝑡𝑥</mi><mo>∈</mo><mi>𝑏𝑙𝑜𝑐𝑘</mi></mrow></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑛𝑆𝑝𝑒𝑛𝑑𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>+</mo><mi>𝑛𝑂𝑢𝑡𝑝𝑢𝑡𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>≤</mo><mrow><mi>𝖲</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖨</mi><mi>𝖮</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></mrow></math>.</p>
+</li>
+<li>
+<p>El número total de JoinSplits de Sprout en todas las transacciones del bloque NO DEBE (MUST NOT) exceder <math><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖩</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math>. Es decir, <math><mrow><msub><mo movablelimits="false">∑</mo><mrow><mi>𝑡𝑥</mi><mo>∈</mo><mi>𝑏𝑙𝑜𝑐𝑘</mi></mrow></msub><mi>𝑛𝐽𝑜𝑖𝑛𝑆𝑝𝑙𝑖𝑡</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>≤</mo><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖩</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></mrow></math>.</p>
+</li>
+</ul>
+<p><strong>Presupuesto global blindado:</strong></p>
+<p>Además de los límites por grupo, el costo blindado total de todos los grupos en un bloque NO DEBE (MUST NOT) exceder <math><mrow><mi>𝖦</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖻</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖲</mi><mi>𝗁</mi><mi>𝗂</mi><mi>𝖾</mi><mi>𝗅</mi><mi>𝖽</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖡</mi><mi>𝗎</mi><mi>𝖽</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi></mrow></math>, donde el costo blindado de un bloque se define como:</p>
+<p><math><mrow><msub><mo movablelimits="false">∑</mo><mi>𝑡𝑥</mi></msub><mrow><mo fence="true" form="prefix" stretchy="true">(</mo><mi>𝑛𝐴𝑐𝑡𝑖𝑜𝑛𝑠𝑂𝑟𝑐ℎ𝑎𝑟𝑑</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>+</mo><mi>𝑛𝐴𝑐𝑡𝑖𝑜𝑛𝑠𝐼𝑟𝑜𝑛𝑤𝑜𝑜𝑑</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="true">)</mo></mrow><mspace width="0.2778em"></mspace><mo>+</mo><mspace width="0.2778em"></mspace><msub><mo movablelimits="false">∑</mo><mi>𝑡𝑥</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑛𝑆𝑝𝑒𝑛𝑑𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>+</mo><mi>𝑛𝑂𝑢𝑡𝑝𝑢𝑡𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mspace width="0.2778em"></mspace><mo>+</mo><mspace width="0.2778em"></mspace><mn>2</mn><mo>×</mo><msub><mo movablelimits="false">∑</mo><mi>𝑡𝑥</mi></msub><mi>𝑛𝐽𝑜𝑖𝑛𝑆𝑝𝑙𝑖𝑡</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑡𝑥</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p>Por lo tanto, Orchard e Ironwood no reciben presupuestos globales separados de 330 unidades: cada acción en cualquiera de los dos grupos consume una unidad del mismo presupuesto global.</p>
+<p>El factor de 2 para los JoinSplits de Sprout refleja que cada JoinSplit produce 2 salidas blindadas. Mientras <math><mrow><mrow><mi>𝖲</mi><mi>𝗉</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖩</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗍</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo>=</mo><mn>0</mn></mrow></math>, este término siempre es cero.</p>
+<p>Este presupuesto global garantiza que el peor caso del ancho de banda de sincronización blindada por bloque esté acotado, sin importar qué combinación de grupos se utilice.</p>
+<p>Estos límites no se aplican a los componentes transparentes de las transacciones. El límite total de 2 MB por bloque sigue aplicándose como antes.</p>
+<details>
+<summary>
+<h4 id="rationale-compact-sync-bandwidth-per-action"><a class="hanchor" href="#rationale-compact-sync-bandwidth-per-action" aria-hidden="true" tabindex="-1">#</a>Justificación: Ancho de banda de sincronización compacta por acción</h4>
+</summary>
+<p>Los límites anteriores se eligen para acotar el peor caso del ancho de banda que las billeteras ligeras deben descargar para la sincronización blindada. El Light Wallet Protocol representa tanto las acciones Orchard como las Ironwood usando <code>CompactOrchardAction</code>. <sup><a href="#user-content-fn-lightwallet-protocol" id="user-content-fnref-lightwallet-protocol" data-footnote-ref="" aria-describedby="footnote-label">25</a></sup> La carga útil de campos por acción tiene los siguientes costos:</p>
+<p><strong>Orchard e Ironwood:</strong> 148 bytes por acción, compuestos de:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tamaño</th></tr></thead><tbody><tr><td>cmx (compromiso de nota)</td><td>32 bytes</td></tr><tr><td>nullifier</td><td>32 bytes</td></tr><tr><td>clave pública efímera</td><td>32 bytes</td></tr><tr><td>texto plano de nota truncado</td><td>52 bytes</td></tr><tr><td><strong>Total</strong></td><td><strong>148 bytes</strong></td></tr></tbody></table>
+<p><strong>Sapling:</strong> 32 bytes por gasto (entrada) y 116 bytes por salida, compuestos de:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tamaño</th></tr></thead><tbody><tr><td><em>Por gasto:</em> nullifier</td><td>32 bytes</td></tr><tr><td><em>Por salida:</em> cmu (compromiso de nota)</td><td>32 bytes</td></tr><tr><td><em>Por salida:</em> clave pública efímera</td><td>32 bytes</td></tr><tr><td><em>Por salida:</em> texto plano de nota truncado</td><td>52 bytes</td></tr><tr><td><strong>Total por gasto</strong></td><td><strong>32 bytes</strong></td></tr><tr><td><strong>Total por salida</strong></td><td><strong>116 bytes</strong></td></tr></tbody></table>
+<p>Con estos límites, el peor caso de ancho de banda de sincronización compacta por bloque es:</p>
+<ul>
+<li><strong>Orchard o Ironwood:</strong> <math><mrow><mn>330</mn><mo>×</mo><mn>148</mn><mo>=</mo><mn>48,840</mn></mrow></math> bytes</li>
+<li><strong>Sapling:</strong> como máximo <math><mrow><mn>300</mn><mo>×</mo><mn>116</mn><mo>=</mo><mn>34,800</mn></mrow></math> bytes (caso patológico de todas las salidas)</li>
+</ul>
+<p>Debido al presupuesto global blindado, estos no pueden acumularse: un bloque que usa 330 acciones de Orchard y/o Ironwood no tiene presupuesto restante para Sapling. El peor caso de ancho de banda de sincronización compacta por bloque, por lo tanto, siempre está acotado por el caso del protocolo Orchard en 48,840 bytes.</p>
+<p>Véase la sección de <a href="#rationale">justificación</a> para el análisis completo del ancho de banda diario.</p>
+</details>
+<br>
+<h2 id="effect-on-difficulty-adjustment"><a class="hanchor" href="#effect-on-difficulty-adjustment" aria-hidden="true" tabindex="-1">#</a>Efecto sobre el ajuste de dificultad</h2>
+<p>Al igual que con la activación de Blossom <sup><a href="#user-content-fn-zip-0208" id="user-content-fnref-zip-0208" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup>, el parámetro de ajuste de dificultad <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖬</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝗂</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝗇</mi></mrow></math> se refiere a una cantidad de bloques y no cambia en la activación. El cambio en el valor efectivo de <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow></math> hará que el espaciado de bloques se ajuste al nuevo objetivo a la tasa normal de un ajuste de dificultad. Véase <a href="#difficulty-averaging-window">Ventana de promedio de dificultad</a> en la Justificación para el análisis del cambio de <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></math>.</p>
+<p>Es probable que el ajuste de dificultad de los primeros bloques después de la activación esté limitado por <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖬</mi><mi>𝖺</mi><mi>𝗑</mi><mi>𝖠</mi><mi>𝖽</mi><mi>𝗃</mi><mi>𝗎</mi><mi>𝗌</mi><mi>𝗍</mi><mi>𝖣</mi><mi>𝗈</mi><mi>𝗐</mi><mi>𝗇</mi></mrow></math>. No se anticipa que esto cause ningún problema.</p>
+<h2 id="minimum-difficulty-blocks-on-testnet"><a class="hanchor" href="#minimum-difficulty-blocks-on-testnet" aria-hidden="true" tabindex="-1">#</a>Bloques de dificultad mínima en Testnet</h2>
+<p>En Testnet, el umbral de bloque de dificultad mínima definido en el ZIP 205 <sup><a href="#user-content-fn-zip-0205" id="user-content-fnref-zip-0205" data-footnote-ref="" aria-describedby="footnote-label">27</a></sup> y modificado por el ZIP 208 <sup><a href="#user-content-fn-zip-0208" id="user-content-fnref-zip-0208-2" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup> se cambia en la altura de activación de NU7 de Testnet. Para un bloque a la altura <math><mrow><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo>≥</mo><mn>299188</mn></mrow></math>, el umbral es <math><mrow><mn>6</mn><mo>⋅</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> segundos antes de la activación de NU7 y <math><mrow><mn>18</mn><mo>⋅</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝗁</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> segundos desde la activación de NU7 en adelante. Este último es <math><mrow><mn>18</mn><mo>×</mo><mn>25</mn><mo>=</mo><mn>450</mn></mrow></math> segundos. Un bloque es un bloque de dificultad mínima solo si su tiempo de bloque es <em>estrictamente mayor</em> que este umbral después del tiempo del bloque precedente. Así, en y después de la activación de NU7 en Testnet, un intervalo de 450 segundos no califica, mientras que un intervalo de 451 segundos sí. En ese caso, el campo <code>nBits</code> del bloque DEBE (MUST) establecerse en <math><mrow><mrow><mi>𝖳</mi><mi>𝗈</mi><mi>𝖢</mi><mi>𝗈</mi><mi>𝗆</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> como lo especifica el ZIP 208. Este cambio no afecta a Mainnet.</p>
+<h2 id="non-consensus-node-behaviour"><a class="hanchor" href="#non-consensus-node-behaviour" aria-hidden="true" tabindex="-1">#</a>Comportamiento de nodo no relacionado con el consenso</h2>
+<h3 id="default-expiry-delta"><a class="hanchor" href="#default-expiry-delta" aria-hidden="true" tabindex="-1">#</a>Delta de expiración predeterminado</h3>
+<p>El delta de expiración predeterminado de 40 bloques (aproximadamente 50 minutos con un espaciado de 75 segundos) se triplica desde la activación de NU7, para mantener ese tiempo de expiración. En "Altura de expiración" <sup><a href="#user-content-fn-zip-0315-expiration-height" id="user-content-fnref-zip-0315-expiration-height" data-footnote-ref="" aria-describedby="footnote-label">28</a></sup>, reemplazar:</p>
+<blockquote>
+<pre><code>A wallet SHOULD create transactions using the default expiration height of
+40 blocks from the current height, as specified in [#zip-0203]_.
+</code></pre>
+</blockquote>
+<p>con:</p>
+<blockquote>
+<pre><code>A wallet SHOULD create transactions using a default expiration height of
+40 blocks after the target height (the height of the next block after the
+chain tip) before NU7 activation, and of 120 blocks after the target height
+from NU7 activation, as specified in [#zip-0203]_ and [#zip-0218]_. If the
+user has configured an expiry delta, the configured value SHOULD be used both
+before and after NU7 activation.
+</code></pre>
+</blockquote>
+<p>En "Referencias" <sup><a href="#user-content-fn-zip-0315" id="user-content-fnref-zip-0315-2" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>, agregar:</p>
+<blockquote>
+<pre><code>.. [#zip-0218] `ZIP 218: 25-second Block Target Spacing &#x3C;zip-0218.md>`_
+</code></pre>
+</blockquote>
+<h3 id="block-count-based-constants"><a class="hanchor" href="#block-count-based-constants" aria-hidden="true" tabindex="-1">#</a>Constantes basadas en cantidad de bloques</h3>
+<p>Se revisaron las siguientes constantes, medidas en cantidad de bloques. Se nombran como en la sección 'Otras constantes relacionadas con bloques' del ZIP 208 <sup><a href="#user-content-fn-zip-0208" id="user-content-fnref-zip-0208-3" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup>, que cita sus definiciones de <code>zcashd</code>; la columna "Actual" da los valores allí enumerados.</p>
+<p>Las implementaciones DEBERÍAN (SHOULD) escalar por <math><mrow><mi>𝖭</mi><mi>𝖴</mi><mn>𝟩</mn><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖳</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi><mi>𝖲</mi><mi>𝗉</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖱</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi></mrow></math> aquellas constantes que se derivan de una duración esperada (marcadas "Escalar por 3" a continuación), y NO DEBERÍAN (SHOULD NOT) escalar aquellas cuya semántica se mide intrínsecamente en bloques (marcadas "Sin cambio"): Las implementaciones DEBERÍAN (SHOULD) admitir revertir al menos 600 bloques después de la activación (marcado "Al menos 600"); una ventana de reversión mayor es conforme.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Constante</th><th>Actual</th><th>Posactivación</th><th>Notas</th></tr></thead><tbody><tr><td><code>COINBASE_MATURITY</code></td><td>100</td><td>100</td><td>Regla de consenso; sin cambio</td></tr><tr><td><code>MAX_REORG_LENGTH</code></td><td>99</td><td>Al menos 600</td><td>Objetivo de tiempo real, no un escalamiento de proporción; desacoplado de <code>COINBASE_MATURITY</code></td></tr><tr><td><code>TX_EXPIRING_SOON_THRESHOLD</code></td><td>3</td><td>3</td><td>Sin cambio;</td></tr><tr><td><code>MAX_BLOCKS_IN_TRANSIT_PER_PEER</code></td><td>16</td><td>48</td><td>Escalar por 3</td></tr><tr><td><code>BLOCK_DOWNLOAD_WINDOW</code></td><td>1024</td><td>3072</td><td>Escalar por 3</td></tr><tr><td><code>MIN_BLOCKS_TO_KEEP</code></td><td>288</td><td>864</td><td>Escalar por 3; mantener el equivalente a 6 horas de bloques</td></tr><tr><td><code>NETWORK_UPGRADE_PEER_PREFERENCE_BLOCK_PERIOD</code></td><td>1728</td><td>1728</td><td>Sin cambio; es una duración, no se escala (véase la Justificación)</td></tr></tbody></table>
+<h3 id="anchor-selection-depth">Profundidad de selección del anchor <a class="hanchor" href="#anchor-selection-depth" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>El ZIP 315 <sup><a href="#user-content-fn-zip-0315" id="user-content-fnref-zip-0315-3" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup> recomienda seleccionar un anchor a 3 bloques de la punta de la cadena al construir transacciones blindadas. La profundidad de anchor recomendada DEBERÍA (SHOULD) permanecer en 3 bloques tras la activación, reduciendo el retardo promedio del anchor en tiempo real de ~3.75 minutos a ~1.25 minutos.</p>
+<h3 id="transactions-exceeding-a-block-limit">Transacciones que exceden un límite de bloque <a class="hanchor" href="#transactions-exceeding-a-block-limit" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>Una transacción que por sí misma violara cualquiera de los límites por pool o el presupuesto blindado global especificados arriba no puede incluirse en ningún bloque a una altura donde NU7 esté activo. Por ejemplo, una transacción con 200 acciones de Orchard y 200 acciones de Ironwood satisface ambos límites por pool pero excede <math><mrow><mi>𝖦</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖻</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖲</mi><mi>𝗁</mi><mi>𝗂</mi><mi>𝖾</mi><mi>𝗅</mi><mi>𝖽</mi><mi>𝖾</mi><mi>𝖽</mi><mi>𝖡</mi><mi>𝗎</mi><mi>𝖽</mi><mi>𝗀</mi><mi>𝖾</mi><mi>𝗍</mi></mrow></math>.</p>
+<p>Los nodos NO DEBERÍAN (SHOULD NOT) admitir tal transacción en su mempool, ni retransmitirla, si NU7 está activo a la altura del siguiente bloque candidato. Las billeteras NO DEBERÍAN (SHOULD NOT) crear tal transacción para una altura objetivo en o después de la activación de NU7.</p>
+<h1 id="rationale">Justificación <a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a></h1>
+<h2 id="rationale-for-block-count-based-constants">Justificación de las constantes basadas en conteo de bloques <a class="hanchor" href="#rationale-for-block-count-based-constants" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>La constante <code>COINBASE_MATURITY</code> se lista por completitud. Su valor está fijado por una regla de consenso en § 7.1.2 'Reglas de Consenso de Transacciones' <sup><a href="#user-content-fn-protocol-txnconsensus" id="user-content-fnref-protocol-txnconsensus" data-footnote-ref="" aria-describedby="footnote-label">29</a></sup>, la cual este ZIP no cambia.</p>
+<p>La constante <code>NETWORK_UPGRADE_PEER_PREFERENCE_BLOCK_PERIOD</code> representa una duración, pero deliberadamente no se escala, al igual que en Blossom <sup><a href="#user-content-fn-zip-0208" id="user-content-fnref-zip-0208-4" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup>. Su ventana se reduce por lo tanto de 1.5 días con un espaciado de 75 segundos a 12 horas con un espaciado de 25 segundos.</p>
+<p>Esta propuesta trata fundamentalmente de disminuir el espaciado objetivo, lo que acorta el margen en tiempo real para cualquier <code>MAX_REORG_LENGTH</code> dado. El valor de <code>MAX_REORG_LENGTH</code> en Zebra era anteriormente 99, fijado justo por debajo de <code>COINBASE_MATURITY</code> (= 100) por convención heredada de Bitcoin. Con el espaciado de 150 segundos al lanzamiento de Zcash cubría unas 4.2 horas, con el espaciado actual de 75 segundos unos 125 minutos, y con el espaciado de 25 segundos propuesto para NU7 solo unos 42 minutos.</p>
+<p>Incidentes recientes muestran que las divisiones de consenso pueden persistir más allá de decenas de minutos: por ejemplo, el incidente MWEB de Litecoin de abril de 2026 produjo una cadena inválida de 13 bloques que luego fue eliminada mediante una reorganización, con una ventana de recuperación de ~3 horas según el análisis póstumo <sup><a href="#user-content-fn-litecoin-mweb-incident" id="user-content-fnref-litecoin-mweb-incident" data-footnote-ref="" aria-describedby="footnote-label">30</a></sup>. El valor óptimo a largo plazo para <code>MAX_REORG_LENGTH</code> probablemente deba cambiar más en el futuro, pero eso está fuera del alcance aquí. Elevarlo a al menos 600 bloques restaura la ventana en tiempo real de ~4.2 horas que proporcionaba con el espaciado objetivo de 150 segundos al lanzamiento de Zcash, mientras que <code>COINBASE_MATURITY</code> permanece en 100. Esto es más conservador que la ventana de ~125 minutos con el espaciado actual de 75 segundos. Dado el incidente anterior y que el valor del lanzamiento con espaciado de 150 segundos es anterior a esta línea de evidencia, restaurar el margen en tiempo real del lanzamiento es la opción más segura.</p>
+<p>Esto significa deliberadamente que una reorganización admitida puede invalidar una salida coinbase madura. Ese caso ya es una consecuencia válida de las reorganizaciones profundas de PoW en el modelo abstracto del protocolo.</p>
+<p>Desde la versión 5.2.0, Zebra mantiene una ventana de reversión de 1000 bloques antes y después de la activación (unas 20.8 horas con espaciado de 75 segundos y 6.9 horas con espaciado de 25 segundos), lo que satisface el mínimo de 600.</p>
+<h2 id="rationale-for-anchor-selection-depth">Justificación de la profundidad de selección del anchor <a class="hanchor" href="#rationale-for-anchor-selection-depth" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Esto sigue el mismo precedente establecido por la actualización Blossom (ZIP 208 <sup><a href="#user-content-fn-zip-0208" id="user-content-fnref-zip-0208-5" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup>), que no actualizó la profundidad del anchor y por lo tanto redujo el retardo a la mitad.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Parámetro</th><th>Actual</th><th>Posactivación</th><th>Notas</th></tr></thead><tbody><tr><td>Profundidad de anchor recomendada</td><td>3 bloques (~3.75 min)</td><td>3 bloques (~1.25 min)</td><td>Sin cambio; sigue el precedente de Blossom</td></tr></tbody></table>
+<p>La mayor probabilidad de fork debido a la reducción del tiempo de bloque no debería ser motivo de preocupación aquí. Para que ocurra un problema cuando la profundidad del anchor es de 3 bloques hacia atrás, debe haber una reorganización de 4 bloques. En los muchos años de Ethereum PoW, nunca se ha observado una reorganización de 4 bloques <sup><a href="#user-content-fn-lovejoy-reorg" id="user-content-fnref-lovejoy-reorg" data-footnote-ref="" aria-describedby="footnote-label">31</a></sup>. Por lo tanto, en la práctica no estamos en riesgo de que la aleatoriedad inherente cause una reorganización. En otras cadenas PoW, las reorganizaciones de 4 o más bloques resultaron de algún tipo de división de consenso, incluido el reciente ataque a Litecoin, o de un ataque por un aumento repentino de hashpower. La profundidad del anchor no está destinada a proteger contra esos dos vectores.</p>
+<h2 id="shielded-sync-bandwidth-analysis"><a class="hanchor" href="#shielded-sync-bandwidth-analysis" aria-hidden="true" tabindex="-1">#</a>Análisis del ancho de banda de sincronización blindada</h2>
+<p>Los límites de espacio de bloque por pool se eligen de modo que el ancho de banda diario en el peor caso para la sincronización de billeteras ligeras no aumente en relación con el protocolo actual. Esta sección presenta el análisis.</p>
+<h3 id="parameters"><a class="hanchor" href="#parameters" aria-hidden="true" tabindex="-1">#</a>Parámetros</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Parámetro</th><th>Valor</th></tr></thead><tbody><tr><td>Límite de tamaño de bloque</td><td>2 000 000 bytes</td></tr><tr><td>Espaciado objetivo de bloque</td><td>25 segundos</td></tr><tr><td>Bloques por día</td><td><math><mrow><mn>86,400</mn><mi>/</mi><mn>25</mn><mo>=</mo><mn>3,456</mn></mrow></math></td></tr><tr><td>Tamaño del encabezado de bloque compacto</td><td>~90 bytes</td></tr></tbody></table>
+<p><strong>Pools de Orchard e Ironwood:</strong></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Parámetro</th><th>Valor</th></tr></thead><tbody><tr><td><math><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math></td><td>330 acciones por pool</td></tr><tr><td>Ancho de banda de sincronización compacta por acción</td><td>148 bytes</td></tr><tr><td>Ancho de banda compacto por bloque</td><td><math><mrow><mn>330</mn><mo>×</mo><mn>148</mn><mo>=</mo><mn>48,840</mn></mrow></math> bytes</td></tr></tbody></table>
+<p><strong>Pool de Sapling:</strong></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Parámetro</th><th>Valor</th></tr></thead><tbody><tr><td><math><mrow><mi>𝖲</mi><mi>𝖺</mi><mi>𝗉</mi><mi>𝗅</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖨</mi><mi>𝖮</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math></td><td>300 (entradas + salidas)</td></tr><tr><td>Ancho de banda de sincronización compacta por gasto</td><td>32 bytes</td></tr><tr><td>Ancho de banda de sincronización compacta por salida</td><td>116 bytes</td></tr><tr><td>Ancho de banda compacto por bloque (peor caso, todas las salidas)</td><td><math><mrow><mn>300</mn><mo>×</mo><mn>116</mn><mo>=</mo><mn>34,800</mn></mrow></math> bytes</td></tr></tbody></table>
+<h3 id="daily-bandwidth-comparison"><a class="hanchor" href="#daily-bandwidth-comparison" aria-hidden="true" tabindex="-1">#</a>Comparación de ancho de banda diario</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Métrica</th><th>Actual (75s, sin límites por pool)</th><th>Propuesto (25s, límites de acciones)</th></tr></thead><tbody><tr><td>Bloques por día</td><td>1,152</td><td>3,456</td></tr><tr><td>Máximo de acciones Orchard + Ironwood/bloque</td><td>~617 (limitado por el tamaño de bloque)</td><td>330</td></tr><tr><td>Entradas/salidas Sapling/bloque</td><td>~2,140 (ataque simulado)</td><td>300 (límite)</td></tr><tr><td>Ancho de banda compacto Orchard o Ironwood/día</td><td>~105.2 MB</td><td>168.79 MB</td></tr><tr><td>Ancho de banda compacto Sapling/día</td><td>~270.38 MB</td><td>120.27 MB</td></tr><tr><td>Encabezados de bloque compactos/día</td><td>~0.10 MB</td><td>0.31 MB</td></tr><tr><td><strong>Ancho de banda total en el peor caso/día</strong></td><td><strong>~270.5 MB</strong></td><td><strong>169.10 MB</strong></td></tr><tr><td>Descifrados de prueba en el peor caso/día</td><td>~4.8M</td><td>~2.3M</td></tr></tbody></table>
+<p>Las estimaciones de Sapling previas a la activación usan el modelo de transacción de un gasto y 64 salidas del Shielded Sync Simulator <sup><a href="#user-content-fn-syncsimulator" id="user-content-fnref-syncsimulator-2" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>; las E/S cuentan tanto gastos como salidas. No son máximos sobre mezclas arbitrarias de entradas/salidas. El simulador usa 32 bytes compactos por gasto y 112 por salida, mientras que la cota de Sapling posterior a la activación anterior usa 116 bytes por salida.</p>
+<p>El ancho de banda de sincronización compacta en el peor caso es <strong>169.10 MB/día</strong>, una reducción del <strong>37%</strong> con respecto al peor caso actual de aproximadamente 270.5 MB/día. Esto a pesar de un aumento de 3× en la frecuencia de bloques y en la capacidad total de rendimiento.</p>
+<p>La restricción vinculante es Orchard o Ironwood con 330 acciones por bloque: <math><mrow><mn>330</mn><mo>×</mo><mn>148</mn><mo>×</mo><mn>3,456</mn><mo>+</mo><mn>90</mn><mo>×</mo><mn>3,456</mn><mo>=</mo><mn>169.10</mn><mtext> 𝖬𝖡/𝖽𝖺𝗒</mtext></mrow></math>.</p>
+<p>La cantidad de descifrados de prueba también disminuye significativamente, ya que los límites de acciones por bloque compensan con creces el aumento de 3× en la cantidad de bloques.</p>
+<p>Nótese que la cantidad de descifrados de prueba por cuenta es 2× el número de salidas/acciones blindadas, porque las billeteras deben intentar el descifrado con las claves de visualización de entradas (IVK) interna y externa. La IVK interna detecta las salidas de cambio devueltas a la billetera, mientras que la IVK externa detecta los pagos entrantes. En principio, las billeteras podrían evitar los descifrados de prueba con una de sus IVK si se asumen otras concesiones de sincronización, pero las billeteras actuales de los protocolos Sapling y Orchard siempre intentan ambas.</p>
+<h3 id="normal-transaction-throughput"><a class="hanchor" href="#normal-transaction-throughput" aria-hidden="true" tabindex="-1">#</a>Rendimiento de transacciones normales</h3>
+<p>Para transacciones estándar de 2 acciones de Orchard o Ironwood, el límite de 330 acciones permite <math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">⌊</mo><mn>330</mn><mi>/</mi><mn>2</mn><mo fence="true" form="postfix" stretchy="false">⌋</mo></mrow><mo>=</mo><mn>165</mn></mrow></math> transacciones por bloque, lo que da:</p>
+<p><math><mrow><mrow><mi>𝗈</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi><mi>_</mi><mi>𝗉</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>_</mi><mi>𝗍</mi><mi>𝗉</mi><mi>𝗌</mi></mrow><mo>=</mo><mn>165</mn><mspace width="0.2778em"></mspace><mi>/</mi><mspace width="0.2778em"></mspace><mn>25</mn><mo>=</mo><mn>6.6</mn><mtext> 𝖳𝖯𝖲</mtext></mrow></math></p>
+<p>Como comparación, el protocolo actual (bloques de 75 s, limitados por tamaño de bloque) admite aproximadamente 2.9 TPS para transacciones de 2 acciones de Orchard. Esto es un <strong>aumento de 2.3×</strong> en el rendimiento normal de Orchard.</p>
+<p><strong>Rendimiento de Sapling.</strong> Para transacciones estándar de Sapling (2 gastos + 2 salidas = 4 E/S), el límite de 300 E/S permite <math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">⌊</mo><mn>300</mn><mi>/</mi><mn>4</mn><mo fence="true" form="postfix" stretchy="false">⌋</mo></mrow><mo>=</mo><mn>75</mn></mrow></math> transacciones por bloque, lo que da <math><mrow><mn>75</mn><mi>/</mi><mn>25</mn><mo>=</mo><mn>3.0</mn></mrow></math> TPS. Incluso con el límite reducido de Sapling, el TPS de Sapling posterior a NU7 (3.0) sigue superando el TPS de Orchard previo a NU7 actual (2.9).</p>
+<h3 id="fee-incentives-and-dos-resistance"><a class="hanchor" href="#fee-incentives-and-dos-resistance" aria-hidden="true" tabindex="-1">#</a>Incentivos de comisiones y resistencia a DoS</h3>
+<p>Una preocupación con los límites por grupo es que un atacante de DoS podría llenar el presupuesto de un grupo para desplazar transacciones de otro grupo. El presupuesto blindado global evita que esto sea peor que llenar cualquier grupo individual, pero vale la pena examinar si los incentivos de comisiones crean una asimetría.</p>
+<p>Según el ZIP 317 <sup><a href="#user-content-fn-zip-0317" id="user-content-fnref-zip-0317" data-footnote-ref="" aria-describedby="footnote-label">32</a></sup>, la comisión convencional se basa en <em>acciones lógicas</em>. Cada acción de Orchard o Ironwood cuenta como una acción lógica, pero los gastos y salidas Sapling de una transacción cuentan como <math><mrow><mrow><mi>max</mi><mo>⁡</mo></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝑛𝑆𝑝𝑒𝑛𝑑𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi><mo separator="true">,</mo><mi>𝑛𝑂𝑢𝑡𝑝𝑢𝑡𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> acciones lógicas, mientras que consumen <math><mrow><mi>𝑛𝑆𝑝𝑒𝑛𝑑𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi><mo>+</mo><mi>𝑛𝑂𝑢𝑡𝑝𝑢𝑡𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi></mrow></math> unidades del presupuesto blindado global. Un paquete Sapling equilibrado, por lo tanto, compra unidades de presupuesto a la mitad del precio de Orchard o Ironwood, mientras que un paquete Sapling de solo salidas o de solo gastos paga el mismo precio por unidad.</p>
+<p>Además, como el presupuesto blindado global es compartido, llenar el presupuesto de un grupo necesariamente reduce en la misma cantidad el presupuesto restante de todos los demás grupos. Un atacante que gasta todo su presupuesto en spam de Sapling con 300 E/S deja solo 30 acciones de Orchard o Ironwood disponibles en ese bloque. Con 150 gastos Sapling y 150 salidas Sapling, más 30 acciones de Orchard, el atacante agota el presupuesto por 180 acciones lógicas, aproximadamente el 55% de la comisión convencional de 330 acciones de Orchard o Ironwood. Tal bloque, sin embargo, transporta menos datos de sincronización compacta: <math><mrow><mn>150</mn><mo>×</mo><mn>32</mn><mo>+</mo><mn>150</mn><mo>×</mo><mn>116</mn><mo>+</mo><mn>30</mn><mo>×</mo><mn>148</mn><mo>=</mo><mn>26,640</mn></mrow></math> bytes, contra <math><mrow><mn>330</mn><mo>×</mo><mn>148</mn><mo>=</mo><mn>48,840</mn></mrow></math> bytes. El presupuesto global asegura que el costo total de sincronización blindada por bloque esté acotado a 330 unidades independientemente de la elección de grupo del atacante.</p>
+<p>Las cotas que establece este ZIP, por lo tanto, siguen vigentes: un bloque contiene a lo sumo 330 unidades en cualquier combinación de grupos, y la forma más barata de agotar el presupuesto transporta menos datos de sincronización compacta que un bloque del protocolo de Orchard. Lo que cambia el precio de Sapling es el costo de desplazar a otras transacciones de un bloque. Con la comisión marginal del ZIP 317 de 5,000 zatoshis, es 0.009 ZEC por bloque, aproximadamente 31 ZEC por día con el espaciado de 25 segundos, en lugar de 0.0165 ZEC y aproximadamente 57 ZEC. Un ZIP futuro podría eliminar la diferencia contando <math><mrow><mi>𝑛𝑆𝑝𝑒𝑛𝑑𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi><mo>+</mo><mi>𝑛𝑂𝑢𝑡𝑝𝑢𝑡𝑠𝑆𝑎𝑝𝑙𝑖𝑛𝑔</mi></mrow></math> acciones lógicas en el ZIP 317, lo que aumenta en la mitad la comisión convencional de una transacción Sapling típica de un gasto y dos salidas, o haciendo que las plantillas de bloque ordenen las transacciones por comisión por unidad de presupuesto blindado en lugar de por acción lógica.</p>
+<p>El tope de 330 acciones por grupo también permite que las transacciones de Orchard o Ironwood usen el presupuesto global completo cuando no se usan los demás grupos blindados.</p>
+<h2 id="difficulty-averaging-window"><a class="hanchor" href="#difficulty-averaging-window" aria-hidden="true" tabindex="-1">#</a>Ventana de promediado de dificultad</h2>
+<p>Esta propuesta aumenta <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></math> de 17 a 102 en la activación de NU7 (especificado en <a href="#averaging-window">Ventana de promediado</a> bajo Cambios de consenso), de modo que la ventana de suavizado en tiempo real es de <math><mrow><mn>102</mn><mo>×</mo><mn>25</mn><mo>=</mo><mn>17</mn><mo>×</mo><mn>150</mn><mo>=</mo><mn>2,550</mn></mrow></math> segundos — la misma ventana en tiempo real para la que el valor <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><mn>17</mn></mrow></math> fue elegido originalmente para proporcionar con el espaciado objetivo de 150 s del lanzamiento de Zcash. Con el espaciado actual de 75 s, el mismo valor cubre solo 1,275 s, y con el espaciado propuesto de 25 s de NU7 cubriría solo 425 s.</p>
+<p>Las motivaciones son:</p>
+<ol>
+<li>Preservar la duración en tiempo real sobre la cual se suaviza la dificultad, de modo que NU7 no amplifique los ataques de manipulación de dificultad como el observado recientemente en Litecoin <sup><a href="#user-content-fn-litecoin-mweb-incident" id="user-content-fnref-litecoin-mweb-incident-2" data-footnote-ref="" aria-describedby="footnote-label">30</a></sup>.</li>
+<li>Como una mejora adicional sobre mantener <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><mn>17</mn></mrow></math>, reducir la desviación estándar de los promedios de espaciado de bloque sobre ventanas móviles cortas.</li>
+</ol>
+<p>Bajo un simulador de ajuste de dificultad de Zebra <sup><a href="#user-content-fn-daa-recovery-benchmark" id="user-content-fnref-daa-recovery-benchmark" data-footnote-ref="" aria-describedby="footnote-label">33</a></sup> con una tasa de hash estable y con <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><mn>17</mn></mrow></math> sin cambios a través de la transición, el espaciado de bloque esperado se recupera a dentro del 5% del nuevo objetivo de 25 s dentro de 62 bloques de la activación de NU7:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Espaciado esperado</th><th>Bloques después de la activación</th><th>Tiempo real</th></tr></thead><tbody><tr><td>75 s (objetivo previo a NU7)</td><td>—</td><td>—</td></tr><tr><td>56.8 s (activación)</td><td>0</td><td>—</td></tr><tr><td><math><mrow><mo>≤</mo><mn>30</mn></mrow></math> s</td><td>30</td><td>~21 min</td></tr><tr><td><math><mrow><mo>≤</mo><mn>26.25</mn></mrow></math> s</td><td>62</td><td>~36 min</td></tr></tbody></table>
+<p>Se espera que fijar <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><mn>102</mn></mrow></math> requiera aproximadamente 6× más bloques para cruzar cada umbral, lo cual es la misma duración en tiempo real que habría tomado la recuperación con el espaciado de 150 s del lanzamiento de Zcash y <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><mn>17</mn></mrow></math>.</p>
+<p>Como punto de referencia del mundo real, la actualización Blossom <sup><a href="#user-content-fn-zip-0208" id="user-content-fnref-zip-0208-6" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup> hizo una reducción de 2× del espaciado objetivo (150 s → 75 s) con <math><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow></math> sin cambios; el espaciado de bloque de mainnet (promedio móvil de 20 bloques) alcanzó aproximadamente 74 s a la altura 653,664 — 64 bloques después de la activación.</p>
+<p>Dos devnets distribuidas geográficamente de 99 nodos Zebra en 14 regiones (1 vCPU por nodo), una con <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><mn>17</mn></mrow></math> y otra con 51, confirmaron una reducción de ~1 segundo en la desviación estándar de los espaciados de bloque con promedio móvil de 5 y 10 bloques. Se espera que la reducción de la varianza sea algo mayor con <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝖶</mi><mi>𝖠</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗀</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗀</mi><mi>𝖶</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝖽</mi><mi>𝗈</mi><mi>𝗐</mi></mrow><mo>=</mo><mn>102</mn></mrow></math>.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Esta propuesta fue desplegada como parte de NU7. El ZIP 259 <sup><a href="#user-content-fn-zip-0259" id="user-content-fnref-zip-0259-3" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup> especifica los detalles del despliegue, incluyendo las alturas de activación y el ID de rama de consenso.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<ul>
+<li>Zebra: <sup><a href="#user-content-fn-zebra-11529" id="user-content-fnref-zebra-11529" data-footnote-ref="" aria-describedby="footnote-label">34</a></sup></li>
+<li>Zakura: <sup><a href="#user-content-fn-zakura-1066" id="user-content-fnref-zakura-1066" data-footnote-ref="" aria-describedby="footnote-label">35</a></sup> <sup><a href="#user-content-fn-zakura-1068" id="user-content-fnref-zakura-1068" data-footnote-ref="" aria-describedby="footnote-label">36</a></sup> <sup><a href="#user-content-fn-zakura-1221" id="user-content-fnref-zakura-1221" data-footnote-ref="" aria-describedby="footnote-label">37</a></sup></li>
+</ul>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Información sobre BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" y "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0200">
+<p><a href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a> <a href="#user-content-fnref-zip-0200" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-diffadjustment">
+<p><a href="/upstream/protocol/protocol.pdf#diffadjustment">Zcash Protocol Specification, Version 2025.6.3. Section 7.7.3: Difficulty adjustment</a> <a href="#user-content-fnref-protocol-diffadjustment" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.3 or later</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2025.6.3. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-crosslink">
+<p><a href="https://daira.github.io/tfl-book/design/crosslink.html">Zcash Trailing Finality Layer (Capa de Finalidad Posterior de Zcash): Crosslink</a> <a href="#user-content-fnref-crosslink" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-slowfastblocks">
+<p><a href="https://blog.ethereum.org/2015/09/14/on-slow-and-fast-block-times/">On Slow and Fast Block Times</a> <a href="#user-content-fnref-slowfastblocks" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-syncsimulator">
+<p><a href="https://nu7syncsimulator.valargroup.dev/">Shielded Sync Simulator</a> <a href="#user-content-fnref-syncsimulator" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-syncsimulator-2" data-footnote-backref="" aria-label="Back to reference 8-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-2003">
+<p><a href="/upstream/zip-2003.rst">ZIP 2003: Disallow version 4 transactions</a> <a href="#user-content-fnref-zip-2003" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zecblock-pools-20261021">
+<p><a href="https://zecblock.com/pools">ZecBlock shielded pool statistics</a>, instantánea más reciente al 21-10-2026 15:00 UTC. <a href="#user-content-fnref-zecblock-pools-20261021" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0258">
+<p><a href="/upstream/zip-0258.md">ZIP 258: Deployment of the NU6.3 Network Upgrade</a> <a href="#user-content-fnref-zip-0258" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-forum-proposal">
+<p><a href="https://forum.zcashcommunity.com/t/proposal-lower-zcash-block-target-spacing-to-25s/54577">Forum: Proposal — Lower Zcash Block Target Spacing to 25s</a> <a href="#user-content-fnref-forum-proposal" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-devnet-blocktime-test">
+<p><a href="https://forum.zcashcommunity.com/t/zcash-block-time-reduction-appears-safe-for-nu7-w-zebra-only-devnet/55586">Forum: Zcash Block Time Reduction Appears Safe for NU7 w/ Zebra-only Devnet</a> <a href="#user-content-fnref-devnet-blocktime-test" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0229">
+<p><a href="/upstream/zip-0229.md">ZIP 229: Version 6 Transaction Format</a> <a href="#user-content-fnref-zip-0229" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0229-2" data-footnote-backref="" aria-label="Back to reference 14-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-verification-benchmark">
+<p><a href="https://github.com/valargroup/zebra/blob/evan/benchmark-worst-case-block-verification/zebra-consensus/benches/worst_case_tx_verification.rs">Prueba de rendimiento de Zebra para la verificación de bloques en el peor caso (<code>worst_case_tx_verification.rs</code>)</a> <a href="#user-content-fnref-verification-benchmark" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0315">
+<p><a href="/upstream/zip-0315.rst">ZIP 315: Best Practices for Wallet Implementations</a> <a href="#user-content-fnref-zip-0315" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0315-2" data-footnote-backref="" aria-label="Back to reference 16-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0315-3" data-footnote-backref="" aria-label="Back to reference 16-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-constants">
+<p><a href="/upstream/protocol/protocol.pdf#constants">Zcash Protocol Specification, Version 2025.6.3. Section 5.3: Constants</a> <a href="#user-content-fnref-protocol-constants" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0259">
+<p><a href="/upstream/zip-0259.md">ZIP 259: Deployment of the NU7 Network Upgrade</a> <a href="#user-content-fnref-zip-0259" data-footnote-backref="" aria-label="Back to reference 18" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0259-2" data-footnote-backref="" aria-label="Back to reference 18-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0259-3" data-footnote-backref="" aria-label="Back to reference 18-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-subsidies">
+<p><a href="/upstream/protocol/protocol.pdf#subsidies">Zcash Protocol Specification, Version 2025.6.3. Section 7.8: Calculating Block Subsidy, Funding Streams, Lockbox Disbursement, and Founders' Reward</a> <a href="#user-content-fnref-protocol-subsidies" data-footnote-backref="" aria-label="Back to reference 19" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-subsidies-2" data-footnote-backref="" aria-label="Back to reference 19-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0237">
+<p><a href="/upstream/zip-0237.md">ZIP 237: Network Sustainability Mechanism: Halving-Preserving Issuance</a> <a href="#user-content-fnref-zip-0237" data-footnote-backref="" aria-label="Back to reference 20" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0237-2" data-footnote-backref="" aria-label="Back to reference 20-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0214">
+<p><a href="/upstream/zip-0214.rst">ZIP 214: Consensus rules for a Zcash Development Fund (Fondo de Desarrollo de Zcash)</a> <a href="#user-content-fnref-zip-0214" data-footnote-backref="" aria-label="Back to reference 21" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0207">
+<p><a href="/upstream/zip-0207.rst">ZIP 207: Funding Streams</a> <a href="#user-content-fnref-zip-0207" data-footnote-backref="" aria-label="Back to reference 22" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-txnencoding">
+<p><a href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2025.6.3. Section 7.1: Transaction Encoding and Consensus</a> <a href="#user-content-fnref-protocol-txnencoding" data-footnote-backref="" aria-label="Back to reference 23" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-blockheader">
+<p><a href="/upstream/protocol/protocol.pdf#blockheader">Zcash Protocol Specification, Version 2025.6.3. Section 7.6: Block Header Encoding and Consensus</a> <a href="#user-content-fnref-protocol-blockheader" data-footnote-backref="" aria-label="Back to reference 24" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-lightwallet-protocol">
+<p><a href="https://github.com/zcash/lightwallet-protocol/blob/v0.5.0/walletrpc/compact_formats.proto">Zcash Light Wallet Protocol v0.5.0: <code>compact_formats.proto</code></a> <a href="#user-content-fnref-lightwallet-protocol" data-footnote-backref="" aria-label="Back to reference 25" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0208">
+<p><a href="/upstream/zip-0208.rst">ZIP 208: Shorter Block Target Spacing</a> <a href="#user-content-fnref-zip-0208" data-footnote-backref="" aria-label="Back to reference 26" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0208-2" data-footnote-backref="" aria-label="Back to reference 26-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0208-3" data-footnote-backref="" aria-label="Back to reference 26-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-0208-4" data-footnote-backref="" aria-label="Back to reference 26-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-zip-0208-5" data-footnote-backref="" aria-label="Back to reference 26-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-zip-0208-6" data-footnote-backref="" aria-label="Back to reference 26-6" class="data-footnote-backref">↩<sup>6</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0205">
+<p><a href="/upstream/zip-0205.rst">ZIP 205: Deployment of the Sapling Network Upgrade</a> <a href="#user-content-fnref-zip-0205" data-footnote-backref="" aria-label="Back to reference 27" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0315-expiration-height">
+<p><a href="/upstream/zip-0315.rst#expiration-height">ZIP 315: Best Practices for Wallet Implementations — Expiration height</a> <a href="#user-content-fnref-zip-0315-expiration-height" data-footnote-backref="" aria-label="Back to reference 28" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-txnconsensus">
+<p><a href="/upstream/protocol/protocol.pdf#txnconsensus">Zcash Protocol Specification, Version 2025.6.3. Section 7.1.2: Transaction Consensus Rules</a> <a href="#user-content-fnref-protocol-txnconsensus" data-footnote-backref="" aria-label="Back to reference 29" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-litecoin-mweb-incident">
+<p><a href="https://litecoin.com/news/litecoin-mweb-security-incident-postmortem">Litecoin MWEB Security Incident Postmortem</a> <a href="#user-content-fnref-litecoin-mweb-incident" data-footnote-backref="" aria-label="Back to reference 30" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-litecoin-mweb-incident-2" data-footnote-backref="" aria-label="Back to reference 30-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-lovejoy-reorg">
+<p><a href="https://static1.squarespace.com/static/6675a0d5fc9e317c60db9b37/t/66eb3560532516773c4f7ece/1726690657755/LovejoyJamesP-meng-eecs-2020+%281%29.pdf">Lovejoy, James P. (2020). <em>An Empirical Analysis of Chain Reorganizations and Double-Spend Attacks on Proof-of-Work Cryptocurrencies.</em> Tesis de M.Eng., Massachusetts Institute of Technology, Department of Electrical Engineering and Computer Science.</a> <a href="#user-content-fnref-lovejoy-reorg" data-footnote-backref="" aria-label="Back to reference 31" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0317">
+<p><a href="/upstream/zip-0317.rst">ZIP 317: Proportional Transfer Fee Mechanism</a> <a href="#user-content-fnref-zip-0317" data-footnote-backref="" aria-label="Back to reference 32" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-daa-recovery-benchmark">
+<p><a href="https://github.com/valargroup/zebra/blob/evan/benchmark-worst-case-block-verification/zebra-state/src/service/check/difficulty.rs#L555">Simulador de recuperación del ajuste de dificultad de Zebra: <code>benchmark_hash_rate_shock_daa_configurations</code> en <code>zebra-state/src/service/check/difficulty.rs</code></a>. La transición de 3× del espaciamiento objetivo se ejercita mediante <a href="https://github.com/valargroup/zebra/blob/evan/benchmark-worst-case-block-verification/zebra-state/src/service/check/difficulty.rs#L397"><code>simulate_three_x_target_spacing_reduction</code></a> en el mismo archivo. <a href="#user-content-fnref-daa-recovery-benchmark" data-footnote-backref="" aria-label="Back to reference 33" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zebra-11529">
+<p><a href="https://github.com/ZcashFoundation/zebra/pull/11529">Zebra PR 11529: feat(consensus)!: implement NU7 spacing, funding schedules, and shielded limits</a> <a href="#user-content-fnref-zebra-11529" data-footnote-backref="" aria-label="Back to reference 34" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zakura-1066">
+<p><a href="https://github.com/zakura-core/zakura/pull/1066">Zakura PR 1066: feat(consensus): reduce block target spacing to 25 seconds at NU7</a> <a href="#user-content-fnref-zakura-1066" data-footnote-backref="" aria-label="Back to reference 35" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zakura-1068">
+<p><a href="https://github.com/zakura-core/zakura/pull/1068">Zakura PR 1068: fix(chain): apply NU7 spacing at activation boundary</a> <a href="#user-content-fnref-zakura-1068" data-footnote-backref="" aria-label="Back to reference 36" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zakura-1221">
+<p><a href="https://github.com/zakura-core/zakura/pull/1221">Zakura PR 1221: test(chain): pin ZIP 218 rounding over every block and halving era</a> <a href="#user-content-fnref-zakura-1221" data-footnote-backref="" aria-label="Back to reference 37" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

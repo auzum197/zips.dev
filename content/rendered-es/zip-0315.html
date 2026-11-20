@@ -1,0 +1,423 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)", "RECOMENDADO (RECOMMENDED)", "NO RECOMENDADO (NOT RECOMMENDED)" y "PUEDE (MAY)" en este documento se interpretan como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos que figuran a continuación deben interpretarse de la siguiente manera:</p>
+<dl class="simple">
+<dt>Blindaje automático</dt>
+<dd><p>El proceso de transferir automáticamente fondos transparentes al pool blindado más reciente al recibirlos.</p>
+</dd>
+<dt>Migración automática</dt>
+<dd><p>El proceso de transferir automáticamente fondos blindados de pools más antiguos al pool más preferido (normalmente el más reciente) al recibirlos.</p>
+</dd>
+<dt>Migración oportunista</dt>
+<dd><p>El proceso de transferir fondos blindados recibidos previamente de pools más antiguos al pool más preferido (normalmente el más reciente) como parte de una transacción iniciada por el usuario.</p>
+</dd>
+<dt>Salida de transacción (TXO)</dt>
+<dd><p>Una salida (moneda transparente o nota blindada) de una transacción en la block chain de consenso o en el mempool visible para una billetera.</p>
+</dd>
+</dl>
+<p>TODO: Agregar definiciones informales de: * TXO known-spendable y confirmed-spendable; * TXO trusted y untrusted.</p>
+<p>Estas deberían hacer referencia hacia adelante a la sección de especificación con las definiciones formales.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Las billeteras de Zcash deben cumplir dos propósitos como agente de usuario:</p>
+<ul class="simple">
+<li><p>gestionar las acciones económicas dictadas por el usuario;</p></li>
+<li><p>gestionar las implicaciones de privacidad de estas acciones.</p></li>
+</ul>
+<p>El objetivo de este ZIP es documentar las mejores prácticas de seguridad y privacidad al manejar fondos y transacciones como agente del usuario. Estas mejores prácticas tienen la intención de proporcionar la máxima privacidad posible de forma predeterminada, permitiendo al mismo tiempo que se realicen las transacciones deseadas por el usuario, y exponer al usuario cualquier implicación de privacidad para que cuente con información suficiente para evaluar las consecuencias de sus acciones económicas.</p>
+<p>Este ZIP cubre las mejores prácticas para:</p>
+<ul class="simple">
+<li><p>qué información mostrar al usuario sobre transacciones y saldos;</p></li>
+<li><p>cómo manejar las interacciones entre el árbol de claves del ZIP 32 <a class="brackets" href="#zip-0032" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> y las direcciones unificadas <a class="brackets" href="#zip-0316" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a>;</p></li>
+<li><p>cuándo usar claves/direcciones externas o internas;</p></li>
+<li><p>compartir direcciones y claves de visualización;</p></li>
+<li><p>enviar y recibir fondos (incluida la selección de comisiones);</p></li>
+<li><p>migrar fondos entre pools.</p></li>
+</ul>
+<p>Nota: se sabe que las políticas implementadas por la billetera interna heredada <cite>zcashd</cite> violan este ZIP.</p>
+
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<h2 id="user-consent"><a class="hanchor" href="#user-consent" aria-hidden="true" tabindex="-1">#</a>Consentimiento del usuario</h2>
+<p>Una billetera normalmente revela cierta información en el proceso de crear una transacción. Qué información se revela depende de la política de privacidad configurada de la billetera. El principio rector de estos requisitos es que los usuarios deben dar su consentimiento explícito a cada instancia de información revelada por la billetera en una transacción.</p>
+<p>Un usuario puede dar su consentimiento general para revelar un tipo particular de información, y también debe poder cambiar la política de privacidad configurada de la billetera para evitar que la billetera cree nuevas filtraciones de información de un tipo dado.</p>
+<p>Las especificaciones siguientes describen algunas situaciones en las que el consentimiento general puede ser inapropiado.</p>
+<p>Algunas variedades de consentimiento pueden no ser revocables, por ejemplo si un usuario elige compartir algunas de sus claves.</p>
+
+<h2 id="prompt-accessibility-of-funds"><a class="hanchor" href="#prompt-accessibility-of-funds" aria-hidden="true" tabindex="-1">#</a>Accesibilidad pronta de los fondos</h2>
+<p>Las billeteras deben tener en cuenta dos preocupaciones principales con respecto a la accesibilidad de los fondos:</p>
+<ul class="simple">
+<li><p>permitir que los fondos se gasten lo más rápido posible para reducir la latencia;</p></li>
+<li><p>garantizar que el saldo confirmado-gastable no se sobreestime, y que por lo tanto el usuario pueda confiar en él.</p></li>
+</ul>
+<p>Estas preocupaciones afectan la manera en que deberían calcularse los saldos, qué notas se seleccionan para gastar, y cómo la billetera debería garantizar que haya notas suficientes disponibles para cubrir múltiples gastos en un período corto.</p>
+<p>Para apoyar esto definimos dos tipos de TXO:</p>
+<ul class="simple">
+<li><p>Un TXO confiable es un TXO recibido de una parte con la que la billetera confía en que permanecerá minado en su transacción original, como los TXO creados por el manejo interno de TXO de la billetera.</p></li>
+<li><p>Un TXO no confiable es un TXO recibido por la billetera que no es confiable.</p></li>
+</ul>
+<p>Las billeteras pueden entonces requerir que los TXO no confiables necesiten más confirmaciones antes de convertirse en confirmados-gastables que los TXO confiables. Esto proporciona una compensación mejorada entre la latencia, por una parte, y la fiabilidad y seguridad, por la otra.</p>
+
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="wallet-seeds"><a class="hanchor" href="#wallet-seeds" aria-hidden="true" tabindex="-1">#</a>Semillas de billetera</h2>
+<p>Para cumplir con el requisito del ZIP 32 sobre la entropía de las semillas de billetera <a class="brackets" href="#zip-0032-wallet-seeds" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>, al generar una secuencia de bytes de semilla:</p>
+<ul class="simple">
+<li><p>si se usa una frase mnemónica BIP 39 <a class="brackets" href="#bip-0039" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>, se necesitará una frase mnemónica de 24 palabras;</p></li>
+<li><p>si se usa el compartimiento de secretos SLIP 39 <a class="brackets" href="#slip-0039" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>, se necesitará una longitud de participación de 33 palabras.</p></li>
+</ul>
+<p>En el caso de que una implementación de billetera restaure una billetera a partir de una frase mnemónica existente, normalmente no estará en posición de hacer cumplir un requisito mínimo de entropía sobre esa frase mnemónica.</p>
+<p>Una implementación de billetera PUEDE (MAY) aceptar frases mnemónicas BIP 39 de menos de 24 palabras o participaciones SLIP 39 de menos de 33 palabras al restaurar una billetera (pero, como se especificó anteriormente, NO DEBE (MUST NOT) generarlas). Si las acepta —o en otros casos en que pueda detectar de forma confiable que la semilla que se va a restaurar tendrá menos de 256 bits de entropía— DEBERÍA (SHOULD) advertir al usuario que la seguridad de la billetera restaurada será más débil de lo esperado, y DEBERÍA (SHOULD) recomendar transferir todos los fondos de la billetera, una vez que se haya sincronizado por completo, a otra billetera controlada por el usuario.</p>
+
+<h2 id="long-term-storage-of-funds"><a class="hanchor" href="#long-term-storage-of-funds" aria-hidden="true" tabindex="-1">#</a>Almacenamiento de fondos a largo plazo</h2>
+<p>SE RECOMIENDA (RECOMMENDED) que las billeteras solo mantengan fondos como blindados a largo plazo; es decir, si una billetera admite recibir fondos transparentes (o admite importar una semilla de otra billetera que podría haberlo hecho), entonces DEBERÍA (SHOULD) blindar automáticamente dichos fondos por defecto.</p>
+<p>Una transacción de blindaje siempre está vinculada a las direcciones transparentes desde las que gasta. Esto puede causar fugas de información indeseables:</p>
+<ol class="loweralpha simple">
+<li><p>si las entradas de la transacción están asociadas con múltiples direcciones transparentes, esas direcciones quedarán vinculadas entre sí;</p></li>
+<li><p>un vínculo entre las direcciones transparentes de entrada y el pago será visible para los destinatarios, o para cualquier otro poseedor de una Incoming Viewing Key para las direcciones de destino.</p></li>
+</ol>
+<p>A pesar de que no es posible lograr garantías de privacidad sólidas a partir de <em>ningún</em> uso de direcciones transparentes, es indeseable revelar esta información adicional. En particular, el asunto b) motiva descartar el uso de "blindaje oportunista", es decir, blindar fondos transparentes recibidos previamente como parte de una transacción iniciada por el usuario.</p>
+<p>Las billeteras NO DEBERÍAN (SHOULD NOT) blindar automáticamente desde múltiples direcciones transparentes en la misma transacción, y NO DEBERÍAN (SHOULD NOT) usar el blindaje oportunista.</p>
+<p>Seguir todas las recomendaciones de esta sección mejora tanto la privacidad colectiva como la privacidad individual del usuario, al maximizar el tamaño del conjunto de anonimato de las notas con el tiempo y al minimizar la vinculación potencial de las transacciones de blindaje con otras transacciones.</p>
+<p>El resto de esta especificación asume una billetera que sigue todas estas recomendaciones, excepto donde se indique explícitamente.</p>
+
+<h2 id="address-management"><a class="hanchor" href="#address-management" aria-hidden="true" tabindex="-1">#</a>Gestión de direcciones</h2>
+<p>Las billeteras de Zcash DEBERÍAN (SHOULD) usar únicamente direcciones generadas de forma determinista a partir de una semilla, como se especifica en ZIP 32 <a class="brackets" href="#zip-0032" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>. La discusión sobre la gestión de direcciones que sigue asume que este es el caso.</p>
+<p>El marco general especificado en ZIP 32 es que las direcciones se derivan en una jerarquía <a class="brackets" href="#zip-0032-wallet-usage" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>, siguiendo una estructura similar a la definida por BIP 44. Cada <cite>account</cite> en la ruta de derivación representa una autoridad de gasto distinta. Los fondos dentro de una cuenta se diferencian según el protocolo bajo el cual se crearon los TXO que contribuyeron al saldo de la cuenta, pero los TXO no se gestionan individualmente, excepto cuando se requiere seleccionar fondos de un grupo blindado específico para reducir la fuga de información.</p>
+<p>ZIP 316 especifica que, al generar una dirección unificada, DEBE (MUST) usarse el mismo índice diversificador para cada receptor. <a class="brackets" href="#zip-0316-deriving-a-unified-address" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> Esto tiene como consecuencia que, para las billeteras que implementan la rotación de direcciones, se debe tener cuidado de no filtrar accidentalmente información que permita a un observador vincular la propiedad de direcciones que el usuario de la billetera pretende que no estén relacionadas entre sí.</p>
+
+<h2 id="allowed-transfers"><a class="hanchor" href="#allowed-transfers" aria-hidden="true" tabindex="-1">#</a>Transferencias permitidas</h2>
+<p>Las billeteras NO DEBERÍAN (SHOULD NOT) gastar fondos de una dirección transparente en una transacción con un destinatario externo, a menos que el usuario dé su consentimiento explícito para ello por cada transacción. Las billeteras PUEDEN (MAY) restringir aún más el conjunto de transferencias que realizan.</p>
+
+<h2 id="auto-shielding"><a class="hanchor" href="#auto-shielding" aria-hidden="true" tabindex="-1">#</a>Blindaje automático</h2>
+<p>El blindaje automático requiere que la billetera tenga acceso permanente a la autoridad de gasto, y que esta autoridad pueda ejercerse sin intervención del usuario. Este no es el caso, por ejemplo, de las billeteras donde el material de claves se almacena en un enclave seguro cuyo acceso está mediado por la interacción directa del usuario, o de las billeteras usadas junto con dispositivos de hardware.</p>
+<p>Para las billeteras que tienen la autoridad de gasto permanente requerida, el blindaje automático es el proceso mediante el cual los UTXO transparentes detectados como pertenecientes a la billetera son blindados por la billetera sin intervención del usuario.</p>
+<p>Los usuarios de billeteras DEBEN (MUST) poder desactivar la funcionalidad de blindaje automático que ofrece una billetera.</p>
+<p>El blindaje automático y la migración automática/oportunista NO DEBERÍAN (SHOULD NOT) aplicarse a entradas cuyo costo de blindaje o migración exceda su valor económico. Si estas transacciones pagan la comisión convencional de ZIP 317 <a class="brackets" href="#zip-0317" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>, ese será el caso si el monto del UTXO a blindar/migrar excede la comisión marginal, y no puede ser acomodado por una entrada que estaría presente de todos modos debido al relleno del número de entradas de un grupo blindado dado.</p>
+
+<h2 id="trusted-and-untrusted-txos"><a class="hanchor" href="#trusted-and-untrusted-txos" aria-hidden="true" tabindex="-1">#</a>TXO confiables y no confiables</h2>
+<p>Una billetera DEBERÍA (SHOULD) tratar los TXO recibidos que son salidas de transacciones creadas por la misma billetera como TXO confiables. Las billeteras PUEDEN (MAY) permitir a los usuarios marcar transacciones externas específicas como confiables, lo que permite que sus TXO recibidos también se clasifiquen como TXO confiables. Las billeteras también PUEDEN (MAY) permitir a los usuarios definir políticas alternativas para el número de confirmaciones requeridas antes de que los TXO no confiables puedan gastarse, basándose en un umbral de valor configurable por el usuario.</p>
+<p>Una billetera DEBERÍA (SHOULD) tener una política comunicada claramente al usuario sobre el número de confirmaciones necesarias para gastar los TXO no confiables y los confiables, respectivamente. La siguiente política de confirmaciones es RECOMENDADA (RECOMMENDED):</p>
+<ul class="simple">
+<li><p>10 confirmaciones, para TXO no confiables;</p></li>
+<li><p>3 confirmaciones, para TXO confiables.</p></li>
+</ul>
+<p>Las billeteras NO DEBERÍAN (SHOULD NOT) permitir el gasto de TXO con menos de 3 confirmaciones, con la excepción de:</p>
+<ul class="simple">
+<li><p>UTXO transparentes que se gastan en transacciones de blindaje</p></li>
+<li><p>UTXO transparentes efímeros creados en el proceso de enviar fondos desde los grupos blindados a una dirección de destinatario TEX <a class="brackets" href="#zip-0320" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+<h3 id="rationale-for-the-given-numbers-of-confirmations"><a class="hanchor" href="#rationale-for-the-given-numbers-of-confirmations" aria-hidden="true" tabindex="-1">#</a>Justificación de los números de confirmaciones dados</h3>
+<p>La justificación para elegir tres confirmaciones en el caso de los TXO confiables es que, anecdóticamente, las reorganizaciones suelen ser de menos de tres bloques.</p>
+<p>Las consecuencias de intentar gastar un TXO confiable pueden ser menos graves en caso de una reversión que las consecuencias de intentar gastar un TXO no confiable. El valor recibido de un TXO confiable siempre debería ser recuperable, mientras que recuperar el valor recibido de un TXO no confiable puede requerir que el usuario solicite que los fondos sean reenviados.</p>
+
+
+<h2 id="categories-of-txos-according-to-spendability"><a class="hanchor" href="#categories-of-txos-according-to-spendability" aria-hidden="true" tabindex="-1">#</a>Categorías de TXO según su capacidad de gasto</h2>
+<p>Un TXO es <em>known-spendable</em>, con respecto a un estado dado de la block chain y de la billetera, si y solo si todo lo siguiente es cierto en ese estado:</p>
+<ul>
+<li><p>el TXO no está gastado según la vista que tiene la billetera de la punta de la cadena, y esa vista está razonablemente actualizada;</p>
+<p>POR HACER: considerar eliminar la parte relativa a la actualización, ya que, en combinación con la definición de saldo que se da más adelante, hace que el saldo de la billetera caiga a cero en el breve intervalo entre abrir la billetera y actualizar su vista de la punta de la cadena.</p>
+</li>
+<li><p>el TXO no está comprometido para ser gastado en otra transacción no expirada creada por esta billetera; y</p></li>
+<li><p>la billetera puede efectuar el gasto, ya sea porque tiene acceso a la clave de gasto del TXO (para cualquier protocolo que el TXO utilice) o porque media la interacción con un dispositivo de hardware u otro protocolo de firma sin conexión.</p></li>
+</ul>
+<h3 id="shielded-txos"><a class="hanchor" href="#shielded-txos" aria-hidden="true" tabindex="-1">#</a>TXO blindados</h3>
+<p>Un TXO blindado es <em>confirmed-spendable</em>, con respecto a un estado dado de la block chain y de la billetera, si y solo si todo lo siguiente es cierto en ese estado:</p>
+<ul class="simple">
+<li><p>el TXO es known-spendable; y</p></li>
+<li><p>la billetera tiene suficiente información contextual para poder efectuar el gasto (es decir, es capaz de construir los testigos requeridos, etc.); y</p></li>
+<li><p>una de las siguientes condiciones es cierta:</p>
+<ul>
+<li><p>el TXO no es una salida de una transacción de blindaje interna de la billetera, y una de las siguientes:</p>
+<ul>
+<li><p>es confiable y tiene al menos las confirmaciones requeridas para TXO confiables, o</p></li>
+<li><p>es no confiable y tiene al menos las confirmaciones requeridas para TXO no confiables.</p></li>
+</ul>
+</li>
+<li><p>el TXO es una salida de una transacción de blindaje interna de la billetera, y además:</p>
+<ul>
+<li><p>los UTXO transparentes gastados en la transacción de blindaje tienen al menos <cite>(untrusted_confirmations - trusted_confirmations)</cite> confirmaciones, y</p></li>
+<li><p>la transacción de blindaje interna de la billetera tiene al menos <cite>trusted_confirmations</cite> confirmaciones</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>Un TXO es <em>unconfirmed-spendable</em> (de gasto sin confirmar), con respecto a un estado dado de la block chain y de la billetera, si y solo si el TXO es known-spendable pero no es confirmed-spendable en ese estado.</p>
+<p>Un TXO es <em>watch-only</em> (de solo lectura) si y solo si la billetera tiene su clave de visualización completa (o su dirección, en el caso de un TXO transparente) pero no su clave de gasto.</p>
+<p>Una billetera NO DEBE (MUST NOT) intentar gastar un TXO en una transacción iniciada por el usuario que no sea confirmed-spendable.</p>
+
+<h3 id="transparent-utxos"><a class="hanchor" href="#transparent-utxos" aria-hidden="true" tabindex="-1">#</a>UTXO transparentes</h3>
+<p>Un UTXO transparente es <em>confirmed-shieldable</em> con respecto a un estado dado de la block chain y de la billetera, si y solo si todo lo siguiente es verdadero en ese estado:</p>
+<ul class="simple">
+<li><p>el TXO es known-spendable; y</p></li>
+<li><p>la billetera tiene información contextual suficiente para poder efectuar el gasto (es decir, es capaz de construir un redeem script correcto, etc.)</p></li>
+</ul>
+<p>Las billeteras PUEDEN (MAY) intentar gastar UTXO transparentes recibidos en transacciones de blindaje internas de la billetera con cero confirmaciones. En este caso, los fondos blindados resultantes no se pondrán a disposición para su gasto hasta que la transacción que produjo los UTXO transparentes originales tenga al menos <cite>untrusted_confirmations</cite>, y la transacción de blindaje tenga al menos <cite>trusted_confirmations</cite>. Quienes implementan billeteras deben cuidarse de no confundir los TXO resultantes de transacciones de blindaje como salidas confiables solo porque se envían a una dirección interna de la billetera.</p>
+
+
+<h2 id="reporting-of-balances"><a class="hanchor" href="#reporting-of-balances" aria-hidden="true" tabindex="-1">#</a>Reporte de saldos</h2>
+<p>Las billeteras DEBERÍAN (SHOULD) reportar:</p>
+<ul class="simple">
+<li><p>Saldo confirmed-spendable.</p></li>
+<li><p>Saldo pendiente, <em>o</em> saldo total.</p></li>
+</ul>
+<p>Las billeteras PUEDEN (MAY) reportar:</p>
+<ul class="simple">
+<li><p>Saldo no económico.</p></li>
+</ul>
+<p>Estos se calculan de la siguiente manera:</p>
+<ul class="simple">
+<li><p>El saldo confirmed-spendable es la suma de los valores de los TXO confirmed-spendable. Este saldo PUEDE (MAY) ignorar las notas con valor inferior a la comisión marginal de ZIP 317 <a class="brackets" href="#zip-0317" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>El saldo pendiente es la suma de los valores de los TXO unconfirmed-spendable. Este saldo PUEDE (MAY) ignorar las notas con valor inferior a la comisión marginal de ZIP 317 <a class="brackets" href="#zip-0317" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>, y DEBE (MUST) ejercer esta opción de manera consistente con la forma en que se calcula el saldo confirmed-spendable.</p></li>
+<li><p>El saldo total es el saldo confirmed-spendable más el saldo pendiente.</p></li>
+<li><p>El saldo no económico es el total de TXO que individualmente tienen un valor inferior a la comisión marginal de ZIP 317 <a class="brackets" href="#zip-0317" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>. Tales TXO solo pueden gastarse como "grace inputs", ya que no proporcionan valor suficiente para pagar las comisiones requeridas para gastarlos; las billeteras PUEDEN (MAY) ignorar la presencia de tales notas en la selección de notas y en el cálculo del saldo. Si las billeteras ignoran la presencia de tales notas, DEBEN (MUST) hacerlo de manera consistente; es decir, las billeteras NO DEBEN (MUST NOT) reportarlas como parte de un saldo que se expone al usuario como gastable o pendiente si la billetera no proporciona ningún mecanismo para gastarlas.</p></li>
+</ul>
+<p>Nota: la definición de "confirmed-spendable" anterior garantiza que:</p>
+<ul class="simple">
+<li><p>si el blindaje automático está habilitado, los fondos transparentes se reportarán en el saldo pendiente o total, pero no en el saldo confirmed-spendable;</p></li>
+<li><p>si la billetera no ha sincronizado al menos el conjunto de nullifiers con la punta de la cadena, el saldo confirmed-spendable será cero.</p></li>
+</ul>
+<p>Si el blindaje automático está deshabilitado, la billetera PUEDE (MAY) reportar los saldos blindados y transparentes por separado. Si lo hace, DEBE (MUST) dejar claro si cada saldo reportado corresponde a un subconjunto de fondos confirmed-spendable, pendiente o total.</p>
+<h3 id="rationale-for-reporting-of-balances"><a class="hanchor" href="#rationale-for-reporting-of-balances" aria-hidden="true" tabindex="-1">#</a>Justificación del reporte de saldos</h3>
+<p>Si el blindaje automático está deshabilitado, entonces los saldos blindados y transparentes por separado pueden constituir información útil. Si el blindaje automático está habilitado, entonces la billetera puede y automáticamente gastará los TXO transparentes para blindarlos, por lo que los TXO transparentes deben presentarse como pendientes, no como parte del saldo gastable por el usuario.</p>
+<p>Potencialmente, para usuarios expertos, los saldos blindados separados por pool también podrían ser útiles.</p>
+<p>Pregunta abierta: ¿la especificación del reporte de saldos le da al usuario suficiente visibilidad sobre la operación del blindaje automático y la migración/uso de pools?</p>
+
+
+<h2 id="reporting-of-transactions"><a class="hanchor" href="#reporting-of-transactions" aria-hidden="true" tabindex="-1">#</a>Reporte de transacciones</h2>
+<p>Si una transacción incluye TXO recibidos de solo-lectura, su saldo entrante de solo-lectura DEBE (MUST) reportarse por separado de cualquier saldo potencialmente known-spendable.</p>
+<h3 id="incoming-transactions"><a class="hanchor" href="#incoming-transactions" aria-hidden="true" tabindex="-1">#</a>Transacciones entrantes</h3>
+<p>Una transacción es entrante si contiene TXO unconfirmed-spendable. Las transacciones entrantes DEBERÍAN (SHOULD) reportarse con su número de confirmaciones y sus saldos como se describe en <a class="reference internal" href="#reporting-of-balances">Reporte de saldos</a>.</p>
+
+<h3 id="sent-transactions"><a class="hanchor" href="#sent-transactions" aria-hidden="true" tabindex="-1">#</a>Transacciones enviadas</h3>
+<p>Una transacción es enviada si fue:</p>
+<ul class="simple">
+<li><p>creada por la billetera, o</p></li>
+<li><p>detectada al usar las claves de visualización salientes de la billetera para descifrar salidas de Sapling u Orchard, o</p></li>
+<li><p>detectada como un gasto de una nota que en algún momento fue mantenida por la billetera, al reconocer el nullifier de esa nota, o</p></li>
+<li><p>detectada como un gasto de un TXO transparente asociado con una de las direcciones de la billetera (incluidas las direcciones de solo-lectura).</p></li>
+</ul>
+<p>Las transacciones enviadas DEBERÍAN (SHOULD) reportarse con su número de confirmaciones, una estimación de cuánto falta para que expiren (si no están minadas y tienen una altura de expiración), y sus saldos como se describe en <a class="reference internal" href="#reporting-of-balances">Reporte de saldos</a>.</p>
+
+<h3 id="display-of-voluntary-fund-removal"><a class="hanchor" href="#display-of-voluntary-fund-removal" aria-hidden="true" tabindex="-1">#</a>Visualización de la remoción voluntaria de fondos</h3>
+<p>Las billeteras que admiten la remoción voluntaria de fondos de la circulación según lo especificado en ZIP 233 <a class="brackets" href="#zip-0233" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> DEBERÍAN (SHOULD) mostrar un mensaje claro y amigable para el usuario en el momento de la confirmación de la transacción, explicando el propósito y el efecto de la remoción.</p>
+<p>Por ejemplo, una billetera podría mostrar:</p>
+<blockquote>
+<p>"Estos fondos se usarán para fines de sostenibilidad de la red. Se reemitirán gradualmente para respaldar la seguridad a largo plazo de la red de Zcash."</p>
+</blockquote>
+<p>Esta guía se aplica a las remociones voluntarias iniciadas por el usuario mediante ZIP 233. No se aplica a la remoción automática de comisiones de transacción especificada en ZIP 235 <a class="brackets" href="#zip-0235" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>, que ocurre sin acción del usuario y no requiere confirmación explícita del usuario.</p>
+
+
+<h2 id="transaction-creation"><a class="hanchor" href="#transaction-creation" aria-hidden="true" tabindex="-1">#</a>Creación de transacciones</h2>
+<h3 id="obtaining-user-consent-for-information-leakage"><a class="hanchor" href="#obtaining-user-consent-for-information-leakage" aria-hidden="true" tabindex="-1">#</a>Obtención del consentimiento del usuario para la fuga de información</h3>
+<h4 id="information-leakage-analysis"><a class="hanchor" href="#information-leakage-analysis" aria-hidden="true" tabindex="-1">#</a>Análisis de la fuga de información</h4>
+<p>La privacidad que proporciona una transacción de Zcash depende de la información que se filtra en la creación de esa transacción y en el proceso de su difusión para su inclusión en la block chain.</p>
+<p>Los requisitos de esta sección tienen como objetivo minimizar la fuga de dicha información cuando sea posible, y asegurar que el usuario esté informado de cualquier información restante que se filtraría, y que consienta dicha fuga.</p>
+<p>La siguiente lista describe los tipos de información que podrían filtrarse. Después de que se haya creado una transacción candidata y antes de que esta se revele fuera de una ruta de confianza hacia el usuario, la interfaz de usuario de la billetera DEBERÍA (SHOULD) obtener el consentimiento del usuario para toda la información filtrada.</p>
+<p>Suposición: Siempre hay un paso de confirmación de transacción para las transacciones que envían fondos fuera de la billetera.</p>
+
+<h4 id="kinds-of-information-leakage"><a class="hanchor" href="#kinds-of-information-leakage" aria-hidden="true" tabindex="-1">#</a>Tipos de fuga de información</h4>
+<ul class="simple">
+<li><p>Versión de la transacción (v4, v5 o v6, a partir de NU6.3)</p></li>
+</ul>
+<p>Es RECOMENDADO (RECOMMENDED) usar transacciones v6, salvo que se estén gastando fondos de Sprout.</p>
+<ul class="simple">
+<li><p>Tiempo de bloqueo (rara vez usado; puede ser un distintivo si se usa)</p></li>
+</ul>
+<p>DEBERÍA (SHOULD) ser cero.</p>
+<ul class="simple">
+<li><p>Altura de expiración y posición del ancla</p></li>
+</ul>
+<p>Véase <a class="reference internal" href="#anchor-selection">Selección del ancla</a> más abajo.</p>
+<p>Estas dan información sobre a qué altura de bloque estaba sincronizado el creador, y alguna información de política.</p>
+<ul class="simple">
+<li><p>Entradas y salidas transparentes</p></li>
+</ul>
+<p>Véase <a class="reference internal" href="#linkability-of-transactions-or-addresses">Vinculabilidad de transacciones o direcciones</a>.</p>
+<ul class="simple">
+<li><p>Saldos de valor públicos</p>
+<ul>
+<li><p>Junto con las entradas y salidas transparentes, estos determinan la comisión y el monto que se transfiere entre pools.</p></li>
+<li><p>La comisión depende de la política, pero para una política dada intentamos que dependa únicamente de otros metadatos ya filtrados.</p></li>
+</ul>
+</li>
+</ul>
+<p>PENDIENTE: DEBERÍAMOS (SHOULD) intentar crear transacciones totalmente blindadas cuando sea posible.</p>
+<ul class="simple">
+<li><p>Cantidades de JoinSplits, Spends, Outputs y Actions</p>
+<ul>
+<li><p>Esto podría correlacionarse con otra información en ciertas circunstancias. Por ejemplo, en un “ataque de dusting”, el adversario envía a una víctima muchas notas de bajo valor (o notas con valores elegidos estratégicamente), lo que aumenta la probabilidad de que las transacciones de la víctima tengan una cantidad de spends mayor que otras transacciones (o una cantidad identificable de spends). Existen estrategias de gestión de notas que pueden mitigar esto, pero aún no se han implementado.</p></li>
+</ul>
+</li>
+<li><p>Qué spends de TXOs dados se repiten entre transacciones</p>
+<ul>
+<li><p>Esto puede ocurrir porque una transacción anterior expiró y el usuario intenta gastar algunos de los mismos TXOs.</p></li>
+</ul>
+</li>
+<li><p>Si la transacción es coinbase</p></li>
+<li><p>Para transacciones coinbase, los montos / direcciones de destino / memos de las salidas blindadas</p></li>
+<li><p>Banderas de Orchard (enableSpends/enableOutputs)</p>
+<ul>
+<li><p>En circunstancias normales, estas dependen únicamente de si la transacción es coinbase.</p></li>
+</ul>
+</li>
+</ul>
+
+
+<h3 id="linkability-of-transactions-or-addresses"><a class="hanchor" href="#linkability-of-transactions-or-addresses" aria-hidden="true" tabindex="-1">#</a>Vinculabilidad de transacciones o direcciones</h3>
+<h4 id="motivation-for-choices-reducing-linkability"><a class="hanchor" href="#motivation-for-choices-reducing-linkability" aria-hidden="true" tabindex="-1">#</a>Motivación de las decisiones que reducen la vinculabilidad</h4>
+<p>Queremos permitir la creación de direcciones no vinculables, de modo que un usuario pueda dar direcciones diferentes a distintas contrapartes, de tal manera que las contrapartes (incluso si coluden) no puedan determinar si las direcciones fueron provistas por el mismo usuario o por usuarios distintos.</p>
+<p>Si se reciben múltiples UTXOs en la misma dirección transparente, es seguro blindarlos todos en la misma transacción, porque eso no filtra información adicional.</p>
+<p>Los UTXOs recibidos en receptores transparentes distintos NO DEBERÍAN (SHOULD NOT) blindarse en la misma transacción. Idealmente, cuando se blindan en transacciones separadas, esto debería hacerse de manera que el momento de esas transacciones no sea vinculable.</p>
+<p>PENDIENTE: mover esto. Daira-Emma cree que si solo documentamos la filtración en lugar de decir explícitamente en la especificación de cómo construir transacciones cómo mitigarla, entonces los implementadores la ignorarán.</p>
+<p>Al gastar UTXOs transparentes, DEBERÍAN (SHOULD) enviarse únicamente a un receptor blindado interno que pertenezca a la billetera, excepto cuando se generan y gastan de forma efímera como parte de una transferencia según ZIP 320 <a class="brackets" href="#zip-0320" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></a>.</p>
+<p>Una billetera NO DEBE (MUST NOT) enviar fondos a una dirección transparente a menos que todos los fondos de origen provengan de pools blindados, y esto DEBERÍA (SHOULD) ser un único pool blindado.</p>
+<p>Queremos minimizar el cruce entre pools.</p>
+
+
+<h3 id="anchor-selection"><a class="hanchor" href="#anchor-selection" aria-hidden="true" tabindex="-1">#</a>Selección del ancla</h3>
+<p>Una billetera DEBERÍA (SHOULD) elegir un ancla a una cantidad de bloques de distancia desde la cabeza de la cadena igual a la profundidad de confirmación confiable. Es decir, si el bloque actual está a la altura H, el ancla DEBERÍA (SHOULD) reflejar el treestate final del bloque a la altura H-3.</p>
+<p>TODO: definir un parámetro para esta profundidad y luego RECOMENDAR (RECOMMEND) un valor de 3.</p>
+
+<h3 id="rationale-for-anchor-selection"><a class="hanchor" href="#rationale-for-anchor-selection" aria-hidden="true" tabindex="-1">#</a>Justificación de la selección del ancla</h3>
+<ul>
+<li><p>Si la cadena sufre una reversión más allá del bloque en el que se eligió el ancla, tanto el ancla como la transacción quedarán invalidadas. Esto es indeseable tanto por confiabilidad como porque los nullifiers de las notas blindadas gastadas habrán sido revelados, lo que vincula esta transacción con cualquier transacción futura que gaste esas notas.</p>
+<p>TODO: Reformular esto dada la mitigación de gestión de notas propuesta más abajo.</p>
+</li>
+<li><p>Por otro lado, es indeseable elegir un ancla a demasiados bloques de distancia, porque eso impide gastar notas blindadas recibidas más recientemente.</p></li>
+<li><p>Usar una profundidad de ancla fija (en lugar de una profundidad distinta según gastemos o no notas blindadas confiables) evita filtrar información sobre si las notas blindadas que gastamos eran confiables o no.</p></li>
+</ul>
+
+<h3 id="note-selection"><a class="hanchor" href="#note-selection" aria-hidden="true" tabindex="-1">#</a>Selección de notas</h3>
+<p>TODO: recomendar que cuando se revelan nullifiers en una transacción que luego queda invalidada (o se revelan de alguna otra forma detectable), DEBERÍAN (SHOULD) usarse en una transacción de gestión de notas para evitar vincular la transacción invalidada con alguna transacción futura arbitraria. Siempre que no haya salidas transparentes que salgan del control de esta billetera, DEBERÍAN (SHOULD) conservarse las mismas aridades y salidas transparentes, lo que también evita revelar si el usuario cambió de opinión sobre si enviar o no la transacción semántica original.</p>
+
+<h3 id="expiration-height"><a class="hanchor" href="#expiration-height" aria-hidden="true" tabindex="-1">#</a>Altura de expiración</h3>
+<p>Una billetera DEBERÍA (SHOULD) crear transacciones usando la altura de expiración predeterminada de 40 bloques a partir de la altura actual, según lo especificado en <a class="brackets" href="#zip-0203" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>.</p>
+
+<h3 id="open-question"><a class="hanchor" href="#open-question" aria-hidden="true" tabindex="-1">#</a>Pregunta abierta</h3>
+<p>¿Cómo deberían los desarrolladores de billeteras temporizar las transacciones para evitar la vinculación?</p>
+<ul class="simple">
+<li><p>cuando rotamos direcciones con componentes transparentes, tenemos que considerar cómo eso podría permitir vincular componentes blindados</p></li>
+</ul>
+<p>TODO: mitigación de ataques de dusting</p>
+
+
+<h2 id="network-layer-privacy"><a class="hanchor" href="#network-layer-privacy" aria-hidden="true" tabindex="-1">#</a>Privacidad en la capa de red</h2>
+
+<h2 id="viewing-keys"><a class="hanchor" href="#viewing-keys" aria-hidden="true" tabindex="-1">#</a>Claves de visualización</h2>
+<p>Qué se supone que revelan; véase el ZIP 310 para Sapling (necesita actualizarse para Orchard). <a class="reference external" href="https://github.com/zcash/zips/issues/606">https://github.com/zcash/zips/issues/606</a></p>
+
+<h2 id="auto-migration"><a class="hanchor" href="#auto-migration" aria-hidden="true" tabindex="-1">#</a>Automigración</h2>
+
+<h2 id="information-leakage-for-transfers-between-pools"><a class="hanchor" href="#information-leakage-for-transfers-between-pools" aria-hidden="true" tabindex="-1">#</a>Filtración de información en transferencias entre pools</h2>
+<p>Si no hay automigración, si puedes satisfacer una solicitud de transferencia a Sapling con tus fondos de Sapling, hazlo.</p>
+<p>Se necesita el consentimiento del usuario para revelar montos públicamente (en lugar de revelarlos al titular de una clave de visualización autorizada para ver ese monto). Por lo tanto, debería haber un consentimiento explícito por transacción para cualquier transferencia que revele montos públicamente en la cadena.</p>
+<ul class="simple">
+<li><p>puede haber un problema de compatibilidad para las transacciones entre pools que revelan montos y que antes se permitían sin consentimiento explícito</p></li>
+</ul>
+<p>Las billeteras NO DEBEN (MUST NOT) combinar automáticamente fondos entre pools para satisfacer una transferencia (ya que eso podría revelar el total de fondos que el usuario posee en algún pool).</p>
+<p>Para mantener la integridad de las garantías de la IVK, las billeteras no deberían generar direcciones unificadas que contengan receptores internos, ni exponer receptores internos (como los usados para el blindaje automático y las salidas de cambio) de ninguna manera.</p>
+<p>Preguntas abiertas:</p>
+<ul class="simple">
+<li><p>¿debería haber una opción de automigración de Sapling a Orchard?</p></li>
+</ul>
+<h3 id="str4d-notes"><a class="hanchor" href="#str4d-notes" aria-hidden="true" tabindex="-1">#</a>Notas de str4d</h3>
+<p>Si queremos tener tanto el blindaje automático como el oportunista, y mantener ambos indistinguibles, entonces no podemos blindar automáticamente cuando el saldo transparente alcanza algún umbral (de lo contrario, el oportunista nunca se usaría, o sería identificable cuando usa el saldo por debajo del umbral).</p>
+<p>En cambio, una proposición: definimos una distribución de "tiempo desde el último pago a la dirección" de la cual muestreamos el momento en que se creará la transacción de blindaje automático. Esta distribución se pondera por el saldo en la dirección, de modo que, a medida que se acumulan más fondos, es más probable que se cree la transacción de blindaje automático.</p>
+<ul class="simple">
+<li><p>Esto asegura que todos los fondos eventualmente serán autoblindados automáticamente, a la vez que previene ataques de pulverización de comisiones (donde se envía polvo para consumir repetidamente las comisiones de la billetera), ya que la transacción de autoblindado automático no se dispara directamente por la recepción de un pago.</p></li>
+<li><p>Si el usuario realiza una transacción de blindaje mientras tanto, blindamos de manera oportunista, sin que quede claramente fuera de ser una transacción de autoblindado automático.</p></li>
+<li><p>Si una billetera está desconectada durante mucho tiempo, probablemente haría autoblindado automático tan pronto como termine de sincronizarse. Esto quizás no sea suficiente para revelar que la billetera se conectó, excepto que _podría_ resultar en que se creen transacciones de autoblindado automático para múltiples direcciones transparentes al mismo tiempo. ¿Entonces quizás quisiéramos tratar este caso de forma especial?</p></li>
+</ul>
+<p>Propiedades que queremos del autoblindado automático:</p>
+<ul class="simple">
+<li><p>Las transacciones de autoblindado automático NO DEBEN (MUST NOT) blindar desde múltiples receptores transparentes en la misma transacción. – Hacerlo vincularía trivialmente direcciones unificadas diversificadas que contienen receptores transparentes.</p></li>
+</ul>
+<p>Propiedades que queremos de la automigración:</p>
+<ul class="simple">
+<li><p>La recepción de un pago blindado NO DEBE (MUST NOT) desencadenar ningún comportamiento en la cadena (ya que eso revela la vinculabilidad de transacciones).</p></li>
+</ul>
+<p>Tanto el autoblindado automático como la automigración son acciones disparadas por el tiempo, no acciones disparadas por la recepción. NO DEBE (MUST NOT) crearse una transacción de autoblindado automático o de automigración como resultado directo de la recepción de un pago.</p>
+<p>Ambas son oportunistas: si la billetera del usuario está haciendo una transacción en la que de todos modos ocurriría una de estas acciones, entonces la billetera aprovecha la oportunidad para migrar tanto como lo haría si estuviera generando una transacción de autoblindado automático. Esto tanto ahorra una transacción como elimina la necesidad de cualquier tipo de dirección de cambio transparente dentro de las direcciones unificadas.</p>
+<p>PENDIENTE: ¿a qué pool debería ir el cambio?</p>
+<ul class="simple">
+<li><p>Propuesta: el pool más reciente ya involucrado en la transacción.</p></li>
+</ul>
+
+
+<h2 id="wallet-recovery"><a class="hanchor" href="#wallet-recovery" aria-hidden="true" tabindex="-1">#</a>Recuperación de billetera</h2>
+<p>En el caso en que estemos recuperando una billetera a partir de una frase mnemónica respaldada, y no a partir de un wallet.dat, no tenemos suficiente información para determinar qué tipos de receptor usó originalmente el usuario al derivar cada dirección unificada bajo una cuenta. Tenemos un problema similar si alguien exporta una UFVK, deriva una dirección de ella y recibe un pago enviado a esa dirección: zcashd detectará el pago, pero no tiene forma de determinar qué dirección debería mostrar en la interfaz. Una billetera podría almacenar esta información en el campo memo de las salidas de cambio, pero eso añade mucha coordinación al problema y supone un almacenamiento de estado continuo en la cadena.</p>
+<ul class="simple">
+<li><p>Si el receptor coincide con una dirección que la billetera sabe que fue derivada mediante <span class="docutils literal">z_getaddressforaccount</span>, mostrar esa dirección unificada como se espera (coincidiendo con los tipos de receptor que el usuario seleccionó).</p></li>
+<li><p>Si el receptor coincide con una UFVK en la billetera, y lo estamos buscando porque detectamos una nota recibida en algún bloque, mostrar la dirección unificada con los tipos de receptor predeterminados que zcashd estaba usando a esa altura de bloque (idealmente la altura de bloque más temprana que detectemos), y almacenar esto en caché para usos futuros.</p></li>
+<li><p>Para la política actual de zcashd de «mejor y segundo mejor pool blindado, más el pool transparente», eso significaría Orchard, Sapling y transparente para las alturas de bloque actuales.</p></li>
+<li><p>Para cada versión de una billetera, la billetera debería especificar un conjunto de tipos de receptor y un rango asociado de alturas de bloque durante el cual la billetera generará, por omisión, direcciones unificadas usando ese conjunto de tipos de receptor.</p></li>
+<li><p>Para zcashd sabemos cómo evoluciona la política porque cada versión de zcashd tiene una altura de lanzamiento aproximada y una altura de fin de servicio que define la ventana.</p></li>
+<li><p>Las versiones posteriores de una billetera NO DEBERÍAN (SHOULD NOT) cambiar retroactivamente sus políticas para los rangos de alturas de bloque previamente definidos.</p></li>
+<li><p>Si el tipo de receptor de una nota recibida en un momento dado no es miembro del conjunto de tipos de receptor esperado para el rango de alturas de bloque, DEBERÍA (SHOULD) usarse la política correspondiente al rango de alturas de bloque más cercano que incluya ese tipo de receptor.</p></li>
+<li><p>Si el receptor coincide con una UFVK en la billetera, y no tenemos información sobre cuándo pudo usarse por primera vez este receptor, mostrar la dirección unificada correspondiente a la política de tipos de receptor más reciente que incluya el tipo del receptor.</p></li>
+<li><p>Como parte de esto, también vamos a cambiar la lógica de «Sapling receiver a UfvkId» para intentar descifrar después de intentar el mapa interno, de modo que detectemos todos los receptores vinculados a UFVK en la billetera, no solo los receptores en direcciones generadas mediante z_getaddressforaccount. La búsqueda en el mapa interno es entonces solo una optimización (y un refactor futuro para que Orchard haga lo mismo es posible, pero por ahora solo intentaremos descifrar para no necesitar refactorizar el acceso a la billetera Rust). PENDIENTE: expresar esto de una manera menos específica de zcashd.</p></li>
+</ul>
+<p>PENDIENTE: Mencionar recomendaciones (no requisitos) de tipos de receptor basadas en las actualizaciones de red liquidadas («aceptadas»), tal como se definen en §3.3 de la Zcash Protocol Specification (Especificación del Protocolo Zcash), en el momento del lanzamiento de la billetera.</p>
+<p>PENDIENTE: Subsección de justificación que explique por qué la altura de bloque más temprana en la detección y las reglas/recomendaciones vigentes a esa altura de bloque se prefieren sobre mostrar direcciones unificadas distintas en alturas distintas.</p>
+
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0039" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki">BIP 39: Mnemonic code for generating deterministic keys</a></p>
+</aside>
+<aside class="footnote brackets" id="slip-0039" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/satoshilabs/slips/blob/master/slip-0039.md">SLIP 39: Shamir's Secret-Sharing for Mnemonic Codes</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-7">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-wallet-seeds" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#specification-wallet-seeds">ZIP 32: Shielded Hierarchical Deterministic Wallets — Specification: Wallet seeds</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032-wallet-usage" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst#specification-wallet-usage">ZIP 32: Shielded Hierarchical Deterministic Wallets — Specification: Wallet usage</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0203" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-18">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0203.rst">ZIP 203: Transaction Expiry</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0233" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-15">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0233.md">ZIP 233: Network Sustainability Mechanism: Removing Funds From Circulation</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0235" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-16">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0235.md">ZIP 235: Remove 60% of Transaction Fees From Circulation</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0316" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0316-deriving-a-unified-address" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0316-deriving-a-unified-address-from-a-uivk.rst">ZIP 316: Unified Addresses and Unified Viewing Keys — Deriving a Unified Address from a UIVK</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0317" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-10">1</a>,<a role="doc-backlink" href="#footnote-reference-12">2</a>,<a role="doc-backlink" href="#footnote-reference-13">3</a>,<a role="doc-backlink" href="#footnote-reference-14">4</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0317.rst">ZIP 317: Proportional Transfer Fee Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0320" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>13<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-11">1</a>,<a role="doc-backlink" href="#footnote-reference-17">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0320.rst">ZIP 320: Defining an Address Type to which funds can only be sent from Transparent Addresses</a></p>
+</aside>
+</aside>
+

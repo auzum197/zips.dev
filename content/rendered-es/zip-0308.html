@@ -1,0 +1,235 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" en este documento deben interpretarse como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparezcan en mayúsculas.</p>
+<p>Los términos que siguen deben interpretarse así:</p>
+<dl class="simple">
+<dt>Protocolo Sprout</dt>
+<dd><p>Nombre en clave del protocolo blindado de Zcash en su lanzamiento.</p>
+</dd>
+<dt>Protocolo Sapling</dt>
+<dd><p>Nombre en clave del protocolo blindado de Zcash añadido por la segunda actualización de red de Zcash, también conocida como Actualización de Red 1.</p>
+</dd>
+</dl>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta describe procedimientos que preservan la privacidad para migrar fondos de direcciones z de Sprout a Sapling, así como operaciones de RPC de soporte para habilitar, deshabilitar y supervisar el proceso de migración.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Zcash Sapling <a class="brackets" href="#zip-0205" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> introduce mejoras significativas de eficiencia respecto de la iteración anterior del protocolo blindado de Zcash, Sprout. Estas mejoras allanarán el camino para una amplia adopción de direcciones blindadas en dispositivos móviles, exchanges y comercios.</p>
+<p>Por lo tanto, anticipamos que los usuarios querrán migrar todos sus fondos blindados de Sprout a Sapling.</p>
+<p>Las reglas de consenso de Zcash prohíben las transferencias directas de direcciones z de Sprout a Sapling, a menos que se revele el monto enviándolo a través de la «transparent value pool» <a class="brackets" href="#transparent-value-pool" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>. La motivación principal de esto es permitir la detección de cualquier inflación general de la base monetaria de Zcash, debido a la explotación de posibles vulnerabilidades en los protocolos blindados o en su implementación, o al compromiso del cálculo multipartito de Sprout. (No es necesario que las transferencias de Sprout -> Sapling pasen por una dirección t).</p>
+<p>Dado que la exposición del monto migrado compromete potencialmente la privacidad de los usuarios, deseamos definir una forma de realizar la migración que mitigue esta fuga de privacidad en la medida de lo posible. Esto puede lograrse ocultando las transacciones de migración individuales entre las de todos los usuarios que realizan la migración aproximadamente al mismo tiempo.</p>
+<p>El análisis de seguridad de las estrategias de migración es bastante sutil; las estrategias potenciales más obvias pueden filtrar mucha información.</p>
+
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<p>La migración se realiza "en segundo plano" mediante un nodo <span class="docutils literal">zcashd</span> (o equivalente). No interfiere de manera significativa con el uso simultáneo del nodo, aparte de posiblemente aumentar la latencia de algunas otras operaciones blindadas.</p>
+<p>Es posible habilitar o deshabilitar la migración en cualquier momento.</p>
+<p>Todos los fondos blindados en direcciones z de Sprout se transferirán finalmente a direcciones z de Sapling, siempre que el nodo esté funcionando.</p>
+<p>Debería tomar un tiempo "razonable" completar la transferencia; menos de un mes para montos de hasta 1000 ZEC.</p>
+<p>El diseño debería mitigar la fuga de información mediante información de temporización y datos de transacciones, incluyendo</p>
+<ul class="simple">
+<li><p>el vínculo entre direcciones z o usuarios particulares, y los montos mantenidos;</p></li>
+<li><p>información sobre la distribución de los montos de las notas individuales.</p></li>
+</ul>
+<p>El diseño y la implementación son sin estado (stateless), en la medida de lo práctico.</p>
+<p>Se proporciona visibilidad al usuario de la billetera/nodo sobre el progreso de la migración.</p>
+<p>Hay información suficiente disponible para depurar transacciones fallidas que forman parte de la migración.</p>
+<p>El diseño se recupera de operaciones fallidas en la medida de lo posible.</p>
+<p>El monto total enviado por cada usuario se oculta, en la medida de lo práctico.</p>
+
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<p>No hay requisito ni supuesto de anonimato en la capa de red. (Los usuarios pueden, aunque no se espera que lo hagan, configurar Tor).</p>
+<p>El procedimiento de migración no tiene que demostrar que no filtra información.</p>
+<p>No es necesario preservar los valores de las notas individuales (es decir, las notas pueden consolidarse).</p>
+<p>Las transacciones de migración solo necesitan ocultarse entre ellas mismas, en lugar de entre todos los tipos de transacción.</p>
+<p>Un pequeño monto (menos de 0.01 ZEC) puede dejarse sin migrar si esto ayuda con la privacidad.</p>
+<p>No es necesario admitir el caso de una sola billetera usada por múltiples usuarios cuyos fondos deben mantenerse separados.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Hay dos aspectos principales en una estrategia para seleccionar transacciones de migración:</p>
+<ul class="simple">
+<li><p>cuántas transacciones se envían, y cuándo;</p></li>
+<li><p>el monto enviado en cada transacción.</p></li>
+</ul>
+<h2 id="transaction-schedule"><a class="hanchor" href="#transaction-schedule" aria-hidden="true" tabindex="-1">#</a>Programación de transacciones</h2>
+<p>Cuando la migración está habilitada, un nodo enviará hasta 5 transacciones para su inclusión en cada bloque cuya altura sea múltiplo de 500 (es decir, se envían inmediatamente después de ver un bloque con altura 499, módulo 500). Hasta el límite de 5, se envían tantas transacciones como sean necesarias para migrar los fondos restantes (posiblemente con un remanente menor a 0.01 ZEC que queda sin migrar).</p>
+<p>Los nodos NO DEBERÍAN (SHOULD NOT) enviar transacciones de migración durante la descarga inicial de bloques, o si la marca de tiempo del bloque que la activa (con altura 499, módulo 500) tiene más de tres horas de antigüedad según el reloj local ajustado del nodo.</p>
+<p>Nota: el intervalo de 500 bloques <em>no</em> se ha alterado como resultado de la reducción a la mitad del espaciado objetivo de bloques a 75 segundos con la actualización Blossom. <a class="brackets" href="#zip-0208" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a></p>
+<p>Las transacciones de migración que se enviarán en un lote particular pueden tardar un tiempo significativo en generarse, y este tiempo depende de la velocidad de la computadora del usuario. Si se generaran solo después de ver un bloque en la altura objetivo menos 1, esto podría filtrar información. Por lo tanto, para la altura objetivo N, las implementaciones DEBERÍAN (SHOULD) comenzar a generar las transacciones alrededor de la altura N-5 (siempre que la marca de tiempo de ese bloque no tenga más de tres horas de antigüedad). Cada transacción de migración DEBERÍA (SHOULD) especificar un ancla en la altura N-10 para cada descripción JoinSplit de Sprout (y por lo tanto solo las notas creadas antes de esta ancla son elegibles para la migración).</p>
+<p>Preguntas abiertas:</p>
+<ul class="simple">
+<li><p>¿esto da tiempo suficiente de manera confiable para generar las transacciones?</p></li>
+<li><p>¿qué sucede con un lote si el ancla se invalida -- debería regenerarse o cancelarse?</p></li>
+</ul>
+<h3 id="rationale-for-transaction-schedule"><a class="hanchor" href="#rationale-for-transaction-schedule" aria-hidden="true" tabindex="-1">#</a>Justificación de la programación de transacciones</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>La privacidad aumenta cuando los momentos en que se envían las transacciones se coordinan entre los nodos. Elegimos enviar un lote de transacciones en cada momento coordinado. Enviar múltiples transacciones en cada lote garantiza que:</p>
+<ul class="simple">
+<li><p>se filtra menos información sobre los saldos;</p></li>
+<li><p>es más fácil terminar en un lapso de tiempo razonable.</p></li>
+</ul>
+<p>La elección de 500 bloques como intervalo de lote garantiza que cada lote ocurra en un momento distinto del día (tanto antes como después de la actualización Blossom), lo que puede ayudar a mitigar problemas con que la disponibilidad de los nodos esté correlacionada con la hora local del día.</p>
+<p>La simulación muestra que el proceso de migración normalmente se completará en un tiempo razonablemente corto, incluso si el monto a migrar es grande:</p>
+<table>
+<thead>
+<tr><th class="head" rowspan="2"><p>Monto</p></th>
+<th class="head" colspan="3"><p>Tiempo en días para completar la migración</p></th>
+</tr>
+<tr><th class="head"><p>percentil 10</p></th>
+<th class="head"><p>mediana</p></th>
+<th class="head"><p>percentil 90</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>1 ZEC</p></td>
+<td><p>1.00</p></td>
+<td><p>1.46</p></td>
+<td><p>1.72</p></td>
+</tr>
+<tr><td><p>10 ZEC</p></td>
+<td><p>1.43</p></td>
+<td><p>1.95</p></td>
+<td><p>2.48</p></td>
+</tr>
+<tr><td><p>100 ZEC</p></td>
+<td><p>1.93</p></td>
+<td><p>2.69</p></td>
+<td><p>3.60</p></td>
+</tr>
+<tr><td><p>1000 ZEC</p></td>
+<td><p>5.66</p></td>
+<td><p>6.95</p></td>
+<td><p>8.47</p></td>
+</tr>
+<tr><td><p>10000 ZEC</p></td>
+<td><p>45.31</p></td>
+<td><p>49.16</p></td>
+<td><p>53.24</p></td>
+</tr>
+</tbody>
+</table>
+<p>(Los tiempos estimados para montos mayores se redujeron a la mitad como resultado del cambio en el espaciado objetivo de bloques en Blossom.)</p>
+<p>La simulación también depende de los montos enviados según lo especificado en la siguiente sección. Incluye el tiempo de espera para el envío del primer lote.</p>
+<p>El código utilizado para esta simulación está en <a class="brackets" href="#migration-simulator" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+</details>
+
+<h2 id="how-much-to-send-in-each-transaction"><a class="hanchor" href="#how-much-to-send-in-each-transaction" aria-hidden="true" tabindex="-1">#</a>Cuánto enviar en cada transacción</h2>
+<p>Si el monto restante por migrar es menor que 0.01 ZEC, finalice la migración.</p>
+<p>De lo contrario, el monto a enviar en cada transacción se elige de acuerdo con la siguiente distribución:</p>
+<ol class="arabic simple">
+<li><p>Elija un exponente entero uniformemente en el rango de 6 a 8 inclusive.</p></li>
+<li><p>Elija una mantisa entera uniformemente en el rango de 1 a 99 inclusive.</p></li>
+<li><p>Calcule amount := (mantissa * 10<sup>exponent</sup>) zatoshi.</p></li>
+<li><p>Si amount es mayor que el monto restante por enviar, repita desde el paso 1.</p></li>
+</ol>
+<p>Las implementaciones PUEDEN (MAY) optimizar este procedimiento seleccionando el exponente y la mantisa en función del monto restante para evitar repeticiones, pero la distribución resultante DEBE (MUST) ser idéntica.</p>
+<p>El monto elegido <em>incluye</em> la comisión de 0.0001 ZEC de esta transacción; es decir, el valor de la salida Sapling será 0.0001 ZEC menor.</p>
+<h3 id="rationale-for-how-much-to-send"><a class="hanchor" href="#rationale-for-how-much-to-send" aria-hidden="true" tabindex="-1">#</a>Justificación de cuánto enviar</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>Suponga que un usuario tiene un monto por migrar que es un número redondo de ZEC. Entonces, un posible ataque sería encontrar algún subconjunto de todas las transacciones de migración que sume un número redondo de ZEC, e inferir que todas esas transacciones provienen del mismo usuario. Si los montos enviados fueran un múltiplo aleatorio de 1 zatoshi, el problema de la mochila resultante probablemente tendría una solución única y sería resoluble en la práctica para la cantidad de transacciones involucradas. La distribución elegida de montos de transacción mitiga esta posible vulnerabilidad al garantizar que habrá muchas soluciones para conjuntos de transacciones, incluidas soluciones «incorrectas» (es decir, soluciones que mezclan transacciones de distintos usuarios, contrariamente a la inferencia del adversario supuesto).</p>
+<p>Hacer que el monto elegido incluya la comisión evita dejar fondos sin migrar al final, en el caso en que el monto original por migrar fuera un múltiplo de 0.01 ZEC.</p>
+</details>
+
+<h2 id="other-design-decisions"><a class="hanchor" href="#other-design-decisions" aria-hidden="true" tabindex="-1">#</a>Otras decisiones de diseño</h2>
+<p>Se asume el uso del algoritmo normal de selección de notas de la billetera y del manejo de cambio. El cambio se envía de vuelta a la dirección predeterminada, que es la dirección z de la primera nota Sprout seleccionada. Por lo tanto, la cantidad de JoinSplits será la misma que para una transacción normal que envíe el mismo monto con el mismo estado de la billetera. Solo el <span class="docutils literal">vpub_new</span> del último JoinSplit será distinto de cero. Siempre habrá exactamente una salida Sapling.</p>
+<p>El delta de expiración para las transacciones de migración DEBE (MUST) ser de 450 bloques. Dado que estas transacciones se envían cuando la altura de bloque es 499 módulo 500, su altura de expiración será 451 bloques después; es decir, <span class="docutils literal">nExpiryHeight</span> será 450 módulo 500.</p>
+<p>La comisión de cada transacción de migración DEBE (MUST) ser de 0.0001 ZEC. Esta comisión se toma de los fondos que se van a migrar.</p>
+<p>Algunas billeteras agregan por defecto una «comisión de desarrollador» a cada transacción, dirigida a los desarrolladores de la billetera. Esto normalmente se implementa agregando la dirección del desarrollador como una salida explícita, por lo que si las transacciones de migración son generadas internamente por <span class="docutils literal">zcashd</span>, no incluirán la comisión de desarrollador. Recomendamos encarecidamente <em>no</em> modificar el código de <span class="docutils literal">zcashd</span> para agregar la salida de la comisión de desarrollador a las transacciones de migración, porque hacerlo divide el conjunto de anonimato entre los usuarios de esa billetera y los demás usuarios.</p>
+<p>NO DEBE (MUST NOT) haber entradas ni salidas transparentes, ni Spends de Sapling, en una transacción de migración.</p>
+<p>El campo <span class="docutils literal">lock_time</span> DEBE (MUST) establecerse en 0 (sin uso).</p>
+<p>Al crear salidas blindadas de Sapling, la clave de visualización saliente <span class="docutils literal">ovk</span> DEBERÍA (SHOULD) elegirse de la misma manera que para una transferencia enviada desde una t-address.</p>
+<p>Un nodo DEBERÍA (SHOULD) tratar las transacciones de migración de la misma manera que las transacciones enviadas por la interfaz RPC.</p>
+
+<h2 id="open-questions"><a class="hanchor" href="#open-questions" aria-hidden="true" tabindex="-1">#</a>Preguntas abiertas</h2>
+<p>La estrategia anterior tiene varios parámetros de «números mágicos»:</p>
+<ul class="simple">
+<li><p>el intervalo entre lotes (500 bloques)</p></li>
+<li><p>la cantidad máxima de transacciones en un lote (5)</p></li>
+<li><p>la distribución de los exponentes (entero uniforme en 6..8)</p></li>
+<li><p>la distribución de las mantisas (entero uniforme en 1..99).</p></li>
+</ul>
+<p>Estos se han elegido adivinando. ¿Deberíamos cambiar alguno de ellos?</p>
+<p>En particular, si el monto por migrar es grande, esta estrategia puede resultar en montos bastante grandes (hasta 99 ZEC, con un valor de ~6700 USD al momento de escribir) transferidos en cada transacción. Esto revela el hecho de que la transacción fue enviada por un usuario que tiene al menos ese monto.</p>
+<p>La estrategia no migra ningún monto fraccionario restante menor que 0.01 ZEC (con un valor de ~0.68 USD al momento de escribir). ¿Es esto razonable?</p>
+<p>Al decidir el monto a enviar en cada transacción, la estrategia no tiene en cuenta los valores de las notas Sprout individuales, sino solo el monto total restante por migrar. ¿Puede una estrategia sensible a los valores de las notas individuales mejorar la privacidad?</p>
+<p>Un adversario puede intentar interferir con la vista del block chain que ve un subconjunto de nodos que están realizando migraciones, con el fin de provocar que esos nodos envíen lotes de migración en un momento distinto, de modo que puedan ser diferenciados. ¿Hay algo más que podamos hacer para mitigar esta vulnerabilidad?</p>
+
+<h2 id="rpc-calls"><a class="hanchor" href="#rpc-calls" aria-hidden="true" tabindex="-1">#</a>Llamadas RPC</h2>
+<p>Los nodos DEBEN (MUST) mantener una variable de estado booleana durante su ejecución, para determinar si la migración está habilitada. El valor predeterminado cuando un nodo se inicia se establece mediante una opción de configuración:</p>
+<pre class="literal-block">-migration=0/1</pre>
+<p>La z-address de destino se puede definir opcionalmente mediante otra opción:</p>
+<pre class="literal-block">-migrationdestaddress=&#x3C;zaddr></pre>
+<p>Si esta opción no está presente, la dirección de destino de la migración es la dirección de la cuenta 0 de Sapling, con el diversificador predeterminado <a class="brackets" href="#zip-0032" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>La variable de estado también se puede establecer para un nodo en ejecución mediante el siguiente método RPC:</p>
+<pre class="literal-block">z_setmigration true/false</pre>
+<p>Es intencional que la única opción asociada con la migración sea la z-address de destino. Otras opciones podrían potencialmente distinguir a los usuarios.</p>
+<p>Los nodos también DEBEN (MUST) admitir la siguiente llamada RPC para devolver el estado actual de la migración:</p>
+<pre class="literal-block">z_getmigrationstatus</pre>
+<p>Devuelve:</p>
+<pre class="literal-block">{
+  "enabled": true|false,
+  "destination_address": "zaddr",
+  "unmigrated_amount": nnn.n,
+  "unfinalized_migrated_amount": nnn.n,
+  "finalized_migrated_amount": nnn.n,
+  "finalized_migration_transactions": nnn,
+  "time_started": ttt, // Unix timestamp
+  "migration_txids": [txids]
+}</pre>
+<p>El campo <span class="docutils literal">destination_address</span> PUEDE (MAY) omitirse si el parámetro <span class="docutils literal"><span class="pre">-migrationaddress</span></span> no está establecido y aún no se ha generado ninguna dirección predeterminada.</p>
+<p>Los valores de <span class="docutils literal">unmigrated_amount</span> y <span class="docutils literal">migrated_amount</span> DEBEN (MUST) tener en cuenta las transacciones fallidas que no fueron minadas antes de su altura de expiración.</p>
+<p>Los valores de <span class="docutils literal">unfinalized_migrated_amount</span> y <span class="docutils literal">finalized_migrated_amount</span> son los montos totales enviados a la dirección de destino de Sapling en transacciones de migración, excluyendo las comisiones.</p>
+<p><span class="docutils literal">migration_txids</span> es una lista de cadenas que representan los identificadores de transacción de todas las transacciones de migración conocidas que involucran a esta billetera, en hexadecimal en minúsculas y en el orden de bytes de RPC. Una transacción dada se define como transacción de migración si y solo si tiene:</p>
+<ul class="simple">
+<li><p>uno o más JoinSplits de Sprout con campo <span class="docutils literal">vpub_new</span> distinto de cero; y</p></li>
+<li><p>ningún Spend de Sapling; y</p></li>
+<li><p>uno o más Outputs de Sapling.</p></li>
+</ul>
+<p>Nota: es posible que transacciones creadas manualmente que involucran a esta billetera se reconozcan como transacciones de migración y se incluyan en <span class="docutils literal">migration_txids</span>.</p>
+<p>El valor de <span class="docutils literal">time_started</span> es la marca de tiempo Unix más temprana de cualquier transacción de migración conocida que involucre a esta billetera; si no hay tal transacción, el campo está ausente.</p>
+<p>Una transacción es <span class="docutils literal">finalized</span> si y solo si tiene al menos 10 confirmaciones. TODO: sujeto a cambios, si cambia el número recomendado de confirmaciones.</p>
+
+
+<h1 id="support-in-zcashd"><a class="hanchor" href="#support-in-zcashd" aria-hidden="true" tabindex="-1">#</a>Soporte en zcashd</h1>
+<p>Los siguientes PR implementan esta especificación:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3848">https://github.com/zcash/zcash/pull/3848</a> (soporte de TransactionBuilder)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3888">https://github.com/zcash/zcash/pull/3888</a> (RPC principal)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3967">https://github.com/zcash/zcash/pull/3967</a> (opciones de configuración)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3973">https://github.com/zcash/zcash/pull/3973</a> (RPC getmigrationstatus)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3977">https://github.com/zcash/zcash/pull/3977</a> (corrección de errores)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3987">https://github.com/zcash/zcash/pull/3987</a> (corrección de errores)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3990">https://github.com/zcash/zcash/pull/3990</a> (corrección de errores)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3995">https://github.com/zcash/zcash/pull/3995</a> (no migrar durante la descarga inicial de bloques ni después de despertar)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/3997">https://github.com/zcash/zcash/pull/3997</a> (corrección de errores)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/4002">https://github.com/zcash/zcash/pull/4002</a> (mejoras menores del RPC)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/4005">https://github.com/zcash/zcash/pull/4005</a> (cambiar la expiración de las transacciones de migración)</p></li>
+</ul>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="transparent-value-pool" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2020.1.15. Sections 3.4, 4.11 and 4.12</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0205" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0205.rst">ZIP 205: Deployment of the Sapling Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0208" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0208.rst">ZIP 208: Shorter Block Target Spacing</a></p>
+</aside>
+<aside class="footnote brackets" id="migration-simulator" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/daira/zcash-migration">Sprout -> Sapling migration simulation</a></p>
+</aside>
+</aside>
+

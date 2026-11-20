@@ -1,0 +1,107 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)" y "RECOMENDADO (RECOMMENDED)" en este documento deben interpretarse como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>El término "actualización de red" en este documento debe interpretarse como se describe en el ZIP 200. <a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p>
+<p>Los términos "Testnet" y "Mainnet" deben interpretarse como se describe en la sección 3.12 de la Zcash Protocol Specification (Especificación del Protocolo Zcash) <a class="brackets" href="#protocol-networks" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>.</p>
+<p>El término "txid" significa un identificador de transacción, calculado como un hash SHA-256d de los datos de la transacción para transacciones v4 y anteriores, o como se especifica en <a class="brackets" href="#zip-0244" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> para transacciones v5 y posteriores.</p>
+<p>El término "compromiso de datos de autorización" (denotado <span class="docutils literal">auth_digest</span>), definido solo para transacciones v5 y posteriores, debe interpretarse como se describe en <a class="brackets" href="#zip-0244" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+<p>El término "identificador de transacción atestiguada" ("wtxid"), definido solo para transacciones v5 y posteriores, es un valor de 64 bytes dado por la concatenación del txid y el compromiso de datos de autorización de la transacción.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP describe cambios al protocolo entre pares de Zcash para admitir la retransmisión de transacciones basada en el compromiso de datos de autorización de una transacción, además de su txid.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Históricamente, como en Bitcoin, los mensajes <span class="docutils literal">inv</span> y <span class="docutils literal">getdata</span> enviados en la red entre pares de Zcash para anunciar o solicitar transacciones se han referido a esas transacciones por su txid.</p>
+<p>Antes de la introducción de las transacciones v5 <a class="brackets" href="#zip-0225" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> en la actualización de red NU5 <a class="brackets" href="#zip-0252" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a>, un txid siempre se definía como el hash SHA-256d de los datos de la transacción, cuya codificación es la misma en los datos de bloque y en el protocolo entre pares.</p>
+<p>Para las transacciones v5, se define un nuevo algoritmo de resumen de transacción que construye el txid a partir de un árbol de hashes, que incluyen solo los datos de efecto <a class="brackets" href="#zip-0244" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>. Los datos de testigo se comprometen mediante un "compromiso de datos de autorización" separado. A diferencia de versiones anteriores de transacción, el formato de los datos serializados de las transacciones v5 no es crítico para el consenso.</p>
+<p>No comprometer los datos de testigo en los anuncios de transacciones v5 crearía ineficiencias: dado que el testigo de una transacción v5 puede ser malformado sin alterar el txid, un nodo que recibe una transacción v5 que no acepta generalmente todavía tendría que descargar esa misma transacción cuando sea anunciada por otros pares. Esto se debe a que la alternativa —no descargar una transacción v5 con un txid dado tras rechazar una transacción previa con ese txid— permitiría a un tercero interferir con la retransmisión de transacciones malformando el testigo de una transacción y anunciando la transacción inválida resultante a los nodos, impidiendo también la retransmisión de la versión válida de la transacción.</p>
+<p>Esta ineficiencia estuvo presente en Bitcoin durante casi 3 años tras la activación de su actualización Segwit <a class="brackets" href="#bip-0141" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>, hasta la adopción de BIP 339 <a class="brackets" href="#bip-0339" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>. Este último BIP especifica una manera de usar el "wtxid" de Segwit (que compromete tanto los datos de efecto como los de testigo) en lugar del txid al anunciar y obtener transacciones. En Zcash, el identificador análogo también se llama wtxid, pero codifica el par (txid, auth_digest).</p>
+<p>Este ZIP está modelado a partir del BIP 339: añade un tipo de inv <span class="docutils literal">MSG_WTX</span> al protocolo entre pares, análogo al tipo de inv <span class="docutils literal">MSG_WTX</span> del BIP 339, que anuncia transacciones por su wtxid. Nótese que la codificación y la longitud de un wtxid de Zcash son diferentes de las de un wtxid de Bitcoin.</p>
+<p>Este ZIP no introduce ningún equivalente del mensaje <span class="docutils literal">wtxidrelay</span> del BIP 339, ya que no es necesario para la compatibilidad dado que los nodos completos de Zcash deben admitir <span class="docutils literal">MSG_WTX</span> según la versión del protocolo entre pares negociada (véase <a class="reference internal" href="#deployment">Despliegue</a>).</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Se añade un nuevo tipo de inv <span class="docutils literal">MSG_WTX</span> (0x00000005), para uso tanto en mensajes <span class="docutils literal">inv</span> como en solicitudes <span class="docutils literal">getdata</span>, que indica que el hash al que se hace referencia es el wtxid (es decir, el valor de 64 bytes <span class="docutils literal">txid</span> || <span class="docutils literal">auth_digest</span>). Este tipo de inv DEBE (MUST) usarse al anunciar transacciones v5. El <span class="docutils literal">txid</span> y el <span class="docutils literal">auth_digest</span> son como se definen en <a class="brackets" href="#zip-0244" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+<p>En el caso de las solicitudes <span class="docutils literal">getdata</span>, el formato de una transacción v5 obtenida mediante un tipo de inv <span class="docutils literal">MSG_WTX</span> es el que se da en la especificación del protocolo de Zcash. <a class="brackets" href="#protocol-txnencoding" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<p>Un mensaje <span class="docutils literal">inv</span> o <span class="docutils literal">getdata</span> NO DEBE (MUST NOT) usar el tipo de inv <span class="docutils literal">MSG_WTX</span> para transacciones v4 o anteriores, ni en conexiones entre pares que no hayan negociado al menos la versión del protocolo entre pares especificada en <a class="reference internal" href="#deployment">Despliegue</a>.</p>
+<p>Nótese que <span class="docutils literal">MSG_WTX</span> también podría usarse para futuras versiones de transacción posteriores a la v5. Dado que tales versiones actualmente no son válidas según el consenso, esto se deja sin especificar por ahora.</p>
+<p>Las entradas <span class="docutils literal">MSG_TX</span> y <span class="docutils literal">MSG_WTX</span> pueden mezclarse en un orden arbitrario en un mensaje <span class="docutils literal">inv</span> o un mensaje <span class="docutils literal">getdata</span>. Dado que estos tipos de entrada tienen longitudes diferentes (36 bytes o 68 bytes respectivamente, incluido el campo de tipo de 4 bytes), esto implica que el tamaño del mensaje no está determinado por su campo <span class="docutils literal">count</span> inicial, y debe determinarse analizando el mensaje completo.</p>
+<h2 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h2>
+<p>Se supone que este ZIP se despliega con antelación a la actualización de red que introduce las transacciones v5, es decir, NU5.</p>
+<p>La versión del protocolo entre pares que habilita la admisión de esta especificación se define como 170014 (tanto en Testnet como en Mainnet). Esto es anterior a la versión mínima del protocolo que señala la admisión de NU5 en Testnet. <a class="brackets" href="#zip-0252" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a></p>
+<p>Como se especifica en <a class="brackets" href="#zip-0200" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, un nodo que admite una actualización de red vaciará su mempool al alcanzar el bloque previo al bloque de activación de esa actualización. Antes de este punto, el nodo no aceptará en su mempool transacciones que sean inválidas según el protocolo de consenso previo a la actualización (así que, en este caso, no aceptaría transacciones v5). Esto significa que un nodo que funcione correctamente no usará el tipo de inv <span class="docutils literal">MSG_WTX</span> hasta que haya recibido el bloque previo a la actualización de red NU5.</p>
+<p>Sin embargo, es posible que un nodo reciba un mensaje <span class="docutils literal">inv</span> o <span class="docutils literal">getdata</span> que contenga una entrada de inventario de tipo <span class="docutils literal">MSG_WTX</span>, en una conexión entre pares que haya negociado la versión de protocolo 170014 o posterior, antes de que NU5 se haya activado. En este caso, el nodo NO DEBE (MUST NOT) anunciar, obtener ni proveer transacciones v5.</p>
+<p>Nótese que el comportamiento de un nodo al recibir un mensaje <span class="docutils literal">inv</span> o <span class="docutils literal">getdata</span> con una o más entradas de inventario de un tipo no reconocido no estaba previamente especificado. El comportamiento de <cite>zcashd</cite> en tal caso era suponer que la longitud de cada entrada de inventario es de 36 bytes (incluido el campo de tipo), independientemente del tipo. Esto resultaría en un análisis erróneo del mensaje <span class="docutils literal">inv</span> o <span class="docutils literal">getdata</span> si la longitud de la entrada de inventario correspondiente no fuera de 36 bytes.</p>
+<p>El comportamiento RECOMENDADO (RECOMMENDED) es analizar el mensaje <span class="docutils literal">inv</span> o <span class="docutils literal">getdata</span> por completo, y rechazar el mensaje si contiene cualquier entrada de inventario de un tipo no reconocido. Para un mensaje <span class="docutils literal">getdata</span>, el conjunto de tipos de inventario reconocidos, y las longitudes de entrada correspondientes incluido el campo de tipo, es:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">MSG_TX</span> (36 bytes);</p></li>
+<li><p><span class="docutils literal">MSG_BLOCK</span> (36 bytes);</p></li>
+<li><p><span class="docutils literal">MSG_FILTERED_BLOCK</span> (36 bytes);</p></li>
+<li><p>[siempre que se haya negociado la versión 170014 o posterior] <span class="docutils literal">MSG_WTX</span> (68 bytes).</p></li>
+</ul>
+<p>Para un mensaje <span class="docutils literal">inv</span>, el conjunto de tipos de inventario reconocidos es el mismo, pero el tipo <span class="docutils literal">MSG_FILTERED_BLOCK</span> no tiene ningún propósito útil. Los emisores de mensajes <span class="docutils literal">inv</span> NO DEBERÍAN (SHOULD NOT) incluir entradas <span class="docutils literal">MSG_FILTERED_BLOCK</span>. Para permitir usar el mismo analizador para los dos tipos de mensaje, un nodo que reciba una entrada <span class="docutils literal">MSG_FILTERED_BLOCK</span> en un mensaje <span class="docutils literal">inv</span> DEBERÍA (SHOULD) ignorarla.</p>
+<p>Dado que el tipo de inv <span class="docutils literal">MSG_WTX</span> solo se habilita entre pares que ambos lo admiten, los clientes antiguos siguen siendo completamente compatibles e interoperables antes de que NU5 se active, o en una cadena en la que no se active.</p>
+<p>Se da información adicional sobre cómo <cite>zcashd</cite> maneja la propagación de datos en la red entre pares en <a class="brackets" href="#zcashd-propagation" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>12<span class="fn-bracket">]</span></a>.</p>
+
+
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<p>Un borrador previo de este ZIP dejó como pregunta abierta si redefinir <span class="docutils literal">inv</span> y <span class="docutils literal">getdata</span> para segregar <span class="docutils literal">MSG_TX</span> y <span class="docutils literal">MSG_WTX</span>. Esto potencialmente podría haber hecho estos mensajes más simples o más eficientes de analizar, al evitar entradas de longitud variable en los datos del mensaje. (Véanse <a class="brackets" href="#p2p-inv" id="footnote-reference-16" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a> y <a class="brackets" href="#p2p-getdata" id="footnote-reference-17" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> para cómo <span class="docutils literal">inv</span> y <span class="docutils literal">getdata</span> respectivamente están definidos actualmente en Bitcoin.)</p>
+<p>Esta opción fue rechazada porque la especificación actual es suficientemente simple.</p>
+
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Agradecimientos</h1>
+<p>Este ZIP se basa en parte en el BIP 339, escrito por Suhas Daftuar. <a class="brackets" href="#bip-0339" id="footnote-reference-18" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a></p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2021.2.16 [NU5 proposal]. Section 3.12 Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-12">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2021.2.16 [NU5 proposal]. Section 7.1: Transaction Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-14">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0225" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0225.rst">ZIP 225: Version 5 Transaction Format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0244" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-5">2</a>,<a role="doc-backlink" href="#footnote-reference-8">3</a>,<a role="doc-backlink" href="#footnote-reference-11">4</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0252" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-7">1</a>,<a role="doc-backlink" href="#footnote-reference-13">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0252.rst">ZIP 252: Deployment of the NU5 Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0141" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki">BIP 141: Segregated Witness (Consensus layer)</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0339" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-10">1</a>,<a role="doc-backlink" href="#footnote-reference-18">2</a>)</span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0339.mediawiki">BIP 339: WTXID-based transaction relay</a></p>
+</aside>
+<aside class="footnote brackets" id="p2p-inv" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-16">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://developer.bitcoin.org/reference/p2p_networking.html#inv">Bitcoin Developer Reference: P2P Network — Inv</a></p>
+</aside>
+<aside class="footnote brackets" id="p2p-getdata" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-17">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://developer.bitcoin.org/reference/p2p_networking.html#getdata">Bitcoin Developer Reference: P2P Network — GetData</a></p>
+</aside>
+<aside class="footnote brackets" id="zcashd-propagation" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-15">12</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://zcash.github.io/zcash/design/p2p-data-propagation.html">zcashd book: P2P data propagation</a></p>
+</aside>
+</aside>
+

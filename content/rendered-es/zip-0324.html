@@ -1,0 +1,327 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" en este documento se interpretan como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos del protocolo Zcash son los definidos en la Zcash Protocol Specification (Especificación del Protocolo Zcash). <a class="brackets" href="#protocol" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<p id="applink">Por «applink» se entiende un mecanismo de la plataforma para activar aplicaciones locales mediante enlaces HTTPS, como App Links <a class="brackets" href="#app-links" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> en Android, Universal Links <a class="brackets" href="#universal-links" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> en iOS, o App URI handlers <a class="brackets" href="#app-uri-handlers" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a> en Windows.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta especifica un mecanismo para enviar pagos de Zcash mediante cualquier servicio de mensajería (seguro) sin modificar, p. ej., Signal o WhatsApp. El remitente no necesita conocer la dirección del destinatario y el destinatario no necesita tener ya instalada una billetera de Zcash. Los pagos se realizan mediante un mensaje de texto/WhatsApp/Signal ordinario que contiene una URI. La URI codifica la clave secreta de gasto de una «dirección de billetera» de Zcash efímera, a la cual se han transferido los fondos. Cualquiera que conozca la URI puede aceptar este pago, mediante un proceso de «finalización» que usa la clave indicada en la URI para transferir los fondos encapsulados a su propia billetera. Una vez que el pago se finaliza, mediante una transacción adecuada en la cadena por parte del destinatario, se vuelve irrevocable.</p>
+<p>La propuesta especifica la sintaxis y la semántica de los pagos encapsulados en URI, el flujo de trabajo para generarlos y gestionarlos, y la infraestructura requerida.</p>
+<p>En esencia, un pago encapsulado en una URI comunica la existencia de una transacción (específicamente, una nota que compromete una cantidad de fondos) a un cliente receptor. La URI codifica el monto del pago y una clave que se usa para derivar toda la aleatoriedad necesaria para la construcción de la nota, incluidas la dirección y la clave secreta necesarias para gastarla.</p>
+<h2 id="usage-story"><a class="hanchor" href="#usage-story" aria-hidden="true" tabindex="-1">#</a>Historia de uso</h2>
+<p>Alicia desea enviar un pago de 1.23 ZEC a Roberto. Ella no tiene la dirección de Zcash de Roberto, y Roberto quizá ni siquiera tenga una billetera ni haya oído hablar de Zcash. Sin embargo, sí tiene un canal cifrado de extremo a extremo con Roberto en una aplicación de mensajería segura, como Signal o WhatsApp. Ella indica a su propia billetera de Zcash que envíe 1.23 ZEC por ese canal. Su billetera genera entonces automáticamente una nueva dirección de Zcash efímera y envía 1.23001 ZEC a esa dirección. Luego construye una URI de pago que contiene la clave secreta correspondiente a la dirección efímera, y la envía a Roberto mediante la aplicación de mensajería segura.</p>
+<p>Roberto recibe el mensaje, que se ve así:</p>
+<blockquote>
+<p>Este mensaje contiene un pago de Zcash. Haga clic en el siguiente enlace para verlo y recibir los fondos con su aplicación de billetera de Zcash:</p>
+<p><a class="reference external" href="https://pay.withzcash.com:65536/v1#amount=1.23&#x26;desc=Payment+for+foo&#x26;key=">https://pay.withzcash.com:65536/v1#amount=1.23&#x26;desc=Payment+for+foo&#x26;key=</a>...</p>
+<p>Si todavía no tiene una aplicación de billetera de Zcash, consulte: <a class="reference external" href="https://z.cash/wallets">https://z.cash/wallets</a></p>
+</blockquote>
+<p>Roberto hace clic en el enlace. Aparece su aplicación de billetera móvil de Zcash (que ya está instalada y se ha configurado como gestora de URL de esa forma), y le indica a Roberto que un pago de 1.23 ZEC lo espera. La aplicación de billetera confirma la existencia de las transacciones pertinentes en la blockchain, y luego ofrece finalizar el pago. Roberto hace clic en el botón «Finalizar», y su aplicación de billetera genera una transacción que mueve el dinero a su propia dirección (usando los 0.00001 ZEC adicionales que ha recibido para pagar la comisión de transacción). Cuando esta transacción se confirma en la cadena, las billeteras de Alicia y de Roberto indican ambas que el pago está finalizado, y por lo tanto Roberto puede enviar los fondos a otras partes.</p>
+
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Esta propuesta permite el envío de fondos sin exponer a los usuarios a la noción de direcciones de pago y su distribución segura. En cambio, los fondos pueden enviarse mediante cualquier canal de comunicación preexistente, con un único mensaje enviado de forma unidireccional del remitente al destinatario. Este mensaje transmite toda la información necesaria para obtener el control de los fondos, expresada de forma compacta como una URI textual.</p>
+<p>En consecuencia, toda la funcionalidad relacionada con el descubrimiento de contactos y el establecimiento de canales seguros puede delegarse a las aplicaciones de mensajería con las que el usuario ya está familiarizado, y en las que ya ha establecido canales de comunicación con muchos de sus contactos.</p>
+<p>Además, se pueden enviar fondos a usuarios que todavía no han instalado software de billetera y que todavía no tienen una dirección de pago. El destinatario puede cobrar los fondos en cualquier momento posterior instalando el software adecuado.</p>
+<p>Además, la propuesta mejora enormemente la escalabilidad de Zcash. Si un destinatario solo recibe pagos por URI, no necesita escanear la blockchain ni delegar sus claves de visualización a un tercero para que lo haga.</p>
+<p>Finalmente, esto evita el problema de enviar fondos a una dirección incorrecta por error de dedo. El usuario envía fondos mediante un contacto conocido en, p. ej., WhatsApp, con quien tiene una relación o al menos puede confirmar la identidad del destinatario. Además, incluso una vez que se envían fondos mediante una URI, estos pueden recuperarse si la otra parte no los cobra.</p>
+<p>La propuesta es complementaria al ZIP 321 <a class="brackets" href="#zip-0321" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, que estandarizará <em>URI de Solicitud de Pago</em> mediante las cuales el <em>destinatario</em> del pago puede transmitir su dirección de pago persistente al <em>remitente</em>, para transferencias de fondos posteriores (que se realizarán mediante el mecanismo normal en cadena en lugar de los pagos encapsulados descritos en la presente propuesta).</p>
+
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<p>La especificación de Pagos Encapsulados en URI de esta propuesta, y los protocolos previstos para usarlos, están destinados a cumplir los siguientes requisitos:</p>
+<ul class="simple">
+<li><p>El protocolo no debe exigir que el remitente de un pago permanezca en línea hasta que el destinatario reciba la URI (y mucho menos hasta que finalice el pago).</p></li>
+<li><p>Para una renderización conveniente, las URI deberían ser cortas; esto también maximiza la compatibilidad con plataformas de mensajería con límites de longitud.</p></li>
+<li><p>No debe ser viable que alguien que no ha visto la URI (o que ha comprometido a una parte que sí la ha visto) cobre los fondos.</p></li>
+<li><p>Las URI y el protocolo deberían minimizar la probabilidad de uso involuntario indebido, y en particular los riesgos analizados en «Consideraciones de seguridad» más abajo.</p></li>
+<li><p>El protocolo no debe filtrar ninguna información (identidad del remitente, identidad del destinatario, monto, descripción) a terceros, aparte de los metadatos inevitables sobre la existencia de una transacción, la comunicación de red inevitable en torno al envío/recibo de transacciones, la filtración que induzca el canal de comunicación utilizado para transmitir la URI, y lo que las partes compartan voluntariamente.</p></li>
+<li><p>Las URI deberían permitir futuras modificaciones y expansiones del formato, sin riesgo de análisis sintáctico ambiguo.</p></li>
+<li><p>La huella en cadena de los pagos que usan este mecanismo debería ser indistinguible de la de las transacciones normales totalmente blindadas (excepto, posiblemente, por las estadísticas del número de entradas y salidas blindadas).</p></li>
+<li><p>No perder fondos, incluso si las billeteras fallan, o si se pierde todo excepto el secreto maestro de la billetera emisora.</p></li>
+</ul>
+
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<ul class="simple">
+<li><p>Está fuera del alcance de esta propuesta establecer un canal de comunicación seguro para la transmisión de Pagos Encapsulados en URI, o proteger los dispositivos de las partes contra compromisos de seguridad.</p></li>
+<li><p>Finalizar el pago puede implicar tiempos de espera significativos, del orden de minutos, mientras se generan, minan y confirman las transacciones en cadena requeridas. Esta propuesta no intenta resolverlo (aunque sí intenta evitar imponer demoras adicionales significativas, y sí aborda cómo se transmite al usuario el estado intermedio).</p></li>
+</ul>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Una URI de Pago Encapsulado representa la capacidad de cobrar los fondos de Zcash de transacciones específicas en cadena, siempre que no estén gastados. Consulte <a class="reference internal" href="#usage-story">Historia de Uso</a> para un ejemplo.</p>
+<h2 id="syntax"><a class="hanchor" href="#syntax" aria-hidden="true" tabindex="-1">#</a>Sintaxis</h2>
+<p>Una URI de Pago Encapsulado es un Localizador Uniforme de Recursos (URL), como se define en el RFC 3986 <a class="brackets" href="#rfc3986" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>, de la siguiente forma.</p>
+<p>Esquema: <span class="docutils literal">https</span></p>
+<p>Host: <span class="docutils literal">pay.withzcash.com</span></p>
+<p>Puerto: <span class="docutils literal">65536</span> (esto intencionalmente no es un número de puerto TCP/IP válido)</p>
+<p>Ruta: <span class="docutils literal">payment/v1</span></p>
+<p>Parámetros del fragmento: estos pares atributo-valor, en este orden, separados por <span class="docutils literal">&#x26;</span>, y con todos los valores codificados en porcentaje cuando sea necesario:</p>
+<ul class="simple">
+<li><p><span class="docutils literal"><span class="pre">amount=...</span></span> donde el atributo es un número decimal que representa la cantidad de ZEC incluida en el pago. DEBE (MUST) estar presente. Si hay una fracción decimal, entonces DEBE (MUST) usarse un punto (.) como carácter separador para separar el número entero de la fracción decimal, y tanto el número entero como la fracción decimal DEBEN (MUST) ser no vacíos. No se permiten otros separadores (como comas para agrupación o miles). Los ceros a la izquierda en el número entero o los ceros al final en la fracción decimal se ignoran. NO DEBE (MUST NOT) haber más de 8 dígitos en la fracción decimal.</p></li>
+<li><p><span class="docutils literal"><span class="pre">desc=...</span></span> donde el atributo es una cadena legible por humanos asociada con el pago. PUEDE (MAY) estar presente. Si está presente, DEBE (MUST) codificarse como “datos textuales compuestos de caracteres del Conjunto Universal de Caracteres” como se especifica en la sección 2.5 del RFC 3986.</p></li>
+<li><p><span class="docutils literal">key=</span> es un número aleatorio de 256 bits codificado con Bech32 como se especifica en la Sección 5.6.9 de la Zcash Protocol Specification <a class="brackets" href="#protocol" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>). DEBE (MUST) estar presente.</p></li>
+</ul>
+
+<h2 id="semantics"><a class="hanchor" href="#semantics" aria-hidden="true" tabindex="-1">#</a>Semántica</h2>
+<p>Los valores de <span class="docutils literal">key</span> y <span class="docutils literal">amount</span> implican de forma determinista una única <em>nota de pago</em> correspondiente a esta URI, que es una nota Sapling de Zcash que lleva la cantidad dada y es gastable con una clave de gasto Sapling derivada de <span class="docutils literal">key</span>. La derivación de esta nota se realiza mediante el siguiente procedimiento:</p>
+<p><em>DerivePaymentNote(key,amount)</em>:</p>
+<ul class="simple">
+<li><p>Derivar <em>pk_d</em> a partir de <em>key</em> mediante el proceso definido en la Sección 4.2.2 de <a class="brackets" href="#protocol" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> (estableciendo <em>sk = key</em>).</p></li>
+<li><p>Fijar el diversificador d = DefaultDiversifier(key).</p></li>
+<li><p>Derivar <em>rseed = PRF^expand(sk_m || [0xFIXME])</em> como se especifica en la Sección 5.4.2 de <a class="brackets" href="#protocol" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Definir la <em>nota de pago</em> correspondiente como <em>n = (d, pk_d, amount, rseed)</em> (consulte la Sección 3.2 de <a class="brackets" href="#protocol" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> (<a class="reference external" href="https://zips.z.cash/protocol/protocol.pdf#notes">https://zips.z.cash/protocol/protocol.pdf#notes</a>)).</p></li>
+</ul>
+<p>TODO: posible forma alternativa de derivar pk_d y rseed a partir de key:</p>
+<ul class="simple">
+<li><p>Usar PRF^expand sobre key con separación de dominio por definir para obtener 64 bytes. Dividir esto en dos valores de 32 bytes.</p>
+<ul>
+<li><p>El primer valor de 32 bytes es sk; derivar pk_d a partir de este como en la especificación.</p></li>
+<li><p>El segundo valor de 32 bytes es rseed.</p></li>
+</ul>
+</li>
+<li><p>También se podrían mezclar otras partes de la URI (amount, desc) para vincularlas aquí, sin interferir con el proceso de derivación de claves existente en la especificación.</p></li>
+</ul>
+<p>Construir una transacción zcash blindada que contenga esa nota como salida.</p>
+<p>La nota de pago DEBERÍA (SHOULD) estar sin gastar en el momento en que se pretende que la reciba el destinatario.</p>
+<p>Los clientes PUEDEN (MAY) generar y enviar la URI antes de que la transacción se construya, se envíe o se confirme.</p>
+<p>El parámetro <span class="docutils literal">amount</span> DEBE (MUST) coincidir con la cantidad total de ZEC en la nota de pago más la comisión de transacción estándar para transacciones totalmente blindadas (actualmente 0.00001 ZEC).</p>
+<p>NO DEBE (MUST NOT) existir ninguna otra nota en la blockchain, ni difundida a la red de nodos, más allá de la nota de pago derivada de la URI de pago, que esté dirigida a cualquier dirección de pago derivada de <span class="docutils literal">key</span> (con cualquier diversificador). Tales notas PUEDEN (MAY) generarse dentro de una implementación (p. ej., como pregeneración especulativa con varios valores de nota), pero NO DEBEN (MUST NOT) difundirse para su minería.</p>
+<p>El software de la billetera NO DEBE (MUST NOT) exponer la dirección de pago efímera correspondiente a una URI de pago (lo que ayuda a asegurar el párrafo anterior).</p>
+<p>El parámetro <span class="docutils literal">desc</span> PUEDE (MAY) transmitir una descripción legible por humanos del pago, ingresada manualmente por el usuario o generada por la aplicación de cualquier manera razonable.</p>
+<p>Los campos de memo cifrados en la descripción de salida que contiene el compromiso de la nota de pago DEBERÍAN (SHOULD) estar vacíos (todo en cero) o ser idénticos al parámetro <span class="docutils literal">desc</span> (rellenados con ceros).</p>
+<p>El pago asociado a una URI no se considera “recibido” por el destinatario hasta que este ejecuta un proceso de “finalización” (consulte la sección <a class="reference internal" href="#finalization">Finalización</a>).</p>
+<p>Al transmitir el pago a los usuarios, el software de billetera del remitente y del destinatario PUEDE (MAY) transmitir la descripción codificada en el parámetro <span class="docutils literal">desc</span>.</p>
+<p>El software de billetera del destinatario DEBERÍA (SHOULD) transmitir al usuario que el valor de <span class="docutils literal">desc</span> es meramente una afirmación hecha por la parte que envió la URI, y puede ser tentativo, inexacto o malicioso.</p>
+<p>En particular, el software de billetera del destinatario DEBERÍA (SHOULD) transmitir al usuario que la cantidad de ZEC que puede transferir con éxito a su billetera puede ser diferente de la indicada por el parámetro <span class="docutils literal">amount</span>, y puede cambiar (posiblemente a cero), hasta que el proceso de finalización se haya completado.</p>
+
+<h2 id="centralized-deployment"><a class="hanchor" href="#centralized-deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue centralizado</h2>
+<p>El propietario del nombre de dominio <span class="docutils literal">withzcash.com</span> NO DEBE (MUST NOT) crear un registro DNS para el nombre de dominio <span class="docutils literal">pay.withzcash.com</span>, ni un certificado TLS para este. DEBERÍAN (SHOULD) tomarse todos los medios factibles para asegurar esto, y para evitar la transferencia no intencionada de la propiedad o el control sobre el nombre de dominio <span class="docutils literal">withzcash.com</span>. (Consulte <a class="reference internal" href="#rationale-for-uri-format">Justificación del formato de URI</a> y <a class="reference internal" href="#security-considerations">Consideraciones de seguridad</a> más abajo para su discusión.)</p>
+<p>Los mecanismos de <a class="reference internal" href="#applink">Applink</a> permiten a los propietarios de nombres de dominio proporcionar una lista blanca que especifica qué aplicaciones están autorizadas para manejar URL con ese nombre de dominio. Esto se implementa sirviendo archivos adecuados en rutas bien conocidas en el servidor web de ese dominio o, en el caso de un subdominio, de su dominio padre. Así, el propietario del dominio <span class="docutils literal">withzcash.com</span> controla efectivamente la lista blanca de aplicaciones que la plataforma de los usuarios puede iniciar para manejar pagos encapsulados en URI (consulte <a class="reference internal" href="#security-considerations">Consideraciones de seguridad</a>). Esta lista blanca debería proteger a los usuarios de instalar aplicaciones maliciosas que intercepten pagos entrantes. Por lo tanto, el propietario del dominio DEBE (MUST) hacer lo siguiente:</p>
+<ul class="simple">
+<li><p>Mantener tal lista blanca y servirla según lo necesario para los mecanismos de <a class="reference internal" href="#applink">applink</a> de las principales plataformas.</p></li>
+<li><p>Publicar una política para la inclusión de aplicaciones en esta lista blanca.</p></li>
+<li><p>Usar todos los medios factibles para incluir en la lista blanca únicamente aplicaciones que cumplan la política publicada.</p></li>
+<li><p>Publicar el contenido de la lista blanca en forma legible por humanos.</p></li>
+<li><p>Proporcionar medios claros y eficaces para la eliminación rápida de aplicaciones de la lista blanca cuando se requiera como respuesta de seguridad.</p></li>
+<li><p>Usar todos los medios factibles para proteger la integridad de la lista blanca (en particular, esto incluye proteger el servidor web que sirve la lista blanca, el certificado TLS del dominio y los medios por los cuales se modifica la lista blanca).</p></li>
+<li><p>Usar medios eficaces para mantener un historial preciso, irrevocable y público de la lista blanca (p. ej., usando un repositorio Git con sellos de tiempo, o un mecanismo de rendición de cuentas similar a Certificate Transparency).</p></li>
+</ul>
+<p>Además, DEBERÍAN (SHOULD):</p>
+<ul class="simple">
+<li><p>Procurar que la lista blanca incluya todas las aplicaciones que no expondrían al usuario a un riesgo de seguridad mayor que el de las aplicaciones de billetera reputadas y de última generación.</p></li>
+</ul>
+
+<h2 id="testing"><a class="hanchor" href="#testing" aria-hidden="true" tabindex="-1">#</a>Pruebas</h2>
+<p>Con fines de prueba, toda la especificación anterior se duplica para la red testnet de Zcash, sustituyendo <span class="docutils literal">TAZ</span> (monedas de testnet de Zcash) por <span class="docutils literal">ZEC</span> y <span class="docutils literal">testzcash.com</span> por <span class="docutils literal">withzcash.com</span>.</p>
+<p>El propietario del nombre de dominio <span class="docutils literal">testzcash.com</span> DEBE (MUST) mantener una «lista blanca de testnet» separada, con una política separada que DEBERÍA (SHOULD) permitir que cualquier desarrollador legítimo de terceros añada su billetera en progreso con fines de prueba. La integridad y la disponibilidad PUEDEN (MAY) ser menos estrictas.</p>
+<p>Las aplicaciones de billetera PUEDEN (MAY) admitir solo un tipo de pagos (ZEC o TAZ) y, si admiten ambos, DEBEN (MUST) llevar una contabilidad separada y deben distinguir claramente el tipo cuando se comuniquen pagos o saldos a los usuarios.</p>
+
+
+<h1 id="lifecycle-specification"><a class="hanchor" href="#lifecycle-specification" aria-hidden="true" tabindex="-1">#</a>Especificación del ciclo de vida</h1>
+<p>El ciclo de vida de una URI que encapsula un pago consta de varias etapas que, en el caso habitual, culminan con los fondos depositados de forma irrevocable en la billetera personal del destinatario, de manera irrevocable:</p>
+<h2 id="generating-the-notes-and-uri"><a class="hanchor" href="#generating-the-notes-and-uri" aria-hidden="true" tabindex="-1">#</a>Generación de las notas y la URI</h2>
+<p>La aplicación de billetera de Zcash del remitente crea una clave de gasto efímera, envía fondos en ZEC a la dirección de pago derivada de esa clave y crea una URI que encapsula un pago que contiene esta clave de gasto efímera y los compromisos de las notas recién generadas.</p>
+<h3 id="ephemeral-key-derivation"><a class="hanchor" href="#ephemeral-key-derivation" aria-hidden="true" tabindex="-1">#</a>Derivación de claves efímeras</h3>
+<p>Las claves efímeras dentro de las URI de pago se derivan de forma determinista a partir de la misma semilla que la billetera principal. Esto garantiza que, si una billetera se recupera a partir de una copia de seguridad, los pagos enviados pero no finalizados puedan ser recuperados.</p>
+<p>El mecanismo de derivación es el siguiente:</p>
+<ul class="simple">
+<li><p>Usar una ruta de derivación de ZIP 32 para obtener una clave de gasto extendida hija a partir de la ruta <span class="docutils literal"><span class="pre">m_Sapling/324'/coin_type'/payment_index'</span></span></p>
+<ul>
+<li><p>Las implementaciones deben recordar qué valores de payment_index han usado (en el rango 0..2^31) y no reutilizarlos.</p></li>
+</ul>
+</li>
+<li><p>Calcular <em>key = BLAKE2b-256(clave de gasto extendida, personal='Zcash_PaymentURI')</em></p></li>
+</ul>
+
+
+<h2 id="uri-transmission"><a class="hanchor" href="#uri-transmission" aria-hidden="true" tabindex="-1">#</a>Transmisión de la URI</h2>
+<p>El remitente transmite la URI que encapsula el pago al destinatario previsto, por algún canal seguro (p. ej., una plataforma de mensajería cifrada de extremo a extremo como Signal, WhatsApp o Magic Wormhole; o un código QR escaneado en persona).</p>
+<p>Si se transmite por un medio legible por humanos, como una aplicación de mensajería, la URI que encapsula el pago PUEDE (MAY) ir acompañada de una explicación contextual que indique que la URI encapsula un pago, y de una acción sugerida para que el destinatario complete el proceso (véase la Historia de Uso anterior para un ejemplo).</p>
+<p>Cuando se envía por un medio legible por humanos que consiste en mensajes discretos, el mensaje que contiene la URI NO DEBERÍA (SHOULD NOT) contener ninguna información específica del pago ni ingresada manualmente fuera de la propia URI, ya que esta información puede no ser visible para el destinatario (véase «Renderizado de mensajes» más abajo).</p>
+<p>A partir de este punto, y hasta la finalización o cancelación (véase más abajo), desde la perspectiva del remitente el pago está «en curso»; DEBERÍA (SHOULD) transmitirse como tal al remitente; y NO DEBE (MUST NOT) transmitirse como «finalizado» ni con otra formulación que transmita una finalización exitosa.</p>
+
+<h2 id="message-rendering"><a class="hanchor" href="#message-rendering" aria-hidden="true" tabindex="-1">#</a>Renderizado de mensajes</h2>
+<p>El dispositivo del destinatario muestra la URI que encapsula el pago, o una indicación de su llegada, junto con la explicación contextual antes mencionada (si la hay). El usuario tiene la opción de «abrir» la URI (es decir, haciendo clic en ella), lo que hace que el dispositivo abra una aplicación de billetera de Zcash, usando el mecanismo de enlaces de aplicaciones de la plataforma local.</p>
+<p>Una aplicación de mensajería PUEDE (MAY) reconocer los pagos encapsulados en una URI, y mostrarlos de una manera que transmita su naturaleza con mayor claridad que las cadenas de URI sin procesar. Si el medio de mensajería consiste en mensajes discretos, y un mensaje contiene uno o más pagos encapsulados en una URI, entonces la aplicación de mensajería PUEDE (MAY) asumir que todo el demás contenido de ese mensaje se genera automáticamente y no contiene información específica del pago ni generada manualmente, y por lo tanto puede descartarse durante el renderizado.</p>
+
+<h2 id="payment-rendering-and-blockchain-lookup"><a class="hanchor" href="#payment-rendering-and-blockchain-lookup" aria-hidden="true" tabindex="-1">#</a>Renderizado del pago y búsqueda en la blockchain</h2>
+<p>La aplicación de billetera de Zcash del destinatario DEBERÍA (SHOULD) presentar el monto del pago y PUEDE (MAY) presentar la descripción, según lo transmitido en la URI, junto con una indicación del carácter tentativo de esta información.</p>
+<p>En paralelo, la aplicación de billetera DEBERÍA (SHOULD) recuperar las transacciones relevantes de la blockchain de Zcash, buscando la transacción dada por el parámetro <span class="docutils literal">cmu</span> (esto PUEDE (MAY) usar un índice eficiente, quizás asistido por un servidor), y comprobar si:</p>
+<ul class="simple">
+<li><p>dichas transacciones están efectivamente presentes en la blockchain</p></li>
+<li><p>las notas están sin gastar</p></li>
+<li><p>las notas pueden gastarse usando claves de gasto efímeras dadas por el parámetro <span class="docutils literal">key</span>.</p></li>
+</ul>
+<p>La billetera transmite al usuario uno de los siguientes estados:</p>
+<ul class="simple">
+<li><p><em>Lista para finalizar</em>: Las pruebas se verifican en su totalidad, y el pago está listo para finalizarse. La billetera DEBERÍA (SHOULD) presentar al usuario una opción para finalizar el pago (p. ej., un botón «Finalizar»).</p></li>
+<li><p><em>Inválido</em>: Las pruebas fallan de manera irreversible (p. ej., algunas de las notas ya están gastadas, o los montos no suman). La billetera PUEDE (MAY) transmitir el motivo al usuario, pero en cualquier caso DEBE (MUST) transmitir que los fondos no pueden recibirse.</p></li>
+<li><p><em>Pendiente</em>: Las pruebas fallan de una manera que puede remediarse en el futuro, a saber, algunas de las notas aún no están presentes en la blockchain (y ninguna otra prueba se incumple).</p></li>
+</ul>
+<p>Dentro del estado <em>Pendiente</em>, la aplicación de billetera PUEDE (MAY) considerar también las transacciones con «0 confirmaciones» (es decir, transacciones que se han difundido en la red de nodos pero que no están ni minadas ni expiradas), y transmitir su existencia al usuario. Estas no bastan para entrar en el estado <em>Lista para finalizar</em> (dado que las notas no minadas no pueden gastarse de inmediato).</p>
+<p>Las condiciones antes mencionadas pueden cambiar con el tiempo (p. ej., las transacciones pueden ser gastadas por otra persona en el ínterin), por lo que el estado DEBERÍA (SHOULD) actualizarse periódicamente.</p>
+
+<h2 id="finalization"><a class="hanchor" href="#finalization" aria-hidden="true" tabindex="-1">#</a>Finalización</h2>
+<p>Cuando el destinatario elige finalizar el pago, la aplicación de billetera genera transacciones que gastan las notas antes mencionadas (usando la clave de gasto efímera) y envían estos fondos de Zcash a la dirección de pago persistente propia del usuario. Estas transacciones llevan el tiempo de expiración predeterminado (actualmente 100 bloques).</p>
+<p>La aplicación de billetera del destinatario DEBERÍA (SHOULD) transmitir el estado del pago como «Finalizando…» a partir del momento en que el usuario inicia el proceso de finalización. PUEDE (MAY), además, transmitir la acción específica realizada o el evento esperado.</p>
+<p>La billetera del remitente DEBERÍA (SHOULD) transmitir el estado del pago como «Finalizando…» tan pronto como detecte que las transacciones relevantes se han difundido en la red entre pares, o se han minado a la blockchain.</p>
+<p>Una vez que estas transacciones estén confirmadas (en la medida que la aplicación de billetera local considere satisfactoria; actualmente 10 confirmaciones es práctica común), su estado DEBERÍA (SHOULD) transmitirse como «Finalizado», tanto por la aplicación de billetera del remitente como por la del destinatario. Ambas billeteras NO DEBEN (MUST NOT) transmitir el pago como «finalizado», ni con otra formulación que transmita irrevocabilidad, antes de este punto.</p>
+<p>Si estas transacciones expiran sin ser minadas, o quedan de cualquier otra forma invalidadas de manera irreversible (p. ej., por una reversión), entonces el estado de ambas billeteras DEBERÍA (SHOULD) transmitirlo, y la billetera del destinatario DEBERÍA (SHOULD) volver a la etapa «Presentación del pago y búsqueda en la blockchain» anterior.</p>
+
+<h2 id="payment-cancellation"><a class="hanchor" href="#payment-cancellation" aria-hidden="true" tabindex="-1">#</a>Cancelación del pago</h2>
+<p>En cualquier momento antes de que el pago se finalice, el remitente es capaz de cancelar el pago, finalizando él mismo el pago hacia su propia billetera (recuperando así los fondos). Si la billetera aún no ha enviado, para su inclusión en la blockchain, ninguna de las transacciones asociadas con la clave de gasto efímera, la cancelación también puede hacerse descartando estas transacciones o abortando su generación. La aplicación de billetera del remitente DEBERÍA (SHOULD) ofrecer esta función y, en ese caso, DEBE (MUST) manejar adecuadamente la condición de carrera en la que el destinatario inició la finalización de manera concurrente.</p>
+<p>La cancelación requiere que el remitente conozca la clave de gasto efímera. Si el remitente ha perdido este estado, puede recuperarse de manera determinista (véase <a class="reference internal" href="#recovery-from-wallet-crash">Recuperación tras un fallo de la billetera</a>, más abajo).</p>
+
+<h2 id="status-view"><a class="hanchor" href="#status-view" aria-hidden="true" tabindex="-1">#</a>Vista de estado</h2>
+<p>Las aplicaciones de billetera DEBERÍAN (SHOULD) permitir al usuario ver el estado de todos los pagos que ha generado, así como de todos los pagos entrantes (es decir, pagos encapsulados en URI que se han enviado a la aplicación, p. ej., por invocación desde aplicaciones de mensajería). El estado incluye los metadatos disponibles y el estado actual del pago. Cuando sea pertinente, la aplicación de billetera DEBERÍA (SHOULD) ofrecer la posibilidad de finalizar cualquier pago entrante <em>Pendiente</em>, y PUEDE (MAY) ofrecer la posibilidad de cancelar cualquier pago saliente.</p>
+<p>Las aplicaciones de billetera DEBERÍAN (SHOULD) alertar activamente al usuario (p. ej., mediante notificaciones de estado) si un pago que envió no ha sido finalizado dentro de un período de tiempo razonable (p. ej., 1 semana), y ofrecer cancelar el pago.</p>
+
+<h2 id="recovery-from-wallet-crash"><a class="hanchor" href="#recovery-from-wallet-crash" aria-hidden="true" tabindex="-1">#</a>Recuperación tras un fallo de la billetera</h2>
+<p>Al recuperar desde una frase de billetera respaldada, las implementaciones de billetera ya necesitan escanear toda la cadena (desde el cumpleaños de la billetera) para encontrar las transacciones recibidas o enviadas por la billetera. Simultáneamente con esto, la billetera puede recuperar el estado de los URI de pago creados previamente y recobrar el acceso a los fondos no finalizados.</p>
+<p>Definimos un «límite de hueco» <em>N</em>, similar al «address gap limit» de BIP 44. Si una implementación de billetera observa <em>N</em> URI de pago derivados secuencialmente que no tienen una nota correspondiente en la cadena, puede suponer con seguridad que no se ha derivado ningún URI de pago más allá de ese punto.</p>
+<p>Dado que tanto la derivación de un URI de pago como la acción de «llenarlo» con una nota las realiza la misma entidad (y en la mayoría de los casos de forma secuencial), es improbable que haya un hueco significativamente grande en el uso de URI de pago. Como equilibrio entre el costo de escanear múltiples <span class="docutils literal">ivk</span> y la probabilidad de perder fondos en la cadena debido a la generación de URI de pago fuera de orden, especificamos un límite de hueco estándar de <span class="docutils literal">N = 3</span>.</p>
+<p>El proceso para determinar la posición de este hueco durante la recuperación de la billetera es el siguiente:</p>
+<ul class="simple">
+<li><p>Derivar las primeras <em>N</em> claves de URI de pago.</p></li>
+<li><p>Derivar los <em>N</em> <span class="docutils literal">ivk</span> correspondientes a estas claves mediante el proceso definido en la sección 4.2.2 de <a class="brackets" href="#protocol" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> (estableciendo <span class="docutils literal">sk = key</span>).</p></li>
+<li><p>Escanear la cadena en busca de nullifiers gastados (de las notas propias de la billetera, o de cualquier nota de URI de pago que conozca actualmente). Esto es parte del proceso normal de escaneo de la cadena para las billeteras.</p></li>
+<li><p>Cuando se detecte que un nullifier está gastado, probar el descifrado de cada salida de la transacción correspondiente con el conjunto actual de <span class="docutils literal">ivk</span> de URI de pago. Si se detecta una nota:</p>
+<ul>
+<li><p>Guardar los detalles de la nota junto con el URI de pago correspondiente (que puede derivarse de la nota).</p></li>
+<li><p>Agregar el nullifier de la nota al conjunto de nullifiers de la billetera (para permitir el descubrimiento de URIs de pago financiados que el remitente haya recuperado).</p></li>
+<li><p>Descartar el <span class="docutils literal">ivk</span> del conjunto actual de <span class="docutils literal">ivk</span> de URI de pago.</p></li>
+<li><p>Derivar el siguiente <span class="docutils literal">ivk</span> en la fila y agregarlo al conjunto.</p></li>
+</ul>
+</li>
+</ul>
+<p>Para que este proceso de recuperación tenga éxito, las implementaciones de billetera DEBEN (MUST) financiar los URIs de pago con una clave de gasto de Sapling en la billetera. Alternativamente, las implementaciones de billetera PUEDEN (MAY) incluir el conjunto de <span class="docutils literal">ivk</span> de URI de pago dentro del conjunto de <span class="docutils literal">ivk</span> que utilizan para el escaneo normal de la cadena, pero esto ralentizará el proceso de recuperación por un factor de 4 (para un límite de hueco de <span class="docutils literal">N = 3</span> y una billetera con una cuenta de Sapling).</p>
+
+
+<h1 id="security-considerations"><a class="hanchor" href="#security-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de seguridad</h1>
+<ul class="simple">
+<li><p>Cualquiera que intercepte los pagos encapsulados en URI puede robar los fondos encapsulados. Por lo tanto, los pagos encapsulados en URI deberían enviarse por un canal seguro y deberían mantenerse en secreto para cualquier persona distinta del destinatario previsto.</p>
+<ul>
+<li><p>El URI que encapsula el pago es como un conjuro mágico que teletransportará el dinero a la primera persona que haga clic en él y luego haga «finalize».</p></li>
+</ul>
+</li>
+<li><p>Los pagos encapsulados en URI pueden ser capturados por aplicaciones locales maliciosas en la plataforma del remitente o del receptor, por ejemplo, mediante captura de pantalla o interceptación del portapapeles. Las aplicaciones de billetera deberían usar las facilidades de interacción y comunicación de la plataforma de manera que minimice estos riesgos (por ejemplo, usar la API «Share» en lugar de un portapapeles visible para todas las aplicaciones).</p></li>
+<li><p>Asimismo, si el URI se transfiere presentando y escaneando ópticamente un código QR, cualquier persona que observe este código QR podría finalizar el pago y así tomar posesión de los fondos antes que el destinatario previsto. Por ejemplo, un atacante podría usar una lente de teleobjetivo apuntada a una terminal de punto de venta para robar pagos codificados en QR enviados a esa terminal.</p></li>
+<li><p>Los usuarios pueden tener canales de comunicación establecidos de manera casual (por ejemplo, pueden haber ingresado el número de teléfono de un nuevo contacto sin molestarse en verificarlo dos veces), pero más tarde pueden considerar erróneamente que estos son canales seguros adecuadamente autenticados para el propósito de enviar un URI que encapsula un pago. Las aplicaciones de billetera deberían mitigar esto cuando sea factible, por ejemplo, indicando que el canal de mensajería elegido no se ha utilizado previamente y que, por lo tanto, debería verificarse con más cuidado.</p></li>
+<li><p>Los usuarios pueden creer erróneamente que el pago ha sido recibido de manera irrevocable aunque no hayan invocado el procedimiento de finalización, o aunque el procedimiento de finalización haya fallado. El software de billetera debería transmitir correctamente el estado y fijar las expectativas, como se discutió anteriormente.</p></li>
+<li><p>Los destinatarios de pagos pueden no notar la notificación de pago entrante ni actuar en consecuencia (es decir, invocar la finalización) de manera oportuna. Para cuando la vean, el pago puede haber sido cancelado por el remitente.</p></li>
+<li><p>Los usuarios pueden no entender que los pagos encapsulados en URI son de uso único e intentar usar el mismo URI para varias personas o pagos, lo que da lugar a condiciones de carrera sobre quién recibe los fondos.</p></li>
+<li><p>Los usuarios pueden confundir los pagos encapsulados en URI (según lo especificado en el ZIP actual) con los URI de solicitud de pago de la forma <span class="docutils literal"><span class="pre">zcash:payment-address?amount=...</span></span> según lo especificado en el ZIP 321 <a class="brackets" href="#zip-0321" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>. Normalmente estos sirven para flujos de trabajo distintos y funcionan en direcciones opuestas (envío frente a recepción de fondos), por lo que no deberían surgir en un contexto ambiguo. Las aplicaciones de billetera deberían tener cuidado de no crear ni enviar un URI que encapsula un pago (que sirve para <em>enviar</em> fondos) en un contexto donde el usuario pueda tener la intención de <em>recibir</em> fondos.</p></li>
+<li><p>Los usuarios pueden intentar usar un URI que encapsula un pago como una «billetera fría», por ejemplo, escribiendo el URI en papel y guardándolo en una caja fuerte. Esto es peligroso. La clave de gasto es conocida por la billetera remitente en el momento en que se produce el URI, y posiblemente también en otros momentos (por ejemplo, si hay restos de almacenamiento, o si se usa derivación determinista; véase «Derivación de claves efímeras» más adelante). Así, un adversario que comprometa la billetera remitente puede vaciar la billetera fría.</p></li>
+<li><p>El acto y el momento de finalizar un pago son visibles para el remitente, lo que puede constituir una fuga de privacidad. Asimismo, si las transacciones en cadena se envían con antelación, su momento puede vincularse al pago posterior, lo que puede constituir una fuga de privacidad.</p></li>
+<li><p>El monto del pago es fácilmente visible para cualquiera que observe el URI que encapsula el pago, incluso en retrospectiva después de que el pago ya haya sido finalizado (por ejemplo, si los respaldos de su dispositivo o de su registro de chat se ven comprometidos más adelante). Esto puede ser una preocupación de privacidad y, en particular, puede poner a los destinatarios de pagos grandes en riesgo de atención no deseada.</p></li>
+<li><p>Los usuarios que intenten seguir los pagos encapsulados en URI como un hipervínculo HTTPS normal pueden filtrar inadvertidamente la información del pago a un atacante remoto, si de alguna manera se vulneran todas las capas de defensa enumeradas en <a class="reference internal" href="#rationale-for-uri-format">Justificación del formato de URI</a>.</p></li>
+<li><p>El propietario del dominio <span class="docutils literal">withzcash.com</span> controla efectivamente la lista de aplicaciones permitidas que la plataforma de los usuarios puede iniciar para gestionar pagos encapsulados en URI mediante el mecanismo <a class="reference internal" href="#applink">applink</a>. Si la lista es demasiado <em>permisiva</em> e incluye una aplicación maliciosa o vulnerable, y un usuario instala esa aplicación (que a su vez puede estar sujeta al mecanismo de revisión de aplicaciones del proveedor de la plataforma), entonces el usuario queda en riesgo de que sus pagos sean interceptados por un atacante. Por el contrario, si la lista es demasiado <em>restrictiva</em>, o no está disponible en absoluto, los usuarios no podrían activar las aplicaciones de billetera deseadas simplemente siguiendo enlaces, y tendrían que «compartir» en su aplicación de billetera el mensaje que contiene el URI (nótese que, como se discutió anteriormente, copiar y pegar desde el portapapeles es inseguro).</p></li>
+<li><p>El uso de pagos encapsulados en URI puede entrenar a los usuarios para que, en general, hagan clic en otros tipos de enlaces URI/URL enviados en otros contextos de mensajería. Los enlaces maliciosos enviados por canales de mensajería no autenticados (por ejemplo, correos electrónicos y mensajes SMS) son un vector de ataque común, usado para explotar vulnerabilidades en las aplicaciones que se activan para gestionar estos enlaces. Aunque la culpa de las vulnerabilidades recae en esas otras aplicaciones, y aunque este ZIP usa enlaces profundos URI de la manera prevista, no por ello dejan de existir estas externalidades negativas del fomento de tal uso.</p></li>
+</ul>
+
+<h1 id="design-decisions-and-rationale"><a class="hanchor" href="#design-decisions-and-rationale" aria-hidden="true" tabindex="-1">#</a>Decisiones de diseño y justificación</h1>
+<h2 id="rationale-for-uri-format"><a class="hanchor" href="#rationale-for-uri-format" aria-hidden="true" tabindex="-1">#</a>Justificación del formato de URI</h2>
+<p>El formato de URI <span class="docutils literal"><span class="pre">https://pay.withzcash.com:65536/v1#...</span></span> fue elegido para permitir la activación automática del software de billetera en dispositivos móviles, mediante el mecanismo <a class="reference internal" href="#applink">applink</a> de la plataforma, al tiempo que se minimiza el riesgo de que terceros intercepten la información del pago. Esto último se evita mediante una defensa en profundidad, en la que cualquiera de los siguientes elementos basta para impedir que la información del pago se exponga por la red:</p>
+<ul class="simple">
+<li><p>El dominio <span class="docutils literal">pay.withzcash.com</span> no debería resolver.</p></li>
+<li><p>No debería existir un certificado TLS válido para <span class="docutils literal">pay.withzcash.com</span>.</p></li>
+<li><p>El número de puerto <span class="docutils literal">65536</span> no es válido para los protocolos TCPv4, TCPv6 ni UDP. Empíricamente, el comportamiento común de los navegadores y las aplicaciones de mensajería, al seguir enlaces HTTPS con el número de puerto 65536, es mostrar una página vacía o <span class="docutils literal">about:blank</span> en lugar de un error de DNS; no se activa ninguna solicitud de red. (Esto puede cambiar si se usa un protocolo de proxy de red, pero SOCKS5 tampoco puede representar el puerto 65536.)</p></li>
+<li><p>El contenido del identificador de fragmento está especificado por HTTP como algo que se resuelve localmente, en lugar de enviarse por la red (pero véase la advertencia sobre ataques activos con JavaScript más adelante).</p></li>
+</ul>
+<p>La desventaja es que si el usuario sigue el enlace antes de instalar una aplicación de billetera adecuada, obtiene un error de DNS de aspecto extraño o una página en blanco. Además, la URL tiene un aspecto extraño debido al número de puerto.</p>
+<p>Se consideraron varias alternativas, pero se encontró que tenían ramificaciones de usabilidad y/o seguridad inferiores:</p>
+<ol class="arabic">
+<li><p><span class="docutils literal"><span class="pre">https://pay.withzcash.com/v1#...</span></span>: similar a lo anterior, pero sin el número de puerto, y respaldado por un registro DNS, un certificado TLS y un servidor web para <span class="docutils literal">pay.withzcash.com</span> que sirve una página HTML informativa (por ejemplo, «Instale una billetera para recibir este pago»). Esto todavía permite que las aplicaciones de billetera lo gestionen mediante un mecanismo de <a class="reference internal" href="#applink">applink</a>, y ofrece una alternativa más amigable en caso de que el usuario siga el enlace antes de instalar una aplicación adecuada. Sin embargo, crea un riesgo de seguridad. Si el servidor web que sirve esa página se ve comprometido, o se suplanta mediante un ataque de DNS+TLS, el atacante puede capturar los parámetros del pago y robar los fondos. (Nótese que la información sensible está en el fragmento que sigue al <span class="docutils literal">#</span>, que no se envía en una solicitud HTTP GET; pero el servidor malicioso puede servir código JavaScript que recupere el fragmento.)</p></li>
+<li><p><span class="docutils literal"><span class="pre">zcash-data:payment/v1?amount=1.23&#x26;desc=Payment+for+foo&#x26;key=...</span></span>: un esquema de URI personalizado, como <span class="docutils literal"><span class="pre">zcash-data</span></span>. Esto todavía permite activar una acción de aplicación (por ejemplo, usando Mobile Deep Links). Sin embargo, en la mayoría de las plataformas, <em>cualquier</em> aplicación instalada en el dispositivo puede registrarse para gestionar enlaces de (casi) cualquier esquema de URI personalizado. Si un actor malintencionado recibe la solicitud, los fondos podrían ser robados. Incluso si la recibe un operador honesto, los fondos podrían ser robados si este se ve comprometido. Además, los esquemas de URI personalizados no se convierten en enlaces cuando se muestran en algunas aplicaciones de mensajería.</p>
+<p>Nótese el uso del esquema de URI <span class="docutils literal"><span class="pre">zcash-data</span></span>, en lugar del más elegante <span class="docutils literal">zcash</span>, porque los URI de la forma <span class="docutils literal"><span class="pre">zcash:address?...</span></span> ya se usan para especificar direcciones y solicitudes de pago de Zcash en el ZIP 321 <a class="brackets" href="#zip-0321" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, por analogía con los URI <span class="docutils literal">bitcoin</span> del BIP 21. Una alternativa es usar <span class="docutils literal"><span class="pre">zcash:v1/payment?...</span></span>; el software antiguo podría interpretar esto como una solicitud de pago a la dirección <span class="docutils literal">v1</span>, que es inválida. Otra alternativa es usar <span class="docutils literal"><span class="pre">zcash-payment:v1?...</span></span>, que es atractivo en términos de longitud y legibilidad, pero puede constituir una contaminación gratuita del espacio de nombres de esquemas de URI.</p>
+</li>
+</ol>
+<p>Otra opción, que puede añadirse a cualquiera de las anteriores, es añadir un código de confirmación fuera del URI que el usuario deba introducir manualmente en la aplicación de billetera, de modo que la mera interceptación del enlace URI no baste. Esto no parece reducir significativamente el riesgo en los escenarios considerados, por lo que se consideró que no justifica la menor usabilidad.</p>
+
+<h2 id="identifying-notes"><a class="hanchor" href="#identifying-notes" aria-hidden="true" tabindex="-1">#</a>Identificación de notas</h2>
+<p>La billetera del destinatario necesita identificar las notas relacionadas con el pago (y las transacciones en la cadena que las contienen), para verificar su validez y luego (durante el proceso de finalización) gastarlas.</p>
+<p><strong>Lo siguiente está desactualizado y refleja una elección de diseño anterior («0»), mientras que hemos pasado a una elección diferente («4»). Por revisar.</strong></p>
+<p>En la descripción anterior, listamos explícitamente las notas involucradas en el pago (que se asignan fácilmente a las transacciones que las contienen, mediante un índice adecuado). Esto resulta en URI largos cuando hay múltiples notas involucradas (por ejemplo, al usar la técnica antes mencionada de «montos en potencias de 2»).</p>
+<p>En su lugar, podemos hacer que las notas se identifiquen implícitamente mediante la clave de gasto (o similar) incluida en el URI. Esto puede acortar el URI, haciéndolo menos intimidante y menos propenso a alcanzar límites de longitud (considérese el SMS). Las siguientes alternativas son viables:</p>
+<p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mspace width="0.9em"></mspace>
+</math>0. Listar explícitamente los compromisos de nota dentro del URI.</p>
+<ol class="arabic simple">
+<li><p>Incluir solo la(s) clave(s) de gasto en el URI, y hacer que el destinatario escanee el blockchain mediante el mecanismo existente (descifrado de prueba del campo de memo cifrado). Esto es muy lento y conlleva riesgos de ataques de denegación de servicio. Sería más rápido en el caso nominal si el escaneo se hace hacia atrás (el bloque más reciente primero), o si el remitente indica cuándo se minaron las transacciones; pero escanear toda la cadena en busca de transacciones inexistentes (quizás inducido por un DoS) seguiría tardando muchísimo.</p></li>
+<li><p>Derivar una etiqueta a partir de una semilla incluida en el URI, y poner esta etiqueta dentro del campo de memo cifrado de los descriptores de salida en las transacciones asociadas. Poner la etiqueta en texto claro dentro del espacio reservado para el texto cifrado del campo de memo (rompiendo la abstracción AEAD). La billetera del destinatario (o el servicio que la asiste) mantendría un índice de tales etiquetas, y buscaría eficientemente las etiquetas derivadas del URI. Las etiquetas son públicamente visibles y por lo tanto pueden filtrar información sobre el monto del pago (por ejemplo, al usar la técnica de pregeneración en potencias de 2).</p></li>
+<li><p>De manera similar a lo anterior, pero colocar la etiqueta en un descriptor de salida adicional de valor cero añadido a cada transacción pertinente. El destinatario puede recalcular este compromiso de nota y usarlo como identificador, para buscarlo en un índice y así localizar la transacción. Aquí también, las etiquetas son públicamente visibles y por lo tanto pueden filtrar información sobre el monto del pago (por ejemplo, al usar la técnica de pregeneración en potencias de 2).</p></li>
+<li><p>Hacer que el URI incluya una semilla y el monto de la nota de salida (única). Que la semilla determine no solo la clave de gasto, sino también toda la aleatoriedad involucrada en la generación de la nota. Así, el destinatario puede derivar de manera determinista el compromiso de nota a partir de la semilla y el monto, y buscarlo para encontrar la transacción relevante. Esto requiere que el destinatario (o el servidor que lo asiste) mantenga un índice que asigne los compromisos de nota (de los descriptores de salida que son los primeros en su transacción) a la transacción que los contiene. Se pueden incluir notas adicionales en la misma transacción.</p></li>
+</ol>
+
+<h2 id="additional-rationale"><a class="hanchor" href="#additional-rationale" aria-hidden="true" tabindex="-1">#</a>Justificación adicional</h2>
+<ol class="arabic simple">
+<li><p>Los metadatos (monto y descripción) se proporcionan dentro del URI. Una alternativa sería codificar la descripción en los campos de memo cifrados de las transacciones blindadas asociadas, y calcular el monto a partir de esas transacciones. Sin embargo, en ese caso los metadatos no estarían disponibles para presentarse al usuario hasta que las transacciones hayan sido recuperadas del blockchain.</p></li>
+<li><p>Admitimos múltiples claves de gasto y múltiples notas en un solo URI, porque estos pagos pueden generarse y minarse de manera especulativa antes de que se determine el monto del pago (para permitir pagos sin latencia). Por ejemplo, las billeteras remitentes pueden pregenerar transacciones para montos en potencias de 2, y luego incluir solo un subconjunto de ellas en el URI, sumando el monto deseado.</p></li>
+<li><p>No incluimos la identidad del remitente ni del receptor en el URI, porque la billetera remitente puede no saber el nombre de a quién envía (ni siquiera de quién envía). Además, existe el riesgo de que se use información fraudulenta del remitente/destinatario. Si las circunstancias lo requieren (por ejemplo, la «Travel Rule» de FinCEN <a class="brackets" href="#fincen-travel-rule" id="footnote-reference-15" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>), la identidad declarada del remitente y del destinatario puede incluirse en el parámetro <span class="docutils literal">desc</span>.</p></li>
+</ol>
+
+
+<h1 id="open-questions"><a class="hanchor" href="#open-questions" aria-hidden="true" tabindex="-1">#</a>Preguntas abiertas</h1>
+<h2 id="uri-usability"><a class="hanchor" href="#uri-usability" aria-hidden="true" tabindex="-1">#</a>Usabilidad del URI</h2>
+<p>El URI podría cambiarse de varias maneras debido a preocupaciones de usabilidad:</p>
+<ol class="arabic">
+<li><p>Puede ser deseable impedir que los parámetros <span class="docutils literal">amount</span> y <span class="docutils literal">desc</span> sean legibles por humanos. Esto es para desalentar que las personas simplemente miren el URI, vean los números y el texto, y piensen erróneamente que esto ya es una confirmación de la recepción exitosa (sin pasar por el proceso de finalización).</p></li>
+<li><p>Quizás el URI debería contener la frase «password» desde el principio (por ejemplo, <span class="docutils literal"><span class="pre">zcash-data:/payment/v1/password=</span></span>), como una señal de que esta cadena debe mantenerse en secreto. (Nótese que, técnicamente, nada aquí es una contraseña en el sentido habitual del término.)</p></li>
+<li><p>Quizás en realidad deberíamos usar palabras de BIP 39 como una contraseña real. Así podría memorizársela o leerla por teléfono. Las palabras de BIP 39 pueden incluirse en el propio URI (lo cual es muy inusual):</p>
+<p><span class="docutils literal"><span class="pre">zcash-data:payment/v1/password=witch+collapse+practice+feed+shame+open+despair+creek+road+again+ice+least</span></span></p>
+<p>o</p>
+<p><span class="docutils literal"><span class="pre">zcash-data:payment/v1/password=WitchCollapsePracticeFeedShameOpenDespairCreekRoadAgainIceLeast</span></span></p>
+<p>Esto proporciona una señal adicional de que el URI contiene una contraseña confidencial (para los usuarios acostumbrados a las listas de palabras estilo BIP 39; para otros, la codificación Base 64 puede ser más evocadora de una contraseña). Además, los usuarios pueden descubrir que pueden enviar manualmente estas palabras a los destinatarios, por escrito o verbalmente, como una forma de enviar dinero sin un servicio de mensajería textual. Alternativamente, las palabras de BIP 39 pueden usarse como una sintaxis alternativa para la encapsulación, sin la sintaxis de URI confusa para los humanos (pero generar esta sintaxis alternativa puede complicar la interfaz de usuario).</p>
+</li>
+</ol>
+
+<h2 id="note-retrieval"><a class="hanchor" href="#note-retrieval" aria-hidden="true" tabindex="-1">#</a>Recuperación de notas</h2>
+<p>Idealmente: una billetera ligera puede recibir los fondos con la asistencia de un nodo más potente, con una fuga mínima de información hacia ese nodo (por ejemplo, usando consultas de búsqueda simples que pueden implementarse mediante Private Information Retrieval). La pregunta abierta es cómo hacer esto dado que la mayoría de los PIR prácticos sirven para recuperar un índice de un arreglo, no una clave desde el punto de vista de clave-valor.</p>
+
+<h2 id="other-questions"><a class="hanchor" href="#other-questions" aria-hidden="true" tabindex="-1">#</a>Otras preguntas</h2>
+<p>¿Deberían los remitentes retrasar la comunicación de una transacción generada por un intervalo aleatorio para prevenir el análisis de tráfico (es decir, que el operador del servicio de mensajería no pueda correlacionar mensajes con transacciones en la cadena)?</p>
+<p>Considérese el comportamiento en caso de que una reorganización de la cadena invalide un pago enviado. ¿Deberíamos especificar una raíz Merkle o un hash de bloque para ayudar a detectar esta razón de falla del pago? ¿O tener algunos servidores que mantengan una caché de pagos invalidados por reorganizaciones?</p>
+
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc3986" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://tools.ietf.org/html/rfc3986">Uniform Resource Identifier (URI): Generic Syntax</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-8">2</a>,<a role="doc-backlink" href="#footnote-reference-9">3</a>,<a role="doc-backlink" href="#footnote-reference-10">4</a>,<a role="doc-backlink" href="#footnote-reference-11">5</a>,<a role="doc-backlink" href="#footnote-reference-12">6</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2023.4.0 or later</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0321" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-6">1</a>,<a role="doc-backlink" href="#footnote-reference-13">2</a>,<a role="doc-backlink" href="#footnote-reference-14">3</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0321.rst">ZIP 321: Payment Request URIs</a></p>
+</aside>
+<aside class="footnote brackets" id="app-links" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://developer.android.com/training/app-links">Android Developer Guides: Handling Android App Links</a></p>
+</aside>
+<aside class="footnote brackets" id="universal-links" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://developer.apple.com/documentation/uikit/inter-process_communication/allowing_apps_and_websites_to_link_to_your_content">Apple Xcode Documentation: Allowing apps and websites to link to your content</a></p>
+</aside>
+<aside class="footnote brackets" id="app-uri-handlers" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://docs.microsoft.com/en-us/windows/uwp/launch-resume/web-to-app-linking">Microsoft Universal Windows Platform Documentation: Enable apps for websites using app URI handlers</a></p>
+</aside>
+<aside class="footnote brackets" id="fincen-travel-rule" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-15">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.fincen.gov/sites/default/files/2019-05/FinCEN%20Guidance%20CVC%20FINAL%20508.pdf">FinCEN Guidance FIN-2019-G001. May 9, 2019. Application of FinCEN’s Regulations to Certain Business Models Involving Convertible Virtual Currencies</a></p>
+</aside>
+</aside>
+
+<h1 id="publication-blockers"><a class="hanchor" href="#publication-blockers" aria-hidden="true" tabindex="-1">#</a>Impedimentos para la publicación</h1>
+<ul class="simple">
+<li><p>Depurar la semántica.</p></li>
+<li><p>Depurar la justificación.</p></li>
+</ul>
+

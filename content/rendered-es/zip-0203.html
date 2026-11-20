@@ -1,0 +1,91 @@
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este es un ZIP de estándares que describe una nueva regla de consenso para establecer un tiempo de vencimiento tras el cual una transacción no puede ser minada. Si no se mina dentro de ese tiempo, la transacción se eliminará de los mempools de los nodos.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Las transacciones que tienen comisiones insuficientes a menudo no son minadas. Este indeterminismo es una fuente de confusión para los usuarios y las billeteras. Permitir que una transacción establezca una altura de bloque a partir de la cual no puede ser minada proporcionaría certeza sobre cuánto tiempo tiene una transacción para confirmarse antes de que sea rechazada por la red y deba reenviarse.</p>
+<p>Las ventajas incluyen optimizar el rendimiento del mempool al eliminar transacciones que no serán minadas, y potencialmente simplificar los canales de pago bidireccionales al reducir la necesidad de almacenar y comprimir revocaciones de estados pasados, ya que las transacciones no confirmadas en la cadena podrían vencer y volverse inválidas después de un período de tiempo.</p>
+<p>Si el vencimiento está en la altura de bloque <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+  <mspace width="-0.1667em"></mspace>
+</math>, entonces la transacción debe incluirse en el bloque <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+</math> o anterior. El bloque <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+  <mo>+</mo>
+  <mn>1</mn>
+</math> será demasiado tarde, y la transacción se eliminará del mempool.</p>
+<p>La nueva regla de consenso exigirá que la transacción no se considere válida si se incluye en un bloque de altura mayor que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>N</mi>
+  <mspace width="-0.1667em"></mspace>
+</math>, y los bloques que incluyan transacciones vencidas no se considerarán válidos.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Las transacciones tendrán un campo nuevo, <span class="docutils literal">nExpiryHeight</span>, que establecerá la altura de bloque a partir de la cual las transacciones se eliminarán del mempool si no han sido minadas.</p>
+<p>El tipo de dato para <span class="docutils literal">nExpiryHeight</span> será <span class="docutils literal">uint32_t</span>. <span class="docutils literal">nExpiryHeight</span> nunca será una marca de tiempo UNIX, a diferencia de los valores de <span class="docutils literal">nLockTime</span>, y por lo tanto la altura máxima de vencimiento será 499999999 (pero véase la excepción para las transacciones coinbase descrita en <a class="reference internal" href="#changes-for-nu5">Cambios para NU5</a>).</p>
+<p>Nota: una versión anterior de este ZIP especificaba incorrectamente una interacción entre <span class="docutils literal">nExpiryHeight</span> y <span class="docutils literal">nLockTime</span> que nunca se implementó.</p>
+<p>Para el ejemplo siguiente, el último bloque en el que la transacción siguiente podría incluirse es 3539. Después de eso, se eliminará del mempool.</p>
+<pre class="literal-block">"txid": "17561b98cc77cd5a984bb959203e073b5f33cf14cbce90eb32b95ae2c796723f",
+"version": 3,
+"locktime": 2089,
+"expiryheight": 3539,</pre>
+<p>Predeterminado: (antes de Blossom) 20 bloques desde la altura actual, o unos 50 minutos con un espaciado objetivo de bloques de 2,5 minutos. Puede usarse una opción de configuración para establecer el valor predeterminado del usuario.</p>
+<p>Mínimo: sin mínimo</p>
+<p>Máximo: 499999999. El tiempo de reloj de pared correspondiente a esta altura absoluta depende del espaciamiento objetivo de bloques vigente antes de alcanzarla.</p>
+<p>Sin límite: para no establecer ningún límite en las transacciones (de modo que no venzan), <span class="docutils literal">nExpiryHeight</span> debería establecerse en 0.</p>
+<p>Coinbase: <span class="docutils literal">nExpiryHeight</span> en las transacciones coinbase se ignora, y por convención se establece en 0.</p>
+<p>Cada vez que una transacción venza y deba eliminarse del mempool, todas sus transacciones dependientes también deberían eliminarse.</p>
+<h2 id="changes-for-blossom"><a class="hanchor" href="#changes-for-blossom" aria-hidden="true" tabindex="-1">#</a>Cambios para Blossom</h2>
+<p>Al activarse Blossom <a class="brackets" href="#zip-0206" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>, el valor predeterminado cambia a 40 bloques desde la altura actual, lo que todavía representa unos 50 minutos con el espaciamiento objetivo de bloques revisado de 75 segundos.</p>
+
+<h2 id="changes-for-nu5"><a class="hanchor" href="#changes-for-nu5" aria-hidden="true" tabindex="-1">#</a>Cambios para NU5</h2>
+<p>Como se mencionó anteriormente, <span class="docutils literal">nExpiryHeight</span> se ignora para las transacciones coinbase. Sin embargo, a partir de la activación de NU5 <a class="brackets" href="#zip-0252" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, el campo <span class="docutils literal">nExpiryHeight</span> de una transacción coinbase DEBE (MUST) establecerse igual a la altura de bloque. Además, solo para las transacciones coinbase, se elimina el límite de 499999999 sobre <span class="docutils literal">nExpiryHeight</span>. La motivación es garantizar que los identificadores de transacción sigan siendo únicos, como se explica con más detalle en una nota en la sección 7.1 de la especificación del protocolo <a class="brackets" href="#protocol-txnencoding" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p>
+
+<h2 id="changes-for-nu7"><a class="hanchor" href="#changes-for-nu7" aria-hidden="true" tabindex="-1">#</a>Cambios para NU7</h2>
+<p>Al activarse NU7, el ZIP 218 <a class="brackets" href="#zip-0218" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> recomienda que las implementaciones que crean transacciones cambien el delta de vencimiento predeterminado de 40 a 120 bloques, lo que sigue siendo aproximadamente 50 minutos con el espaciamiento objetivo de 25 segundos. Un valor de <span class="docutils literal"><span class="pre">-txexpirydelta</span></span> configurado explícitamente sigue aplicándose antes y después de la activación. Esto no cambia ni la regla de consenso de vencimiento ni la altura máxima de vencimiento anterior.</p>
+
+<h2 id="wallet-behavior-and-ui"><a class="hanchor" href="#wallet-behavior-and-ui" aria-hidden="true" tabindex="-1">#</a>Comportamiento de la billetera e interfaz de usuario</h2>
+<p>Con la incorporación de esta funcionalidad, las transacciones de cero confirmaciones con una altura de bloque de vencimiento establecida tendrán aún menos garantía de inclusión. Esto significa que las interfaces de usuario y los servicios nunca deben depender de las transacciones de cero confirmaciones en Zcash.</p>
+<p>La billetera debería notificar al usuario las transacciones vencidas que deben reenviarse.</p>
+
+<h2 id="rpc"><a class="hanchor" href="#rpc" aria-hidden="true" tabindex="-1">#</a>RPC</h2>
+<p>Para Overwinter, el vencimiento de las transacciones se establecerá en un valor predeterminado que puede anularse mediante una opción <cite>txexpirydelta</cite> definida en el archivo de configuración.</p>
+<p><span class="docutils literal"><span class="pre">-txexpirydelta=</span></span> establece la cantidad de bloques después de los cuales una transacción que no ha sido minada se vuelve inválida</p>
+<p>Para verlas: <cite>listtransactions</cite> tiene un nuevo atributo de filtro, que muestra solo las transacciones vencidas:</p>
+<pre class="literal-block">listtransactions "*" 10 0 "expired"</pre>
+<p>WalletTxToJSON muestra un valor booleano expired verdadero/falso.</p>
+
+<h2 id="config"><a class="hanchor" href="#config" aria-hidden="true" tabindex="-1">#</a>Configuración</h2>
+<p>El valor predeterminado será configurable por el usuario con la opción <cite>txexpirydelta</cite>.</p>
+<p><cite>--txexpirydelta=100</cite></p>
+
+<h2 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h2>
+<p>Esta funcionalidad se desplegará con Overwinter. La propuesta de altura de bloque de activación está en <a class="brackets" href="#zip-0201" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a>.</p>
+
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p><a class="reference external" href="https://github.com/zcash/zcash/pull/2874">https://github.com/zcash/zcash/pull/2874</a></p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="zip-0201" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0201.rst">ZIP 201: Network Peer Management for Overwinter</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0206" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0206.rst">ZIP 206: Deployment of the Blossom Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0218" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0218.md">ZIP 218: 25-second Block Target Spacing</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0252" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0252.rst">ZIP 252: Deployment of the NU5 Network Upgrade</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2021.2.16. Section 7.1: Transaction Encoding and Consensus</a></p>
+</aside>
+</aside>
+

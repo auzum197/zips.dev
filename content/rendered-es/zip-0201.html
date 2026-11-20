@@ -1,0 +1,219 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" en este documento deben interpretarse como se describe en el BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos "rama de consenso" y "actualización de red" de este documento deben interpretarse como se describe en el ZIP 200. <a class="brackets" href="#zip-0200" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<p>Los términos que siguen deben interpretarse así:</p>
+<dl class="simple">
+<dt>Overwinter</dt>
+<dd><p>Nombre en clave de la primera actualización de red de Zcash, también conocida como Network Upgrade Zero.</p>
+</dd>
+</dl>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta define una mejora del protocolo de enlace de red y de la gestión de pares requerida para las actualizaciones de red conforme al Mecanismo de Actualización de Red <a class="brackets" href="#zip-0200" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>Relacionado con:</p>
+<ul class="simple">
+<li><p>Validación de firmas de transacciones para Overwinter <a class="brackets" href="#zip-0143" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Formato de transacción versión 3 para Overwinter <a class="brackets" href="#zip-0202" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>Expiración de transacciones <a class="brackets" href="#zip-0203" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Con actualizaciones de red programadas, en la altura de activación, los nodos de cada rama de consenso deberían desconectarse de los nodos de otras ramas de consenso y aceptar únicamente nuevas conexiones entrantes de nodos de la misma rama de consenso.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Cuando se recibe una nueva conexión entrante o se crea una conexión saliente, se instancia un objeto CNode con el campo version establecido en INIT_PROTO_VERSION, que tiene un valor de 209. Este valor no se transmite por la red, pero por razones de legado y deuda técnica que están fuera del alcance de este ZIP, este valor no se cambiará.</p>
+<p>Una vez que los dos nodos se han conectado e iniciado el protocolo de enlace para negociar la versión del protocolo, el campo version de CNode se actualizará. El protocolo de enlace <a class="brackets" href="#bitcoin-version-handshake" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a> consiste en el intercambio de mensajes "version" y "verack":</p>
+<pre class="literal-block">L -> R: Send version message with the local peer's version
+R -> L: Send version message back
+R -> L: Send verack message
+R:      Sets version to the minimum of the 2 versions
+L -> R: Send verack message after receiving version message from R
+L:      Sets version to the minimum of the 2 versions</pre>
+<p>Para enviar un mensaje version, el nodo invocará <span class="docutils literal">PushVersion()</span>:</p>
+<pre class="literal-block">void CNode::PushVersion() {
+    ...
+    PushMessage("version", PROTOCOL_VERSION, nLocalServices, nTime, addrYou, addrMe, ...);
+    ...
+}</pre>
+<p>donde <span class="docutils literal">PROTOCOL_VERSION</span> es la versión más alta del protocolo que admite el nodo.</p>
+<h2 id="rejecting-pre-overwinter-connections"><a class="hanchor" href="#rejecting-pre-overwinter-connections" aria-hidden="true" tabindex="-1">#</a>Rechazo de conexiones anteriores a Overwinter</h2>
+<p>Actualmente, los nodos rechazan conexiones de pares con una versión de protocolo anunciada inferior a la versión mínima del protocolo que admite el otro nodo.</p>
+<p>Este valor se define como:</p>
+<pre class="literal-block">//! disconnect from peers older than this proto version
+static const int MIN_PEER_PROTO_VERSION = 170002;</pre>
+<p>Con el rechazo implementado de la siguiente manera:</p>
+<pre class="literal-block">if (pfrom->nVersion &#x3C; MIN_PEER_PROTO_VERSION)
+{
+    // disconnect from old peers running protocol version we don't support.</pre>
+<p>La activación de Overwinter tendrá lugar primero en testnet y, si resulta exitosa, continuará en mainnet.</p>
+<p>Para preparar la activación en testnet, los nodos de Overwinter contendrán las siguientes constantes:</p>
+<pre class="literal-block">static const int PROTOCOL_VERSION = 170003;
+static const int MIN_PEER_PROTO_VERSION = 170002;</pre>
+<p>Los nodos que ejecutan la versión de protocolo 170003 tienen una altura de activación de testnet establecida, pero no tienen una altura de activación de mainnet establecida.</p>
+<p>En testnet, se define que un nodo anterior a Overwinter es un nodo cuya versión de protocolo más alta admitida es &#x3C;= 170002.</p>
+<p>Estas constantes permiten que los nodos anteriores a Overwinter que admiten la versión de protocolo 170002, y los nodos de Overwinter (que admiten tanto la versión de protocolo 170002 como la 170003 antes de la activación de Overwinter), permanezcan conectados hasta la activación.</p>
+<p>Para preparar la activación en mainnet, los nodos de Overwinter contendrán las siguientes constantes:</p>
+<pre class="literal-block">static const int PROTOCOL_VERSION = 170005;
+static const int MIN_PEER_PROTO_VERSION = 170002;</pre>
+<p>En mainnet, se define que un nodo anterior a Overwinter es un nodo cuya versión de protocolo más alta admitida es &#x3C;= 170004. (Los nodos que ejecutan la versión de protocolo 170003 o 170004 no tienen una altura de activación de mainnet establecida. La versión de protocolo intermedia 170004 se usa para indicar la admisión del bit de servicio <span class="docutils literal">NODE_BLOOM</span> definido en <a class="brackets" href="#bip-0111" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.)</p>
+<p>Estas constantes permiten que los nodos anteriores a Overwinter que admiten las versiones de protocolo 170002 a 170004 inclusive, y los nodos de Overwinter (que admiten las versiones de protocolo 170002 a 170005 inclusive antes de la activación de Overwinter), permanezcan conectados hasta la activación.</p>
+<p>Dado que estas constantes no se pueden cambiar en tiempo de ejecución, una vez que Overwinter se active en testnet o en mainnet, los nodos de Overwinter deberían tomar medidas para:</p>
+<ul class="simple">
+<li><p>rechazar nuevas conexiones de nodos anteriores a Overwinter;</p></li>
+<li><p>desconectar cualquier conexión existente con nodos anteriores a Overwinter.</p></li>
+</ul>
+
+<h2 id="network-coalescence"><a class="hanchor" href="#network-coalescence" aria-hidden="true" tabindex="-1">#</a>Coalescencia de la red</h2>
+<p>Antes de la activación de Overwinter, los nodos que ejecutan una versión de protocolo anterior a Overwinter (p. ej. 170002) y la versión de protocolo de Overwinter (170003 para testnet; 170005 para mainnet) permanecen conectados con las mismas reglas de consenso, pero es deseable que los nodos que admiten Overwinter se conecten de manera preferente a otros nodos que admitan Overwinter.</p>
+<p>Esto tiene como objetivo ayudar a que la red se divida de forma fluida, ya que los nodos ya deberían estar conectados a (una mayoría de) pares que ejecutan la misma versión de protocolo. De lo contrario, un nodo de Overwinter podría ver cómo sus conexiones a nodos de Sprout se cortan repentinamente en la altura de activación, dejándolo potencialmente aislado y susceptible a ataques de eclipsado. <a class="brackets" href="#eclipse-attack" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a></p>
+<p>Para asistir la coalescencia de la red antes de la altura de activación, actualizamos el proceso de desalojo para dar una mayor prioridad al desalojo de nodos de Sprout.</p>
+<p>Actualmente, un proceso de desalojo tiene lugar cuando llegan nuevas conexiones entrantes, pero el nodo ya está conectado al número máximo de pares entrantes:</p>
+<pre class="literal-block">if (nInbound >= nMaxInbound)
+{
+    if (!AttemptToEvictConnection(whitelisted)) {
+        // No connection to evict, disconnect the new connection
+        LogPrint("net", "failed to find an eviction candidate - connection dropped (full)\n");
+        CloseSocket(hSocket);
+        return;
+    }
+}</pre>
+<p>Actualizamos este proceso añadiendo un comportamiento para que el conjunto de candidatos a desalojo dé preferencia a los nodos anteriores a Overwinter, cuando la punta de la cadena esté en un periodo de N bloques antes de la altura de bloque de activación, donde N se define como:</p>
+<pre class="literal-block">/** The period before a network upgrade activates, where connections to upgrading peers are preferred (in blocks). */
+static const int NETWORK_UPGRADE_PEER_PREFERENCE_BLOCK_PERIOD = 24 * 24 * 3;</pre>
+<p>Los candidatos a desalojo se pueden modificar así:</p>
+<pre class="literal-block">static bool AttemptToEvictConnection(bool fPreferNewConnection) {
+...
+// Protect connections with certain characteristics
+...
+// Check version of eviction candidates...
+// If we are connected to any pre-Overwinter nodes, keep them in the eviction set and remove any Overwinter nodes
+// If we are only connected to Overwinter nodes, continue with existing behaviour.
+if (nActivationHeight > 0 &#x26;&#x26;
+    height &#x3C; nActivationHeight &#x26;&#x26;
+    height >= nActivationHeight - NETWORK_UPGRADE_PEER_PREFERENCE_BLOCK_PERIOD)
+{
+    // Find any nodes which don't support Overwinter protocol version
+    BOOST_FOREACH(const CNodeRef &#x26;node, vEvictionCandidates) {
+        if (node->nVersion &#x3C; params.vUpgrades[Consensus::UPGRADE_OVERWINTER].nProtocolVersion) {
+            vTmpEvictionCandidates.push_back(node);
+        }
+    }
+
+    // Prioritize these nodes by replacing eviction set with them
+    if (vTmpEvictionCandidates.size() > 0) {
+        vEvictionCandidates = vTmpEvictionCandidates;
+    }
+}</pre>
+<p>El método existente de desconexión de un candidato permanece:</p>
+<blockquote>
+<p>vEvictionCandidates[0]->fDisconnect = true;</p>
+</blockquote>
+<p>El proceso de desalojo existente clasificará y dividirá a los candidatos a desalojo en grupos llamados netgroup. Si un netgroup solo tiene un par, este no será desalojado. Esto significa que al menos un nodo anterior a Overwinter permanecerá conectado hasta la altura de bloque de activación, salvo problemas de red o una puntuación de expulsión alta.</p>
+
+<h2 id="disconnecting-existing-connections"><a class="hanchor" href="#disconnecting-existing-connections" aria-hidden="true" tabindex="-1">#</a>Desconexión de conexiones existentes</h2>
+<p>En la altura de bloque de activación, un nodo de Overwinter puede seguir conectado a nodos anteriores a Overwinter. Actualmente, al conectarse, un nodo solo puede realizar el protocolo de enlace de red una vez, donde envía el mensaje version antes de que se procese cualquier otro mensaje. Para desconectar las conexiones existentes anteriores a Overwinter, se modifica <span class="docutils literal">ProcessMessage</span> de modo que, una vez que Overwinter se active, si es necesario, la versión de protocolo de un par existente se valide cuando lleguen los mensajes entrantes.</p>
+<p>Código de ejemplo:</p>
+<pre class="literal-block">bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream&#x26; vRecv, int64_t nTimeReceived)
+    ...
+    else if (pfrom->nVersion == 0)
+    {
+        // Must have a version message before anything else
+        Misbehaving(pfrom->GetId(), 1);
+        return false;
+    }
+    else if (strCommand == "verack")
+    {
+        ...
+    }
+
+    // Disconnect existing peer connection when:
+    // 1. The version message has been received
+    // 2. Overwinter is active
+    // 3. Peer version is pre-Overwinter
+    else if (NetworkUpgradeActive(GetHeight(), chainparams.GetConsensus(), Consensus::UPGRADE_OVERWINTER)
+            &#x26;&#x26; (pfrom->nVersion &#x3C; chainparams.GetConsensus().vUpgrades[Consensus::UPGRADE_OVERWINTER].nProtocolVersion))
+    {
+        LogPrintf("peer=%d using obsolete version %i; disconnecting\n", pfrom->id, pfrom->nVersion);
+        pfrom->PushMessage("reject", strCommand, REJECT_OBSOLETE,
+                            strprintf("Version must be %d or greater",
+                            chainparams.GetConsensus().vUpgrades[Consensus::UPGRADE_OVERWINTER].nProtocolVersion));
+        pfrom->fDisconnect = true;
+        return false;
+    }</pre>
+
+
+<h1 id="deployment-of-overwinter"><a class="hanchor" href="#deployment-of-overwinter" aria-hidden="true" tabindex="-1">#</a>Despliegue de Overwinter</h1>
+<p>La actualización de red de Overwinter define las siguientes constantes de actualización de red <a class="brackets" href="#zip-0200" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>:</p>
+<dl>
+<dt>CONSENSUS_BRANCH_ID</dt>
+<dd><p><span class="docutils literal">0x5ba81b19</span></p>
+</dd>
+<dt>ACTIVATION_HEIGHT</dt>
+<dd><p>Testnet: 207500</p>
+<p>Mainnet: 347500</p>
+</dd>
+</dl>
+<p>Los siguientes ZIP son desplegados por Overwinter:</p>
+<ul class="simple">
+<li><p>ZIP 200 <a class="brackets" href="#zip-0200" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p></li>
+<li><p>ZIP 201 (este ZIP)</p></li>
+<li><p>ZIP 202 <a class="brackets" href="#zip-0202" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a></p></li>
+<li><p>ZIP 203 <a class="brackets" href="#zip-0203" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a></p></li>
+<li><p>ZIP 143 <a class="brackets" href="#zip-0143" id="footnote-reference-14" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a></p></li>
+</ul>
+
+<h1 id="backward-compatibility"><a class="hanchor" href="#backward-compatibility" aria-hidden="true" tabindex="-1">#</a>Compatibilidad con versiones anteriores</h1>
+<p>Antes de que la actualización de red se active, los nodos de Overwinter y los nodos previos a Overwinter son compatibles y pueden conectarse entre sí. Sin embargo, los nodos de Overwinter tendrán una preferencia por conectarse a otros nodos de Overwinter, por lo que los nodos previos a Overwinter serán desconectados gradualmente en el periodo previo a la activación.</p>
+<p>Una vez que la red se actualice, aunque los nodos previos a Overwinter aún puedan aceptar como válida la versión de protocolo numéricamente mayor usada por Overwinter, los nodos de Overwinter siempre desconectarán a los pares que usen versiones de protocolo inferiores.</p>
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p><a class="reference external" href="https://github.com/zcash/zcash/pull/2919">https://github.com/zcash/zcash/pull/2919</a></p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0143" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-14">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0143.rst">ZIP 143: Transaction Signature Validation for Overwinter</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-3">2</a>,<a role="doc-backlink" href="#footnote-reference-10">3</a>,<a role="doc-backlink" href="#footnote-reference-11">4</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0202" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-5">1</a>,<a role="doc-backlink" href="#footnote-reference-12">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0202.rst">ZIP 202: Version 3 Transaction Format for Overwinter</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0203" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-6">1</a>,<a role="doc-backlink" href="#footnote-reference-13">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0203.rst">ZIP 203: Transaction Expiry</a></p>
+</aside>
+<aside class="footnote brackets" id="bip-0111" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/bitcoin/bips/blob/master/bip-0111.mediawiki">BIP 111: NODE_BLOOM service bit</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcoin-verson" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/Protocol_documentation#version">https://en.bitcoin.it/wiki/Protocol_documentation#version</a></p>
+</aside>
+<aside class="footnote brackets" id="bitcoin-version-handshake" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">8</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/Version_Handshake">https://en.bitcoin.it/wiki/Version_Handshake</a></p>
+</aside>
+<aside class="footnote brackets" id="eclipse-attack" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://eprint.iacr.org/2015/263">Eclipse Attacks on Bitcoin’s Peer-to-Peer Network</a></p>
+</aside>
+<aside class="footnote brackets" id="partition-discussion" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zcash/issues/2775">Partition nodes with old protocol version from network in advance of hard fork</a></p>
+</aside>
+</aside>
+

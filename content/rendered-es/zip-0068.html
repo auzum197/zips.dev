@@ -1,0 +1,237 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)" y "PUEDE (MAY)" en este documento deben interpretarse según lo descrito en RFC 2119. <a class="brackets" href="#rfc2119" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a></p>
+<p>El "Median Time Past" de un bloque en este documento debe interpretarse según lo descrito en <a class="brackets" href="#zip-0113" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP introduce semánticas de tiempo de bloqueo relativo (RLT) aplicadas por consenso al campo del número de secuencia, para permitir que una entrada de transacción firmada permanezca inválida durante un período de tiempo definido después de la confirmación de su outpoint correspondiente.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Las transacciones de Zcash tienen un campo de número de secuencia para cada entrada, heredado de Bitcoin. La idea original en Bitcoin parece haber sido que una transacción en el mempool sería reemplazada usando la misma entrada con un valor de secuencia mayor. Aunque esto no se implementó correctamente, asume que los mineros preferirían números de secuencia mayores incluso si los menores fueran más rentables de minar. Sin embargo, un minero que actuara únicamente por motivos de ganancia rompería por completo esa suposición. El cambio descrito por este ZIP reasigna el número de secuencia a nuevos casos de uso sin romper la funcionalidad existente. También deja espacio para una expansión futura y otros casos de uso.</p>
+<p>La <span class="docutils literal">nLockTime</span> de la transacción se usa para impedir la minería de una transacción hasta cierta fecha. <span class="docutils literal">nSequence</span> se reasignará para impedir la minería de una transacción hasta cierta antigüedad, en bloques o en tiempo, del output gastado. Esto, entre otros usos, permite canales de pago bidireccionales como los usados en <a class="brackets" href="#deployable-lightning" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> y <a class="brackets" href="#zip-0112" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Esta especificación define el significado de los números de secuencia para las transacciones en bloques una vez que esta propuesta se haya activado.</p>
+<p>Si el bit (1 &#x3C;&#x3C; 31) del número de secuencia está activado, no se aplica ningún significado de consenso al número de secuencia y puede incluirse en cualquier bloque bajo todas las circunstancias actualmente posibles.</p>
+<p>Si el bit (1 &#x3C;&#x3C; 31) del número de secuencia no está activado, el número de secuencia se interpreta como un tiempo de bloqueo relativo codificado.</p>
+<p>La codificación del número de secuencia DEBE (MUST) interpretarse de la siguiente manera:</p>
+<p>El bit (1 &#x3C;&#x3C; 22) determina si el tiempo de bloqueo relativo se basa en tiempo o en bloques: si el bit está activado, el tiempo de bloqueo relativo especifica un lapso de tiempo en unidades de granularidad de 32 segundos. El lapso comienza en el Median Time Past del bloque anterior al del output, y termina en el Median Time Past del bloque anterior. Si el bit no está activado, el tiempo de bloqueo relativo especifica una cantidad de bloques.</p>
+<p>Nota: la unidad de tiempo de 64 segundos difiere del BIP 68 de Bitcoin, que usa una unidad de tiempo de 512 segundos.</p>
+<p>La bandera (1 &#x3C;&#x3C; 22) es el bit de mayor orden en un entero con signo de 3 bytes para su uso en scripts de Zcash como un <span class="docutils literal">PUSHDATA</span> de 3 bytes con <span class="docutils literal">OP_CHECKSEQUENCEVERIFY</span> <a class="brackets" href="#zip-0112" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>Esta especificación solo interpreta 22 bits del número de secuencia como tiempo de bloqueo relativo, por lo que DEBE (MUST) aplicarse una máscara de <span class="docutils literal">0x003FFFFF</span> al campo de secuencia para extraer el tiempo de bloqueo relativo. La especificación de 22 bits permite más de 8,5 años de tiempo de bloqueo relativo.</p>
+<figure class="align-center">
+<img alt="../rendered/assets/images/zip-0068-encoding.png" src="/upstream/../rendered/assets/images/zip-0068-encoding.png">
+<figcaption>
+<p>Un campo de 32 bits con 'Disable Flag' en el bit (1 &#x3C;&#x3C; 31), 'Type Flag' en el bit (1 &#x3C;&#x3C; 22) y 'Value' en los 22 bits bajos.</p>
+</figcaption>
+</figure>
+<p>Para el tiempo de bloqueo relativo basado en tiempo, se eligió una granularidad de 64 segundos porque el espaciamiento objetivo de bloques de Zcash, tras la activación de la actualización de red Blossom, es de 75 segundos. De modo que, al usar la modalidad basada en bloques o en tiempo, puede codificarse aproximadamente la misma cantidad de tiempo con la cantidad de bits disponible. La conversión de un número de secuencia a segundos se realiza multiplicando por 64.</p>
+<p>Cuando el tiempo de bloqueo relativo se basa en tiempo, se interpreta como una restricción mínima de tiempo de bloque sobre la edad del input. Un tiempo de bloqueo relativo basado en tiempo de cero indica un input que puede incluirse en cualquier bloque. Más generalmente, un tiempo de bloqueo relativo basado en tiempo n puede incluirse en cualquier bloque producido 64 * n segundos después de la fecha de minado del output que gasta, o en cualquier bloque posterior. La fecha de minado del output es igual al Median Time Past del bloque anterior que lo minó.</p>
+<p>El tiempo de producción del bloque es igual al Median Time Past de su bloque anterior.</p>
+<p>Cuando el tiempo de bloqueo relativo se basa en bloques, se interpreta como una restricción mínima de altura de bloque sobre la edad del input. Un tiempo de bloqueo relativo basado en bloques de cero indica un input que puede incluirse en cualquier bloque. Más generalmente, un tiempo de bloqueo relativo basado en bloques n PUEDE (MAY) incluirse n bloques después de la fecha de minado del output que gasta, o en cualquier bloque posterior.</p>
+<p>Las nuevas reglas no se aplican al campo <span class="docutils literal">nSequence</span> del input de la transacción coinbase.</p>
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<!-- highlight::c++
+
+enum {
+    /* Interpret sequence numbers as relative lock-time constraints. */
+    LOCKTIME_VERIFY_SEQUENCE = (1 << 0),
+};
+
+/* Setting nSequence to this value for every input in a transaction
+ * disables nLockTime. */
+static const uint32_t SEQUENCE_FINAL = 0xffffffff;
+
+/* Below flags apply in the context of ZIP 68. */
+/* If this flag set, CTxIn::nSequence is NOT interpreted as a
+ * relative lock-time. */
+static const uint32_t SEQUENCE_LOCKTIME_DISABLE_FLAG = (1 << 31);
+
+/* If CTxIn::nSequence encodes a relative lock-time and this flag
+ * is set, the relative lock-time has units of 512 seconds,
+ * otherwise it specifies blocks with a granularity of 1. */
+static const uint32_t SEQUENCE_LOCKTIME_TYPE_FLAG = (1 << 22);
+
+/* If CTxIn::nSequence encodes a relative lock-time, this mask is
+ * applied to extract that lock-time from the sequence field. */
+static const uint32_t SEQUENCE_LOCKTIME_MASK = 0x003fffff;
+
+/* In order to use the same number of bits to encode roughly the
+ * same wall-clock duration, and because blocks are naturally
+ * limited to occur every 75s on average after Blossom activation,
+ * the minimum granularity for time-based relative lock-time is
+ * fixed at 64 seconds.
+ * Converting from CTxIn::nSequence to seconds is performed by
+ * multiplying by 64, or equivalently shifting up by 6 bits. */
+static const int SEQUENCE_LOCKTIME_GRANULARITY = 6;
+
+/**
+ * Calculates the block height and previous block's Median Time Past at
+ * which the transaction will be considered final in the context of ZIP 68.
+ * Also removes from the vector of input heights any entries which did not
+ * correspond to sequence locked inputs as they do not affect the calculation.
+ */
+static std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags, std::vector<int>* prevHeights, const CBlockIndex& block)
+{
+    assert(prevHeights->size() == tx.vin.size());
+
+    // Will be set to the equivalent height- and time-based nLockTime
+    // values that would be necessary to satisfy all relative lock-
+    // time constraints given our view of block chain history.
+    // The semantics of nLockTime are the last invalid height/time, so
+    // use -1 to have the effect of any height or time being valid.
+    int nMinHeight = -1;
+    int64_t nMinTime = -1;
+
+    // tx.nVersion is signed integer so requires cast to unsigned otherwise
+    // we would be doing a signed comparison and half the range of nVersion
+    // wouldn't support ZIP 68.
+    bool fEnforceZIP68 = static_cast<uint32_t>(tx.nVersion) >= 2
+                      && flags & LOCKTIME_VERIFY_SEQUENCE;
+
+    // Do not enforce sequence numbers as a relative lock time
+    // unless we have been instructed to
+    if (!fEnforceZIP68) {
+        return std::make_pair(nMinHeight, nMinTime);
+    }
+
+    for (size_t txinIndex = 0; txinIndex < tx.vin.size(); txinIndex++) {
+        const CTxIn& txin = tx.vin[txinIndex];
+
+        // Sequence numbers with the most significant bit set are not
+        // treated as relative lock-times, nor are they given any
+        // consensus-enforced meaning at this point.
+        if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG) {
+            // The height of this input is not relevant for sequence locks
+            (*prevHeights)[txinIndex] = 0;
+            continue;
+        }
+
+        int nCoinHeight = (*prevHeights)[txinIndex];
+
+        if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG) {
+            int64_t nCoinTime = block.GetAncestor(std::max(nCoinHeight-1, 0))->GetMedianTimePast();
+            // NOTE: Subtract 1 to maintain nLockTime semantics
+            // ZIP 68 relative lock times have the semantics of calculating
+            // the first block or time at which the transaction would be
+            // valid. When calculating the effective block time or height
+            // for the entire transaction, we switch to using the
+            // semantics of nLockTime which is the last invalid block
+            // time or height.  Thus we subtract 1 from the calculated
+            // time or height.
+
+            // Time-based relative lock-times are measured from the
+            // smallest allowed timestamp of the block containing the
+            // txout being spent, which is the Median Time Past of the
+            // block prior.
+            nMinTime = std::max(nMinTime, nCoinTime + (int64_t)((txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) << CTxIn::SEQUENCE_LOCKTIME_GRANULARITY) - 1);
+        } else {
+            nMinHeight = std::max(nMinHeight, nCoinHeight + (int)(txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) - 1);
+        }
+    }
+
+    return std::make_pair(nMinHeight, nMinTime);
+}
+
+static bool EvaluateSequenceLocks(const CBlockIndex& block, std::pair<int, int64_t> lockPair)
+{
+    assert(block.pprev);
+    int64_t nBlockTime = block.pprev->GetMedianTimePast();
+    if (lockPair.first >= block.nHeight || lockPair.second >= nBlockTime)
+        return false;
+
+    return true;
+}
+
+bool SequenceLocks(const CTransaction &tx, int flags, std::vector<int>* prevHeights, const CBlockIndex& block)
+{
+    return EvaluateSequenceLocks(block, CalculateSequenceLocks(tx, flags, prevHeights, block));
+}
+
+bool CheckSequenceLocks(const CTransaction &tx, int flags)
+{
+    AssertLockHeld(cs_main);
+    AssertLockHeld(mempool.cs);
+
+    CBlockIndex* tip = chainActive.Tip();
+    CBlockIndex index;
+    index.pprev = tip;
+    // CheckSequenceLocks() uses chainActive.Height()+1 to evaluate
+    // height based locks because when SequenceLocks() is called within
+    // ConnectBlock(), the height of the block *being*
+    // evaluated is what is used.
+    // Thus if we want to know if a transaction can be part of the
+    // *next* block, we need to use one more than chainActive.Height()
+    index.nHeight = tip->nHeight + 1;
+
+    // pcoinsTip contains the UTXO set for chainActive.Tip()
+    CCoinsViewMemPool viewMemPool(pcoinsTip, mempool);
+    std::vector<int> prevheights;
+    prevheights.resize(tx.vin.size());
+    for (size_t txinIndex = 0; txinIndex < tx.vin.size(); txinIndex++) {
+        const CTxIn& txin = tx.vin[txinIndex];
+        CCoins coins;
+        if (!viewMemPool.GetCoins(txin.prevout.hash, coins)) {
+            return error("%s: Missing input", __func__);
+        }
+        if (coins.nHeight == MEMPOOL_HEIGHT) {
+            // Assume all mempool transaction confirm in the next block
+            prevheights[txinIndex] = tip->nHeight + 1;
+        } else {
+            prevheights[txinIndex] = coins.nHeight;
+        }
+    }
+
+    std::pair<int, int64_t> lockPair = CalculateSequenceLocks(tx, flags, &prevheights, index);
+    return EvaluateSequenceLocks(index, lockPair);
+} -->
+
+<h1 id="acknowledgments"><a class="hanchor" href="#acknowledgments" aria-hidden="true" tabindex="-1">#</a>Agradecimientos</h1>
+<p>Este ZIP se basa en el BIP 68, redactado por Mark Friedenbach, BtcDrak, Nicolas Dorier y kinoshitajona.</p>
+<p>El crédito es para Gregory Maxwell por proporcionar una descripción sucinta y clara del comportamiento de este cambio, que se convirtió en la base del texto del BIP.</p>
+
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Al momento de redacción de este documento no se ha decidido qué actualización de red (si alguna) implementará esta propuesta.</p>
+<p>Este ZIP está diseñado para desplegarse simultáneamente con <a class="brackets" href="#zip-0112" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> y <a class="brackets" href="#zip-0113" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="compatibility"><a class="hanchor" href="#compatibility" aria-hidden="true" tabindex="-1">#</a>Compatibilidad</h1>
+<p>El único uso de los números de secuencia por el software cliente de referencia zcashd es desactivar la verificación de las restricciones de <span class="docutils literal">nLockTime</span> en una transacción. Las semánticas de esa aplicación se conservan en este ZIP.</p>
+<p>Como puede verse en la sección de especificación, este ZIP deja indefinidos varios bits para permitir otros casos de uso, al activar el bit (1 &#x3C;&#x3C; 31), pues los 31 bits restantes no tienen significado bajo este ZIP. Además, los bits (1 &#x3C;&#x3C; 23) a (1 &#x3C;&#x3C; 30) inclusive no tienen ningún significado cuando el bit (1 &#x3C;&#x3C; 31) no está activado.</p>
+<p>A diferencia del BIP 68 en Bitcoin, todos los 22 bits bajos se usan para el valor. Esto refleja el hecho de que los bloques son más frecuentes (75 segundos en lugar de 600 segundos), por lo que se necesitan más bits para obtener aproximadamente el mismo rango de tiempo.</p>
+<p>La manera más eficiente de calcular el número de secuencia a partir del tiempo de bloqueo relativo es con máscaras de bits y desplazamientos:</p>
+<!-- hightlight::c++
+
+// 0 <= nHeight <= 4194303 blocks (~10 years at post-Blossom block target spacing)
+nSequence = nHeight;
+nHeight = nSequence & 0x003fffff;
+
+// 0 <= nTime <= 268435392 seconds (~8.5 years)
+nSequence = (1 << 22) | (nTime >> 6);
+nTime = (nSequence & 0x003fffff) << 6; -->
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="rfc2119" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://tools.ietf.org/html/rfc2119">Key words for use in RFCs to Indicate Requirement Levels</a></p>
+</aside>
+<aside class="footnote brackets" id="mailing-list" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.mail-archive.com/bitcoin-development@lists.sourceforge.net/msg07864.html">Bitcoin mailing list discussion</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0112" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-5">2</a>,<a role="doc-backlink" href="#footnote-reference-6">3</a>)</span>
+<p><a class="reference external" href="https://github.com/daira/zips/blob/op-csv/zip-0112.rst">ZIP 112: CHECKSEQUENCEVERIFY</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0113" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-7">2</a>)</span>
+<p><a class="reference external" href="https://github.com/daira/zips/blob/op-csv/zip-0113.rst">ZIP 113: Median Time Past as endpoint for lock-time calculations</a></p>
+</aside>
+<aside class="footnote brackets" id="deployable-lightning" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf">Reaching The Ground With Lightning (draft 0.2)</a></p>
+</aside>
+</aside>
+

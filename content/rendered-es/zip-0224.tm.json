@@ -1,0 +1,495 @@
+{
+ "segments": {
+  "Orchard Shielded Protocol": "Protocolo blindado Orchard",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\" and \"SHOULD\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\" y \"DEBERÍA (SHOULD)\" en este documento se interpretan como se describe en BCP 14 <x1/> cuando, y solo cuando, aparecen en mayúsculas.",
+  "The terms \"Testnet\" and \"Mainnet\" are to be interpreted as described in section 3.12 of the Zcash Protocol Specification <x1/>.": "Los términos \"Testnet\" y \"Mainnet\" se interpretan como se describe en la sección 3.12 de la Zcash Protocol Specification <x1/>.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This document proposes the Orchard shielded protocol, which defines a new shielded pool with spending keys and payment addresses that are amenable to future scalability improvements.": "Este documento propone el protocolo blindado Orchard, que define un nuevo pool blindado con claves de gasto y direcciones de pago que son propicias para futuras mejoras de escalabilidad.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "Zcash currently has two active shielded protocols and associated shielded pools:": "Zcash actualmente tiene dos protocolos blindados activos y pools blindados asociados:",
+  "The Sprout shielded protocol (based on the Zerocash paper with improvements and security fixes <x1/>), which as of February 2021 is a \"closing\" shielded pool into which no new ZEC can be sent.": "El protocolo blindado Sprout (basado en el artículo de Zerocash con mejoras y correcciones de seguridad <x1/>), que a febrero de 2021 es un pool blindado \"en cierre\" al que no se puede enviar nuevo ZEC.",
+  "The Sapling shielded protocol, which consisted of numerous improvements to functionality and improved performance by orders of magnitude, and as of Feburary 2021 is the \"active\" shielded pool.": "El protocolo blindado Sapling, que consistió en numerosas mejoras de funcionalidad y mejoró el rendimiento en varios órdenes de magnitud, y a febrero de 2021 es el pool blindado \"activo\".",
+  "Both of these shielded protocols suffer from two issues:": "Ambos protocolos blindados sufren de dos problemas:",
+  "Neither Sprout nor Sapling are compatible with known efficient scalability techniques. Recursive zero-knowledge proofs (where a proof verifies an earlier instance of itself along with new state) that are suitable for deployment in a block chain like Zcash require a cycle of elliptic curves. The Sprout protocol does not use elliptic curves and thus is an inherently inefficient protocol to implement inside a circuit, while the Sapling protocol uses curves for which there is no known way to construct an efficient curve cycle (or path to one).": "Ni Sprout ni Sapling son compatibles con las técnicas de escalabilidad eficientes conocidas. Las pruebas de conocimiento cero recursivas (donde una prueba verifica una instancia anterior de sí misma junto con nuevo estado) que son adecuadas para su despliegue en una block chain como Zcash requieren un ciclo de curvas elípticas. El protocolo Sprout no usa curvas elípticas y por lo tanto es un protocolo inherentemente ineficiente de implementar dentro de un circuito, mientras que el protocolo Sapling usa curvas para las que no se conoce una manera de construir un ciclo de curvas eficiente (o una vía hacia uno).",
+  "The Sprout and Sapling circuits are implemented using a proving system (Groth16) that requires a \"trusted setup\": the circuit parameters are a Structured Reference String (SRS) with hidden structure, that if known could be used to create fake proofs and thus counterfeit funds. The parameters are in practice generated using a multiparty computation (MPC), where as long as at least one participant was honest and not compromised, the hidden structure is unrecoverable. The MPCs themselves have improved over the years (Zcash had 6 participants in the Sprout MPC, and around 90 per round in the Sapling MPC two years later <x1/>), but it remains the case that generating these parameters is a point of risk within the protocol. For example, the original proving system used for the Sprout circuit (BCTV14) had a bug that made the Sprout shielded protocol vulnerable to counterfeiting, <x2/> which needed to be resolved by changing the proving system and running a new MPC.": "Los circuitos de Sprout y Sapling están implementados usando un sistema de pruebas (Groth16) que requiere una \"configuración de confianza\": los parámetros del circuito son una Structured Reference String (SRS) con estructura oculta que, si se conociera, podría usarse para crear pruebas falsas y así falsificar fondos. Los parámetros se generan en la práctica mediante un cálculo multiparte (MPC), donde siempre que al menos un participante haya sido honesto y no comprometido, la estructura oculta es irrecuperable. Los MPC mismos han mejorado a lo largo de los años (Zcash tuvo 6 participantes en el MPC de Sprout, y alrededor de 90 por ronda en el MPC de Sapling dos años después <x1/>), pero sigue siendo el caso que la generación de estos parámetros es un punto de riesgo dentro del protocolo. Por ejemplo, el sistema de pruebas original usado para el circuito de Sprout (BCTV14) tenía un error que hacía vulnerable al protocolo blindado Sprout a la falsificación de fondos, <x2/> lo que necesitó resolverse cambiando el sistema de pruebas y ejecutando un nuevo MPC.",
+  "We are thus motivated to deploy a new shielded protocol designed around a curve cycle, using a proving system that is both amenable to recursion and does not require an SRS.": "Estamos así motivados a desplegar un nuevo protocolo blindado diseñado en torno a un ciclo de curvas, usando un sistema de pruebas que sea propicio para la recursividad y no requiera un SRS.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "The Orchard protocol MUST be implemented as specified in the Zcash Protocol Specification <x1/>.": "El protocolo Orchard DEBE (MUST) implementarse como se especifica en la Zcash Protocol Specification <x1/>.",
+  "Given that the Orchard protocol largely follows the design of the Sapling protocol, we provide here a list of differences, with references to their normative specifications and associated design rationale.": "Dado que el protocolo Orchard sigue en gran medida el diseño del protocolo Sapling, proporcionamos aquí una lista de diferencias, con referencias a sus especificaciones normativas y la justificación de diseño asociada.",
+  "<x1/>Curves": "<x1/>Curvas",
+  "The Orchard protocol uses the Pallas / Vesta curve cycle, in place of BLS12-381 and its embedded curve Jubjub:": "El protocolo Orchard usa el ciclo de curvas Pallas / Vesta, en lugar de BLS12-381 y su curva embebida Jubjub:",
+  "Pallas is used as the \"application curve\", on which the Orchard protocol itself is implemented (c/f Jubjub).": "Pallas se usa como la \"curva de aplicación\", en la que se implementa el protocolo Orchard mismo (c/f Jubjub).",
+  "Vesta is used as the \"circuit curve\"; its scalar field (being the base field of Pallas) is the \"word\" type over which the circuit is implemented (c/f BLS12-381).": "Vesta se usa como la \"curva de circuito\"; su campo escalar (siendo el campo base de Pallas) es el tipo \"palabra\" sobre el que se implementa el circuito (c/f BLS12-381).",
+  "We use the \"simplified SWU\" algorithm to define an infallible <x1/>, instead of the fallible BLAKE2s-based mechanism used for Sapling. It is intended to follow (version 10 of) the IETF hash-to-curve Internet Draft <x2/> (but the protocol specification takes precedence in the case of any discrepancy).": "Usamos el algoritmo \"SWU simplificado\" para definir un <x1/> infalible, en lugar del mecanismo falible basado en BLAKE2s que se usa para Sapling. La intención es seguir (la versión 10 del) Internet Draft de IETF hash-to-curve <x2/> (pero la especificación del protocolo tiene prioridad en caso de cualquier discrepancia).",
+  "The presence of the curve cycle is an explicit design choice. This proposal only uses half of the cycle (Pallas being an embedded curve of Vesta); the full cycle is expected to be leveraged by future protocol updates.": "La presencia del ciclo de curvas es una elección de diseño explícita. Esta propuesta solo usa la mitad del ciclo (Pallas siendo una curva embebida de Vesta); se espera que el ciclo completo sea aprovechado por futuras actualizaciones del protocolo.",
+  "Curve specifications: <x1/>": "Especificaciones de curvas: <x1/>",
+  "Supporting evidence: <x1/>": "Evidencia de respaldo: <x1/>",
+  "<x1/>Proving system": "<x1/>Sistema de pruebas",
+  "Orchard uses the Halo 2 proving system <x1/> with the PLONKish arithmetization <x2/>, instead of Groth16 and R1CS.": "Orchard usa el sistema de pruebas Halo 2 <x1/> con la aritmétización PLONKish <x2/>, en lugar de Groth16 y R1CS.",
+  "This proposal does not make use of Halo 2's support for recursive proofs, but this is expected to be leveraged by future protocol updates.": "Esta propuesta no hace uso del soporte de Halo 2 para pruebas recursivas, pero se espera que este sea aprovechado por futuras actualizaciones del protocolo.",
+  "<x1/>Circuit": "<x1/>Circuito",
+  "Orchard uses a single circuit for both spends and outputs, similar to Sprout. An \"action\" contains both a single (possibly dummy) note being spent, and a single (possibly dummy) note being created.": "Orchard usa un solo circuito tanto para gastos como para salidas, de forma similar a Sprout. Una \"acción\" contiene tanto una sola nota (posiblemente ficticia) que se gasta, como una sola nota (posiblemente ficticia) que se crea.",
+  "An Orchard transaction contains a \"bundle\" of actions, and a single Halo 2 proof that covers all of the actions in the bundle.": "Una transacción Orchard contiene un \"paquete\" de acciones, y una sola prueba de Halo 2 que cubre todas las acciones del paquete.",
+  "Action description: <x1/>": "Descripción de la acción: <x1/>",
+  "Circuit statement: <x1/>": "Enunciado del circuito: <x1/>",
+  "Design rationale: <x1/>": "Justificación de diseño: <x1/>",
+  "<x1/>Commitments": "<x1/>Compromisos",
+  "The Orchard protocol has equivalent commitment schemes to Sapling. For non-homomorphic commitments, Orchard uses the PLONKish-efficient Sinsemilla in place of Bowe–Hopwood Pedersen hashes.": "El protocolo Orchard tiene esquemas de compromiso equivalentes a los de Sapling. Para los compromisos no homomórficos, Orchard usa Sinsemilla, eficiente para PLONKish, en lugar de los hash Pedersen de Bowe–Hopwood.",
+  "Sinsemilla hash function: <x1/>": "Función hash Sinsemilla: <x1/>",
+  "Sinsemilla commitments: <x1/>": "Compromisos Sinsemilla: <x1/>",
+  "<x1/>Commitment tree": "<x1/>Árbol de compromisos",
+  "Orchard uses an identical commitment tree structure to Sapling, except that we instantiate it with Sinsemilla instead of a Bowe–Hopwood Pedersen hash.": "Orchard usa una estructura de árbol de compromisos idéntica a la de Sapling, excepto que la instanciamos con Sinsemilla en lugar de un hash Pedersen de Bowe–Hopwood.",
+  "Design rationale and considered alternatives: <x1/>": "Justificación del diseño y alternativas consideradas: <x1/>",
+  "<x1/>Keys and addresses": "<x1/>Claves y direcciones",
+  "Orchard keys and payment addresses are structurally similar to Sapling, with the following changes:": "Las claves y direcciones de pago de Orchard son estructuralmente similares a las de Sapling, con los siguientes cambios:",
+  "The proof authorizing key is removed, and <x1/> is now a field element.": "Se elimina la clave de autorización de prueba, y <x1/> ahora es un elemento de campo.",
+  "<x1/> is computed as a Sinsemilla commitment instead of a BLAKE2s output. There is an additional <x2/> component of the full viewing key that acts as the randomizer for this commitment.": "<x1/> se calcula como un compromiso Sinsemilla en lugar de una salida de BLAKE2s. Hay un componente adicional <x2/> de la clave de visualización completa que actúa como el aleatorizador de este compromiso.",
+  "<x1/> is derived from <x2/>, instead of being a component of the spending key.": "<x1/> se deriva de <x2/>, en lugar de ser un componente de la clave de gasto.",
+  "All diversifiers now result in valid payment addresses.": "Todos los diversificadores ahora producen direcciones de pago válidas.",
+  "There is no Bech32 encoding defined for an individual Orchard shielded payment address, incoming viewing key, or full viewing key. Instead we define unified payment addresses and viewing keys in <x1/>. Orchard spending keys are encoded using Bech32m as specified in <x2/>.": "No se define una codificación Bech32 para una dirección de pago blindada de Orchard individual, una clave de visualización de entradas ni una clave de visualización completa. En su lugar, definimos direcciones de pago unificadas y claves de visualización en <x1/>. Las claves de gasto de Orchard se codifican mediante Bech32m según lo especificado en <x2/>.",
+  "Orchard keys may be derived in a hierarchical deterministic (HD) manner. We do not adapt the Sapling HD mechanism from ZIP 32 to Orchard; instead, we define a hardened-only derivation mechanism (similar to Sprout).": "Las claves de Orchard pueden derivarse de manera jerárquica determinista (HD). No adaptamos el mecanismo HD de Sapling del ZIP 32 a Orchard; en su lugar, definimos un mecanismo de derivación solo endurecida (similar al de Sprout).",
+  "Key components diagram: <x1/>": "Diagrama de componentes de las claves: <x1/>",
+  "Key components specification: <x1/>": "Especificación de los componentes de las claves: <x1/>",
+  "Encodings: <x1/> <x2/> <x3/> <x4/>": "Codificaciones: <x1/> <x2/> <x3/> <x4/>",
+  "HD key derivation specification: <x1/>": "Especificación de la derivación HD de claves: <x1/>",
+  "<x1/>Notes": "<x1/>Notas",
+  "Orchard notes have the structure <x1/>. <x2/> is set to the nullifier of the spent note in the same action, which ensures it is unique. <x3/> and <x4/> are derived from a random seed (as with Sapling after ZIP 212 <x5/>).": "Las notas de Orchard tienen la estructura <x1/>. <x2/> se fija al nullifier de la nota gastada en la misma acción, lo que garantiza que sea único. <x3/> y <x4/> se derivan de una semilla aleatoria (como en Sapling a partir del ZIP 212 <x5/>).",
+  "Orchard notes: <x1/>": "Notas de Orchard: <x1/>",
+  "<x1/>Nullifiers": "<x1/>Nullifiers",
+  "Nullifiers for Orchard notes are computed as:": "Los nullifiers de las notas de Orchard se calculan así:",
+  "where <x1/> is instantiated with Poseidon, and <x2/> is a fixed independent base.": "donde <x1/> se instancia con Poseidon, y <x2/> es una base fija e independiente.",
+  "Poseidon: <x1/>": "Poseidon: <x1/>",
+  "<x1/>Signatures": "<x1/>Firmas",
+  "Orchard uses RedPallas (RedDSA instantiated with the Pallas curve) as its signature scheme in place of Sapling's RedJubjub (RedDSA instantiated with the Jubjub curve).": "Orchard usa RedPallas (RedDSA instanciado con la curva Pallas) como su esquema de firmas en lugar del RedJubjub de Sapling (RedDSA instanciado con la curva Jubjub).",
+  "RedPallas: <x1/>": "RedPallas: <x1/>",
+  "<x1/>Additional Rationale": "<x1/>Justificación adicional",
+  "The primary motivator for proposing a new shielded protocol and pool is the need to migrate spend authority to a recursion-friendly curve. Spend authority in the Sapling shielded pool is rooted in the Jubjub curve, but there is no known way to construct an efficient curve cycle (or path to one) from either Jubjub or BLS12-381.": "El principal motivo para proponer un nuevo protocolo blindado y un nuevo pool es la necesidad de migrar la autoridad de gasto a una curva compatible con la recursión. La autoridad de gasto en el pool blindado de Sapling tiene su raíz en la curva Jubjub, pero no se conoce una manera de construir un ciclo de curvas eficiente (o un camino hacia uno) a partir de Jubjub ni de BLS12-381.",
+  "Despite having recursion-friendliness as a design goal, we do not propose a recursive protocol in this ZIP. Deploying an entire scaling solution in a single upgrade would be a risky endeavour with a lot of moving parts. By focusing just on the components that enable a recursive protocol (namely the curve cycle and the proving system), we can start the migration of value to a scalable protocol before actually deploying the scalable protocol itself.": "Aunque la compatibilidad con la recursión es un objetivo de diseño, no proponemos un protocolo recursivo en este ZIP. Desplegar una solución de escalado completa en una sola actualización sería una empresa riesgosa con muchas partes móviles. Al centrarnos solo en los componentes que habilitan un protocolo recursivo (a saber, el ciclo de curvas y el sistema de pruebas), podemos iniciar la migración de valor hacia un protocolo escalable antes de desplegar efectivamente el protocolo escalable mismo.",
+  "The remainder of the changes we make relative to Sapling are motivated by simplifying the Sapling protocol (and fixing deficiencies), and using protocol primitives that are more efficient in the UltraPLONK arithmetization.": "Los demás cambios que hacemos respecto de Sapling se justifican por simplificar el protocolo de Sapling (y corregir deficiencias), y por usar primitivas de protocolo más eficientes en la aritmetización de UltraPLONK.",
+  "<x1/>Security and Privacy Considerations": "<x1/>Consideraciones de seguridad y privacidad",
+  "This ZIP defines a new shielded pool. As with Sapling, the Orchard protocol only supports spending Orchard notes, and moving ZEC into or out of the Orchard pool happens via the <x1/> transaction field. This has the following considerations:": "Este ZIP define un nuevo pool blindado. Al igual que Sapling, el protocolo de Orchard solo permite gastar notas de Orchard, y el movimiento de ZEC hacia o desde el pool de Orchard ocurre mediante el campo de transacción <x1/>. Esto tiene las siguientes consideraciones:",
+  "The Orchard pool forms a separate anonymity set from the Sprout and Sapling pools. The new pool will start with zero notes (as Sapling did at its deployment), but transactions within Orchard will increase the size of the anonymity set more rapidly than Sapling, due to the arity-hiding nature of Orchard actions.": "El pool de Orchard forma un conjunto de anonimato separado de los pools de Sprout y Sapling. El nuevo pool comenzará con cero notas (como lo hizo Sapling en su despliegue), pero las transacciones dentro de Orchard aumentarán el tamaño del conjunto de anonimato más rápido que en Sapling, debido a la naturaleza que oculta la aridad de las acciones de Orchard.",
+  "The \"transparent turnstile\" created by the <x1/> field, combined with the consensus checks that each pool's balance cannot be negative, together enforce that any potential counterfeiting bugs in the Orchard protocol or implementation are contained within the Orchard pool, and similarly any potential counterfeiting bugs in existing shielded pools cannot cause inflation of the Orchard pool.": "La «compuerta transparente» creada por el campo <x1/>, combinada con las verificaciones de consenso de que el saldo de cada pool no puede ser negativo, garantizan en conjunto que cualquier posible error de falsificación en el protocolo o la implementación de Orchard quede contenido dentro del pool de Orchard, y de manera similar que cualquier posible error de falsificación en los pools blindados existentes no pueda causar inflación del pool de Orchard.",
+  "Spending funds residing in the Orchard pool to a non-Orchard address will reveal the value of the transaction. This is a necessary side-effect of the transparent turnstile, but can be mitigated by migrating the majority of shielded activity to the Orchard pool and making these transactions a minority. Wallets SHOULD convey within their transaction creation UX that amounts are revealed in these situations.": "Gastar fondos que residen en el pool de Orchard hacia una dirección no Orchard revelará el valor de la transacción. Este es un efecto secundario necesario de la compuerta transparente, pero puede mitigarse migrando la mayoría de la actividad blindada al pool de Orchard y haciendo que estas transacciones sean minoritarias. Las billeteras DEBERÍAN (SHOULD) comunicar, dentro de su experiencia de usuario de creación de transacciones, que los montos se revelan en estas situaciones.",
+  "Wallets SHOULD take steps to migrate their user bases to store funds uniformly within the Orchard pool. Best practices for wallet handling of multiple pools will be covered in a subsequent ZIP. <x1/>": "Las billeteras DEBERÍAN (SHOULD) tomar medidas para migrar a sus bases de usuarios a almacenar fondos de manera uniforme dentro del pool de Orchard. Las mejores prácticas para el manejo de múltiples pools por parte de las billeteras se tratarán en un ZIP posterior. <x1/>",
+  "<x1/>Test Vectors": "<x1/>Vectores de prueba",
+  "<g1>https://github.com/zcash-hackworks/zcash-test-vectors/pull/14</g1>": "<g1>https://github.com/zcash-hackworks/zcash-test-vectors/pull/14</g1>",
+  "<x1/>Reference Implementation": "<x1/>Implementación de referencia",
+  "<g1>https://github.com/zcash/halo2</g1>": "<g1>https://github.com/zcash/halo2</g1>",
+  "<g1>https://github.com/zcash/orchard</g1>": "<g1>https://github.com/zcash/orchard</g1>",
+  "<x1/>Deployment": "<x1/>Despliegue",
+  "This ZIP is proposed to activate with Network Upgrade 5.": "Se propone que este ZIP se active con la actualización de red 5.",
+  "<x1/>References": "<x1/>Referencias"
+ },
+ "reviews": {
+  "Orchard Shielded Protocol": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The key words \"MUST\" and \"SHOULD\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The terms \"Testnet\" and \"Mainnet\" are to be interpreted as described in section 3.12 of the Zcash Protocol Specification <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This document proposes the Orchard shielded protocol, which defines a new shielded pool with spending keys and payment addresses that are amenable to future scalability improvements.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Zcash currently has two active shielded protocols and associated shielded pools:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The Sprout shielded protocol (based on the Zerocash paper with improvements and security fixes <x1/>), which as of February 2021 is a \"closing\" shielded pool into which no new ZEC can be sent.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The Sapling shielded protocol, which consisted of numerous improvements to functionality and improved performance by orders of magnitude, and as of Feburary 2021 is the \"active\" shielded pool.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Both of these shielded protocols suffer from two issues:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Neither Sprout nor Sapling are compatible with known efficient scalability techniques. Recursive zero-knowledge proofs (where a proof verifies an earlier instance of itself along with new state) that are suitable for deployment in a block chain like Zcash require a cycle of elliptic curves. The Sprout protocol does not use elliptic curves and thus is an inherently inefficient protocol to implement inside a circuit, while the Sapling protocol uses curves for which there is no known way to construct an efficient curve cycle (or path to one).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The Sprout and Sapling circuits are implemented using a proving system (Groth16) that requires a \"trusted setup\": the circuit parameters are a Structured Reference String (SRS) with hidden structure, that if known could be used to create fake proofs and thus counterfeit funds. The parameters are in practice generated using a multiparty computation (MPC), where as long as at least one participant was honest and not compromised, the hidden structure is unrecoverable. The MPCs themselves have improved over the years (Zcash had 6 participants in the Sprout MPC, and around 90 per round in the Sapling MPC two years later <x1/>), but it remains the case that generating these parameters is a point of risk within the protocol. For example, the original proving system used for the Sprout circuit (BCTV14) had a bug that made the Sprout shielded protocol vulnerable to counterfeiting, <x2/> which needed to be resolved by changing the proving system and running a new MPC.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We are thus motivated to deploy a new shielded protocol designed around a curve cycle, using a proving system that is both amenable to recursion and does not require an SRS.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The Orchard protocol MUST be implemented as specified in the Zcash Protocol Specification <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Given that the Orchard protocol largely follows the design of the Sapling protocol, we provide here a list of differences, with references to their normative specifications and associated design rationale.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Curves": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The Orchard protocol uses the Pallas / Vesta curve cycle, in place of BLS12-381 and its embedded curve Jubjub:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Pallas is used as the \"application curve\", on which the Orchard protocol itself is implemented (c/f Jubjub).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Vesta is used as the \"circuit curve\"; its scalar field (being the base field of Pallas) is the \"word\" type over which the circuit is implemented (c/f BLS12-381).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We use the \"simplified SWU\" algorithm to define an infallible <x1/>, instead of the fallible BLAKE2s-based mechanism used for Sapling. It is intended to follow (version 10 of) the IETF hash-to-curve Internet Draft <x2/> (but the protocol specification takes precedence in the case of any discrepancy).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The presence of the curve cycle is an explicit design choice. This proposal only uses half of the cycle (Pallas being an embedded curve of Vesta); the full cycle is expected to be leveraged by future protocol updates.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Curve specifications: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Supporting evidence: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Proving system": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard uses the Halo 2 proving system <x1/> with the PLONKish arithmetization <x2/>, instead of Groth16 and R1CS.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This proposal does not make use of Halo 2's support for recursive proofs, but this is expected to be leveraged by future protocol updates.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Circuit": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard uses a single circuit for both spends and outputs, similar to Sprout. An \"action\" contains both a single (possibly dummy) note being spent, and a single (possibly dummy) note being created.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "An Orchard transaction contains a \"bundle\" of actions, and a single Halo 2 proof that covers all of the actions in the bundle.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Action description: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Circuit statement: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Design rationale: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Commitments": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The Orchard protocol has equivalent commitment schemes to Sapling. For non-homomorphic commitments, Orchard uses the PLONKish-efficient Sinsemilla in place of Bowe–Hopwood Pedersen hashes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Sinsemilla hash function: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Sinsemilla commitments: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Commitment tree": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard uses an identical commitment tree structure to Sapling, except that we instantiate it with Sinsemilla instead of a Bowe–Hopwood Pedersen hash.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Design rationale and considered alternatives: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Keys and addresses": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard keys and payment addresses are structurally similar to Sapling, with the following changes:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The proof authorizing key is removed, and <x1/> is now a field element.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is computed as a Sinsemilla commitment instead of a BLAKE2s output. There is an additional <x2/> component of the full viewing key that acts as the randomizer for this commitment.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is derived from <x2/>, instead of being a component of the spending key.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "All diversifiers now result in valid payment addresses.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "There is no Bech32 encoding defined for an individual Orchard shielded payment address, incoming viewing key, or full viewing key. Instead we define unified payment addresses and viewing keys in <x1/>. Orchard spending keys are encoded using Bech32m as specified in <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard keys may be derived in a hierarchical deterministic (HD) manner. We do not adapt the Sapling HD mechanism from ZIP 32 to Orchard; instead, we define a hardened-only derivation mechanism (similar to Sprout).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Key components diagram: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Key components specification: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Encodings: <x1/> <x2/> <x3/> <x4/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "HD key derivation specification: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Notes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard notes have the structure <x1/>. <x2/> is set to the nullifier of the spent note in the same action, which ensures it is unique. <x3/> and <x4/> are derived from a random seed (as with Sapling after ZIP 212 <x5/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard notes: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Nullifiers": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Nullifiers for Orchard notes are computed as:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "where <x1/> is instantiated with Poseidon, and <x2/> is a fixed independent base.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Poseidon: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Signatures": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Orchard uses RedPallas (RedDSA instantiated with the Pallas curve) as its signature scheme in place of Sapling's RedJubjub (RedDSA instantiated with the Jubjub curve).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "RedPallas: <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Additional Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The primary motivator for proposing a new shielded protocol and pool is the need to migrate spend authority to a recursion-friendly curve. Spend authority in the Sapling shielded pool is rooted in the Jubjub curve, but there is no known way to construct an efficient curve cycle (or path to one) from either Jubjub or BLS12-381.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Despite having recursion-friendliness as a design goal, we do not propose a recursive protocol in this ZIP. Deploying an entire scaling solution in a single upgrade would be a risky endeavour with a lot of moving parts. By focusing just on the components that enable a recursive protocol (namely the curve cycle and the proving system), we can start the migration of value to a scalable protocol before actually deploying the scalable protocol itself.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The remainder of the changes we make relative to Sapling are motivated by simplifying the Sapling protocol (and fixing deficiencies), and using protocol primitives that are more efficient in the UltraPLONK arithmetization.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Security and Privacy Considerations": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP defines a new shielded pool. As with Sapling, the Orchard protocol only supports spending Orchard notes, and moving ZEC into or out of the Orchard pool happens via the <x1/> transaction field. This has the following considerations:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The Orchard pool forms a separate anonymity set from the Sprout and Sapling pools. The new pool will start with zero notes (as Sapling did at its deployment), but transactions within Orchard will increase the size of the anonymity set more rapidly than Sapling, due to the arity-hiding nature of Orchard actions.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The \"transparent turnstile\" created by the <x1/> field, combined with the consensus checks that each pool's balance cannot be negative, together enforce that any potential counterfeiting bugs in the Orchard protocol or implementation are contained within the Orchard pool, and similarly any potential counterfeiting bugs in existing shielded pools cannot cause inflation of the Orchard pool.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "Gender agreement is wrong: 'compuerta' is feminine, but the article and participles are masculine."
+   ],
+   "first": "El «compuerta transparente» creado por el campo <x1/>, combinado con las verificaciones de consenso de que el saldo de cada pool no puede ser negativo, garantizan en conjunto que cualquier posible error de falsificación en el protocolo o la implementación de Orchard quede contenido dentro del pool de Orchard, y de manera similar que cualquier posible error de falsificación en los pools blindados existentes no pueda causar inflación del pool de Orchard."
+  },
+  "Spending funds residing in the Orchard pool to a non-Orchard address will reveal the value of the transaction. This is a necessary side-effect of the transparent turnstile, but can be mitigated by migrating the majority of shielded activity to the Orchard pool and making these transactions a minority. Wallets SHOULD convey within their transaction creation UX that amounts are revealed in these situations.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Wallets SHOULD take steps to migrate their user bases to store funds uniformly within the Orchard pool. Best practices for wallet handling of multiple pools will be covered in a subsequent ZIP. <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Test Vectors": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>https://github.com/zcash-hackworks/zcash-test-vectors/pull/14</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Reference Implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>https://github.com/zcash/halo2</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>https://github.com/zcash/orchard</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Deployment": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP is proposed to activate with Network Upgrade 5.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  }
+ }
+}

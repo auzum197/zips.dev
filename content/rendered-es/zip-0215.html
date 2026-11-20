@@ -1,0 +1,147 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)" y "NO DEBE (MUST NOT)" en este documento se interpretan según lo descrito en el BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Zcash utiliza firmas Ed25519 como parte de las transacciones Sprout. Sin embargo, Ed25519 no define con claridad los criterios de validez de las firmas, y las implementaciones conformes con el RFC 8032 <a class="brackets" href="#rfc8032" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> no tienen por qué coincidir al determinar si una firma es válida. Esto es inaceptable para una aplicación crítica de consenso como Zcash. Actualmente, Zcash hereda sus criterios de validez de firmas de una versión obsoleta de <cite>libsodium</cite>. En su lugar, este ZIP resuelve la situación definiendo explícitamente los criterios de validez de Ed25519 y modificándolos para que sean compatibles con la validación por lotes.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>La falta de criterios de validez claros para las firmas Ed25519 supone una carga de mantenimiento. La implementación inicial del consenso de Zcash en <cite>zcashd</cite> heredó los criterios de validez de una versión entonces vigente de <cite>libsodium</cite> (1.0.15). Debido a <a class="reference external" href="https://github.com/zcash/zcash/issues/2872#issuecomment-576911471">un error en libsodium</a>, estos diferían de los criterios previstos documentados en la especificación del protocolo de Zcash <a class="brackets" href="#protocol-2020-1-1" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> (antes de que la especificación se modificara para coincidir con <cite>libsodium</cite> 1.0.15 en la versión 2020.1.2 de la especificación). Además, <cite>libsodium</cite> nunca garantizó criterios de validez estables, y cambió su comportamiento en una versión posterior de mantenimiento. Esto obligó a <cite>zcashd</cite> a usar una versión anterior de la biblioteca antes de parchear finalmente una versión más reciente para tener criterios de validez consistentes. Para ser compatible, Zebra tuvo que implementar una biblioteca especial, <cite>ed25519-zebra</cite>, que proporciona Ed25519 al estilo de Zcash, intentando coincidir exactamente con <cite>libsodium</cite> 1.0.15. Y el intento inicial de implementar <cite>ed25519-zebra</cite> también era incompatible, porque coincidía precisamente con la configuración de compilación incorrecta de <cite>libsodium</cite>.</p>
+<p>Además, los criterios de validez utilizados por Zcash impiden la validación por lotes de firmas Ed25519. Aunque la validación de firmas no es el principal cuello de botella para Zcash, sería deseable poder validar las firmas por lotes, como ocurre con RedJubjub.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Tras la activación de este ZIP, las reglas de validación de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖩</mi>
+    <mi>𝗈</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝖲</mi>
+    <mi>𝗉</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗍</mi>
+    <mi>𝖲</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+  </mrow>
+</math> en <a class="brackets" href="#protocol-concreteed25519" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> se cambian por las siguientes:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <munder>
+    <mi>A</mi>
+    <mo>_</mo>
+  </munder>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <munder>
+    <mi>R</mi>
+    <mo>_</mo>
+  </munder>
+</math> DEBEN (MUST) ser codificaciones de los puntos <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>A</mi>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>R</mi>
+</math> respectivamente sobre la curva retorcida de Edwards completa Ed25519;</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <munder>
+    <mi>S</mi>
+    <mo>_</mo>
+  </munder>
+</math> DEBE (MUST) representar un entero <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>S</mi>
+</math> menor que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>ℓ</mi>
+</math>;</p></li>
+<li><p>La ecuación de grupo $[8][S]B = [8]R + [8][k]A$ DEBE (MUST) cumplirse, donde <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+</math> se definen como en las secciones §5.1.7 y §5.1 del RFC 8032 respectivamente. <a class="brackets" href="#rfc8032" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a></p></li>
+</ul>
+<p>El texto sobre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖤</mi>
+    <mi>𝗑</mi>
+    <mi>𝖼</mi>
+    <mi>𝗅</mi>
+    <mi>𝗎</mi>
+    <mi>𝖽</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖯</mi>
+    <mi>𝗈</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗍</mi>
+    <mi>𝖤</mi>
+    <mi>𝗇</mi>
+    <mi>𝖼</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+    <mi>𝗌</mi>
+  </mrow>
+</math> en la sección §5.4.5 de la especificación de Zcash <a class="brackets" href="#protocol-concreteed25519" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> ya no se aplica.</p>
+<p><em>No</em> se requiere que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <munder>
+    <mi>A</mi>
+    <mo>_</mo>
+  </munder>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <munder>
+    <mi>R</mi>
+    <mo>_</mo>
+  </munder>
+</math> sean codificaciones canónicas; en otras palabras, el entero que codifica la coordenada <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>y</mi>
+</math> de los puntos puede no estar reducido módulo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mn>2</mn>
+    <mn>255</mn>
+  </msup>
+  <mo>−</mo>
+  <mn>19</mn>
+</math>.</p>
+<p>Nota: la ecuación de validación alternativa $[S]B = R + [k]A$, permitida por el RFC 8032, NO DEBE (MUST NOT) usarse.</p>
+
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<p>Este cambio simplifica la lógica de validación de Ed25519 y reduce la carga de mantenimiento futura. Dado que la multiplicación por el cofactor admite más soluciones a la ecuación de validación, no menos, es compatible con todas las firmas Ed25519 existentes en la cadena.</p>
+<p>También permite el uso de la validación por lotes, la cual requiere la multiplicación por el cofactor en la ecuación de validación.</p>
+
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de seguridad y privacidad</h1>
+<p>Este cambio no tiene efecto sobre las firmas generadas honestamente. A diferencia de las reglas de validación actuales, hace posible que un usuario genere claves de firma débiles o genere claves de firma con componente de torsión distinto de cero y las envíe al blockchain. Sin embargo, hacer esto no les proporciona ninguna ventaja, solo compromete su propia seguridad. Además, estos casos no constituyen un modo de falla de ninguna implementación desplegada.</p>
+
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Se pretende que esto se despliegue con la actualización de red Canopy <a class="brackets" href="#zip-0251" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>, la cual está programada para activarse en Mainnet <a class="brackets" href="#protocol-networks" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> en la altura de bloque 1046400.</p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="rfc8032" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-2">1</a>,<a role="doc-backlink" href="#footnote-reference-5">2</a>)</span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc8032.html">RFC 8032: Edwards-Curve Digital Signature Algorithm (EdDSA)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-2020-1-1" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/blob/v2020.1.1/protocol/protocol.pdf">Zcash Protocol Specification, Version 2020.1.1</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2021.2.16. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-concreteed25519" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-6">2</a>)</span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#concreteed25519">Zcash Protocol Specification, Version 2021.2.16. Section 5.4.6: Ed25519</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0251" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0251.rst">ZIP 251: Deployment of the Canopy Network Upgrade</a></p>
+</aside>
+</aside>
+

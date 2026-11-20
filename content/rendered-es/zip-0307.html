@@ -1,0 +1,1243 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" en este documento deben interpretarse como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos siguientes deben interpretarse de la siguiente manera:</p>
+<dl class="simple">
+<dt>Cliente ligero</dt>
+<dd><p>Un cliente que no es un participante pleno en la red de pares de Zcash. Puede enviar y recibir pagos, pero no almacena ni valida una copia del block chain.</p>
+</dd>
+</dl>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta define un protocolo para un cliente ligero de Zcash con soporte para transacciones blindadas de Sapling.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Actualmente, un cliente que desea enviar o recibir pagos blindados debe ser un nodo completo que participe en la red de Zcash. Esto requiere una cantidad de ancho de banda, espacio y capacidad de procesamiento disponibles que puede no ser adecuada para algunas clases de usuarios. Este protocolo de cliente ligero aborda esa necesidad y es apropiado para máquinas de baja potencia, conscientes del ancho de banda o limitadas de otra manera (como los teléfonos móviles).</p>
+
+<h1 id="high-level-design"><a class="hanchor" href="#high-level-design" aria-hidden="true" tabindex="-1">#</a>Diseño de alto nivel</h1>
+<p>Un sistema de cliente ligero de Zcash tiene tres componentes lógicos:</p>
+<ul class="simple">
+<li><p><strong>Nodo de Zcash</strong> que proporciona el estado de la cadena y sirve como raíz de confianza para el sistema.</p></li>
+<li><p><strong>Servidor proxy</strong> que extrae datos del block chain de zcashd para almacenarlos y servirlos en un formato de menor ancho de banda.</p></li>
+<li><p><strong>Cliente ligero</strong> que se suscribe al flujo de un servidor proxy y usa esos datos para actualizar su propia vista del estado de la cadena. El cliente ligero PUEDE (MAY) estar acoplado a un backend de billetera que rastreará notas particulares de Sapling.</p></li>
+</ul>
+<figure class="align-center">
+<img alt="../rendered/assets/images/zip-0307-arch.png" src="/upstream/../rendered/assets/images/zip-0307-arch.png">
+<figcaption>
+<p>Esquema de la arquitectura de billetera ligera</p>
+</figcaption>
+</figure>
+
+<h1 id="security-model"><a class="hanchor" href="#security-model" aria-hidden="true" tabindex="-1">#</a>Modelo de seguridad</h1>
+<p>En este modelo, proponemos la <strong>privacidad de detección de pagos</strong> como nuestro principal objetivo de seguridad. Es decir, el proxy no debería conocer cuáles transacciones (recibidas del block chain) están dirigidas a una billetera ligera dada. Si además asumimos privacidad de red (mediante Tor o similar), el proxy no debería poder vincular distintas conexiones o consultas como derivadas de la misma billetera.</p>
+<p>En particular, se asume que la combinación del nodo de Zcash subyacente y el proxy es "honesto pero curioso", y se confía en que proporcione una vista correcta del mejor estado actual de la cadena y que transmita fielmente consultas y respuestas.</p>
+<p>Este ZIP no aborda cómo gastar notas de forma privada.</p>
+
+<h1 id="compact-stream-format"><a class="hanchor" href="#compact-stream-format" aria-hidden="true" tabindex="-1">#</a>Formato de flujo compacto</h1>
+<p>Una observación clave en este protocolo es que el campo cifrado actual de zcashd tiene una longitud de varios cientos de bytes, debido a la inclusión de un "memo" en la transacción. La necesidad de descargar todo este campo impone un costo sustancial de ancho de banda a cada billetera ligera, que puede ser un dispositivo móvil limitado en un plan de ancho de banda restringido. Si bien pueden desarrollarse técnicas más eficientes en el futuro, por el momento proponemos ignorar el campo memo durante la detección de pagos. Además, también podemos ignorar cualquier información que no sea directamente relevante para una transacción blindada de Sapling.</p>
+<p>Un <strong>bloque compacto</strong> es un empaquetado de SOLO los datos de un bloque necesarios para:</p>
+<ol class="arabic simple">
+<li><p>Detectar un pago a su dirección blindada de Sapling</p></li>
+<li><p>Detectar un gasto de sus notas blindadas de Sapling</p></li>
+<li><p>Actualizar sus testigos para generar nuevas pruebas de gasto de Sapling.</p></li>
+</ol>
+<p>Un bloque compacto y sus transacciones compactas componentes se codifican en el canal usando el siguiente formato de Protocol Buffers <a class="brackets" href="#protocolbuffers" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>:</p>
+<pre class="code proto literal-block"><code>message BlockID {
+     uint64 blockHeight = 1;
+     bytes blockHash = 2;
+}
+
+message CompactBlock {
+    BlockID id = 1;
+    repeated CompactTx vtx = 3;
+}
+
+message CompactTx {
+    uint64 txIndex = 1;
+    bytes txHash = 2;
+
+    repeated CompactSpend spends = 3;
+    repeated CompactOutput outputs = 4;
+}
+
+message CompactSpend {
+    bytes nf = 1;
+}
+
+message CompactOutput {
+    bytes cmu = 1;
+    bytes epk = 2;
+    bytes ciphertext = 3;
+}</code></pre>
+<h2 id="encoding-details"><a class="hanchor" href="#encoding-details" aria-hidden="true" tabindex="-1">#</a>Detalles de codificación</h2>
+<p><span class="docutils literal">blockHash</span>, <span class="docutils literal">txHash</span>, <span class="docutils literal">nf</span>, <span class="docutils literal">cmu</span> y <span class="docutils literal">epk</span> se codifican como se especifica en el Protocol Spec de Zcash.</p>
+<p>Las descripciones de salida y de gasto se manejan de forma distinta, como se describe en las secciones siguientes.</p>
+
+<h2 id="output-compression"><a class="hanchor" href="#output-compression" aria-hidden="true" tabindex="-1">#</a>Compresión de salidas</h2>
+<p>En el protocolo normal de Zcash, el texto cifrado de salida consiste en la forma cifrada con AEAD de un <em>texto plano de nota</em> <a class="brackets" href="#protocol-notept" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>:</p>
+<table>
+<tbody>
+<tr><td><p>8 bits, 0x01</p></td>
+<td><p>d de 88 bits</p></td>
+<td><p>v de 64 bits</p></td>
+<td><p>rseed de 256 bits</p></td>
+<td><p>memo (512 bytes) + tag (16 bytes)</p></td>
+</tr>
+</tbody>
+</table>
+<p>Un destinatario detecta sus transacciones mediante el descifrado por prueba de este texto cifrado. En un nodo completo que tiene todo el block chain, el costo principal es computacional. Para los clientes ligeros, sin embargo, hay un costo adicional de ancho de banda: cada texto cifrado del block chain debe recibirse desde el servidor (o nodo de red) al que está conectado el cliente ligero. Esto da un total de 580 bytes por salida que deben transmitirse en flujo al cliente (además de la clave pública efímera de 32 bytes).</p>
+<p>Sin embargo, no necesitamos todo eso solo para detectar pagos. Los primeros 52 bytes del texto cifrado contienen los contenidos y la apertura del compromiso de nota, que son todos los datos necesarios para gastar la nota y para verificar que la nota es gastable. Si ignoramos el memo y la etiqueta de autenticación, nos quedan una clave pública efímera de 32 bytes, el compromiso de nota de 32 bytes y solo los primeros 52 bytes del texto cifrado por cada salida necesarios para descifrar, verificar y gastar una nota. Esto totaliza 116 bytes por salida, para una reducción del 80 % en el uso de ancho de banda.</p>
+<p>Sin embargo, omitir el texto cifrado completo significa que ya no podemos calcular el tag de autenticación para todo el texto cifrado y tendremos que hacer algo más para validar la integridad del texto plano de nota descifrado.</p>
+<p>Como el compromiso de nota se envía fuera del texto cifrado y es autenticado por la firma de enlace (binding signature) sobre toda la transacción, sirve como una verificación adecuada de la validez del texto plano descifrado (suponiendo que se confía en la entidad que ensambla las transacciones). Por lo tanto, recalculamos el compromiso de nota a partir del texto plano descifrado. Si el compromiso recalculado coincide con el que está en la salida, aceptamos la nota como válida y gastable.</p>
+
+<h2 id="spend-compression"><a class="hanchor" href="#spend-compression" aria-hidden="true" tabindex="-1">#</a>Compresión de Spend</h2>
+<p>Recuerde que una descripción completa de Sapling Spend tiene 384 bytes de longitud <a class="brackets" href="#protocol-spendencodingandconsensus" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Bytes</p></th>
+<th class="head"><p>Nombre</p></th>
+<th class="head"><p>Tipo</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>32</p></td>
+<td><p>cv</p></td>
+<td><p>char[32]</p></td>
+</tr>
+<tr><td><p>32</p></td>
+<td><p>anchor</p></td>
+<td><p>char[32]</p></td>
+</tr>
+<tr><td><p>32</p></td>
+<td><p>nullifier</p></td>
+<td><p>char[32]</p></td>
+</tr>
+<tr><td><p>32</p></td>
+<td><p>rk</p></td>
+<td><p>char[32]</p></td>
+</tr>
+<tr><td><p>192</p></td>
+<td><p>zkproof</p></td>
+<td><p>char[192]</p></td>
+</tr>
+<tr><td><p>64</p></td>
+<td><p>spendAuthSig</p></td>
+<td><p>char[64]</p></td>
+</tr>
+</tbody>
+</table>
+<p>La única parte necesaria para la detección es el nullifier, que permite a un cliente ligero detectar cuándo se ha gastado una de sus propias notas. Esto significa que solo necesitamos tomar 32 bytes de cada Spend, para una mejora del 90 % en el uso de ancho de banda.</p>
+
+
+<h1 id="proxy-operation"><a class="hanchor" href="#proxy-operation" aria-hidden="true" tabindex="-1">#</a>Operación del proxy</h1>
+<p>El propósito del proxy es proporcionar una interfaz escalable y eficiente en ancho de banda entre un nodo de Zcash y cualquier número de clientes ligeros. Lo logra analizando un flujo de transacciones bloque a bloque desde el nodo y convirtiéndolas al formato compacto descrito anteriormente.</p>
+<p><em>Los detalles de la API descrita a continuación pueden diferir de la implementación.</em></p>
+<p>El proxy ofrece la siguiente API a los clientes:</p>
+<pre class="code proto literal-block"><code>service CompactTxStreamer {
+    rpc GetLatestBlock(ChainSpec) returns (BlockID) {}
+    rpc GetBlock(BlockID) returns (CompactBlock) {}
+    rpc GetBlockRange(RangeFilter) returns (stream CompactBlock) {}
+    rpc GetTransaction(TxFilter) returns (FullTransaction) {}
+}
+
+// Remember that proto3 fields are all optional.
+
+// Someday we may want to specify e.g. a particular chain fork.
+message ChainSpec {}
+
+
+// A BlockID message contains identifiers to select a block: either a
+// height or a hash.
+message BlockID {
+    uint64 blockHeight = 1;
+    bytes blockHash = 2;
+}
+
+
+message RangeFilter {
+    BlockID start = 1;
+    BlockID end = 2;
+}
+
+// A TxFilter contains the information needed to identify a particular
+// transaction: either a block and an index, or a direct transaction hash.
+message TxFilter {
+    BlockID blockID = 1;
+    uint64 txIndex = 2;
+    bytes txHash = 3;
+}</code></pre>
+
+<h1 id="client-operation"><a class="hanchor" href="#client-operation" aria-hidden="true" tabindex="-1">#</a>Operación del cliente</h1>
+<p>Los clientes ligeros obtienen bloques compactos de uno o más servidores proxy, que luego procesan localmente para actualizar su vista del block chain. Aquí consideramos solo un único servidor proxy, sin pérdida de generalidad.</p>
+<h2 id="local-processing"><a class="hanchor" href="#local-processing" aria-hidden="true" tabindex="-1">#</a>Procesamiento local</h2>
+<p>Dado un <span class="docutils literal">CompactBlock</span> a la altura de bloque <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗁</mi>
+    <mi>𝖾</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗁</mi>
+    <mi>𝗍</mi>
+  </mrow>
+</math> recibido en orden secuencial de alturas desde un servidor proxy, un cliente ligero puede procesarlo de cuatro maneras:</p>
+<h3 id="scanning-for-relevant-transactions"><a class="hanchor" href="#scanning-for-relevant-transactions" aria-hidden="true" tabindex="-1">#</a>Escaneo en busca de transacciones relevantes</h3>
+<p>Para cada <span class="docutils literal">CompactOutput</span> en el <span class="docutils literal">CompactBlock</span>, el cliente ligero puede intentar descifrarlo con un conjunto de claves de visualización de entradas de Sapling. El procedimiento para intentar descifrar un <span class="docutils literal">CompactOutput</span> <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚖</mi>
+    <mi>𝚞</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝚎</mi>
+    <mi>𝚙</mi>
+    <mi>𝚑</mi>
+    <mi>𝚎</mi>
+    <mi>𝚖</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝙺</mi>
+    <mi>𝚎</mi>
+    <mi>𝚢</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗂</mi>
+    <mi>𝗉</mi>
+    <mi>𝗁</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> con una clave de visualización de entradas <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+</math> es una ligera desviación del proceso estándar de descifrado <a class="brackets" href="#protocol-saplingdecryptivk" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> (todas las constantes y algoritmos son los definidos allí):</p>
+<ul class="simple">
+<li><p>sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖾</mi>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>=</mo>
+  <msub>
+    <mrow>
+      <mi>𝖺</mi>
+      <mi>𝖻</mi>
+      <mi>𝗌</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝚎</mi>
+    <mi>𝚙</mi>
+    <mi>𝚑</mi>
+    <mi>𝚎</mi>
+    <mi>𝚖</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝙺</mi>
+    <mi>𝚎</mi>
+    <mi>𝚢</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖾</mi>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>=</mo>
+  <mi>⊥</mi>
+</math>, devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math></p></li>
+<li><p>sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖪</mi>
+    <msup>
+      <mi>𝖠</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+    <mo>.</mo>
+    <mi>𝖠</mi>
+    <mi>𝗀</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝖾</mi>
+    <mi>𝗉</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>K</mi>
+    <mrow>
+      <mi>𝖾</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+    </mrow>
+  </msup>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖪</mi>
+    <mi>𝖣</mi>
+    <msup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+    <mi>𝖲</mi>
+    <mi>𝖾</mi>
+    <mi>𝖼</mi>
+    <mi>𝗋</mi>
+    <mi>𝖾</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝚎</mi>
+    <mi>𝚙</mi>
+    <mi>𝚑</mi>
+    <mi>𝚎</mi>
+    <mi>𝚖</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝙺</mi>
+    <mi>𝚎</mi>
+    <mi>𝚢</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>P</mi>
+    <mrow>
+      <mi>𝖾</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+    </mrow>
+  </msup>
+  <mo>=</mo>
+  <msub>
+    <mrow>
+      <mi>𝖢</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mi>𝖢</mi>
+      <mi>𝗁</mi>
+      <mi>𝖺</mi>
+      <mn>𝟤𝟢</mn>
+      <mo>.</mo>
+      <mi>𝖣</mi>
+      <mi>𝖾</mi>
+      <mi>𝖼</mi>
+      <mi>𝗋</mi>
+      <mi>𝗒</mi>
+      <mi>𝗉</mi>
+      <mi>𝗍</mi>
+    </mrow>
+    <msup>
+      <mi>K</mi>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗇</mi>
+        <mi>𝖼</mi>
+      </mrow>
+    </msup>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝗂</mi>
+    <mi>𝗉</mi>
+    <mi>𝗁</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+    <mi>𝗑</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>extraer <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝐧</mi>
+    <mi>𝐩</mi>
+  </mrow>
+  <mo>=</mo>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖡</mi>
+    <mi>𝗒</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi>𝖽</mi>
+  <mo>,</mo>
+  <mi>𝗏</mi>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi>P</mi>
+    <mrow>
+      <mi>𝖾</mi>
+      <mi>𝗇</mi>
+      <mi>𝖼</mi>
+    </mrow>
+  </msup>
+</math></p></li>
+<li><p>[Antes de Canopy] si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖡</mi>
+    <mi>𝗒</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>≠</mo>
+  <mn>0</mn>
+  <mi>x</mi>
+  <mn>01</mn>
+</math>, devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math></p></li>
+<li><p>[Antes de Canopy] sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <munder>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗆</mi>
+    </mrow>
+    <mo>_</mo>
+  </munder>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝖾</mi>
+    <mi>𝖾</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math></p></li>
+<li><p>[De Canopy en adelante] si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗁</mi>
+    <mi>𝖾</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗁</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>&#x3C;</mo>
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗉</mi>
+    <mi>𝗒</mi>
+    <mi>𝖠</mi>
+    <mi>𝖼</mi>
+    <mi>𝗍</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝗂</mi>
+    <mi>𝗈</mi>
+    <mi>𝗇</mi>
+    <mi>𝖧</mi>
+    <mi>𝖾</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗁</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>+</mo>
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝖨</mi>
+    <mi>𝖯</mi>
+    <mn>𝟤𝟣𝟤</mn>
+    <mi>𝖦</mi>
+    <mi>𝗋</mi>
+    <mi>𝖺</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖡</mi>
+    <mi>𝗒</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>∉</mo>
+  <mo>{</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟷</mn>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟸</mn>
+  </mrow>
+  <mo>}</mo>
+</math>, devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math></p></li>
+<li><p>[De Canopy en adelante] si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗁</mi>
+    <mi>𝖾</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗁</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>&#x3C;</mo>
+  <mrow>
+    <mi>𝖢</mi>
+    <mi>𝖺</mi>
+    <mi>𝗇</mi>
+    <mi>𝗈</mi>
+    <mi>𝗉</mi>
+    <mi>𝗒</mi>
+    <mi>𝖠</mi>
+    <mi>𝖼</mi>
+    <mi>𝗍</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖺</mi>
+    <mi>𝗍</mi>
+    <mi>𝗂</mi>
+    <mi>𝗈</mi>
+    <mi>𝗇</mi>
+    <mi>𝖧</mi>
+    <mi>𝖾</mi>
+    <mi>𝗂</mi>
+    <mi>𝗀</mi>
+    <mi>𝗁</mi>
+    <mi>𝗍</mi>
+  </mrow>
+  <mo>+</mo>
+  <mrow>
+    <mi>𝖹</mi>
+    <mi>𝖨</mi>
+    <mi>𝖯</mi>
+    <mn>𝟤𝟣𝟤</mn>
+    <mi>𝖦</mi>
+    <mi>𝗋</mi>
+    <mi>𝖺</mi>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗈</mi>
+    <mi>𝖽</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖡</mi>
+    <mi>𝗒</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>≠</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟸</mn>
+  </mrow>
+</math>, devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math></p></li>
+<li><p>[De Canopy en adelante] sea $mathsf{underline{rcm}} = begin{cases}mathsf{rseed}, &#x26;textsf{if } mathsf{leadByte} = mathtt{0x01} \ mathsf{ToScalar}(mathsf{PRF^{expand}_{rseed}}([5])), &#x26;textsf{otherwise}end{cases}$</p></li>
+<li><p>sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+  <mo>=</mo>
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖨</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <munder>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖼</mi>
+      <mi>𝗆</mi>
+    </mrow>
+    <mo>_</mo>
+  </munder>
+  <mo stretchy="false">)</mo>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖣</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗌</mi>
+    <mi>𝗂</mi>
+    <mi>𝖿</mi>
+    <mi>𝗒</mi>
+    <mi>𝖧</mi>
+    <mi>𝖺</mi>
+    <mi>𝗌</mi>
+    <mi>𝗁</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>𝖽</mi>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗋</mi>
+    <mi>𝖼</mi>
+    <mi>𝗆</mi>
+  </mrow>
+  <mo>≥</mo>
+  <msub>
+    <mi>r</mi>
+    <mi>𝕁</mi>
+  </msub>
+</math> o <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+  <mo>=</mo>
+  <mi>⊥</mi>
+</math>, devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math></p></li>
+<li><p>[De Canopy en adelante] si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗅</mi>
+    <mi>𝖾</mi>
+    <mi>𝖺</mi>
+    <mi>𝖽</mi>
+    <mi>𝖡</mi>
+    <mi>𝗒</mi>
+    <mi>𝗍</mi>
+    <mi>𝖾</mi>
+  </mrow>
+  <mo>≠</mo>
+  <mrow>
+    <mn>𝟶</mn>
+    <mi>𝚡</mi>
+    <mn>𝟶𝟷</mn>
+  </mrow>
+</math>:</p>
+<ul>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖳</mi>
+    <mi>𝗈</mi>
+    <mi>𝖲</mi>
+    <mi>𝖼</mi>
+    <mi>𝖺</mi>
+    <mi>𝗅</mi>
+    <mi>𝖺</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖯</mi>
+    <mi>𝖱</mi>
+    <msubsup>
+      <mi>𝖥</mi>
+      <mrow>
+        <mi>𝗋</mi>
+        <mi>𝗌</mi>
+        <mi>𝖾</mi>
+        <mi>𝖾</mi>
+        <mi>𝖽</mi>
+      </mrow>
+      <mrow>
+        <mi>𝖾</mi>
+        <mi>𝗑</mi>
+        <mi>𝗉</mi>
+        <mi>𝖺</mi>
+        <mi>𝗇</mi>
+        <mi>𝖽</mi>
+      </mrow>
+    </msubsup>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mo stretchy="false">[</mo>
+  <mn>4</mn>
+  <mo stretchy="false">]</mo>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝗋</mi>
+      <mi>𝖾</mi>
+      <mi>𝗉</mi>
+      <mi>𝗋</mi>
+    </mrow>
+    <mi>𝕁</mi>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖪</mi>
+    <msup>
+      <mi>𝖠</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+    <mo>.</mo>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝖾</mi>
+    <mi>𝗌</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo stretchy="false">)</mo>
+  <mo>≠</mo>
+  <mrow>
+    <mi>𝚎</mi>
+    <mi>𝚙</mi>
+    <mi>𝚑</mi>
+    <mi>𝚎</mi>
+    <mi>𝚖</mi>
+    <mi>𝚎</mi>
+    <mi>𝚛</mi>
+    <mi>𝚊</mi>
+    <mi>𝚕</mi>
+    <mi>𝙺</mi>
+    <mi>𝚎</mi>
+    <mi>𝚢</mi>
+  </mrow>
+</math>, devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math></p></li>
+</ul>
+</li>
+<li><p>sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗉</mi>
+    <msub>
+      <mi>𝗄</mi>
+      <mi>𝖽</mi>
+    </msub>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝖪</mi>
+    <msup>
+      <mi>𝖠</mi>
+      <mrow>
+        <mi>𝖲</mi>
+        <mi>𝖺</mi>
+        <mi>𝗉</mi>
+        <mi>𝗅</mi>
+        <mi>𝗂</mi>
+        <mi>𝗇</mi>
+        <mi>𝗀</mi>
+      </mrow>
+    </msup>
+    <mo>.</mo>
+    <mi>𝖣</mi>
+    <mi>𝖾</mi>
+    <mi>𝗋</mi>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝖾</mi>
+    <mi>𝖯</mi>
+    <mi>𝗎</mi>
+    <mi>𝖻</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝖼</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝗂</mi>
+    <mi>𝗏</mi>
+    <mi>𝗄</mi>
+  </mrow>
+  <mo>,</mo>
+  <msub>
+    <mi>𝗀</mi>
+    <mi>𝖽</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math></p></li>
+<li><p>sea $mathsf{cm}_u' = mathsf{Extract}_{mathbb{J}^{(r)}}(mathsf{NoteCommit^{Sapling}_{rcm}}(mathsf{repr}_{mathbb{J}}(mathsf{g_d}), mathsf{repr}_{mathbb{J}}(mathsf{pk_d}), mathsf{v}))$.</p></li>
+<li><p>si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msub>
+    <mrow>
+      <mi>𝖫</mi>
+      <mi>𝖤</mi>
+      <mi>𝖡</mi>
+      <mi>𝖲</mi>
+      <mn>𝟤</mn>
+      <mi>𝖮</mi>
+      <mi>𝖲</mi>
+      <mi>𝖯</mi>
+    </mrow>
+    <mn>256</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow>
+      <mi>𝖼</mi>
+      <mi>𝗆</mi>
+    </mrow>
+    <mi>u</mi>
+  </msub>
+  <mo>'</mo>
+  <mo stretchy="false">)</mo>
+  <mo>≠</mo>
+  <mrow>
+    <mi>𝚌</mi>
+    <mi>𝚖</mi>
+    <mi>𝚞</mi>
+  </mrow>
+</math>, devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>⊥</mi>
+</math></p></li>
+<li><p>devolver <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝐧</mi>
+    <mi>𝐩</mi>
+  </mrow>
+</math>.</p></li>
+</ul>
+
+<h3 id="creating-and-updating-note-witnesses"><a class="hanchor" href="#creating-and-updating-note-witnesses" aria-hidden="true" tabindex="-1">#</a>Creación y actualización de testigos de notas</h3>
+<p>A medida que los <span class="docutils literal">CompactBlocks</span> se reciben en orden de altura, y las transacciones dentro de ellos conservan su orden, los valores <em>cmu</em> de cada <span class="docutils literal">CompactOutput</span> pueden añadirse secuencialmente a un árbol Merkle incremental de profundidad 32 para mantener una copia local del árbol de compromisos de notas de Sapling. <a class="brackets" href="#protocol-merkletree" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a> Este puede usarse luego para crear testigos incrementales para cada nota no gastada que el cliente ligero esté siguiendo. <a class="brackets" href="#incremental-witness" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>10<span class="fn-bracket">]</span></a> Un testigo incremental actualizado hasta la altura <span class="docutils literal">X</span> corresponde a una ruta Merkle desde la nota hasta el ancla del árbol de compromisos de Sapling para el bloque <span class="docutils literal">X</span>. <a class="brackets" href="#protocol-merklepath" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a></p>
+<p>Sea <span class="docutils literal">tree</span> el árbol de compromisos de notas de Sapling en la altura <span class="docutils literal"><span class="pre">X-1</span></span>, y <span class="docutils literal">note_witnesses</span> los testigos incrementales para las notas no gastadas detectadas hasta la altura <span class="docutils literal"><span class="pre">X-1</span></span>. Cuando se recibe el <span class="docutils literal">CompactBlock</span> en la altura <span class="docutils literal">X</span>:</p>
+<ul class="simple">
+<li><p>Para cada <span class="docutils literal">CompactTx</span> en <span class="docutils literal">CompactBlock</span>:</p>
+<ul>
+<li><p>Para cada <span class="docutils literal">CompactOutput</span> (<em>cmu</em>, <em>epk</em>, <em>ciphertext</em>) en <span class="docutils literal">CompactBlock</span>:</p>
+<ul>
+<li><p>Añadir <span class="docutils literal">cmu</span> a <span class="docutils literal">tree</span>.</p></li>
+<li><p>Para <span class="docutils literal">witness</span> en <span class="docutils literal">note_witnesses</span>:</p>
+<ul>
+<li><p>Añadir <span class="docutils literal">cmu</span> a <span class="docutils literal">witness</span>.</p></li>
+</ul>
+</li>
+<li><p>Si <span class="docutils literal">ciphertext</span> contiene una nota relevante, crear un testigo incremental a partir de <span class="docutils literal">tree</span> y añadirlo a <span class="docutils literal">note_witnesses</span>.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>Los árboles Merkle incrementales no pueden rebobinarse, por lo que el cliente ligero debería almacenar en caché tanto el árbol de compromisos de notas de Sapling como los testigos incrementales por nota para alturas de bloque recientes. La gestión de la caché depende de la implementación, pero un tamaño de caché de 100 es razonable, ya que ningún nodo completo de Zcash revertirá la cadena en más de 100 bloques.</p>
+
+<h3 id="detecting-spends"><a class="hanchor" href="#detecting-spends" aria-hidden="true" tabindex="-1">#</a>Detección de gastos</h3>
+<p>Las entradas de <span class="docutils literal">CompactSpend</span> pueden compararse con los nullifiers locales conocidos, para por ejemplo asegurarse de que una transacción ha sido recibida por la red y minada.</p>
+
+<h3 id="block-header-validation"><a class="hanchor" href="#block-header-validation" aria-hidden="true" tabindex="-1">#</a>Validación de encabezados de bloque</h3>
+<p><em>Esta sección describe una mejora propuesta que solo se ha implementado parcialmente: actualmente solo se verifica</em> <span class="docutils literal">prevHash</span><em>.</em></p>
+<p>Si el <span class="docutils literal">CompactBlock</span> para la altura <span class="docutils literal">X</span> contiene un encabezado de bloque, el cliente ligero puede validarlo de manera similar a los clientes SPV <a class="brackets" href="#spv-clients" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>11<span class="fn-bracket">]</span></a> realizando las siguientes comprobaciones:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">version >= MIN_BLOCK_VERSION</span></p></li>
+<li><p><span class="docutils literal">prevHash == prevBlock.id.blockHash</span>, donde <span class="docutils literal">prevBlock</span> es el <span class="docutils literal">CompactBlock</span> anterior recibido (en la altura <span class="docutils literal"><span class="pre">X-1</span></span>).</p></li>
+<li><p><span class="docutils literal">finalSaplingRoot</span> es igual a la raíz del árbol de compromisos de notas de Sapling tras añadir cada <span class="docutils literal">cmu</span> en el <span class="docutils literal">CompactBlock</span> en orden.</p></li>
+<li><p>La solución Equihash es válida.</p></li>
+<li><p><span class="docutils literal">targetFromBits(bits) != 0 &#x26;&#x26; targetFromBits(bits) &#x3C;= powLimit</span>.</p></li>
+<li><p>Si los últimos 27 <span class="docutils literal">CompactBlocks</span> tienen todos encabezados de bloque, <span class="docutils literal">bits</span> está correctamente establecido según el algoritmo de ajuste de dificultad.</p></li>
+<li><p><span class="docutils literal">toLittleEndian(blockHash) &#x3C;= targetFromBits(bits)</span>.</p></li>
+</ul>
+<p>Un <span class="docutils literal">CompactBlock</span> que falle en cualquiera de estas comprobaciones DEBE (MUST) descartarse. Si se recibió como parte de una llamada a <span class="docutils literal">GetBlockRange</span>, la llamada DEBE (MUST) abortarse.</p>
+<p>La validación de encabezados de bloque proporciona a los clientes ligeros cierta seguridad de que los <span class="docutils literal">CompactOutputs</span> que se les envían provienen efectivamente de bloques válidos que han sido minados. La seguridad más fuerte posible se logra cuando todos los encabezados de bloque están sincronizados; esto tiene un costo en ancho de banda y almacenamiento.</p>
+<p>Por defecto, los <span class="docutils literal">CompactBlocks</span> solo contienen <span class="docutils literal">CompactTxs</span> para transacciones que contienen gastos o salidas de Sapling. Por lo tanto, no contienen información suficiente para validar que los identificadores de transacción recibidos correspondan a la raíz del árbol de transacciones en el encabezado de bloque. Esto no tiene un efecto significativo en la seguridad del cliente ligero: los clientes ligeros solo dependen directamente de <span class="docutils literal">CompactOutputs</span>, que puede autenticarse mediante la validación de encabezados de bloque. Si se usa un txid en una llamada a <span class="docutils literal">GetTransaction</span>, la transacción devuelta DEBERÍA (SHOULD) comprobarse contra el <span class="docutils literal">CompactOutputs</span> correspondiente, además de verificar las firmas de la transacción.</p>
+
+<h3 id="potential-extensions"><a class="hanchor" href="#potential-extensions" aria-hidden="true" tabindex="-1">#</a>Extensiones potenciales</h3>
+<p>Una extensión trivial (con el correspondiente costo en ancho de banda) sería transmitir <span class="docutils literal">CompactTxs</span> vacíos correspondientes a transacciones que no contienen gastos o salidas de Sapling. Una extensión más compleja enviaría los nodos internos de los árboles de transacciones correspondientes a subárboles no relevantes para Sapling; esto requeriría estrictamente menos ancho de banda que la extensión trivial. Estas extensiones no están actualmente definidas.</p>
+
+
+<h2 id="client-server-interaction"><a class="hanchor" href="#client-server-interaction" aria-hidden="true" tabindex="-1">#</a>Interacción cliente-servidor</h2>
+<p>Podemos dividir la interacción típica entre cliente y servidor en cuatro fases distintas:</p>
+<pre class="code text literal-block"><code>Phase   Client                Server
+=====   ============================
+  A     GetLatestBlock ------------>
+
+        &#x3C;---------------- BlockID(X)
+
+        GetBlock(X) --------------->
+
+        &#x3C;----------- CompactBlock(X)
+
+            ===
+
+  B     GetLatestBlock ------------>
+
+        &#x3C;---------------- BlockID(Y)
+
+        GetBlockRange(X, Y) ------->
+
+        &#x3C;--------- CompactBlock(X)
+        &#x3C;--------- CompactBlock(X+1)
+        &#x3C;--------- CompactBlock(X+2)
+                        ...
+        &#x3C;--------- CompactBlock(Y-1)
+        &#x3C;--------- CompactBlock(Y)
+
+            ===
+
+  C     GetTransaction(X+4, 7) ---->
+
+        &#x3C;--- FullTransaction(X+4, 7)
+
+        GetTransaction(X+9, 2) ---->
+
+        &#x3C;--- FullTransaction(X+9, 2)
+
+            ===
+
+  D     GetLatestBlock ------------>
+
+        &#x3C;---------------- BlockID(Z)
+
+        GetBlockRange(Y, Z) ------->
+
+        &#x3C;--------- CompactBlock(Y)
+        &#x3C;--------- CompactBlock(Y+1)
+        &#x3C;--------- CompactBlock(Y+2)
+                        ...
+        &#x3C;--------- CompactBlock(Z-1)
+        &#x3C;--------- CompactBlock(Z)</code></pre>
+<p><strong>Fase A:</strong> El cliente ligero se inicia por primera vez.</p>
+<ul class="simple">
+<li><p>El cliente ligero consulta al servidor para obtener el <span class="docutils literal">X</span> de bloque más reciente.</p></li>
+<li><p>El cliente ligero consulta el estado del árbol de compromisos para el bloque <span class="docutils literal">X</span>.</p>
+<ul>
+<li><p>O bien, tiene que establecer <span class="docutils literal">X</span> en la altura de bloque en la que se activó Sapling, de modo que se le envíe el árbol de compromisos completo. [TODO: Decidir cuál especificar.]</p></li>
+</ul>
+</li>
+<li><p>Las direcciones blindadas creadas por el cliente ligero no tendrán ninguna transacción relevante en este bloque ni en ninguno anterior.</p></li>
+</ul>
+<p><strong>Fase B:</strong> El cliente ligero actualiza su vista local de la cadena por primera vez.</p>
+<ul class="simple">
+<li><p>El cliente ligero consulta al servidor para obtener el <span class="docutils literal">Y</span> de bloque más reciente.</p></li>
+<li><p>Luego ejecuta una consulta de rango de bloques para obtener cada bloque entre <span class="docutils literal">X</span> (inclusive) y <span class="docutils literal">Y</span> (inclusive).</p></li>
+<li><p>Se comprueba el bloque a la altura <span class="docutils literal">X</span> para asegurar que el <span class="docutils literal">blockHash</span> recibido coincida con la copia en caché del cliente ligero, y luego se descarta sin procesamiento adicional.</p>
+<ul>
+<li><p>Una inconsistencia implicaría que el bloque <span class="docutils literal">X</span> quedó huérfano durante una reorganización de la cadena.</p></li>
+</ul>
+</li>
+<li><p>A medida que llega cada <span class="docutils literal">CompactBlock</span> posterior, el cliente ligero:</p>
+<ul>
+<li><p>Valida el encabezado de bloque si está presente.</p></li>
+<li><p>Escanea el <span class="docutils literal">CompactBlock</span> para encontrar cualquier transacción relevante para las direcciones generadas desde que se obtuvo <span class="docutils literal">X</span> (probablemente las primeras transacciones que involucran esas direcciones). Si se detectan notas, el cliente:</p>
+<ul>
+<li><p>Genera testigos incrementales para las notas y los actualiza de ahí en adelante.</p></li>
+<li><p>Escanea sus nullifiers desde ese bloque en adelante.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p><strong>Fase C:</strong> El cliente ligero ha detectado algunas notas y las ha mostrado. La interacción del usuario ha indicado que las transacciones completas correspondientes deben obtenerse.</p>
+<ul class="simple">
+<li><p>El cliente ligero consulta al servidor por cada transacción que desea obtener.</p></li>
+</ul>
+<p><strong>Fase D:</strong> El usuario ha gastado algunas notas. El cliente ligero actualiza su vista local de la cadena algún tiempo después.</p>
+<ul class="simple">
+<li><p>El cliente ligero consulta al servidor para obtener el <span class="docutils literal">Z</span> de bloque más reciente.</p></li>
+<li><p>Luego ejecuta una consulta de rango de bloques para obtener cada bloque entre <span class="docutils literal">Y</span> (inclusive) y <span class="docutils literal">Z</span> (inclusive).</p></li>
+<li><p>Se comprueba el bloque a la altura <span class="docutils literal">Y</span> para asegurar que el <span class="docutils literal">blockHash</span> recibido coincida con la copia en caché del cliente ligero, y luego se descarta sin procesamiento adicional.</p>
+<ul>
+<li><p>Una inconsistencia implicaría que el bloque <span class="docutils literal">Y</span> quedó huérfano durante una reorganización de la cadena.</p></li>
+</ul>
+</li>
+<li><p>A medida que llega cada <span class="docutils literal">CompactBlock</span> posterior, el cliente ligero:</p>
+<ul>
+<li><p>Valida el encabezado de bloque si está presente.</p></li>
+<li><p>Actualiza los testigos incrementales para las notas conocidas.</p></li>
+<li><p>Escanea cualquier nullifier conocido. Las notas correspondientes se marcan como gastadas a esa altura de bloque y se excluyen de actualizaciones posteriores de testigos.</p></li>
+<li><p>Escanea cualquier transacción relevante para las direcciones generadas desde que se obtuvo <span class="docutils literal">Y</span>. Estas se manejan como en la fase B.</p></li>
+</ul>
+</li>
+</ul>
+<h3 id="importing-a-pre-existing-seed"><a class="hanchor" href="#importing-a-pre-existing-seed" aria-hidden="true" tabindex="-1">#</a>Importación de una semilla preexistente</h3>
+<p>La fase A de la interacción asume que las direcciones blindadas creadas por el cliente ligero nunca habrán sido usadas antes. Esta no es una suposición válida si el cliente ligero se inicializa con una semilla que no generó (p. ej., una semilla respaldada previamente). En este caso, la fase A se modifica de la siguiente manera:</p>
+<p><strong>Fase A:</strong> El cliente ligero se inicia por primera vez.</p>
+<ul class="simple">
+<li><p>El cliente ligero establece <span class="docutils literal">X</span> en la altura de bloque en la que se activó Sapling.</p>
+<ul>
+<li><p>Las direcciones blindadas creadas por cualquier cliente ligero no pueden tener transacciones relevantes previas a la activación de Sapling.</p></li>
+</ul>
+</li>
+</ul>
+
+
+<h2 id="block-privacy-via-bucketing"><a class="hanchor" href="#block-privacy-via-bucketing" aria-hidden="true" tabindex="-1">#</a>Privacidad de bloques mediante agrupamiento en buckets</h2>
+<p><em>Esta sección describe una mejora propuesta que no ha sido implementada.</em></p>
+<p>La interacción anterior revela al servidor, al inicio de cada fase de sincronización (B y D), la altura de bloque a la que el cliente ligero se había sincronizado previamente. Esto es una fuga de información bajo nuestro modelo de seguridad (asumiendo privacidad de red). Podemos reducir la fuga de información mediante la agrupación en "buckets" del punto de inicio de cada sincronización. Hacerlo también nos permite manejar simultáneamente la mayoría de las reorganizaciones de la cadena.</p>
+<p>Sea <span class="docutils literal">⌊X⌋ = X - (X % N)</span> el valor de <span class="docutils literal">X</span> redondeado hacia abajo a algún múltiplo del tamaño de bucket <span class="docutils literal">N</span>. Las fases de sincronización de la interacción anterior se modifican de la siguiente manera:</p>
+<pre class="code text literal-block"><code>Phase   Client                Server
+=====   ============================
+  B     GetLatestBlock ------------>
+
+        &#x3C;---------------- BlockID(Y)
+
+        GetBlockRange(⌊X⌋, Y) ----->
+
+        &#x3C;-------- CompactBlock(⌊X⌋)
+        &#x3C;-------- CompactBlock(⌊X⌋+1)
+        &#x3C;-------- CompactBlock(⌊X⌋+2)
+                        ...
+        &#x3C;-------- CompactBlock(Y-1)
+        &#x3C;-------- CompactBlock(Y)
+
+            ===
+
+  D     GetLatestBlock ------------>
+
+        &#x3C;---------------- BlockID(Z)
+
+        GetBlockRange(⌊Y⌋, Z) ----->
+
+        &#x3C;-------- CompactBlock(⌊Y⌋)
+        &#x3C;-------- CompactBlock(⌊Y⌋+1)
+                        ...
+        &#x3C;-------- CompactBlock(Z-1)
+        &#x3C;-------- CompactBlock(Z)</code></pre>
+<p><strong>Fase B:</strong> El cliente ligero actualiza su vista local de la cadena por primera vez.</p>
+<ul class="simple">
+<li><p>El cliente ligero consulta al servidor para obtener el <span class="docutils literal">Y</span> de bloque más reciente.</p></li>
+<li><p>Luego ejecuta una consulta de rango de bloques para obtener cada bloque entre <span class="docutils literal">⌊X⌋</span> (inclusive) y <span class="docutils literal">Y</span> (inclusive).</p></li>
+<li><p>Los bloques entre <span class="docutils literal">⌊X⌋</span> y <span class="docutils literal">X</span> se verifican para asegurar que el <span class="docutils literal">blockHash</span> recibido coincida con la vista de la cadena del cliente ligero para cada altura, y luego se descartan sin procesamiento adicional.</p>
+<ul>
+<li><p>Si se detecta una inconsistencia a la altura <span class="docutils literal">Q</span>, el cliente ligero establece <span class="docutils literal">X = <span class="pre">Q-1</span></span>, descarta todos los bloques locales con altura <span class="docutils literal">>= Q</span> y revierte el estado de todas las transacciones locales a la altura <span class="docutils literal"><span class="pre">Q-1</span></span> (desminándolas según sea necesario).</p></li>
+</ul>
+</li>
+<li><p>Los bloques entre <span class="docutils literal">X+1</span> y <span class="docutils literal">Y</span> se procesan como antes.</p></li>
+</ul>
+<p><strong>Fase D:</strong> El usuario ha gastado algunas notas. El cliente ligero actualiza su vista local de la cadena algún tiempo después.</p>
+<ul class="simple">
+<li><p>El cliente ligero consulta al servidor para obtener el <span class="docutils literal">Z</span> de bloque más reciente.</p></li>
+<li><p>Luego ejecuta una consulta de rango de bloques para obtener cada bloque entre <span class="docutils literal">⌊Y⌋</span> (inclusive) y <span class="docutils literal">Z</span> (inclusive).</p></li>
+<li><p>Los bloques entre <span class="docutils literal">⌊Y⌋</span> y <span class="docutils literal">Y</span> se verifican para asegurar que el <span class="docutils literal">blockHash</span> recibido coincida con la vista de la cadena del cliente ligero para cada altura, y luego se descartan sin procesamiento adicional.</p>
+<ul>
+<li><p>Si se detecta una inconsistencia a la altura <span class="docutils literal">R</span>, el cliente ligero establece <span class="docutils literal">Y = <span class="pre">R-1</span></span>, descarta todos los bloques locales con altura <span class="docutils literal">>= R</span> y revierte el siguiente estado local a la altura <span class="docutils literal"><span class="pre">R-1</span></span>:</p>
+<ul>
+<li><p>Todas las transacciones locales (desminándolas según sea necesario).</p></li>
+<li><p>Todos los nullifiers rastreados (revirtiendo su gasto o descartándolos según sea necesario).</p></li>
+<li><p>Todos los testigos incrementales (las estrategias de caché no se tratan en este ZIP).</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>Los bloques entre <span class="docutils literal">Y+1</span> y <span class="docutils literal">Z</span> se procesan como antes.</p></li>
+</ul>
+
+<h2 id="transaction-privacy"><a class="hanchor" href="#transaction-privacy" aria-hidden="true" tabindex="-1">#</a>Privacidad de transacciones</h2>
+<p>Las fases de sincronización le dan al cliente ligero información suficiente para determinar saldos precisos de las direcciones, mostrar cuándo se recibieron o gastaron fondos y gastar cualquier nota no gastada. Como la sincronización ocurre mediante un medio de difusión, no filtra información sobre qué transacciones le interesan al cliente ligero.</p>
+<p>Sin embargo, si el cliente ligero necesita acceso a otros componentes de una transacción (como los campos de memo de las notas recibidas, o los textos cifrados salientes para recuperar información de gasto al importar una semilla de billetera), deberá descargar la transacción completa. El cliente ligero DEBERÍA (SHOULD) ocultar las transacciones exactas de interés descargando también numerosas transacciones que no son de interés, y DEBERÍA (SHOULD) descargar todas las transacciones de cualquier bloque del cual se obtenga una sola transacción completa (sea de interés o no). DEBE (MUST) informar al usuario que obtener transacciones completas reducirá su privacidad.</p>
+
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>Esta propuesta está respaldada por un conjunto de bibliotecas y código de referencia puestos a disposición por la Electric Coin Company.</p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-merkletree" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#merkletree">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 3.8: Note Commitment Trees</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-merklepath" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-8">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#merklepath">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.9: Merkle Path Validity</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-saplingdecryptivk" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-5">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#saplingdecryptivk">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 4.20.2: Decryption using an Incoming Viewing Key (Sapling)</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-notept" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#notept">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 5.5: Encodings of Note Plaintexts and Memo Fields</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-spendencodingandconsensus" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#spendencodingandconsensus">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 7.3: Spend Description Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-outputencodingandconsensus" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#outputencodingandconsensus">Zcash Protocol Specification, Version 2025.6.1 [NU6.1]. Section 7.4: Output Description Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0212" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0212.rst">ZIP 212: Allow Recipient to Derive Sapling Ephemeral Secret from Note Plaintext</a></p>
+</aside>
+<aside class="footnote brackets" id="protocolbuffers" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">9</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://developers.google.com/protocol-buffers/">Protocol Buffers documentation</a></p>
+</aside>
+<aside class="footnote brackets" id="incremental-witness" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">10</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/librustzcash/blob/master/zcash_primitives/src/merkle_tree.rs">zcash_primitives Rust crate — merkle_tree.rs</a></p>
+</aside>
+<aside class="footnote brackets" id="spv-clients" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-9">11</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://en.bitcoin.it/wiki/Scalability#Simplified_payment_verification">Bitcoin Wiki: Scalability — Simplified payment verification</a></p>
+</aside>
+</aside>
+
