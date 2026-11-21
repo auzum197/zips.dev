@@ -4,6 +4,7 @@
  *   pnpm translate pr-1437-zip-0223         a document of a pull request
  *   pnpm translate --all                    every document that is missing or out of date
  *   pnpm translate --force zip-0200         ignore the cache
+ *   pnpm translate --check                  list the documents with no current translation; no model call
  *
  * Reads  content/rendered/<slug>.html
  *        data/glossary-es.yaml                 terminology
@@ -227,6 +228,29 @@ export const countTerm = (text: string, term: string): number => (text.match(new
 
 const keywords = (s: string): string => [...s.matchAll(BCP14)].map((m) => m[1]).sort().join("|");
 
+const NUMBER_WORDS = ["", "primer[oa]?", "dos|segund[oa]", "tres|tercer[oa]?", "cuatro|cuart[oa]", "cinco|quint[oa]", "seis|sext[oa]", "siete|séptim[oa]", "ocho|octav[oa]", "nueve|noven[oa]"];
+const bareNumbers = (t: string): string => t.replace(/<\/?[gx]\d+\/?>/g, " ").replace(/(\d)k\b/gi, (_, d: string) => `${d}000`);
+const digitsOf = (t: string): string => (bareNumbers(t).match(/\d/g) ?? []).sort().join("");
+
+/** True when the translation has the numbers of the source. A number of one
+ *  digit can be a Spanish word ("3rd" as "tercer"), and "500k" can be "500 000". */
+export function sameNumbers(source: string, text: string): boolean {
+    const src = bareNumbers(source);
+    const count = (t: string, re: RegExp): number => (t.match(re) ?? []).length;
+    for (let d = 0; d <= 9; d++) {
+        const missing = count(digitsOf(source), new RegExp(String(d), "g")) - count(digitsOf(text), new RegExp(String(d), "g"));
+        if (missing === 0)
+            continue;
+        if (missing < 0 || d === 0)
+            return false;
+        const alone = count(src, new RegExp(`(?<![\\d.,])${d}(?![.,]?\\d)`, "g"));
+        const words = count(text, new RegExp(`(?<!\\p{L})(?:${NUMBER_WORDS[d]})(?!\\p{L})`, "giu"));
+        if (alone < missing || words < missing)
+            return false;
+    }
+    return true;
+}
+
 /** Parse the model's placeholder text back into nodes. Throws when the
  *  structure does not match the source segment. */
 export function rebuild(seg: Segment, translated: string): ElementContent[] {
@@ -245,9 +269,8 @@ export function rebuild(seg: Segment, translated: string): ElementContent[] {
             throw new Error("this is the title of the document and it is still in English; translate it");
     }
     // every number of the source is in the translation: "Revision 2" must not become "Revisión 3"
-    const digits = (t: string): string => (t.replace(/<\/?[gx]\d+\/?>/g, " ").match(/\d/g) ?? []).sort().join("");
-    if (digits(text) !== digits(seg.source))
-        throw new Error(`the numbers differ from the source: the source has [${digits(seg.source)}], the translation has [${digits(text)}]`);
+    if (!sameNumbers(seg.source, text))
+        throw new Error(`the numbers differ from the source: the source has [${digitsOf(seg.source)}], the translation has [${digitsOf(text)}]. Write each number of the source with the same digits, and add no number`);
     // a term that stays in English must still be there
     for (const term of KEEP) {
         const want = countTerm(seg.source, term);
@@ -305,7 +328,7 @@ export function rebuild(seg: Segment, translated: string): ElementContent[] {
     if (stack.length)
         throw new Error("unclosed placeholder");
     if (seen.size !== seg.slots.size)
-        throw new Error(`placeholders missing: ${[...seg.slots.keys()].filter((k) => !seen.has(k)).join(", ")}`);
+        throw new Error(`placeholders missing: ${[...seg.slots].filter(([k]) => !seen.has(k)).map(([k, slot]) => slot.kind === "g" ? `<g${k}>…</g${k}>` : `<x${k}/>`).join(", ")}. Each placeholder of the source goes around the same words in the translation`);
     const out: ElementContent[] = [];
     if (seg.lead)
         out.push({ type: "text", value: unesc(seg.lead) });
@@ -676,7 +699,7 @@ function headingText(el: Element): string {
     return out.replace(/\s+/g, " ").trim();
 }
 
-interface Entry {
+export interface Entry {
     /** File name in content/rendered/, with no extension. */
     key: string;
     /** The document it is a version of: "zip-0317", "draft-…". */
@@ -740,6 +763,33 @@ export function seedMemory(entry: Entry, wanted: Map<string, Segment>, memory: R
         }
     }
     return taken;
+}
+
+export type Freshness = "current" | "changed" | "missing";
+
+export function freshness(entry: Pick<Entry, "key" | "title">, rendered: string = RENDERED, dir: string = OUT): Freshness {
+    const metaPath = path.join(dir, `${entry.key}.json`);
+    if (!fs.existsSync(metaPath) || !fs.existsSync(path.join(dir, `${entry.key}.html`)))
+        return "missing";
+    const html = fs.readFileSync(path.join(rendered, `${entry.key}.html`), "utf8");
+    const record = JSON.parse(fs.readFileSync(metaPath, "utf8")) as { sourceSha?: string };
+    return record.sourceSha === sha(`${html}\n${entry.title}`) ? "current" : "changed";
+}
+
+export function staleReport(entries: Iterable<Pick<Entry, "key" | "title">>, rendered: string = RENDERED, dir: string = OUT): { stale: number; text: string } {
+    const reasons = { changed: "English text changed", missing: "not translated" };
+    const lines: string[] = [];
+    let total = 0;
+    for (const entry of entries) {
+        total++;
+        const state = freshness(entry, rendered, dir);
+        if (state !== "current")
+            lines.push(`- \`${entry.key}\`: ${reasons[state]}`);
+    }
+    const head = lines.length === 0
+        ? `All ${total} documents have a current Spanish translation.`
+        : `${lines.length} of ${total} documents have no current Spanish translation.`;
+    return { stale: lines.length, text: ["### Spanish translation", "", head, "", ...lines].join("\n").trimEnd() + "\n" };
 }
 
 async function translateDoc(entry: Entry, glossary: Glossary, system: string, reviewSystem: string, promptSha: string, force: boolean): Promise<void> {
@@ -848,9 +898,13 @@ async function main(): Promise<void> {
     const args = process.argv.slice(2);
     const force = args.includes("--force");
     const all = catalog();
+    if (args.includes("--check")) {
+        process.stdout.write(staleReport(all.values()).text);
+        return;
+    }
     const slugs = args.includes("--all") ? [...all.keys()] : args.filter((a) => !a.startsWith("--"));
     if (slugs.length === 0) {
-        console.error("usage: pnpm translate [--force] --all | <document> [<document> …]   e.g. pnpm translate zip-0200 pr-1437-zip-0223");
+        console.error("usage: pnpm translate --check | [--force] --all | <document> [<document> …]   e.g. pnpm translate zip-0200 pr-1437-zip-0223");
         process.exit(1);
     }
     if (!process.env.GLM_KEY) {
@@ -863,12 +917,21 @@ async function main(): Promise<void> {
     const reviewSystem = reviewPrompt(glossary);
     // the glossary is sent with each request, so it is part of the identity too
     const promptSha = sha(`${MODEL}\n${system}\n${REVIEW_MODEL}\n${REVIEW_EFFORT}\n${reviewSystem}\n${JSON.stringify(glossary)}`).slice(0, 16);
+    const unknown = slugs.filter((slug) => !all.has(slug));
+    if (unknown.length > 0)
+        throw new Error(`${unknown.join(", ")}: not a document of the site`);
+    let errors = 0;
     for (const slug of slugs) {
-        const entry = all.get(slug);
-        if (!entry)
-            throw new Error(`${slug} is not a document of the site`);
-        await translateDoc(entry, glossary, system, reviewSystem, promptSha, force);
+        try {
+            await translateDoc(all.get(slug)!, glossary, system, reviewSystem, promptSha, force);
+        }
+        catch (err) {
+            errors++;
+            console.error(`${slug}: failed`, err);
+        }
     }
+    if (errors > 0)
+        process.exitCode = 1;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
