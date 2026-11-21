@@ -1,0 +1,1460 @@
+{
+ "segments": {
+  "Memo Bundles": "Paquetes de memorandos",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"NO DEBE (MUST NOT)\", \"DEBERÍA (SHOULD)\" y \"PUEDE (MAY)\" en este documento deben interpretarse como se describe en el BCP 14 <g1><g2>1</g2></g1> cuando, y solo cuando, aparecen en mayúsculas.",
+  "The term \"network upgrade\" in this document is to be interpreted as described in ZIP 200. <g1><g2>2</g2></g1>": "El término \"actualización de red\" en este documento debe interpretarse como se describe en el ZIP 200. <g1><g2>2</g2></g1>",
+  "The character § is used when referring to sections of the Zcash Protocol Specification. <g1><g2>3</g2></g1>": "El carácter § se utiliza para referirse a secciones de la Zcash Protocol Specification. <g1><g2>3</g2></g1>",
+  "The terms \"Mainnet\" and \"Testnet\" are to be interpreted as described in § 3.12 ‘Mainnet and Testnet’. <g1><g2>4</g2></g1>": "Los términos \"Mainnet\" y \"Testnet\" deben interpretarse como se describe en § 3.12 «Mainnet y Testnet». <g1><g2>4</g2></g1>",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "Currently, the memo associated with a shielded output is fixed to 512 bytes of data.": "Actualmente, el memorando asociado a una salida blindada está fijado en 512 bytes de datos.",
+  "This ZIP proposes to decouple memo data from outputs by introducing a per-transaction memo bundle. Each shielded output carries a 32-byte memo key rather than an inline 512-byte memo field. The memo key is used to derive a symmetric encryption key that decrypts the output's memo from the bundle, which consists of individually encrypted 256-byte chunks. This will:": "Este ZIP propone desacoplar los datos del memorando de las salidas introduciendo un paquete de memorandos por transacción. Cada salida blindada lleva una clave de memorando de 32 bytes en lugar de un campo de memorando en línea de 512 bytes. La clave de memorando se utiliza para derivar una clave de cifrado simétrico que descifra el memorando de la salida desde el paquete, que consiste en fragmentos cifrados individualmente de 256 bytes. Esto permitirá:",
+  "reduce the memo data of a transaction with two shielded outputs from a minimum of 1024 bytes to approximately 576 bytes;": "reducir los datos de memorando de una transacción con dos salidas blindadas de un mínimo de 1024 bytes a aproximadamente 576 bytes;",
+  "allow larger memos, with a proportionate increase in fees;": "permitir memorandos más grandes, con un aumento proporcional de las comisiones;",
+  "enable memo data to be shared between multiple recipients of a transaction;": "permitir que los datos de memorando se compartan entre múltiples destinatarios de una transacción;",
+  "enable memo data to be pruned from a stored transaction without impairing the ability of a consensus node to validate the transaction.": "permitir que los datos de memorando se poden de una transacción almacenada sin afectar la capacidad de un nodo de consenso para validar la transacción.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "In Zcash transaction versions v2 to v5 inclusive, each Sapling or Orchard shielded output contains a ciphertext comprised of a 52-byte note plaintext and corresponding 512-byte memo field, with a 16-byte authentication tag <g1><g2>5</g2></g1>. Recipients can only decrypt the outputs sent to them, and thus can also only observe the memo fields included with the outputs they can decrypt.": "En las versiones de transacción de Zcash de la v2 a la v5 inclusive, cada salida blindada de Sapling u Orchard contiene un texto cifrado compuesto por un texto plano de nota de 52 bytes y un campo de memorando correspondiente de 512 bytes, con una etiqueta de autenticación de 16 bytes <g1><g2>5</g2></g1>. Los destinatarios solo pueden descifrar las salidas que se les envían y, por lo tanto, también solo pueden observar los campos de memorando incluidos con las salidas que pueden descifrar.",
+  "An ordinary transaction is one that is padded to 2 inputs and 2 outputs (or 2 Orchard actions), so as to make transfers that fully transfer a note indistinguishable from an ordinary transaction with change. Such a transaction will consume 1024 bytes of block space for memo data. An Orchard transfer that spends a larger number of notes will incur a memo data cost of <x1/> bytes on-chain, where <x2/> is the number of notes being spent as inputs. Ordinarily, most of this data space is wasted, as most wallets support only a single 512-byte memo to be sent to the recipient of the transfer. Virtually all transactions with shielded components consume at least 1024 bytes of block space for memo data, and between half and 3/4 of that data payload is ordinarily waste. Adopting this ZIP will eliminate a significant source of chain bloat.": "Una transacción ordinaria es aquella que se rellena a 2 entradas y 2 salidas (o 2 acciones de Orchard), de modo que las transferencias que transfieren una nota por completo sean indistinguibles de una transacción ordinaria con vuelto. Dicha transacción consumirá 1024 bytes de espacio de bloque para datos de memorando. Una transferencia de Orchard que gasta un número mayor de notas incurrirá en un costo de datos de memorando de <x1/> bytes en la cadena, donde <x2/> es el número de notas que se gastan como entradas. Ordinariamente, la mayor parte de este espacio de datos se desperdicia, ya que la mayoría de las billeteras solo permiten enviar un único memorando de 512 bytes al destinatario de la transferencia. Prácticamente todas las transacciones con componentes blindados consumen al menos 1024 bytes de espacio de bloque para datos de memorando, y entre la mitad y 3/4 de esa carga de datos es ordinariamente desperdicio. La adopción de este ZIP eliminará una fuente significativa de hinchazón de la cadena.",
+  "Beyond reducing chain bloat, decoupling memos from shielded outputs allows for some important use cases to be served. The shielded transaction protocol always hides the sender(s) (that is, the addresses corresponding to the keys used to spend the input notes) from all of the recipients. For certain kinds of transactions, it is desirable to make one or more sender addresses available to one or more recipients (for example, a reply address). In such circumstances it is important to authenticate the sender addresses, to give the recipient a guarantee that the address is controlled by a sender of the transaction; failure to authenticate this address can enable phishing attacks. These Authenticated Reply Addresses require zero-knowledge proofs, and for the Orchard protocol these proofs are too large to fit into the existing 512-byte memo field. This ZIP makes the maximum size of memo data large enough to support the inclusion of such proofs.": "Además de reducir la hinchazón de la cadena, desacoplar los memorandos de las salidas blindadas permite atender algunos casos de uso importantes. El protocolo de transacciones blindadas siempre oculta a los remitentes (es decir, las direcciones correspondientes a las claves utilizadas para gastar las notas de entrada) de todos los destinatarios. Para ciertos tipos de transacciones, es deseable poner una o más direcciones de remitente a disposición de uno o más destinatarios (por ejemplo, una dirección de respuesta). En tales circunstancias es importante autenticar las direcciones de los remitentes, para dar al destinatario la garantía de que la dirección está controlada por un remitente de la transacción; no autenticar esta dirección puede permitir ataques de suplantación de identidad (phishing). Estas direcciones de respuesta autenticadas requieren pruebas de conocimiento cero, y para el protocolo de Orchard estas pruebas son demasiado grandes para caber en el campo de memorando existente de 512 bytes. Este ZIP hace que el tamaño máximo de los datos de memorando sea lo suficientemente grande como para admitir la inclusión de tales pruebas.",
+  "Another motivation is that it is desirable, for clients with more stringent bandwidth constraints, to be able to transmit encrypted notes to the client without including the encrypted memo data. In the current light client protocol <g1><g2>6</g2></g1>, this is done by truncating the note ciphertext to just the part that encrypts the note plaintext, removing the 512-byte encrypted memo and the 16-byte AEAD authentication tag. Because the authentication tag is not transmitted to the light client, the decryption performed by the client does not meet standard security notions for an authenticated encryption scheme.": "Otra motivación es que es deseable, para clientes con restricciones de ancho de banda más estrictas, poder transmitir notas cifradas al cliente sin incluir los datos cifrados del memorando. En el protocolo de cliente ligero actual <g1><g2>6</g2></g1>, esto se hace truncando el texto cifrado de la nota a solo la parte que cifra el texto plano de la nota, eliminando el memorando cifrado de 512 bytes y la etiqueta de autenticación AEAD de 16 bytes. Debido a que la etiqueta de autenticación no se transmite al cliente ligero, el descifrado realizado por el cliente no cumple con las nociones de seguridad estándar para un esquema de cifrado autenticado.",
+  "By decoupling memo data from note ciphertexts, this proposal reduces the v6-onward note ciphertext to 100 bytes (excluding any other changes to the note plaintext proposed by other ZIPs). This makes it practical for the light client protocol to transmit complete note ciphertexts, including the AEAD tag, in exchange for a relatively minor bandwidth increase compared to the current truncated ciphertexts. This allows light clients to perform fully authenticated decryption, rectifying the security shortcoming and simplifying the security argument.": "Al desacoplar los datos de memorando de los textos cifrados de las notas, esta propuesta reduce el texto cifrado de la nota a 100 bytes a partir de la v6 (excluyendo cualquier otro cambio al texto plano de la nota propuesto por otros ZIP). Esto hace que sea práctico para el protocolo de cliente ligero transmitir textos cifrados de nota completos, incluida la etiqueta AEAD, a cambio de un aumento de ancho de banda relativamente menor en comparación con los textos cifrados truncados actuales. Esto permite a los clientes ligeros realizar un descifrado completamente autenticado, corrigiendo la deficiencia de seguridad y simplificando el argumento de seguridad.",
+  "Instead of the memo data, this ZIP proposes that it is possible to indicate whether a memo is present for the recipient. When using the light client protocol, a recipient need not download full transaction information if this indication tells them that they have not received any memo in the transaction.": "En lugar de los datos de memorando, este ZIP propone que es posible indicar si hay un memorando presente para el destinatario. Al usar el protocolo de cliente ligero, un destinatario no necesita descargar la información completa de la transacción si esta indicación le dice que no ha recibido ningún memorando en la transacción.",
+  "In addition to reducing chain bloat by eliminating wasted memo space, this ZIP defines a mechanism by which validating nodes may reduce their long-term storage requirements by pruning memo data, without impairing their ability to validate the entire chain.": "Además de reducir el hinchazón de la cadena al eliminar el espacio de memorando desperdiciado, este ZIP define un mecanismo mediante el cual los nodos validadores pueden reducir sus requisitos de almacenamiento a largo plazo podando los datos de memorando, sin afectar su capacidad para validar la cadena completa.",
+  "Finally, at present, it is not possible to transmit the same memo data to multiple transaction recipients without redundantly encoding that data, and sending memo data greater than 512 bytes requires sending multiple outputs; the problem is compounded when attempting to send more than 512 bytes to each recipient. By separating memo data from the decryption capability for those memos, it admits a greater variety of applications that utilize memo data, while decreasing the amount of data that needs to be stored on-chain overall.": "Finalmente, en la actualidad no es posible transmitir los mismos datos de memorando a múltiples destinatarios de una transacción sin codificar esos datos de forma redundante, y enviar datos de memorando mayores de 512 bytes requiere enviar múltiples salidas; el problema se agrava cuando se intenta enviar más de 512 bytes a cada destinatario. Al separar los datos de memorando de la capacidad de descifrar esos memorandos, se admite una mayor variedad de aplicaciones que utilizan datos de memorando, al tiempo que se disminuye la cantidad de datos que deben almacenarse en la cadena en general.",
+  "<x1/>Use Cases": "<x1/>Casos de uso",
+  "<x1/>Authenticated Reply-to addresses": "<x1/>Direcciones de respuesta autenticadas",
+  "In a peer-to-peer transaction Bob and Alice can split a lunch check. Bob can send a shielded memo to Alice that says \"Nice Lunch! It was fun! this is my half + tips. Hugs, Bob.\". Bob would show Alice his transaction detail in his wallet and Alice can visibly check hers and verify that the memo contained in that transaction was authored by Bob. That in-person manual verification process is only valid for that one transaction. Anyone that knows Alice's address and the fact that she exchanged messages over Zcash memos with Bob could spoof a shielded memo impersonating Bob. Neither Alice or her wallet have an aid to judge the authorship of any of the received messages.": "En una transacción entre pares, Bob y Alice pueden dividir la cuenta de un almuerzo. Bob puede enviar un memorando blindado a Alice que diga \"¡Buen almuerzo! ¡Fue divertido! esta es mi mitad + propina. Abrazos, Bob.\". Bob podría mostrarle a Alice el detalle de su transacción en su billetera y Alice puede revisar visiblemente la suya y verificar que el memorando contenido en esa transacción fue redactado por Bob. Ese proceso de verificación manual en persona solo es válido para esa única transacción. Cualquiera que conozca la dirección de Alice y el hecho de que ella intercambió mensajes por memorandos de Zcash con Bob podría falsificar un memorando blindado suplantando a Bob. Ni Alice ni su billetera tienen una ayuda para juzgar la autoría de cualquiera de los mensajes recibidos.",
+  "If Bob's wallet had the capability to prove the authorship of a message, Alice's wallet could help her notice such a spoofing attempt. The rationale of this use case is that application developers can use this mechanism to build a user experience that can help users tell apart trustworthy memos from those whose origin cannot be certainly determined.": "Si la billetera de Bob tuviera la capacidad de demostrar la autoría de un mensaje, la billetera de Alice podría ayudarla a notar dicho intento de suplantación. La justificación de este caso de uso es que los desarrolladores de aplicaciones pueden usar este mecanismo para construir una experiencia de usuario que pueda ayudar a los usuarios a distinguir los memorandos confiables de aquellos cuyo origen no puede determinarse con certeza.",
+  "It has to be noted that providing a mechanism for wallet applications to attach data that can help prove the origin of a transaction through the memo field will not prevent that spoofers attempt such attacks. Spoofers continue to send memos to attempt to deceive a user. The proving data is not self-sufficient to determine that the author of a shielded memo shall be trusted. Further verification steps would be needed to determine a such a level of trust. This specification enables wallet developers to build a user experience that helps Zcash wallet users to identify authentic memos containing Reply-to addresses from spoofed ones. The definition of such UX is outside of the scope of this ZIP.": "Hay que señalar que proporcionar un mecanismo para que las aplicaciones de billetera adjunten datos que puedan ayudar a demostrar el origen de una transacción a través del campo de memorando no evitará que los falsificadores intenten tales ataques. Los falsificadores continúan enviando memorandos para intentar engañar a un usuario. Los datos de demostración no son autosuficientes para determinar que se puede confiar en el autor de un memorando blindado. Se necesitarían pasos de verificación adicionales para determinar ese nivel de confianza. Esta especificación permite a los desarrolladores de billeteras construir una experiencia de usuario que ayude a los usuarios de billeteras de Zcash a identificar los memorandos auténticos que contienen direcciones de respuesta de los falsificados. La definición de dicha experiencia de usuario está fuera del alcance de este ZIP.",
+  "<x1/>Memos as input for application layer": "<x1/>Memorandos como entrada para la capa de aplicación",
+  "Using unverifiable memo data as input for business logic is unadvisable. Repeatedly, application developers have discussed memos an on-chain data layer for privacy-minded software such as Instant (or ansynchronous) messaging applications or marketplaces. These applications require that the memo information can be <g1>trusted</g1> and therefore be treated as <g2>actionable</g2> data by the application business logic. Without such a mechanism the application does not have a way to choose which messages should be trusted and which ones shall be ignored. The ability to attach proofs to memos provides application developers with mechanisms to distinguish plausible user intent from arbitrary memos generated outside the application domain.": "Usar datos de memorando no verificables como entrada para la lógica de negocio es desaconsejable. En repetidas ocasiones, los desarrolladores de aplicaciones han discutido los memorandos como una capa de datos en cadena para software orientado a la privacidad, como aplicaciones de mensajería instantánea (o asincrónica) o mercados. Estas aplicaciones requieren que la información del memorando pueda ser <g1>confiable</g1> y, por lo tanto, tratarse como datos <g2>accionables</g2> por la lógica de negocio de la aplicación. Sin tal mecanismo, la aplicación no tiene forma de elegir qué mensajes deben confiarse y cuáles deben ignorarse. La capacidad de adjuntar demostraciones a los memorandos proporciona a los desarrolladores de aplicaciones mecanismos para distinguir la intención plausible del usuario de memorandos arbitrarios generados fuera del dominio de la aplicación.",
+  "<x1/>Broadcasting a newsletter": "<x1/>Difusión de un boletín",
+  "The ZecHub DAO runs a \"Shielded Newsletter\" service <g1><g2>7</g2></g1>. Users subscribe by sending a one-time transaction with a subscription fee and a shielded memo that tells the service where to send the newsletter to. As discussed in the motivation section, Memo bundles will help the newsletter service to avoid chain bloat by enabling subscribers to share a single key to decrypt a single memo instead of sending individual memos to each one of them. Additionally, by requiring subscribers to prove the authorship of their subscription memos, the newsletter can verify that the recipient address indicated in the one-time subscription memo is indeed the author of the subscription and not a subscription bot attempting to perform a pseudospoofing attack against the service. Finally, the newsletter service can require one-time unsubscribe messages to attach a proof-of-authorship that proves that the sender owns spend authority over the address that the unsubcription is being requested for.": "La DAO de ZecHub opera un servicio de \"Shielded Newsletter\" <g1><g2>7</g2></g1>. Los usuarios se suscriben enviando una transacción única con una comisión de suscripción y un memorando blindado que indica al servicio a dónde enviar el boletín. Como se analizó en la sección de motivación, los Memo bundles ayudarán al servicio de boletín a evitar el hinchazón de la cadena al permitir que los suscriptores compartan una sola clave para descifrar un solo memorando, en lugar de enviar memorandos individuales a cada uno de ellos. Además, al requerir que los suscriptores demuestren la autoría de sus memorandos de suscripción, el boletín puede verificar que la dirección de destinatario indicada en el memorando de suscripción única es efectivamente el autor de la suscripción y no un bot de suscripción que intenta realizar un ataque de pseudosuplantación contra el servicio. Finalmente, el servicio de boletín puede requerir que los mensajes únicos de cancelación de suscripción adjunten una prueba de autoría que demuestre que el remitente posee autoridad de gasto sobre la dirección para la cual se solicita la cancelación de suscripción.",
+  "<x1/>Privacy Implications": "<x1/>Implicaciones de privacidad",
+  "Prior to the activation of this ZIP, every shielded output has an associated memo field. A chain observer can therefore infer a likely 1:1 correlation between transaction recipients and memo payloads. The maximum number of distinct memos is precisely known, and the bounds on possible memo sizes are very small (between 0 and 512 bytes). It is possible to send additional data to a single recipient by adding (potentially zero-valued) outputs; on-chain this is indistinguishable from sending more memos to more recipients or (in the case of Orchard) spending more input notes.": "Antes de la activación de este ZIP, cada salida blindada tiene un campo de memorando asociado. Un observador de la cadena puede, por lo tanto, inferir una probable correlación de 1:1 entre los destinatarios de transacciones y las cargas de memorando. Se conoce con precisión el número máximo de memorandos distintos, y los límites sobre los posibles tamaños de memorando son muy pequeños (entre 0 y 512 bytes). Es posible enviar datos adicionales a un solo destinatario añadiendo salidas (potencialmente de valor cero); en la cadena esto es indistinguible de enviar más memorandos a más destinatarios o (en el caso de Orchard) de gastar más notas de entrada.",
+  "After the activation of this ZIP, recipient count and memo count are decoupled. It becomes possible to construct transactions for which there are many more recipients than distinct memos, or vice versa. Without mitigation, this could result in more observably distinct patterns relating the number of recipients to the number of possible memos. In particular, a transaction with no memo would be distinguishable from one with a memo.": "Tras la activación de este ZIP, la cantidad de destinatarios y la cantidad de memorandos quedan desacopladas. Se vuelve posible construir transacciones en las que hay muchos más destinatarios que memorandos distintos, o viceversa. Sin mitigación, esto podría dar lugar a patrones más distinguibles que relacionan la cantidad de destinatarios con la cantidad de memorandos posibles. En particular, una transacción sin memorando sería distinguible de una con memorando.",
+  "To mitigate this, a transaction with any shielded outputs is required to include at least 2 memo chunks in its memo bundle and pad the memo to a multiple of 2 chunks (see [Memo bundle padding]). This ensures that the common use case of sending a transaction without including explicit memo data is indistinguishable from sending a transaction with a short memo, as is currently supported by all wallets in common use.": "Para mitigar esto, se requiere que una transacción con cualquier salida blindada incluya al menos 2 fragmentos de memorando en su memo bundle y rellene el memorando a un múltiplo de 2 fragmentos (véase [Memo bundle padding]). Esto asegura que el caso de uso común de enviar una transacción sin incluir datos explícitos de memorando sea indistinguible de enviar una transacción con un memorando corto, como se admite actualmente en todas las billeteras de uso común.",
+  "If a wallet includes an authenticated reply-to address, however, this may be distinguishable from other ordinary wallet behaviour because the memo data (including the reply-to address) necessarily exceeds 512 bytes. While it would be possible to require transactions be padded to at least 16 chunks to ameliorate this potential distinguisher, this introduces an unreasonable amount of waste in the case of ordinary transactions.": "Si una billetera incluye una dirección autenticada de respuesta, sin embargo, esto puede ser distinguible de otro comportamiento ordinario de billetera porque los datos de memorando (incluida la dirección de respuesta) exceden necesariamente los 512 bytes. Aunque sería posible requerir que las transacciones se rellenen a al menos 16 fragmentos para mitigar este posible elemento distintivo, esto introduce una cantidad irrazonable de desperdicio en el caso de las transacciones ordinarias.",
+  "On the flip side, a chain observer now only knows upper bounds on the amount of memo data being conveyed, and the number of possible distinct memos. They have no information about how memo data is split among the recipients. This can provide a privacy improvement in some situations. For example, it is not possible to distinguish between many recipients receiving many small memos, and the same set of recipients receiving one large shared memo.": "Por otro lado, un observador de la cadena ahora solo conoce límites superiores sobre la cantidad de datos de memorando que se transmiten y sobre el número de memorandos distintos posibles. No tiene información sobre cómo se reparten los datos de memorando entre los destinatarios. Esto puede proporcionar una mejora de privacidad en algunas situaciones. Por ejemplo, no es posible distinguir entre muchos destinatarios que reciben muchos memorandos pequeños, y el mismo conjunto de destinatarios recibiendo un memorando grande compartido.",
+  "In summary, when sending large amounts of memo data, the change introduced by this ZIP eliminates a potential distinguisher along one axis in exchange for a potential distinguisher along another.": "En resumen, al enviar grandes cantidades de datos de memorando, el cambio introducido por este ZIP elimina un posible elemento distintivo a lo largo de un eje a cambio de un posible elemento distintivo a lo largo de otro.",
+  "<x1/>Requirements": "<x1/>Requisitos",
+  "Standard Zcash shielded transactions continue to include a single 512-byte memo.": "Las transacciones blindadas estándar de Zcash continúan incluyendo un único memorando de 512 bytes.",
+  "The mechanism should be able to reproduce the existing functionality where each output may include a corresponding 512 bytes of memo data that is decryptable only by the recipient of that output.": "El mecanismo debería ser capaz de reproducir la funcionalidad existente donde cada salida puede incluir 512 bytes correspondientes de datos de memorando que solo puede descifrar el destinatario de esa salida.",
+  "Recipients can receive memo data that is greater than 512 bytes in length.": "Los destinatarios pueden recibir datos de memorando de longitud mayor a 512 bytes.",
+  "Multiple recipients, across any of the shielded pools, can be given the capability to view the same memo data.": "A múltiples destinatarios, en cualquiera de los pooles blindados, se les puede dar la capacidad de ver los mismos datos de memorando.",
+  "The exact number and exact lengths of distinct decryptable memos should not be revealed, even to the transaction recipients, although an upper bound on the total length of memo data that the observer does not have the capability to view will be leaked to transaction recipients, and the overall maximum possible length of memo data will be revealed on-chain.": "El número exacto y las longitudes exactas de memorandos descifrables distintos no deberían revelarse, ni siquiera a los destinatarios de la transacción, aunque un límite superior sobre la longitud total de los datos de memorando que el observador no tiene capacidad para ver se filtrará a los destinatarios de la transacción, y la longitud máxima total posible de los datos de memorando se revelará en la cadena.",
+  "A recipient can determine whether or not they have been given the capability to view any memo solely by decrypting the note ciphertext.": "Un destinatario puede determinar si se le ha dado o no la capacidad de ver un memorando únicamente descifrando el texto cifrado de la nota.",
+  "Memo chunks within a transaction can be individually pruned from block storage without preventing the transaction from being verified when transmitting block data to peers.": "Los fragmentos de memorando dentro de una transacción pueden podarse individualmente del almacenamiento de bloques sin impedir que la transacción se verifique al transmitir datos de bloque a los pares.",
+  "The ciphertext of the note alone can be decrypted using a scheme that meets a standard security notion for authenticated encryption, without more than a small constant overhead in ciphertext size.": "El texto cifrado de la nota por sí solo puede descifrarse utilizando un esquema que cumpla con una noción de seguridad estándar para cifrado autenticado, sin más que una pequeña sobrecarga constante en el tamaño del texto cifrado.",
+  "<x1/>Non-requirements": "<x1/>No requisitos",
+  "Recipients do not need to be able to receive multiple memos per note. This capability can however be enabled under the existing proposal by \"chaining\" memos, including the decryption key for another memo within the memo that is decryptable by a recipient.": "Los destinatarios no necesitan poder recibir múltiples memorandos por nota. Sin embargo, esta capacidad puede habilitarse bajo la propuesta existente mediante el \"encadenamiento\" de memorandos, incluyendo la clave de descifrado de otro memorando dentro del memorando que puede descifrar un destinatario.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "Since this proposal is defined only for v6 and later transactions, it is not necessary to consider Sprout JoinSplit outputs. The following sections apply to both Sapling and Orchard outputs.": "Dado que esta propuesta se define solo para transacciones v6 y posteriores, no es necesario considerar las salidas JoinSplit de Sprout. Las siguientes secciones se aplican tanto a las salidas de Sapling como a las de Orchard.",
+  "<x1/>Memo bundle": "<x1/>Paquete de memos",
+  "A memo bundle consists of a sequence of 272-byte memo chunks, each encrypting a 256-byte chunk of memo plaintext. These memo chunks represent zero or more encrypted memos.": "Un paquete de memos consiste en una secuencia de fragmentos de memo de 272 bytes, cada uno de los cuales cifra un fragmento de texto plano de memo de 256 bytes. Estos fragmentos de memo representan cero o más memos cifrados.",
+  "Each transaction may contain a single memo bundle, and a memo bundle may contain at most <x1/> = 64 memo chunks. This limits the total amount of memo data that can be conveyed within a single transaction to <x2/> × 256 = 16384 bytes, or 16 KiB.": "Cada transacción puede contener un solo memo bundle, y un memo bundle puede contener como máximo <x1/> = 64 fragmentos de memorando. Esto limita la cantidad total de datos de memorando que pueden transmitirse dentro de una sola transacción a <x2/> × 256 = 16384 bytes, o 16 KiB.",
+  "If the transaction contains any shielded outputs, its memo bundle MUST contain an even number of memo chunks, with a minimum of 2. See [Memo bundle padding] for details.": "Si la transacción contiene cualquier salida blindada, su memo bundle DEBE (MUST) contener un número par de fragmentos de memorando, con un mínimo de 2. Véase [Memo bundle padding] para más detalles.",
+  "Memo bundles are encoded in transactions in a prunable manner: each memo chunk can be replaced by its representative digest.": "Los memo bundles se codifican en las transacciones de manera podable: cada fragmento de memorando puede reemplazarse por su resumen representativo.",
+  "<x1/>Memo encryption": "<x1/>Cifrado de memos",
+  "During transaction construction, each output with memo data is assigned a 32-byte memo key <x1/>, as follows:": "Durante la construcción de la transacción, cada salida con datos de memo recibe una clave de memo de 32 bytes <x1/>, de la siguiente manera:",
+  "If an output is intended to be publicly decryptable, it is assigned the memo key consisting of 32 <x1/> bytes.": "Si se pretende que una salida sea descifrable públicamente, se le asigna la clave de memo que consiste en 32 bytes <x1/>.",
+  "If an output has no memo data, it is assigned the memo key consisting of 32 <x1/> bytes.": "Si una salida no tiene datos de memo, se le asigna la clave de memo que consiste en 32 bytes <x1/>.",
+  "Otherwise, a 32-byte key SHOULD be generated randomly in a way that excludes the above-mentioned reserved values from the valid range of the generation function.": "De lo contrario, DEBERÍA (SHOULD) generarse una clave de 32 bytes de forma aleatoria, excluyendo del rango válido de la función de generación los valores reservados mencionados anteriormente.",
+  "A single memo key MUST NOT be used to encrypt more than one memo within a single transaction. To share a memo among multiple recipients, the same <x1/> value is placed in each recipient's note plaintext; this does not violate the above constraint because all recipients decrypt the same memo.": "Una misma clave de memo NO DEBE (MUST NOT) usarse para cifrar más de un memo dentro de una sola transacción. Para compartir un memo entre múltiples destinatarios, se coloca el mismo valor de <x1/> en el texto plano de la nota de cada destinatario; esto no viola la restricción anterior porque todos los destinatarios descifran el mismo memo.",
+  "In note plaintexts of v6-onward transactions, the 512-byte memo field is replaced by the 32-byte <x1/>.": "En los textos sin formato de las notas de las transacciones v6 en adelante, el campo de memorando de 512 bytes se reemplaza por el <x1/> de 32 bytes.",
+  "The explicit encodings of the note plaintexts for Sapling and Orchard outputs are specified in ZIP 230 <g1><g2>8</g2></g1>.": "Las codificaciones explícitas de los textos sin formato de las notas para las salidas de Sapling y Orchard se especifican en el ZIP 230 <g1><g2>8</g2></g1>.",
+  "The transaction builder generates a 32-byte salt value <x1/> from a CSPRNG. A new salt MUST be generated for each memo bundle.": "El constructor de la transacción genera un valor salt de 32 bytes <x1/> a partir de un CSPRNG. DEBE (MUST) generarse un nuevo salt para cada paquete de memos.",
+  "The symmetric encryption key for a memo is derived from its <x1/> as follows:": "La clave de cifrado simétrico para un memo se deriva de su <x1/> de la siguiente manera:",
+  "The first byte <x1/> should be added to the documentation of inputs to <x2/> in § 4.1.2 ‘Pseudo Random Functions’ <g3><g4>9</g4></g3>.": "El primer byte <x1/> debería añadirse a la documentación de las entradas de <x2/> en el § 4.1.2 “Funciones pseudoaleatorias” <g3><g4>9</g4></g3>.",
+  "If the generated key <x1/> is 32 <x2/> bytes, the transaction constructor MAY repeat this procedure with a different salt, in order to avoid the recipient misinterpreting the output as having no memo data. Since that has negligible probability, it alternatively MAY omit this check.": "Si la clave generada <x1/> consiste en 32 bytes <x2/>, el constructor de la transacción PUEDE (MAY) repetir este procedimiento con un salt diferente, a fin de evitar que el destinatario interprete erróneamente que la salida no tiene datos de memo. Dado que eso tiene una probabilidad despreciable, alternativamente PUEDE (MAY) omitir esta verificación.",
+  "Each memo MUST have a length that is a multiple of 256 bytes. (For UTF-8 text memos, padding is performed at the application level as specified in ZIP 302 <g1><g2>10</g2></g1>.) The memo is split into 256-byte plaintext chunks. Each plaintext chunk is encrypted with ChaCha20Poly1305 <g3><g4>11</g4></g3> as follows:": "Cada memo DEBE (MUST) tener una longitud que sea múltiplo de 256 bytes. (Para los memos de texto UTF-8, el relleno se realiza a nivel de la aplicación, como se especifica en el ZIP 302 <g1><g2>10</g2></g1>.) El memo se divide en fragmentos de texto plano de 256 bytes. Cada fragmento de texto plano se cifra con ChaCha20Poly1305 <g3><g4>11</g4></g3> de la siguiente manera:",
+  "where <x1/>.": "donde <x1/>.",
+  "The resulting 272-byte ciphertext is referred to as a memo chunk:": "El texto cifrado resultante de 272 bytes se denomina fragmento de memo:",
+  "This is a variant of the STREAM construction <g1><g2>12</g2></g1>.": "Esta es una variante de la construcción STREAM <g1><g2>12</g2></g1>.",
+  "<x1/> is a big-endian chunk counter starting at zero and incrementing by one for each subsequent chunk within a particular memo.": "<x1/> es un contador de fragmentos en big-endian que comienza en cero y se incrementa en uno por cada fragmento subsiguiente dentro de un memo en particular.",
+  "<x1/> is the byte <x2/> for the final memo chunk, and <x3/> for all preceding chunks.": "<x1/> es el byte <x2/> para el fragmento final del memo, y <x3/> para todos los fragmentos precedentes.",
+  "Finally, the encrypted memo chunks for all memos are combined into a single sequence using an order-preserving shuffle. Memo chunks from different memos MAY be interleaved in any order, but memo chunks from the same memo MUST have the same relative order.": "Finalmente, los fragmentos de memo cifrados de todos los memos se combinan en una sola secuencia mediante una mezcla que preserva el orden. Los fragmentos de memo de diferentes memos PUEDEN (MAY) intercalarse en cualquier orden, pero los fragmentos de memo de un mismo memo DEBEN (MUST) tener el mismo orden relativo.",
+  "The shuffle algorithm SHOULD select each successive chunk by choosing among the remaining lists with probability weighted by remaining list length. That is, given <x1/> lists with remaining lengths <x2/>, the next chunk is drawn from list <x3/> with probability <x4/>. This can be implemented by generating a uniform random index <x5/> in <x6/> and selecting the list <x7/> such that <x8/>.": "El algoritmo de barajado DEBERÍA (SHOULD) seleccionar cada fragmento sucesivo eligiendo entre las listas restantes con probabilidad ponderada por la longitud restante de cada lista. Es decir, dadas <x1/> listas con longitudes restantes <x2/>, el siguiente fragmento se extrae de la lista <x3/> con probabilidad <x4/>. Esto puede implementarse generando un índice aleatorio uniforme <x5/> en <x6/> y seleccionando la lista <x7/> tal que <x8/>.",
+  "The shuffle algorithm MUST ensure that a memo recipient learns only (a) the number of chunks in their own memo and (b) the total number of chunks they cannot decrypt, but gains no information about how the undecryptable chunks are distributed among other memos. The above weighting satisfies this property.": "El algoritmo de mezcla DEBE (MUST) garantizar que un destinatario de un memo solo conozca (a) la cantidad de fragmentos de su propio memo y (b) la cantidad total de fragmentos que no puede descifrar, pero no obtenga información alguna sobre cómo se distribuyen los fragmentos no descifrables entre otros memos. La ponderación anterior satisface esta propiedad.",
+  "The following diagram shows an example shuffle for three memos:": "El siguiente diagrama muestra un ejemplo de mezcla para tres memos:",
+  "<x1/>Memo bundle padding": "<x1/>Relleno del paquete de memos",
+  "If the transaction contains any shielded outputs, the memo bundle MUST contain an even number of memo chunks, with a minimum of 2. If the number of memo chunks resulting from the encryption and shuffle steps above does not satisfy this requirement, the transaction builder MUST append padding chunks generated by encrypting random memo data using a random memo key generated using a CSPRNG until the total is even and at least 2. Padding chunks generated in this fashion will be indistinguishable from real encrypted memo chunks to an observer who does not hold the memo key for those chunks.": "Si la transacción contiene salidas blindadas, el paquete de memos DEBE (MUST) contener un número par de fragmentos de memo, con un mínimo de 2. Si el número de fragmentos de memo resultante de los pasos de cifrado y barajado anteriores no satisface este requisito, el constructor de la transacción DEBE (MUST) añadir fragmentos de relleno generados cifrando datos de memo aleatorios usando una clave de memo aleatoria generada con un CSPRNG hasta que el total sea par y de al menos 2. Los fragmentos de relleno generados de esta forma serán indistinguibles de los fragmentos de memo cifrados reales para un observador que no posea la clave de memo de esos fragmentos.",
+  "<x1/>Memo decryption": "<x1/>Descifrado de memos",
+  "When a recipient decrypts a shielded output, they obtain a memo key <x1/>. If <x2/> consists of 32 <x3/> bytes, no memo is associated with this output and memo decryption SHOULD NOT be performed. Otherwise, the recipient derives <x4/> as above, and then proceeds as follows:": "Cuando un destinatario descifra una salida blindada, obtiene una clave de memo <x1/>. Si <x2/> consiste en 32 bytes <x3/>, no hay ningún memo asociado a esta salida y NO DEBERÍA (SHOULD NOT) realizarse el descifrado del memo. De lo contrario, el destinatario deriva <x4/> como se indicó anteriormente y luego procede de la siguiente manera:",
+  "<x1/> let mutable <x2/> <x3/> let mutable <x4/> <x5/> let mutable <x6/> <x7/> for <x8/> from <x9/> up to <x10/>: <x11/> <x12/> if <x13/> is not pruned: <x14/> <x15/> let <x16/> <x17/> let <x18/> <x19/> if <x20/>: <x21/> <x22/> set <x23/> <x24/> set <x25/> <x26/> set <x27/> <x28/> <x29/> let <x30/> <x31/> let mutable <x32/> false <x33/> <x34/> for <x35/> from <x36/> up to <x37/>: <x38/> <x39/> if <x40/> is not pruned: <x41/> <x42/> let <x43/> <x44/> if <x45/> and <x46/> and not <x47/>: <x48/> <x49/> set <x50/> <x51/> set <x52/> true <x53/> <x54/> <x55/> if <x56/> then return <x57/> else return <x58/>": "<x1/> sea mutable <x2/> <x3/> sea mutable <x4/> <x5/> sea mutable <x6/> <x7/> para <x8/> desde <x9/> hasta <x10/>: <x11/> <x12/> si <x13/> no está podado: <x14/> <x15/> sea <x16/> <x17/> sea <x18/> <x19/> si <x20/>: <x21/> <x22/> establecer <x23/> <x24/> establecer <x25/> <x26/> establecer <x27/> <x28/> <x29/> sea <x30/> <x31/> sea mutable <x32/> false <x33/> <x34/> para <x35/> desde <x36/> hasta <x37/>: <x38/> <x39/> si <x40/> no está podado: <x41/> <x42/> sea <x43/> <x44/> si <x45/> y <x46/> y no <x47/>: <x48/> <x49/> establecer <x50/> <x51/> establecer <x52/> true <x53/> <x54/> <x55/> si <x56/> entonces devolver <x57/> de lo contrario devolver <x58/>",
+  "This algorithm relies on the order-preserving shuffle invariant from [Memo encryption]: the final chunk of a memo always appears after all of its non-final chunks. The <x1/> guard ensures that a chunk is only accepted as the final chunk if it appears at or after the position following the last successfully decrypted non-final chunk.": "Este algoritmo se basa en el invariante de la mezcla que preserva el orden de [Cifrado de memos]: el fragmento final de un memo siempre aparece después de todos sus fragmentos no finales. La guarda <x1/> garantiza que un fragmento solo se acepte como fragmento final si aparece en la posición siguiente al último fragmento no final descifrado con éxito, o después de ella.",
+  "If any chunk of the memo encrypted to <x1/> has been pruned, the decryption process above returns nothing (as <x2/> will be set to the wrong counter value followed by <x3/>), ensuring that a malformed memo is not returned.": "Si cualquier fragmento del memo cifrado para <x1/> ha sido podado, el proceso de descifrado anterior no devuelve nada (ya que <x2/> se establecerá en el valor de contador incorrecto seguido de <x3/>), lo que garantiza que no se devuelva un memo mal formado.",
+  "Wallet implementations SHOULD defer memo bundle decryption to an asynchronous process that is independent of the trial decryption of note ciphertexts.": "Las implementaciones de billeteras DEBERÍAN (SHOULD) aplazar el descifrado del paquete de memos a un proceso asincrónico que sea independiente del descifrado de prueba de los textos cifrados de las notas.",
+  "Rationale for deferred memo decryption": "Justificación del descifrado diferido de los memos",
+  "In pre-v6 transactions performed by full-node wallets, trial decryption of each shielded output performs constant work regardless of whether the output belongs to the wallet: the AEAD decryption of the full 580-byte note ciphertext costs the same whether it succeeds or fails.": "En las transacciones previas a v6 realizadas por billeteras de nodo completo, el descifrado de prueba de cada salida blindada realiza un trabajo constante, independientemente de si la salida pertenece a la billetera: el descifrado AEAD del texto cifrado de la nota completo de 580 bytes cuesta lo mismo, ya sea que tenga éxito o que falle.",
+  "With memo bundles, successful trial decryption of a 100-byte v6 note ciphertext yields a memo key <x1/>, and if the key is not the no-memo sentinel, the wallet must scan up to <x2/> memo chunks to recover the memo. This additional work — potentially up to 64 AEAD operations — creates a timing differential between successful and unsuccessful trial decryptions that could be exploited by an adversary to determine whether a node's wallet recognized a particular output.": "Con los paquetes de memos, el descifrado de prueba exitoso de un texto cifrado de nota v6 de 100 bytes produce una clave de memo <x1/>, y si la clave no es el valor centinela de ausencia de memo, la billetera debe escanear hasta <x2/> fragmentos de memo para recuperar el memo. Este trabajo adicional —potencialmente hasta 64 operaciones AEAD— crea un diferencial de tiempo entre los descifrados de prueba exitosos y no exitosos que un adversario podría explotar para determinar si la billetera de un nodo reconoció una salida en particular.",
+  "Deferring memo bundle decryption decorrelates the observable timing of block processing from whether any notes were successfully decrypted, making it more difficult for an adversary to attribute memo decryption work to a specific transaction.": "Aplazar el descifrado del paquete de memos descorrelaciona el tiempo observable del procesamiento de bloques respecto de si alguna nota fue descifrada con éxito, lo que dificulta que un adversario atribuya el trabajo de descifrado de memos a una transacción específica.",
+  "<x1/>Encoding in transactions": "<x1/>Codificación en las transacciones",
+  "Bytes": "Bytes",
+  "Name": "Nombre",
+  "Data Type": "Tipo de dato",
+  "Description": "Descripción",
+  "1 if all chunks have been pruned, otherwise 0.": "1 si todos los fragmentos han sido podados, de lo contrario 0.",
+  "The salt for deriving memo encryption keys, or the memo bundle digest.": "La sal para derivar las claves de cifrado de memos, o el resumen del paquete de memos.",
+  "† varies": "† varía",
+  "The number of memo chunks.": "El número de fragmentos de memo.",
+  "Bitflags indicating the type of each entry in <x1/>.": "Indicadores de bits que indican el tipo de cada entrada en <x1/>.",
+  "A sequence of encrypted memo chunks.": "Una secuencia de fragmentos de memo cifrados.",
+  "† These fields are present if and only if <x1/>.": "† Estos campos están presentes si y solo si <x1/>.",
+  "If <x1/>, then:": "Si <x1/>, entonces:",
+  "<x1/> contains the <x2/> used to derive memo encryption keys (see [Memo encryption]).": "<x1/> contiene la <x2/> usada para derivar las claves de cifrado de memos (véase [Cifrado de memos]).",
+  "Each bit of <x1/>, in little-endian order, indicates the type of the corresponding entry in <x2/>. A bit value of 0 indicates that the entry will be of type <x3/> representing an encrypted memo chunk. A bit value of 1 indicates the entry will be a <x4/> and contains the <x5/> for a pruned chunk.": "Cada bit de <x1/>, en orden little-endian, indica el tipo de la entrada correspondiente en <x2/>. Un valor de bit de 0 indica que la entrada será de tipo <x3/>, que representa un fragmento de memo cifrado. Un valor de bit de 1 indica que la entrada será un <x4/> y contiene el <x5/> para un fragmento podado.",
+  "<x1/> contains the <x2/> as defined in [Transaction sighash].": "<x1/> contiene el <x2/> como se define en [Transaction sighash].",
+  "The <x1/>, <x2/>, and <x3/> fields will be absent.": "Los campos <x1/>, <x2/> y <x3/> estarán ausentes.",
+  "<x1/>Transaction sighash": "<x1/>Sighash de transacción",
+  "The memo bundle digest structure is a performance optimization for the case where all memo chunks in a transaction have been pruned.": "La estructura de resumen del paquete de memos es una optimización de rendimiento para el caso en que todos los fragmentos de memo de una transacción han sido podados.",
+  "TODO: finish this as a modification to ZIP 248 <g1><g2>13</g2></g1>, which defines the v6 transaction digest structure. Note that <x3/> MUST NOT contribute to the transaction digest, as it is not part of the committed transaction data.": "TODO: terminar esto como una modificación al ZIP 248 <g1><g2>13</g2></g1>, que define la estructura de resumen de transacciones v6. Nótese que <x3/> NO DEBE (MUST NOT) contribuir al resumen de la transacción, ya que no forma parte de los datos comprometidos de la transacción.",
+  "<x1/>Changes to ZIP 317 <g2><g3>14</g3></g2>": "<x1/>Cambios al ZIP 317 <g2><g3>14</g3></g2>",
+  "The conventional fee in ZEC is altered such that a memo bundle may contain two free chunks if there are any shielded outputs in the transaction. Any memo chunk beyond this requires <x1/>. See the Fee calculation section of ZIP 317 <g2><g3>15</g3></g2> for details.": "La comisión convencional en ZEC se modifica de modo que un paquete de memos pueda contener dos fragmentos gratuitos si hay salidas blindadas en la transacción. Cada fragmento de memo más allá de esto requiere <x1/>. Véase la sección de cálculo de la comisión del ZIP 317 <g2><g3>15</g3></g2> para más detalles.",
+  "<x1/>Network protocol": "<x1/>Protocolo de red",
+  "Nodes MUST reject <x1/> responses having an <x2/> value that is nonzero, or any byte of <x3/> that is nonzero. A node that has pruned any memo chunks from a transaction MUST NOT serve that transaction in response to a <x4/> request; it SHOULD respond as though the transaction is not available.": "Los nodos DEBEN (MUST) rechazar respuestas <x1/> que tengan un valor de <x2/> distinto de cero, o cualquier byte de <x3/> distinto de cero. Un nodo que haya podado fragmentos de memo de una transacción NO DEBE (MUST NOT) servir esa transacción en respuesta a una solicitud <x4/>; DEBERÍA (SHOULD) responder como si la transacción no estuviera disponible.",
+  "Because memo data MAY be pruned from stored blocks, nodes that have pruned memo data are not required to serve complete block data for affected transactions. However, to support reliable memo delivery, it would be beneficial for the Zcash community to establish expectations for how long after block confirmation a node is expected to retain complete (unpruned) memo data. Such a retention policy would allow wallet implementations to make reasonable assumptions about memo availability when recovering from backup or performing initial synchronization.": "Dado que los datos de memo PUEDEN (MAY) ser podados de los bloques almacenados, los nodos que hayan podado datos de memo no están obligados a servir datos de bloque completos para las transacciones afectadas. Sin embargo, para apoyar una entrega confiable de los memos, sería beneficioso que la comunidad de Zcash establezca expectativas sobre cuánto tiempo después de la confirmación de un bloque se espera que un nodo retenga datos de memo completos (sin podar). Tal política de retención permitiría a las implementaciones de billeteras hacer suposiciones razonables sobre la disponibilidad de los memos al recuperarse de una copia de seguridad o realizar la sincronización inicial.",
+  "Decoupling memo data from note data and making it independently prunable helps to mitigate the long-term storage costs that memo data imposes on node operators, while preserving the ability of every node to validate the full transaction chain using the memo bundle digest.": "Desacoplar los datos de memo de los datos de nota y hacerlos independientemente podables ayuda a mitigar los costos de almacenamiento a largo plazo que los datos de memo imponen a los operadores de nodos, al tiempo que se preserva la capacidad de todo nodo de validar la cadena completa de transacciones mediante el resumen del paquete de memos.",
+  "<x1/>Changes to the Zcash Protocol Specification": "<x1/>Cambios a la Zcash Protocol Specification",
+  "The changes to support memo bundles that affect the definitions of note plaintexts and note ciphertexts, interact with the addition of an <x1/> field to v6-onward Orchard note plaintexts in order to support ZSAs, which must be merged with the changes in this section.": "Los cambios para admitir paquetes de memos que afectan las definiciones de los textos planos de nota y los cifrados de nota interactúan con la adición de un campo <x1/> a los textos planos de nota Orchard de v6 en adelante para admitir ZSA, y deben fusionarse con los cambios de esta sección.",
+  "Changes to the algorithms for encryption and decryption are specified below. Note that <g1><g2>16</g2></g1> also updates these algorithms, but the merge is trivial.": "Los cambios a los algoritmos de cifrado y descifrado se especifican a continuación. Nótese que <g1><g2>16</g2></g1> también actualiza estos algoritmos, pero la fusión es trivial.",
+  "In § 3.2.1 ‘Note Plaintexts and Memo Fields’:": "En § 3.2.1 ‘Note Plaintexts and Memo Fields’:",
+  "Change": "Cambiar",
+  "Each Sapling or Orchard note plaintext (denoted <x1/>) consists of": "Cada texto plano de nota de Sapling u Orchard (denotado <x1/>) consiste en",
+  "to": "por",
+  "The form of a Sapling or Orchard note plaintext depends on the version of the transaction in which it will be included; specifically whether that version is pre-v6, or v6-onward.": "La forma de un texto plano de nota Sapling u Orchard depende de la versión de la transacción en la que se incluirá; específicamente, de si esa versión es anterior a v6, o de v6 en adelante.",
+  "Each pre-v6 Sapling or Orchard note plaintext (denoted <x1/>) consists of": "Cada texto plano de nota Sapling u Orchard anterior a v6 (denotado <x1/>) consiste en",
+  "Each v6-onward Sapling or Orchard note plaintext (denoted <x1/>) consists of": "Cada texto plano de nota Sapling u Orchard de v6 en adelante (denotado <x1/>) consiste en",
+  "In § 5.5 ‘Encodings of Note Plaintexts and Memo Fields’ <g1><g2>17</g2></g1>:": "En § 5.5 ‘Encodings of Note Plaintexts and Memo Fields’ <g1><g2>17</g2></g1>:",
+  "Change the paragraph that describes \"The encoding of a Sapling or Orchard note plaintext\" to refer to \"The encoding of a pre-v6 Sapling or Orchard note plaintext\".": "Cambiar el párrafo que describe «The encoding of a Sapling or Orchard note plaintext» para que se refiera a «The encoding of a pre-v6 Sapling or Orchard note plaintext».",
+  "Add a new paragraph at the end of the section:": "Agregar un párrafo nuevo al final de la sección:",
+  "The encoding of a v6-onward Sapling or Orchard note plaintext consists of:": "La codificación de un texto plano de nota Sapling u Orchard de v6 en adelante consiste en:",
+  "A byte 0x03, indicating this version of the encoding of a v6-onward Sapling or Orchard note plaintext.": "Un byte 0x03, que indica esta versión de la codificación de un texto plano de nota Sapling u Orchard de v6 en adelante.",
+  "11 bytes specifying <x1/>.": "11 bytes que especifican <x1/>.",
+  "8 bytes specifying <x1/>.": "8 bytes que especifican <x1/>.",
+  "32 bytes specifying <x1/>.": "32 bytes que especifican <x1/>.",
+  "A value consisting of 32 <x1/> bytes for <x2/> is used to indicate that there is no memo for this note plaintext.": "Un valor que consiste en 32 bytes <x1/> para <x2/> se usa para indicar que no hay memo para este texto plano de nota.",
+  "In § 4.7.2 ‘Sending Notes (Sapling)’ <g1><g2>18</g2></g1> and § 4.7.3 ‘Sending Notes (Orchard)’ <g3><g4>19</g4></g3>:": "En § 4.7.2 ‘Envío de notas (Sapling)’ <g1><g2>18</g2></g1> y § 4.7.3 ‘Envío de notas (Orchard)’ <g3><g4>19</g4></g3>:",
+  "Add a reference to this ZIP specifying the construction of the memo bundle and derivation of <x1/> in the case of a v6-onward note plaintext.": "Agregar una referencia a este ZIP que especifique la construcción del paquete de memos y la derivación de <x1/> en el caso de un texto plano de nota de v6 en adelante.",
+  "Let <x1/>.": "Sea <x1/>.",
+  "Let <x1/> be the encoding of a Sapling note plaintext using <x2/>, <x3/>, <x4/>, <x5/>, and either <x6/> for a pre-v6 note plaintext or <x7/> for a v6-onward note plaintext.": "Sea <x1/> la codificación de un texto plano de nota Sapling usando <x2/>, <x3/>, <x4/>, <x5/> y, bien <x6/> para un texto plano de nota anterior a v6, o <x7/> para un texto plano de nota de v6 en adelante.",
+  "replacing \"Sapling\" with Orchard in the case of § 4.7.3.": "reemplazando «Sapling» por Orchard en el caso de § 4.7.3.",
+  "In § 4.20.1 ‘Encryption (Sapling and Orchard)’ <g1><g2>20</g2></g1>:": "En § 4.20.1 ‘Cifrado (Sapling y Orchard)’ <g1><g2>20</g2></g1>:",
+  "For v6-onward note ciphertexts, the KDF used to derive the note encryption key MUST use a different BLAKE2b-256 personalization string than for pre-v6 note ciphertexts, to provide domain separation. The personalization string is formed by concatenating a protocol prefix with the 4-byte little-endian encoding of the transaction version group id (<x1/>):": "Para los cifrados de nota de v6 en adelante, el KDF utilizado para derivar la clave de cifrado de la nota DEBE (MUST) usar una cadena de personalización BLAKE2b-256 distinta de la usada para los cifrados de nota anteriores a v6, a fin de proporcionar separación de dominio. La cadena de personalización se forma concatenando un prefijo de protocolo con la codificación little-endian de 4 bytes del identificador de grupo de versión de la transacción (<x1/>):",
+  "For v6-onward Sapling note ciphertexts:": "Para los cifrados de nota Sapling de v6 en adelante:",
+  "<g1>\\hspace{2em}\\mathsf{KDF^{Sapling}}(\\mathsf{sharedSecret}, \\mathsf{ephemeralKey}) := \\mathsf{BLAKE2b\\text{-}256}(\\text{\"Zc_SaplingKD\"} \\,||\\, \\mathsf{I2LEOSP}_{32}(\\mathsf{nVersionGroupId}), \\mathsf{sharedSecret} \\,||\\, \\mathsf{ephemeralKey}) ParseError: Expected 'EOF', got '_' at position 122: …}256}(\\text{\"Zc_̲SaplingKD\"} \\,|…</g1>": "<g1>\\hspace{2em}\\mathsf{KDF^{Sapling}}(\\mathsf{sharedSecret}, \\mathsf{ephemeralKey}) := \\mathsf{BLAKE2b\\text{-}256}(\\text{\"Zc_SaplingKD\"} \\,||\\, \\mathsf{I2LEOSP}_{32}(\\mathsf{nVersionGroupId}), \\mathsf{sharedSecret} \\,||\\, \\mathsf{ephemeralKey}) ParseError: Expected 'EOF', got '_' at position 122: …}256}(\\text{\"Zc_̲SaplingKD\"} \\,|…</g1>",
+  "For v6-onward Orchard note ciphertexts:": "Para los cifrados de nota Orchard de v6 en adelante:",
+  "<g1>\\hspace{2em}\\mathsf{KDF^{Orchard}}(\\mathsf{sharedSecret}, \\mathsf{ephemeralKey}) := \\mathsf{BLAKE2b\\text{-}256}(\\text{\"Zc_OrchardKD\"} \\,||\\, \\mathsf{I2LEOSP}_{32}(\\mathsf{nVersionGroupId}), \\mathsf{sharedSecret} \\,||\\, \\mathsf{ephemeralKey}) ParseError: Expected 'EOF', got '_' at position 122: …}256}(\\text{\"Zc_̲OrchardKD\"} \\,|…</g1>": "<g1>\\hspace{2em}\\mathsf{KDF^{Orchard}}(\\mathsf{sharedSecret}, \\mathsf{ephemeralKey}) := \\mathsf{BLAKE2b\\text{-}256}(\\text{\"Zc_OrchardKD\"} \\,||\\, \\mathsf{I2LEOSP}_{32}(\\mathsf{nVersionGroupId}), \\mathsf{sharedSecret} \\,||\\, \\mathsf{ephemeralKey}) ParseError: Expected 'EOF', got '_' at position 122: …}256}(\\text{\"Zc_̲OrchardKD\"} \\,|…</g1>",
+  "This prevents a malicious lightwalletd server from presenting a v6 note ciphertext to a wallet as though it were a partial v5 ciphertext, which could otherwise cause the wallet to decrypt and act on unauthenticated plaintext.": "Esto evita que un servidor lightwalletd malicioso presente un cifrado de nota v6 a una billetera como si fuera un cifrado v5 parcial, lo que de otro modo podría hacer que la billetera descifre y actúe sobre un texto plano no autenticado.",
+  "Let <x1/> be the Sapling or Orchard note plaintext. <x2/> is encoded as defined in § 5.5 ‘Encodings of Note Plaintexts and Memo Fields’.": "Sea <x1/> el texto plano de nota de Sapling u Orchard. <x2/> se codifica como se define en § 5.5 ‘Encodings of Note Plaintexts and Memo Fields’.",
+  "Let <x1/> be the encoding of the Sapling or Orchard note plaintext (which may be pre-v6 or v6-onward), as defined in § 5.5 ‘Encodings of Note Plaintexts and Memo Fields’.": "Sea <x1/> la codificación del texto plano de nota Sapling u Orchard (que puede ser anterior a v6 o de v6 en adelante), tal como se define en § 5.5 «Encodings of Note Plaintexts and Memo Fields».",
+  "Add another normative note to that section:": "Añadir otra nota normativa a esa sección:",
+  "<x1/> will be of length either 580 or 100 bytes, depending on whether <x2/> is a pre-v6 or v6-onward note plaintext.": "<x1/> tendrá una longitud de 580 o 100 bytes, según si <x2/> es un texto plano de nota anterior a v6 o de v6 en adelante.",
+  "In § 4.20.2 ‘Decryption using an Incoming Viewing Key (Sapling and Orchard)’ <g1><g2>21</g2></g1> and § 4.20.3 ‘Decryption using an Outgoing Viewing Key (Sapling and Orchard)’ <g3><g4>22</g4></g3>:": "En § 4.20.2 ‘Decryption using an Incoming Viewing Key (Sapling and Orchard)’ <g1><g2>21</g2></g1> y § 4.20.3 ‘Decryption using an Outgoing Viewing Key (Sapling and Orchard)’ <g3><g4>22</g4></g3>:",
+  "Replace <x1/> with <x2/>.": "Reemplazar <x1/> por <x2/>.",
+  "Specify that the type of <x1/> is <x2/> when decrypting a pre-v6 note ciphertext, or <x3/> when decrypting a v6-onward note ciphertext. In the latter case, it is used as <x4/> to decrypt the memo bundle as described in [Memo bundle].": "Especificar que el tipo de <x1/> es <x2/> al descifrar un cifrado de nota anterior a v6, o <x3/> al descifrar un cifrado de nota de v6 en adelante. En este último caso, se usa como <x4/> para descifrar el paquete de memos como se describe en [Memo bundle].",
+  "<x1/>Applicability": "<x1/>Aplicabilidad",
+  "All of these changes apply identically to Mainnet and Testnet.": "Todos estos cambios se aplican de manera idéntica a Mainnet y Testnet.",
+  "<x1/>Open issues": "<x1/>Cuestiones abiertas",
+  "<x1/>Interaction with ZIP 302 <g2><g3>10</g3></g2>": "<x1/>Interacción con el ZIP 302 <g2><g3>10</g3></g2>",
+  "TBD": "TBD",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "<x1/>Memo bundle size restriction": "<x1/>Restricción del tamaño del paquete de memo",
+  "Restricting the total amount of memo data in a bundle, for example to 16 KiB, limits the rate at which the chain size can grow cheaply (from a computational perspective; memo bundles are much easier to produce than proofs or signatures).": "Restringir la cantidad total de datos de memo en un paquete, por ejemplo a 16 KiB, limita la tasa a la que el tamaño de la cadena puede crecer de forma barata (desde una perspectiva computacional; los paquetes de memo son mucho más fáciles de producir que las pruebas o las firmas).",
+  "The current behaviour for previous transaction versions (no limit on the number of memos) is not altered by this ZIP, because memos in those transactions are tied to individual shielded outputs (incurring their computational cost), and are not natively aggregatable.": "El comportamiento actual para versiones anteriores de transacciones (sin límite en la cantidad de memos) no se altera con este ZIP, porque los memos en esas transacciones están vinculados a salidas blindadas individuales (incurriendo en su costo computacional) y no son agregables de forma nativa.",
+  "<x1/>Independent fee policy for memo data": "<x1/>Política de comisiones independiente para los datos de memo",
+  "By decoupling memos from shielded outputs, this ZIP creates an opportunity to impose economic disincentives on adding memo data to the chain without affecting the shielded value transfer protocols. Because the fee for memo data is independent of the fee for value transfer, it can be adjusted independently — for example, to impose a superlinear cost curve for large amounts of memo data, or to increase memo fees in response to chain growth, without any impact on the cost of ordinary shielded transfers. More generally, this decoupling makes it straightforward to impose restrictions on memo creation that cannot currently be imposed without also affecting value transfer.": "Al desacoplar los memos de las salidas blindadas, este ZIP crea una oportunidad para imponer desincentivos económicos a agregar datos de memo a la cadena sin afectar los protocolos de transferencia de valor blindado. Dado que la comisión por los datos de memo es independiente de la comisión por la transferencia de valor, puede ajustarse de forma independiente; por ejemplo, para imponer una curva de costo superlineal para grandes cantidades de datos de memo, o para aumentar las comisiones de memo en respuesta al crecimiento de la cadena, sin ningún impacto en el costo de las transferencias blindadas ordinarias. De manera más general, este desacoplamiento hace que sea sencillo imponer restricciones a la creación de memos que actualmente no se pueden imponer sin afectar también la transferencia de valor.",
+  "<x1/>Memo chunk size": "<x1/>Tamaño del fragmento de memo",
+  "To understand the effect of memo chunk size, we construct a table showing the total amount of data stored on-chain when encoding 16 KiB of memo data to as many recipients as possible.": "Para entender el efecto del tamaño del fragmento de memo, construimos una tabla que muestra la cantidad total de datos almacenados en la cadena al codificar 16 KiB de datos de memo a tantos destinatarios como sea posible.",
+  "Each table entry has the format \"<x1/> @ <x2/> (<x3/>)\" where <x4/> is the maximum number of distinct recipients you can have within the memo data limits, <x5/> is the cost in bytes of that memo data plus memo keys and authentication tags when using a 32-byte memo key, and <x6/> is the relative overhead compared to pre-ZIP-231 memos.": "Cada entrada de la tabla tiene el formato \"<x1/> @ <x2/> (<x3/>)\", donde <x4/> es la cantidad máxima de destinatarios distintos que se pueden tener dentro de los límites de datos de memo, <x5/> es el costo en bytes de esos datos de memo más las claves de memo y las etiquetas de autenticación al usar una clave de memo de 32 bytes, y <x6/> es la sobrecarga relativa en comparación con los memos anteriores a ZIP-231.",
+  "Calculation details": "Detalles del cálculo",
+  "Let:": "Sea:",
+  "<x1/> be the limit on total memo data (16384 bytes);": "<x1/> el límite de datos de memo totales (16384 bytes);",
+  "<x1/> be the plaintext chunk size (256 or 512 bytes);": "<x1/> el tamaño del fragmento en texto plano (256 o 512 bytes);",
+  "<x1/> be the maximum length of an individual memo (256 or 512 bytes);": "<x1/> la longitud máxima de un memo individual (256 o 512 bytes);",
+  "<x1/> be the key size (32 bytes);": "<x1/> el tamaño de la clave (32 bytes);",
+  "<x1/> be the authentication tag size (16 bytes);": "<x1/> el tamaño de la etiqueta de autenticación (16 bytes);",
+  "<x1/> be the limit on the number of chunks (32 or <x2/>).": "<x1/> el límite en la cantidad de fragmentos (32 o <x2/>).",
+  "Then": "Entonces",
+  "<x1/>; and": "<x1/>; y",
+  "Chunk size": "Tamaño del fragmento",
+  "Memo size ≤ 256 bytes": "Tamaño del memo ≤ 256 bytes",
+  "Memo size = 512 bytes": "Tamaño del memo = 512 bytes",
+  "Pre-231": "Pre-231",
+  "256 32-out": "256 32-out",
+  "In the \"256 32-out\" case you have a distinguisher compared to old transactions, in that you can tell the transaction is sending at most 256 bytes per recipient rather than 512 if it is sending the maximum number of memos. But that's inherently baked into the decision to use a smaller plaintext chunk size (and it is still possible for the chunks to all be a single memo sent to all outputs, or anything in between).": "En el caso \"256 32-out\" existe un distinguidor en comparación con las transacciones antiguas, ya que se puede saber que la transacción envía como máximo 256 bytes por destinatario en lugar de 512, si envía la cantidad máxima de memos. Pero eso está inherentemente incorporado en la decisión de usar un tamaño de fragmento en texto plano menor (y sigue siendo posible que todos los fragmentos sean un solo memo enviado a todas las salidas, o cualquier punto intermedio).",
+  "<x1/>Memo key size": "<x1/>Tamaño de la clave del memo",
+  "16-byte (128-bit) keys don't meet Zcash's target security level of 125 bits, as argued in <g1><g2>23</g2></g1>.": "Las claves de 16 bytes (128 bits) no cumplen el nivel de seguridad objetivo de Zcash, que es de 125 bits, como se argumenta en <g1><g2>23</g2></g1>.",
+  "However, for the sake of argument, if we used a 16-byte memo key instead of 32 bytes, the transaction size overhead would become:": "Sin embargo, por motivos de argumentación, si usáramos una clave de memo de 16 bytes en lugar de 32 bytes, la sobrecarga en el tamaño de la transacción pasaría a ser:",
+  "The decrease in overhead is relatively modest in most cases, but more noticeable for small memos with a 256-byte plaintext chunk.": "La disminución de la sobrecarga es relativamente modesta en la mayoría de los casos, pero más notable para memos pequeños con un fragmento en texto plano de 256 bytes.",
+  "The benefits of 256-bit keys are:": "Los beneficios de las claves de 256 bits son:",
+  "They incur only a small transaction size overhead above the minimum key size that <g1>would</g1> meet the target security level.": "Incurren solo en una pequeña sobrecarga en el tamaño de la transacción por encima del tamaño de clave mínimo que <g1>sí</g1> cumpliría el nivel de seguridad objetivo.",
+  "This key length matches what we already use elsewhere for symmetric keys.": "Esta longitud de clave coincide con la que ya usamos en otros lugares para claves simétricas.",
+  "<x1/>Encryption format": "<x1/>Formato de cifrado",
+  "Including a per-transaction <x1/> in the derivation of <x2/> gives protection against accidental (or intentional) reuse of <x3/> across multiple transactions. We do not protect against <x4/> reuse within a transaction; it is up to the transaction builder to ensure that the same <x5/> is not used to encrypt two different memos (and if they did so, normal clients would either never observe the second memo, or would decrypt parts of each memo and get a nonsensical and potentially insecure \"spliced\" memo).": "Incluir un <x1/> por transacción en la derivación de <x2/> da protección contra la reutilización accidental (o intencional) de <x3/> en múltiples transacciones. No protegemos contra la reutilización de <x4/> dentro de una transacción; es responsabilidad del constructor de la transacción asegurarse de que el mismo <x5/> no se use para cifrar dos memos distintos (y si lo hiciera, los clientes normales nunca observarían el segundo memo, o descifrarían partes de cada memo y obtendrían un memo \"empalmado\" sin sentido y potencialmente inseguro).",
+  "We do not include commitments to the shielded outputs in the derivation of <x1/> for two reasons:": "No incluimos compromisos de las salidas blindadas en la derivación de <x1/> por dos razones:",
+  "It would force the transaction builder to fully define all shielded outputs before encrypting the memos, which might prevent potential use cases of PCZTs <g1><g2>24</g2></g1>.": "Obligaría al constructor de la transacción a definir completamente todas las salidas blindadas antes de cifrar los memos, lo cual podría impedir casos de uso potenciales de los PCZT <g1><g2>24</g2></g1>.",
+  "We don't want to unnecessarily prevent the ability to create a transaction with a memo bundle and no shielded outputs, as there may be use cases for, e.g. a fully-transparent transaction with encrypted memo, or a ZSA issuance transaction with exposed memo data using a well-known <x1/>.": "No queremos impedir innecesariamente la capacidad de crear una transacción con un paquete de memos y sin salidas blindadas, ya que puede haber casos de uso para, por ejemplo, una transacción totalmente transparente con memo cifrado, o una transacción de emisión de ZSA con datos de memo expuestos usando un <x1/> bien conocido.",
+  "<x1/>Domain separation of note ciphertexts": "<x1/>Separación de dominio de los textos cifrados de las notas",
+  "V6-onward note ciphertexts use KDF personalization strings that incorporate the transaction version group id (<g1>\\text{\"Zc_SaplingKD\"} \\,||\\, \\mathsf{nVersionGroupId} ParseError: Expected 'EOF', got '_' at position 10: \\text{\"Zc_̲SaplingKD\"} \\,|…</g1> and <g2>\\text{\"Zc_OrchardKD\"} \\,||\\, \\mathsf{nVersionGroupId} ParseError: Expected 'EOF', got '_' at position 10: \\text{\"Zc_̲OrchardKD\"} \\,|…</g2>), providing domain separation from pre-v6 note ciphertexts. This prevents a downgrade attack in which a malicious lightwalletd server presents a v6 note ciphertext as a partial v5 note ciphertext. Without domain separation, a wallet that supports the v5 partial-ciphertext optimization (downloading note ciphertexts without the MAC to save bandwidth) could decrypt a v6 ciphertext without verifying its authentication tag, potentially acting on unauthenticated data. Using the version group id rather than a fixed suffix ensures that domain separation extends automatically to future transaction versions.": "Los cifrados de nota de v6 en adelante usan cadenas de personalización de KDF que incorporan el identificador de grupo de versión de la transacción (<g1>\\text{\"Zc_SaplingKD\"} \\,||\\, \\mathsf{nVersionGroupId} ParseError: Expected 'EOF', got '_' at position 10: \\text{\"Zc_̲SaplingKD\"} \\,|…</g1> y <g2>\\text{\"Zc_OrchardKD\"} \\,||\\, \\mathsf{nVersionGroupId} ParseError: Expected 'EOF', got '_' at position 10: \\text{\"Zc_̲OrchardKD\"} \\,|…</g2>), lo que proporciona separación de dominio respecto de los cifrados de nota anteriores a v6. Esto evita un ataque de degradación en el que un servidor lightwalletd malicioso presenta un cifrado de nota v6 como un cifrado de nota v5 parcial. Sin separación de dominio, una billetera que admita la optimización de cifrado parcial v5 (descargar cifrados de nota sin el MAC para ahorrar ancho de banda) podría descifrar un cifrado v6 sin verificar su etiqueta de autenticación, actuando potencialmente sobre datos no autenticados. Usar el identificador de grupo de versión en lugar de un sufijo fijo garantiza que la separación de dominio se extienda automáticamente a futuras versiones de transacción.",
+  "<x1/>Pruned encoding": "<x1/>Codificación podada",
+  "The separation of memo data from note data, and the new ability to easily store variable-length memo data, opens up an attack vector against node operators for storing arbitrary data. The transaction digest commitments to the memo bundle are structured such that if a node operator is presented with a memo key (i.e. they are given the capability to decrypt a particular memo), they can identify and prune the corresponding memo chunks, while still enabling the transaction to be validated as part of its corresponding block and broadcast over the network.": "La separación de los datos de memo de los datos de la nota, y la nueva capacidad de almacenar fácilmente datos de memo de longitud variable, abre un vector de ataque contra los operadores de nodos por almacenar datos arbitrarios. Los compromisos del resumen de transacción con el paquete de memos están estructurados de modo que, si a un operador de nodo se le presenta una clave de memo (es decir, se le da la capacidad de descifrar un memo en particular), pueda identificar y podar los fragmentos de memo correspondientes, mientras que la transacción todavía pueda validarse como parte de su bloque correspondiente y difundirse por la red.",
+  "The transaction encoding permits pruning at the individual chunk level in order to facilitate pruning an individual memo from a transaction without affecting the other memos. This enables node operators to be responsive to, for example, GDPR deletion requests.": "La codificación de la transacción permite la poda a nivel de fragmento individual para facilitar podar un memo individual de una transacción sin afectar los demás memos. Esto permite que los operadores de nodos respondan a, por ejemplo, solicitudes de eliminación del GDPR.",
+  "Note that broadcasting a partially-pruned transaction means that the pruned chunks no longer contribute to the upper bound on memo data.": "Nótese que difundir una transacción parcialmente podada significa que los fragmentos podados ya no contribuyen al límite superior de los datos de memo.",
+  "The prunable structure does not introduce a censorship axis; memo bundles do not reveal which memo chunks correspond to which memos, and therefore a network adversary cannot selectively censor individual memos. They can censor any/all chunks within specific transactions, however shielded transactions do not reveal their senders, recipients, or amounts, and thus also cannot be individually targeted for censorship.": "La estructura podable no introduce un eje de censura; los paquetes de memos no revelan qué fragmentos de memo corresponden a qué memos y, por lo tanto, un adversario de red no puede censurar selectivamente memos individuales. Pueden censurar cualquiera o todos los fragmentos dentro de transacciones específicas; sin embargo, las transacciones blindadas no revelan sus remitentes, destinatarios ni montos, y por ello tampoco pueden ser objetivo individual de censura.",
+  "<x1/>Deployment": "<x1/>Despliegue",
+  "This ZIP is proposed to activate with Network Upgrade 7. <g1><g2>25</g2></g1>": "Se propone que este ZIP se active con la actualización de red 7. <g1><g2>25</g2></g1>",
+  "<x1/>Reference implementation": "<x1/>Implementación de referencia",
+  "<x1/>Alternatives": "<x1/>Alternativas",
+  "An alternative chunk size could be selected. The 256-byte chunk size was chosen because the 16-byte AEAD tag for each chunk introduces a 6.25% per-chunk overhead; smaller chunk sizes would require a higher percentage of the memo bundle data to be devoted to encryption overhead, while larger chunk sizes would tend to bloat the chain.": "Podría seleccionarse un tamaño de fragmento alternativo. Se eligió el tamaño de fragmento de 256 bytes porque la etiqueta AEAD de 16 bytes de cada fragmento introduce una sobrecarga del 6.25% por fragmento; tamaños de fragmento menores requerirían que un porcentaje mayor de los datos del paquete de memos se dedicara a la sobrecarga de cifrado, mientras que tamaños de fragmento mayores tenderían a inflar la cadena.",
+  "The 64-chunk limit could be modified to be either smaller or larger. However, as the smallest Orchard authenticated reply-to address proofs are approximately 4 kilobytes in size, the limit needs to be sufficient to permit this use case.": "El límite de 64 fragmentos podría modificarse para ser menor o mayor. Sin embargo, como las pruebas de dirección de respuesta autenticada de Orchard más pequeñas tienen aproximadamente 4 kilobytes de tamaño, el límite debe ser suficiente para permitir este caso de uso.",
+  "The fee algorithm could be modified to be a superlinear function of the number of memo chunks, in order to economically discourage the use of large amounts of memo data.": "El algoritmo de comisiones podría modificarse para ser una función superlineal del número de fragmentos de memo, a fin de desalentar económicamente el uso de grandes cantidades de datos de memo.",
+  "<x1/>References": "<x1/>Referencias",
+  "<x1/>Footnotes": "<x1/>Notas al pie",
+  "<g1>Information on BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": "<g1>Información sobre BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" y \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>",
+  "<g1>ZIP 200: Network Upgrade Mechanism</g1> <g2>↩</g2>": "<g1>ZIP 200: Network Upgrade Mechanism</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1] or later</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1] o posterior</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 3.12: Mainnet and Testnet</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 3.12: Mainnet y Testnet</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 3.2.1: Note Plaintexts and Memo Fields</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 3.2.1: Note Plaintexts and Memo Fields</g1> <g2>↩</g2>",
+  "<g1>ZIP 307: Light Client Protocol for Payment Detection</g1> <g2>↩</g2>": "<g1>ZIP 307: Light Client Protocol for Payment Detection</g1> <g2>↩</g2>",
+  "<g1>ZecHub Shielded Newsletter</g1> <g2>↩</g2>": "<g1>ZecHub Shielded Newsletter</g1> <g2>↩</g2>",
+  "<g1>ZIP 230: Version 6 Transaction Format — Orchard Note Plaintext</g1> <g2>↩</g2>": "<g1>ZIP 230: Version 6 Transaction Format — Orchard Note Plaintext</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.1.2: Pseudo Random Functions</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 4.1.2: Pseudo Random Functions</g1> <g2>↩</g2>",
+  "<g1>ZIP 302: Standardized Memo Field Format</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": "<g1>ZIP 302: Standardized Memo Field Format</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>",
+  "<g1>RFC 8439: ChaCha20 and Poly1305 for IETF Protocols</g1> <g2>↩</g2>": "<g1>RFC 8439: ChaCha20 and Poly1305 for IETF Protocols</g1> <g2>↩</g2>",
+  "<g1>Online Authenticated-Encryption and its Nonce-Reuse Misuse-Resistance</g1> <g2>↩</g2>": "<g1>Online Authenticated-Encryption and its Nonce-Reuse Misuse-Resistance</g1> <g2>↩</g2>",
+  "<g1>ZIP 248: Extensible Transaction Format (PR: zcash/zips#1156)</g1> <g2>↩</g2>": "<g1>ZIP 248: Extensible Transaction Format (PR: zcash/zips#1156)</g1> <g2>↩</g2>",
+  "<g1>ZIP 317: Proportional Transfer Fee Mechanism</g1> <g2>↩</g2>": "<g1>ZIP 317: Proportional Transfer Fee Mechanism</g1> <g2>↩</g2>",
+  "<g1>ZIP 317: Proportional Transfer Fee Mechanism - Fee calculation</g1> <g2>↩</g2>": "<g1>ZIP 317: Proportional Transfer Fee Mechanism - Fee calculation</g1> <g2>↩</g2>",
+  "<g1>ZIP 2005: Quantum Recoverability</g1> <g2>↩</g2>": "<g1>ZIP 2005: Quantum Recoverability</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 5.5: Encodings of Note Plaintexts and Memo Fields</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 5.5: Encodings of Note Plaintexts and Memo Fields</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.7.2: Sending Notes (Sapling)</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 4.7.2: Sending Notes (Sapling)</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.7.3: Sending Notes (Orchard)</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 4.7.3: Sending Notes (Orchard)</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.20.1: Encryption (Sapling and Orchard)</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 4.20.1: Encryption (Sapling and Orchard)</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.20.2: Decryption using an Incoming Viewing Key (Sapling and Orchard)</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 4.20.2: Decryption using an Incoming Viewing Key (Sapling and Orchard)</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.20.3: Decryption using an Outgoing Viewing Key (Sapling and Orchard)</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 4.20.3: Decryption using an Outgoing Viewing Key (Sapling and Orchard)</g1> <g2>↩</g2>",
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 8.7: In-band secret distribution</g1> <g2>↩</g2>": "<g1>Zcash Protocol Specification, Versión 2025.6.2 [NU6.1]. Sección 8.7: In-band secret distribution</g1> <g2>↩</g2>",
+  "<g1>zcash/zips issue #693: Standardize a protocol for creating shielded transactions offline</g1> <g2>↩</g2>": "<g1>zcash/zips issue #693: Standardize a protocol for creating shielded transactions offline</g1> <g2>↩</g2>",
+  "<g1>draft-arya-deploy-nu7: Deployment of the NU7 Network Upgrade</g1> <g2>↩</g2>": "<g1>draft-arya-deploy-nu7: Deployment of the NU7 Network Upgrade</g1> <g2>↩</g2>"
+ },
+ "reviews": {
+  "Memo Bundles": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The term \"network upgrade\" in this document is to be interpreted as described in ZIP 200. <g1><g2>2</g2></g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The character § is used when referring to sections of the Zcash Protocol Specification. <g1><g2>3</g2></g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The terms \"Mainnet\" and \"Testnet\" are to be interpreted as described in § 3.12 ‘Mainnet and Testnet’. <g1><g2>4</g2></g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Currently, the memo associated with a shielded output is fixed to 512 bytes of data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP proposes to decouple memo data from outputs by introducing a per-transaction memo bundle. Each shielded output carries a 32-byte memo key rather than an inline 512-byte memo field. The memo key is used to derive a symmetric encryption key that decrypts the output's memo from the bundle, which consists of individually encrypted 256-byte chunks. This will:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "reduce the memo data of a transaction with two shielded outputs from a minimum of 1024 bytes to approximately 576 bytes;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "allow larger memos, with a proportionate increase in fees;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "enable memo data to be shared between multiple recipients of a transaction;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "enable memo data to be pruned from a stored transaction without impairing the ability of a consensus node to validate the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In Zcash transaction versions v2 to v5 inclusive, each Sapling or Orchard shielded output contains a ciphertext comprised of a 52-byte note plaintext and corresponding 512-byte memo field, with a 16-byte authentication tag <g1><g2>5</g2></g1>. Recipients can only decrypt the outputs sent to them, and thus can also only observe the memo fields included with the outputs they can decrypt.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "An ordinary transaction is one that is padded to 2 inputs and 2 outputs (or 2 Orchard actions), so as to make transfers that fully transfer a note indistinguishable from an ordinary transaction with change. Such a transaction will consume 1024 bytes of block space for memo data. An Orchard transfer that spends a larger number of notes will incur a memo data cost of <x1/> bytes on-chain, where <x2/> is the number of notes being spent as inputs. Ordinarily, most of this data space is wasted, as most wallets support only a single 512-byte memo to be sent to the recipient of the transfer. Virtually all transactions with shielded components consume at least 1024 bytes of block space for memo data, and between half and 3/4 of that data payload is ordinarily waste. Adopting this ZIP will eliminate a significant source of chain bloat.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Beyond reducing chain bloat, decoupling memos from shielded outputs allows for some important use cases to be served. The shielded transaction protocol always hides the sender(s) (that is, the addresses corresponding to the keys used to spend the input notes) from all of the recipients. For certain kinds of transactions, it is desirable to make one or more sender addresses available to one or more recipients (for example, a reply address). In such circumstances it is important to authenticate the sender addresses, to give the recipient a guarantee that the address is controlled by a sender of the transaction; failure to authenticate this address can enable phishing attacks. These Authenticated Reply Addresses require zero-knowledge proofs, and for the Orchard protocol these proofs are too large to fit into the existing 512-byte memo field. This ZIP makes the maximum size of memo data large enough to support the inclusion of such proofs.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The term \"Authenticated Reply Addresses\" is left untranslated in English."
+   ],
+   "first": "Además de reducir la hinchazón de la cadena, desacoplar los memorandos de las salidas blindadas permite atender algunos casos de uso importantes. El protocolo de transacciones blindadas siempre oculta a los remitentes (es decir, las direcciones correspondientes a las claves utilizadas para gastar las notas de entrada) de todos los destinatarios. Para ciertos tipos de transacciones, es deseable poner una o más direcciones de remitente a disposición de uno o más destinatarios (por ejemplo, una dirección de respuesta). En tales circunstancias es importante autenticar las direcciones de los remitentes, para dar al destinatario la garantía de que la dirección está controlada por un remitente de la transacción; no autenticar esta dirección puede permitir ataques de suplantación de identidad (phishing). Estas Authenticated Reply Addresses requieren pruebas de conocimiento cero, y para el protocolo de Orchard estas pruebas son demasiado grandes para caber en el campo de memorando existente de 512 bytes. Este ZIP hace que el tamaño máximo de los datos de memorando sea lo suficientemente grande como para admitir la inclusión de tales pruebas."
+  },
+  "Another motivation is that it is desirable, for clients with more stringent bandwidth constraints, to be able to transmit encrypted notes to the client without including the encrypted memo data. In the current light client protocol <g1><g2>6</g2></g1>, this is done by truncating the note ciphertext to just the part that encrypts the note plaintext, removing the 512-byte encrypted memo and the 16-byte AEAD authentication tag. Because the authentication tag is not transmitted to the light client, the decryption performed by the client does not meet standard security notions for an authenticated encryption scheme.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "By decoupling memo data from note ciphertexts, this proposal reduces the v6-onward note ciphertext to 100 bytes (excluding any other changes to the note plaintext proposed by other ZIPs). This makes it practical for the light client protocol to transmit complete note ciphertexts, including the AEAD tag, in exchange for a relatively minor bandwidth increase compared to the current truncated ciphertexts. This allows light clients to perform fully authenticated decryption, rectifying the security shortcoming and simplifying the security argument.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Instead of the memo data, this ZIP proposes that it is possible to indicate whether a memo is present for the recipient. When using the light client protocol, a recipient need not download full transaction information if this indication tells them that they have not received any memo in the transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In addition to reducing chain bloat by eliminating wasted memo space, this ZIP defines a mechanism by which validating nodes may reduce their long-term storage requirements by pruning memo data, without impairing their ability to validate the entire chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Finally, at present, it is not possible to transmit the same memo data to multiple transaction recipients without redundantly encoding that data, and sending memo data greater than 512 bytes requires sending multiple outputs; the problem is compounded when attempting to send more than 512 bytes to each recipient. By separating memo data from the decryption capability for those memos, it admits a greater variety of applications that utilize memo data, while decreasing the amount of data that needs to be stored on-chain overall.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Use Cases": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Authenticated Reply-to addresses": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In a peer-to-peer transaction Bob and Alice can split a lunch check. Bob can send a shielded memo to Alice that says \"Nice Lunch! It was fun! this is my half + tips. Hugs, Bob.\". Bob would show Alice his transaction detail in his wallet and Alice can visibly check hers and verify that the memo contained in that transaction was authored by Bob. That in-person manual verification process is only valid for that one transaction. Anyone that knows Alice's address and the fact that she exchanged messages over Zcash memos with Bob could spoof a shielded memo impersonating Bob. Neither Alice or her wallet have an aid to judge the authorship of any of the received messages.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If Bob's wallet had the capability to prove the authorship of a message, Alice's wallet could help her notice such a spoofing attempt. The rationale of this use case is that application developers can use this mechanism to build a user experience that can help users tell apart trustworthy memos from those whose origin cannot be certainly determined.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "It has to be noted that providing a mechanism for wallet applications to attach data that can help prove the origin of a transaction through the memo field will not prevent that spoofers attempt such attacks. Spoofers continue to send memos to attempt to deceive a user. The proving data is not self-sufficient to determine that the author of a shielded memo shall be trusted. Further verification steps would be needed to determine a such a level of trust. This specification enables wallet developers to build a user experience that helps Zcash wallet users to identify authentic memos containing Reply-to addresses from spoofed ones. The definition of such UX is outside of the scope of this ZIP.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Memos as input for application layer": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Using unverifiable memo data as input for business logic is unadvisable. Repeatedly, application developers have discussed memos an on-chain data layer for privacy-minded software such as Instant (or ansynchronous) messaging applications or marketplaces. These applications require that the memo information can be <g1>trusted</g1> and therefore be treated as <g2>actionable</g2> data by the application business logic. Without such a mechanism the application does not have a way to choose which messages should be trusted and which ones shall be ignored. The ability to attach proofs to memos provides application developers with mechanisms to distinguish plausible user intent from arbitrary memos generated outside the application domain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Broadcasting a newsletter": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The ZecHub DAO runs a \"Shielded Newsletter\" service <g1><g2>7</g2></g1>. Users subscribe by sending a one-time transaction with a subscription fee and a shielded memo that tells the service where to send the newsletter to. As discussed in the motivation section, Memo bundles will help the newsletter service to avoid chain bloat by enabling subscribers to share a single key to decrypt a single memo instead of sending individual memos to each one of them. Additionally, by requiring subscribers to prove the authorship of their subscription memos, the newsletter can verify that the recipient address indicated in the one-time subscription memo is indeed the author of the subscription and not a subscription bot attempting to perform a pseudospoofing attack against the service. Finally, the newsletter service can require one-time unsubscribe messages to attach a proof-of-authorship that proves that the sender owns spend authority over the address that the unsubcription is being requested for.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Privacy Implications": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Prior to the activation of this ZIP, every shielded output has an associated memo field. A chain observer can therefore infer a likely 1:1 correlation between transaction recipients and memo payloads. The maximum number of distinct memos is precisely known, and the bounds on possible memo sizes are very small (between 0 and 512 bytes). It is possible to send additional data to a single recipient by adding (potentially zero-valued) outputs; on-chain this is indistinguishable from sending more memos to more recipients or (in the case of Orchard) spending more input notes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "After the activation of this ZIP, recipient count and memo count are decoupled. It becomes possible to construct transactions for which there are many more recipients than distinct memos, or vice versa. Without mitigation, this could result in more observably distinct patterns relating the number of recipients to the number of possible memos. In particular, a transaction with no memo would be distinguishable from one with a memo.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "To mitigate this, a transaction with any shielded outputs is required to include at least 2 memo chunks in its memo bundle and pad the memo to a multiple of 2 chunks (see [Memo bundle padding]). This ensures that the common use case of sending a transaction without including explicit memo data is indistinguishable from sending a transaction with a short memo, as is currently supported by all wallets in common use.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If a wallet includes an authenticated reply-to address, however, this may be distinguishable from other ordinary wallet behaviour because the memo data (including the reply-to address) necessarily exceeds 512 bytes. While it would be possible to require transactions be padded to at least 16 chunks to ameliorate this potential distinguisher, this introduces an unreasonable amount of waste in the case of ordinary transactions.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The adjective \"distinguible\" is used as a noun for \"distinguisher\"."
+   ],
+   "first": "Si una billetera incluye una dirección autenticada de respuesta, sin embargo, esto puede ser distinguible de otro comportamiento ordinario de billetera porque los datos de memorando (incluida la dirección de respuesta) exceden necesariamente los 512 bytes. Aunque sería posible requerir que las transacciones se rellenen a al menos 16 fragmentos para mitigar este potencial distinguible, esto introduce una cantidad irrazonable de desperdicio en el caso de las transacciones ordinarias."
+  },
+  "On the flip side, a chain observer now only knows upper bounds on the amount of memo data being conveyed, and the number of possible distinct memos. They have no information about how memo data is split among the recipients. This can provide a privacy improvement in some situations. For example, it is not possible to distinguish between many recipients receiving many small memos, and the same set of recipients receiving one large shared memo.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In summary, when sending large amounts of memo data, the change introduced by this ZIP eliminates a potential distinguisher along one axis in exchange for a potential distinguisher along another.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The adjective \"distinguible\" is used as a noun for \"distinguisher\"."
+   ],
+   "first": "En resumen, al enviar grandes cantidades de datos de memorando, el cambio introducido por este ZIP elimina un potencial distinguible a lo largo de un eje a cambio de un potencial distinguible a lo largo de otro."
+  },
+  "<x1/>Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Standard Zcash shielded transactions continue to include a single 512-byte memo.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The mechanism should be able to reproduce the existing functionality where each output may include a corresponding 512 bytes of memo data that is decryptable only by the recipient of that output.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Recipients can receive memo data that is greater than 512 bytes in length.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Multiple recipients, across any of the shielded pools, can be given the capability to view the same memo data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The exact number and exact lengths of distinct decryptable memos should not be revealed, even to the transaction recipients, although an upper bound on the total length of memo data that the observer does not have the capability to view will be leaked to transaction recipients, and the overall maximum possible length of memo data will be revealed on-chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A recipient can determine whether or not they have been given the capability to view any memo solely by decrypting the note ciphertext.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Memo chunks within a transaction can be individually pruned from block storage without preventing the transaction from being verified when transmitting block data to peers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The ciphertext of the note alone can be decrypted using a scheme that meets a standard security notion for authenticated encryption, without more than a small constant overhead in ciphertext size.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Non-requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Recipients do not need to be able to receive multiple memos per note. This capability can however be enabled under the existing proposal by \"chaining\" memos, including the decryption key for another memo within the memo that is decryptable by a recipient.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Since this proposal is defined only for v6 and later transactions, it is not necessary to consider Sprout JoinSplit outputs. The following sections apply to both Sapling and Orchard outputs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Memo bundle": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A memo bundle consists of a sequence of 272-byte memo chunks, each encrypting a 256-byte chunk of memo plaintext. These memo chunks represent zero or more encrypted memos.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each transaction may contain a single memo bundle, and a memo bundle may contain at most <x1/> = 64 memo chunks. This limits the total amount of memo data that can be conveyed within a single transaction to <x2/> × 256 = 16384 bytes, or 16 KiB.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the transaction contains any shielded outputs, its memo bundle MUST contain an even number of memo chunks, with a minimum of 2. See [Memo bundle padding] for details.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Memo bundles are encoded in transactions in a prunable manner: each memo chunk can be replaced by its representative digest.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Memo encryption": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "During transaction construction, each output with memo data is assigned a 32-byte memo key <x1/>, as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If an output is intended to be publicly decryptable, it is assigned the memo key consisting of 32 <x1/> bytes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If an output has no memo data, it is assigned the memo key consisting of 32 <x1/> bytes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Otherwise, a 32-byte key SHOULD be generated randomly in a way that excludes the above-mentioned reserved values from the valid range of the generation function.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "Missing article: 'excluyendo de rango válido' must be 'excluyendo del rango válido'."
+   ],
+   "first": "De lo contrario, DEBERÍA (SHOULD) generarse una clave de 32 bytes de forma aleatoria, excluyendo de rango válido de la función de generación los valores reservados mencionados anteriormente."
+  },
+  "A single memo key MUST NOT be used to encrypt more than one memo within a single transaction. To share a memo among multiple recipients, the same <x1/> value is placed in each recipient's note plaintext; this does not violate the above constraint because all recipients decrypt the same memo.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In note plaintexts of v6-onward transactions, the 512-byte memo field is replaced by the 32-byte <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The explicit encodings of the note plaintexts for Sapling and Orchard outputs are specified in ZIP 230 <g1><g2>8</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The transaction builder generates a 32-byte salt value <x1/> from a CSPRNG. A new salt MUST be generated for each memo bundle.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The symmetric encryption key for a memo is derived from its <x1/> as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The first byte <x1/> should be added to the documentation of inputs to <x2/> in § 4.1.2 ‘Pseudo Random Functions’ <g3><g4>9</g4></g3>.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The section title 'Pseudo Random Functions' is left in English."
+   ],
+   "first": "El primer byte <x1/> debería añadirse a la documentación de las entradas de <x2/> en el § 4.1.2 “Pseudo Random Functions” <g3><g4>9</g4></g3>."
+  },
+  "If the generated key <x1/> is 32 <x2/> bytes, the transaction constructor MAY repeat this procedure with a different salt, in order to avoid the recipient misinterpreting the output as having no memo data. Since that has negligible probability, it alternatively MAY omit this check.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each memo MUST have a length that is a multiple of 256 bytes. (For UTF-8 text memos, padding is performed at the application level as specified in ZIP 302 <g1><g2>10</g2></g1>.) The memo is split into 256-byte plaintext chunks. Each plaintext chunk is encrypted with ChaCha20Poly1305 <g3><g4>11</g4></g3> as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "where <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The resulting 272-byte ciphertext is referred to as a memo chunk:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This is a variant of the STREAM construction <g1><g2>12</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is a big-endian chunk counter starting at zero and incrementing by one for each subsequent chunk within a particular memo.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is the byte <x2/> for the final memo chunk, and <x3/> for all preceding chunks.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Finally, the encrypted memo chunks for all memos are combined into a single sequence using an order-preserving shuffle. Memo chunks from different memos MAY be interleaved in any order, but memo chunks from the same memo MUST have the same relative order.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The shuffle algorithm SHOULD select each successive chunk by choosing among the remaining lists with probability weighted by remaining list length. That is, given <x1/> lists with remaining lengths <x2/>, the next chunk is drawn from list <x3/> with probability <x4/>. This can be implemented by generating a uniform random index <x5/> in <x6/> and selecting the list <x7/> such that <x8/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The shuffle algorithm MUST ensure that a memo recipient learns only (a) the number of chunks in their own memo and (b) the total number of chunks they cannot decrypt, but gains no information about how the undecryptable chunks are distributed among other memos. The above weighting satisfies this property.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The following diagram shows an example shuffle for three memos:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Memo bundle padding": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the transaction contains any shielded outputs, the memo bundle MUST contain an even number of memo chunks, with a minimum of 2. If the number of memo chunks resulting from the encryption and shuffle steps above does not satisfy this requirement, the transaction builder MUST append padding chunks generated by encrypting random memo data using a random memo key generated using a CSPRNG until the total is even and at least 2. Padding chunks generated in this fashion will be indistinguishable from real encrypted memo chunks to an observer who does not hold the memo key for those chunks.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Memo decryption": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "When a recipient decrypts a shielded output, they obtain a memo key <x1/>. If <x2/> consists of 32 <x3/> bytes, no memo is associated with this output and memo decryption SHOULD NOT be performed. Otherwise, the recipient derives <x4/> as above, and then proceeds as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> let mutable <x2/> <x3/> let mutable <x4/> <x5/> let mutable <x6/> <x7/> for <x8/> from <x9/> up to <x10/>: <x11/> <x12/> if <x13/> is not pruned: <x14/> <x15/> let <x16/> <x17/> let <x18/> <x19/> if <x20/>: <x21/> <x22/> set <x23/> <x24/> set <x25/> <x26/> set <x27/> <x28/> <x29/> let <x30/> <x31/> let mutable <x32/> false <x33/> <x34/> for <x35/> from <x36/> up to <x37/>: <x38/> <x39/> if <x40/> is not pruned: <x41/> <x42/> let <x43/> <x44/> if <x45/> and <x46/> and not <x47/>: <x48/> <x49/> set <x50/> <x51/> set <x52/> true <x53/> <x54/> <x55/> if <x56/> then return <x57/> else return <x58/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This algorithm relies on the order-preserving shuffle invariant from [Memo encryption]: the final chunk of a memo always appears after all of its non-final chunks. The <x1/> guard ensures that a chunk is only accepted as the final chunk if it appears at or after the position following the last successfully decrypted non-final chunk.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If any chunk of the memo encrypted to <x1/> has been pruned, the decryption process above returns nothing (as <x2/> will be set to the wrong counter value followed by <x3/>), ensuring that a malformed memo is not returned.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Wallet implementations SHOULD defer memo bundle decryption to an asynchronous process that is independent of the trial decryption of note ciphertexts.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Rationale for deferred memo decryption": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In pre-v6 transactions performed by full-node wallets, trial decryption of each shielded output performs constant work regardless of whether the output belongs to the wallet: the AEAD decryption of the full 580-byte note ciphertext costs the same whether it succeeds or fails.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "With memo bundles, successful trial decryption of a 100-byte v6 note ciphertext yields a memo key <x1/>, and if the key is not the no-memo sentinel, the wallet must scan up to <x2/> memo chunks to recover the memo. This additional work — potentially up to 64 AEAD operations — creates a timing differential between successful and unsuccessful trial decryptions that could be exploited by an adversary to determine whether a node's wallet recognized a particular output.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Deferring memo bundle decryption decorrelates the observable timing of block processing from whether any notes were successfully decrypted, making it more difficult for an adversary to attribute memo decryption work to a specific transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Encoding in transactions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Bytes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Name": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Data Type": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Description": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "1 if all chunks have been pruned, otherwise 0.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The salt for deriving memo encryption keys, or the memo bundle digest.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "† varies": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The number of memo chunks.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Bitflags indicating the type of each entry in <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A sequence of encrypted memo chunks.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "† These fields are present if and only if <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If <x1/>, then:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> contains the <x2/> used to derive memo encryption keys (see [Memo encryption]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each bit of <x1/>, in little-endian order, indicates the type of the corresponding entry in <x2/>. A bit value of 0 indicates that the entry will be of type <x3/> representing an encrypted memo chunk. A bit value of 1 indicates the entry will be a <x4/> and contains the <x5/> for a pruned chunk.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> contains the <x2/> as defined in [Transaction sighash].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <x1/>, <x2/>, and <x3/> fields will be absent.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Transaction sighash": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The heading is left untranslated."
+   ],
+   "first": "<x1/>Transaction sighash"
+  },
+  "The memo bundle digest structure is a performance optimization for the case where all memo chunks in a transaction have been pruned.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "TODO: finish this as a modification to ZIP 248 <g1><g2>13</g2></g1>, which defines the v6 transaction digest structure. Note that <x3/> MUST NOT contribute to the transaction digest, as it is not part of the committed transaction data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Changes to ZIP 317 <g2><g3>14</g3></g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The conventional fee in ZEC is altered such that a memo bundle may contain two free chunks if there are any shielded outputs in the transaction. Any memo chunk beyond this requires <x1/>. See the Fee calculation section of ZIP 317 <g2><g3>15</g3></g2> for details.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Network protocol": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Nodes MUST reject <x1/> responses having an <x2/> value that is nonzero, or any byte of <x3/> that is nonzero. A node that has pruned any memo chunks from a transaction MUST NOT serve that transaction in response to a <x4/> request; it SHOULD respond as though the transaction is not available.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Because memo data MAY be pruned from stored blocks, nodes that have pruned memo data are not required to serve complete block data for affected transactions. However, to support reliable memo delivery, it would be beneficial for the Zcash community to establish expectations for how long after block confirmation a node is expected to retain complete (unpruned) memo data. Such a retention policy would allow wallet implementations to make reasonable assumptions about memo availability when recovering from backup or performing initial synchronization.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Decoupling memo data from note data and making it independently prunable helps to mitigate the long-term storage costs that memo data imposes on node operators, while preserving the ability of every node to validate the full transaction chain using the memo bundle digest.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Changes to the Zcash Protocol Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The changes to support memo bundles that affect the definitions of note plaintexts and note ciphertexts, interact with the addition of an <x1/> field to v6-onward Orchard note plaintexts in order to support ZSAs, which must be merged with the changes in this section.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Changes to the algorithms for encryption and decryption are specified below. Note that <g1><g2>16</g2></g1> also updates these algorithms, but the merge is trivial.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In § 3.2.1 ‘Note Plaintexts and Memo Fields’:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Change": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each Sapling or Orchard note plaintext (denoted <x1/>) consists of": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "to": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The form of a Sapling or Orchard note plaintext depends on the version of the transaction in which it will be included; specifically whether that version is pre-v6, or v6-onward.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each pre-v6 Sapling or Orchard note plaintext (denoted <x1/>) consists of": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each v6-onward Sapling or Orchard note plaintext (denoted <x1/>) consists of": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In § 5.5 ‘Encodings of Note Plaintexts and Memo Fields’ <g1><g2>17</g2></g1>:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Change the paragraph that describes \"The encoding of a Sapling or Orchard note plaintext\" to refer to \"The encoding of a pre-v6 Sapling or Orchard note plaintext\".": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Add a new paragraph at the end of the section:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The encoding of a v6-onward Sapling or Orchard note plaintext consists of:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A byte 0x03, indicating this version of the encoding of a v6-onward Sapling or Orchard note plaintext.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "11 bytes specifying <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "8 bytes specifying <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "32 bytes specifying <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A value consisting of 32 <x1/> bytes for <x2/> is used to indicate that there is no memo for this note plaintext.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In § 4.7.2 ‘Sending Notes (Sapling)’ <g1><g2>18</g2></g1> and § 4.7.3 ‘Sending Notes (Orchard)’ <g3><g4>19</g4></g3>:": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The section titles 'Sending Notes (Sapling)' and 'Sending Notes (Orchard)' are left in English."
+   ],
+   "first": "En § 4.7.2 ‘Sending Notes (Sapling)’ <g1><g2>18</g2></g1> y § 4.7.3 ‘Sending Notes (Orchard)’ <g3><g4>19</g4></g3>:"
+  },
+  "Add a reference to this ZIP specifying the construction of the memo bundle and derivation of <x1/> in the case of a v6-onward note plaintext.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let <x1/> be the encoding of a Sapling note plaintext using <x2/>, <x3/>, <x4/>, <x5/>, and either <x6/> for a pre-v6 note plaintext or <x7/> for a v6-onward note plaintext.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "replacing \"Sapling\" with Orchard in the case of § 4.7.3.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In § 4.20.1 ‘Encryption (Sapling and Orchard)’ <g1><g2>20</g2></g1>:": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The quoted section title 'Encryption (Sapling and Orchard)' is left in English."
+   ],
+   "first": "En § 4.20.1 ‘Encryption (Sapling and Orchard)’ <g1><g2>20</g2></g1>:"
+  },
+  "For v6-onward note ciphertexts, the KDF used to derive the note encryption key MUST use a different BLAKE2b-256 personalization string than for pre-v6 note ciphertexts, to provide domain separation. The personalization string is formed by concatenating a protocol prefix with the 4-byte little-endian encoding of the transaction version group id (<x1/>):": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For v6-onward Sapling note ciphertexts:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>\\hspace{2em}\\mathsf{KDF^{Sapling}}(\\mathsf{sharedSecret}, \\mathsf{ephemeralKey}) := \\mathsf{BLAKE2b\\text{-}256}(\\text{\"Zc_SaplingKD\"} \\,||\\, \\mathsf{I2LEOSP}_{32}(\\mathsf{nVersionGroupId}), \\mathsf{sharedSecret} \\,||\\, \\mathsf{ephemeralKey}) ParseError: Expected 'EOF', got '_' at position 122: …}256}(\\text{\"Zc_̲SaplingKD\"} \\,|…</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For v6-onward Orchard note ciphertexts:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>\\hspace{2em}\\mathsf{KDF^{Orchard}}(\\mathsf{sharedSecret}, \\mathsf{ephemeralKey}) := \\mathsf{BLAKE2b\\text{-}256}(\\text{\"Zc_OrchardKD\"} \\,||\\, \\mathsf{I2LEOSP}_{32}(\\mathsf{nVersionGroupId}), \\mathsf{sharedSecret} \\,||\\, \\mathsf{ephemeralKey}) ParseError: Expected 'EOF', got '_' at position 122: …}256}(\\text{\"Zc_̲OrchardKD\"} \\,|…</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This prevents a malicious lightwalletd server from presenting a v6 note ciphertext to a wallet as though it were a partial v5 ciphertext, which could otherwise cause the wallet to decrypt and act on unauthenticated plaintext.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let <x1/> be the Sapling or Orchard note plaintext. <x2/> is encoded as defined in § 5.5 ‘Encodings of Note Plaintexts and Memo Fields’.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let <x1/> be the encoding of the Sapling or Orchard note plaintext (which may be pre-v6 or v6-onward), as defined in § 5.5 ‘Encodings of Note Plaintexts and Memo Fields’.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Add another normative note to that section:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> will be of length either 580 or 100 bytes, depending on whether <x2/> is a pre-v6 or v6-onward note plaintext.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In § 4.20.2 ‘Decryption using an Incoming Viewing Key (Sapling and Orchard)’ <g1><g2>21</g2></g1> and § 4.20.3 ‘Decryption using an Outgoing Viewing Key (Sapling and Orchard)’ <g3><g4>22</g4></g3>:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Replace <x1/> with <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Specify that the type of <x1/> is <x2/> when decrypting a pre-v6 note ciphertext, or <x3/> when decrypting a v6-onward note ciphertext. In the latter case, it is used as <x4/> to decrypt the memo bundle as described in [Memo bundle].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Applicability": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "All of these changes apply identically to Mainnet and Testnet.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Open issues": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Interaction with ZIP 302 <g2><g3>10</g3></g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "TBD": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Memo bundle size restriction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Restricting the total amount of memo data in a bundle, for example to 16 KiB, limits the rate at which the chain size can grow cheaply (from a computational perspective; memo bundles are much easier to produce than proofs or signatures).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The current behaviour for previous transaction versions (no limit on the number of memos) is not altered by this ZIP, because memos in those transactions are tied to individual shielded outputs (incurring their computational cost), and are not natively aggregatable.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Independent fee policy for memo data": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "By decoupling memos from shielded outputs, this ZIP creates an opportunity to impose economic disincentives on adding memo data to the chain without affecting the shielded value transfer protocols. Because the fee for memo data is independent of the fee for value transfer, it can be adjusted independently — for example, to impose a superlinear cost curve for large amounts of memo data, or to increase memo fees in response to chain growth, without any impact on the cost of ordinary shielded transfers. More generally, this decoupling makes it straightforward to impose restrictions on memo creation that cannot currently be imposed without also affecting value transfer.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Memo chunk size": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "To understand the effect of memo chunk size, we construct a table showing the total amount of data stored on-chain when encoding 16 KiB of memo data to as many recipients as possible.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Each table entry has the format \"<x1/> @ <x2/> (<x3/>)\" where <x4/> is the maximum number of distinct recipients you can have within the memo data limits, <x5/> is the cost in bytes of that memo data plus memo keys and authentication tags when using a 32-byte memo key, and <x6/> is the relative overhead compared to pre-ZIP-231 memos.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Calculation details": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Let:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> be the limit on total memo data (16384 bytes);": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> be the plaintext chunk size (256 or 512 bytes);": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> be the maximum length of an individual memo (256 or 512 bytes);": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> be the key size (32 bytes);": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> be the authentication tag size (16 bytes);": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> be the limit on the number of chunks (32 or <x2/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Then": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>; and": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Chunk size": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Memo size ≤ 256 bytes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Memo size = 512 bytes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Pre-231": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "256 32-out": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the \"256 32-out\" case you have a distinguisher compared to old transactions, in that you can tell the transaction is sending at most 256 bytes per recipient rather than 512 if it is sending the maximum number of memos. But that's inherently baked into the decision to use a smaller plaintext chunk size (and it is still possible for the chunks to all be a single memo sent to all outputs, or anything in between).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Memo key size": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "16-byte (128-bit) keys don't meet Zcash's target security level of 125 bits, as argued in <g1><g2>23</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "However, for the sake of argument, if we used a 16-byte memo key instead of 32 bytes, the transaction size overhead would become:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The decrease in overhead is relatively modest in most cases, but more noticeable for small memos with a 256-byte plaintext chunk.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The benefits of 256-bit keys are:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "They incur only a small transaction size overhead above the minimum key size that <g1>would</g1> meet the target security level.": {
+   "passed": true,
+   "rounds": 3,
+   "issues": [
+    "The verb is misspelled: \"Incurrien\" should be \"Incurrirían\".",
+    "The tense of the main verb changes from present ('incur') to conditional ('Incurrirían'), turning a stated fact into a hypothesis."
+   ],
+   "first": "Incurrien solo en una pequeña sobrecarga en el tamaño de la transacción por encima del tamaño de clave mínimo que <g1>sí</g1> cumpliría el nivel de seguridad objetivo."
+  },
+  "This key length matches what we already use elsewhere for symmetric keys.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Encryption format": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Including a per-transaction <x1/> in the derivation of <x2/> gives protection against accidental (or intentional) reuse of <x3/> across multiple transactions. We do not protect against <x4/> reuse within a transaction; it is up to the transaction builder to ensure that the same <x5/> is not used to encrypt two different memos (and if they did so, normal clients would either never observe the second memo, or would decrypt parts of each memo and get a nonsensical and potentially insecure \"spliced\" memo).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We do not include commitments to the shielded outputs in the derivation of <x1/> for two reasons:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "It would force the transaction builder to fully define all shielded outputs before encrypting the memos, which might prevent potential use cases of PCZTs <g1><g2>24</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "We don't want to unnecessarily prevent the ability to create a transaction with a memo bundle and no shielded outputs, as there may be use cases for, e.g. a fully-transparent transaction with encrypted memo, or a ZSA issuance transaction with exposed memo data using a well-known <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Domain separation of note ciphertexts": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "V6-onward note ciphertexts use KDF personalization strings that incorporate the transaction version group id (<g1>\\text{\"Zc_SaplingKD\"} \\,||\\, \\mathsf{nVersionGroupId} ParseError: Expected 'EOF', got '_' at position 10: \\text{\"Zc_̲SaplingKD\"} \\,|…</g1> and <g2>\\text{\"Zc_OrchardKD\"} \\,||\\, \\mathsf{nVersionGroupId} ParseError: Expected 'EOF', got '_' at position 10: \\text{\"Zc_̲OrchardKD\"} \\,|…</g2>), providing domain separation from pre-v6 note ciphertexts. This prevents a downgrade attack in which a malicious lightwalletd server presents a v6 note ciphertext as a partial v5 note ciphertext. Without domain separation, a wallet that supports the v5 partial-ciphertext optimization (downloading note ciphertexts without the MAC to save bandwidth) could decrypt a v6 ciphertext without verifying its authentication tag, potentially acting on unauthenticated data. Using the version group id rather than a fixed suffix ensures that domain separation extends automatically to future transaction versions.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Pruned encoding": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The separation of memo data from note data, and the new ability to easily store variable-length memo data, opens up an attack vector against node operators for storing arbitrary data. The transaction digest commitments to the memo bundle are structured such that if a node operator is presented with a memo key (i.e. they are given the capability to decrypt a particular memo), they can identify and prune the corresponding memo chunks, while still enabling the transaction to be validated as part of its corresponding block and broadcast over the network.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The transaction encoding permits pruning at the individual chunk level in order to facilitate pruning an individual memo from a transaction without affecting the other memos. This enables node operators to be responsive to, for example, GDPR deletion requests.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Note that broadcasting a partially-pruned transaction means that the pruned chunks no longer contribute to the upper bound on memo data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The prunable structure does not introduce a censorship axis; memo bundles do not reveal which memo chunks correspond to which memos, and therefore a network adversary cannot selectively censor individual memos. They can censor any/all chunks within specific transactions, however shielded transactions do not reveal their senders, recipients, or amounts, and thus also cannot be individually targeted for censorship.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Deployment": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP is proposed to activate with Network Upgrade 7. <g1><g2>25</g2></g1>": {
+   "passed": true,
+   "rounds": 3,
+   "issues": [
+    "The proper name 'Network Upgrade 7' is duplicated by translating 'network upgrade' and also keeping the English name.",
+    "The glossary term 'network upgrade' is not translated as 'actualización de red'."
+   ],
+   "first": "Se propone que este ZIP se active con la actualización de red Network Upgrade 7. <g1><g2>25</g2></g1>"
+  },
+  "<x1/>Reference implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Alternatives": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "An alternative chunk size could be selected. The 256-byte chunk size was chosen because the 16-byte AEAD tag for each chunk introduces a 6.25% per-chunk overhead; smaller chunk sizes would require a higher percentage of the memo bundle data to be devoted to encryption overhead, while larger chunk sizes would tend to bloat the chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The 64-chunk limit could be modified to be either smaller or larger. However, as the smallest Orchard authenticated reply-to address proofs are approximately 4 kilobytes in size, the limit needs to be sufficient to permit this use case.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The fee algorithm could be modified to be a superlinear function of the number of memo chunks, in order to economically discourage the use of large amounts of memo data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Footnotes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Information on BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>ZIP 200: Network Upgrade Mechanism</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1] or later</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 3.12: Mainnet and Testnet</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 3.2.1: Note Plaintexts and Memo Fields</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>ZIP 307: Light Client Protocol for Payment Detection</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>ZecHub Shielded Newsletter</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>ZIP 230: Version 6 Transaction Format — Orchard Note Plaintext</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.1.2: Pseudo Random Functions</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>ZIP 302: Standardized Memo Field Format</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>RFC 8439: ChaCha20 and Poly1305 for IETF Protocols</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Online Authenticated-Encryption and its Nonce-Reuse Misuse-Resistance</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>ZIP 248: Extensible Transaction Format (PR: zcash/zips#1156)</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>ZIP 317: Proportional Transfer Fee Mechanism</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>ZIP 317: Proportional Transfer Fee Mechanism - Fee calculation</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>ZIP 2005: Quantum Recoverability</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 5.5: Encodings of Note Plaintexts and Memo Fields</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.7.2: Sending Notes (Sapling)</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.7.3: Sending Notes (Orchard)</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.20.1: Encryption (Sapling and Orchard)</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.20.2: Decryption using an Incoming Viewing Key (Sapling and Orchard)</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 4.20.3: Decryption using an Outgoing Viewing Key (Sapling and Orchard)</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash Protocol Specification, Version 2025.6.2 [NU6.1]. Section 8.7: In-band secret distribution</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>zcash/zips issue #693: Standardize a protocol for creating shielded transactions offline</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>draft-arya-deploy-nu7: Deployment of the NU7 Network Upgrade</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  }
+ }
+}

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { ogMetadata } from "@/lib/og";
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
+import { DEFAULT_LOCALE } from "@/i18n/config";
+import TranslationNotice from "@/components/translation-notice";
 import Link from "@/i18n/link";
 import { notFound } from "next/navigation";
-import { getExternalPr, getExternalPrsForSource, getExternalSource, getExternalSources, getPrPreviewHtml, prPreviews, } from "@/lib/data";
+import { getExternalPr, getExternalPrsForSource, getExternalSource, getExternalSources, getPrPreviewHtml, getPrPreviewTranslation, localPreviewTitle, prPreviews, } from "@/lib/data";
 import StatusBadge from "@/components/status-badge";
 import TocSidebar from "@/components/toc-sidebar";
 import ZipToc from "@/components/zip-toc";
@@ -42,7 +44,7 @@ export async function generateMetadata({ params, }: {
         return {};
     const s = getExternalSource(source);
     return ogMetadata({
-        title: (await getTranslations("External"))("prMetaTitle", { label: s?.label ?? source, number: pr.number, title: pv.title }),
+        title: (await getTranslations("External"))("prMetaTitle", { label: s?.label ?? source, number: pr.number, title: localPreviewTitle(pr, pv, await getLocale()) }),
         path: `/external/${source}/${number}/${slug}/`,
         card: `external-${source}`,
     });
@@ -63,7 +65,9 @@ export default async function ExternalPrDocPage({ params, }: {
     const html = getPrPreviewHtml(pr, pv.slug);
     if (!html)
         notFound();
-    const headings = pv.headings;
+    const foreign = (await getLocale()) !== DEFAULT_LOCALE;
+    const translation = foreign ? getPrPreviewTranslation(pr, pv) : null;
+    const headings = translation?.headings ?? pv.headings;
     const t = await getTranslations("Pr");
     const tc = await getTranslations("Common");
     const te = await getTranslations("External");
@@ -88,7 +92,7 @@ export default async function ExternalPrDocPage({ params, }: {
             </span>
           </p>
           <h1 className="font-display mb-3 text-[clamp(1.75rem,3vw,2.35rem)] leading-[1.2] font-semibold tracking-[-0.02em] [text-wrap:pretty]">
-            {pv.title}
+            {translation?.title ?? pv.title}
           </h1>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted-foreground">
             <StatusBadge status={pv.status}/>
@@ -117,8 +121,9 @@ export default async function ExternalPrDocPage({ params, }: {
             </div>)}
         </header>
 
-        <article data-pagefind-body>
-          <div className="prose" dangerouslySetInnerHTML={{ __html: html }}/>
+        <article lang={foreign && !translation ? DEFAULT_LOCALE : undefined} data-pagefind-body>
+          <TranslationNotice model={translation?.model ?? null} english={`/external/${s.id}/${pr.number}/${pv.slug}/`}/>
+          <div className="prose" dangerouslySetInnerHTML={{ __html: translation?.html ?? html }}/>
         </article>
       </div>
     </div>);

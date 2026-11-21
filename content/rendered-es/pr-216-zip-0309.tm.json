@@ -1,0 +1,1935 @@
+{
+ "segments": {
+  "Add support for zk-Channels protocol": "Añadir soporte para el protocolo zk-Channels",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\" and \"MUST NOT\" in this document are to be interpreted as described in RFC 2119. <x1/>": "Las palabras clave \"DEBE (MUST)\" y \"NO DEBE (MUST NOT)\" en este documento deben interpretarse como se describe en RFC 2119. <x1/>",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This proposal specifies three possible approaches for integrating the zk-Channels protocol <g1><g2>[#zk-Channels-paper]_</g2></g1> into Zcash.": "Esta propuesta especifica tres enfoques posibles para integrar el protocolo zk-Channels <g1><g2>[#zk-Channels-paper]_</g2></g1> en Zcash.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "Layer 2 protocols like Lightning enable scalable payments for Bitcoin but lack the mechanisms to provide strong privacy guarantees on the payment network. Zcash offers private transactions but currently lacks features that would enable a Lightning-style payment channel. This proposal specifies an integration of the zkChannel privacy-preserving payment channel protocol on top of Zcash <g1><g2>[#zk-Channels-paper]_</g2></g1>.": "Los protocolos de capa 2 como Lightning permiten pagos escalables para Bitcoin, pero carecen de los mecanismos para ofrecer garantías de privacidad sólidas en la red de pagos. Zcash ofrece transacciones privadas, pero actualmente carece de características que permitirían un canal de pago al estilo de Lightning. Esta propuesta especifica una integración del protocolo de canales de pago que preserva la privacidad zkChannel sobre Zcash <g1><g2>[#zk-Channels-paper]_</g2></g1>.",
+  "<x1/>zk-Channels high level Overview": "<x1/>Vista general de zk-Channels a alto nivel",
+  "zk-Channels enables two parties, a customer and a merchant, to open an assymetric anonymous payment channel where only the customer may initiate channel opening and payments. While the channel opening and closure are broadcast on-chain, making the channel's participants at most pseudonymous, the payments are done directly between the customer and merchant offchain in an anonymous and unlinkable fashion.": "zk-Channels permite que dos partes, un cliente y un comerciante, abran un canal de pago anónimo y asimétrico donde solo el cliente puede iniciar la apertura del canal y los pagos. Si bien la apertura y el cierre del canal se transmiten en la cadena, lo que hace que los participantes del canal sean a lo sumo seudónimos, los pagos se realizan directamente entre el cliente y el comerciante fuera de la cadena de forma anónima e inenlazable.",
+  "The channel opening can be split in three phases: initialisation, activation and unlink:": "La apertura del canal puede dividirse en tres fases: inicialización, activación y desvinculación:",
+  "in the initialisation phase, the customer and merchant set up the channel by agreeing on initial balances and auxiliary information.": "en la fase de inicialización, el cliente y el comerciante configuran el canal acordando los saldos iniciales y la información auxiliar.",
+  "in the activation phase, the merchant ensures that the channel has been properly funded and sends to the client a payment token to allow the customer to transfer funds.": "en la fase de activación, el comerciante se asegura de que el canal haya sido financiado correctamente y envía al cliente un token de pago para permitirle transferir fondos.",
+  "the unlink phase goal is to unlink the channel opening with futher payments by performing a first unlinkable payment with null amount.": "el objetivo de la fase de desvinculación es desvincular la apertura del canal de pagos posteriores realizando un primer pago no vinculable de monto nulo.",
+  "The off-chain payments is also split in three phases: setup, update state, and unmask.": "Los pagos fuera de la cadena también se dividen en tres fases: configuración, actualización de estado y revelación.",
+  "in the setup phase, the customer generates a new channel state privately and sends to the customer a payment request. The merchant checks checks this is not a double spend, and if so either accept or reject the new payment.": "en la fase de configuración, el cliente genera de forma privada un nuevo estado del canal y envía una solicitud de pago al cliente. El comerciante verifica que no sea un doble gasto y, en caso afirmativo, acepta o rechaza el nuevo pago.",
+  "in the update state phase, the customer and merchant participate in a zk-protocol where the merchant agrees on the new payment, by signing blindy on the new channel state, while revoking the current state.": "en la fase de actualización de estado, el cliente y el comerciante participan en un zk-protocolo donde el comerciante acuerda el nuevo pago firmando a ciegas el nuevo estado del canal, al mismo tiempo que revoca el estado actual.",
+  "in the unmask phase, the customer and merchant gets the payment and revocation token to close the zk-channel onchain.": "en la fase de revelación, el cliente y el comerciante obtienen el token de pago y de revocación para cerrar el zk-channel en la cadena.",
+  "The channel can be closed in three different ways:": "El canal puede cerrarse de tres maneras diferentes:",
+  "unilaterally by the merchant. In that case, the merchant uses the closing information exchanged in the channel initialisation to broadcast an expiry transaction onchain; the total amount is time-locked.": "unilateralmente por el comerciante. En ese caso, el comerciante usa la información de cierre intercambiada en la inicialización del canal para transmitir en la cadena una transacción de expiración; el monto total queda bloqueado temporalmente.",
+  "during the time lock, the customer can broadcast a customer close which nullify the expiry transaction;": "durante el bloqueo temporal, el cliente puede transmitir un cierre de cliente que anula la transacción de expiración;",
+  "after the time lock, the merchant can claim the funds.": "después del bloqueo temporal, el comerciante puede reclamar los fondos.",
+  "unilaterally by the customer. In that case, the customer uses the close authorization message received in a update state phase to broadcase a customer close transaction onchain; the merchant balance is sent directly to the merchant while the customer balance is time-locked.": "unilateralmente por el cliente. En ese caso, el cliente usa el mensaje de autorización de cierre recibido en una fase de actualización de estado para transmitir en la cadena una transacción de cierre de cliente; el saldo del comerciante se envía directamente al comerciante, mientras que el saldo del cliente queda bloqueado temporalmente.",
+  "during the time lock, the customer balance can be disputed by the merchant, in case the customer closed on an outdated state, by revealing the revocation secret. In that case, all funds go to the merchant;": "durante el bloqueo temporal, el saldo del cliente puede ser disputado por el comerciante, en caso de que el cliente haya cerrado sobre un estado desactualizado, mediante la revelación del secreto de revocación. En ese caso, todos los fondos van al comerciante;",
+  "after the time lock, the customer can claim the funds.": "después del bloqueo temporal, el cliente puede reclamar los fondos.",
+  "mutually. In that case, the customer and merchant exchange information to generate a multisig transaction closing the channel.": "mutuamente. En ese caso, el cliente y el comerciante intercambian información para generar una transacción multisig que cierra el canal.",
+  "<x1/>1. Requirements": "<x1/>1. Requisitos",
+  "<x1/>1.1 General requirements for zk-Channels protocol": "<x1/>1.1 Requisitos generales del protocolo zk-Channels",
+  "zk-Channels private payment channels require the following capabilities to provide anonymity properties for users on a payment network:": "Los canales de pago privados zk-Channels requieren las siguientes capacidades para proporcionar propiedades de anonimato a los usuarios en una red de pagos:",
+  "Ability to create an escrow transaction such that the transaction inputs are anonymous.": "Capacidad de crear una transacción de depósito en garantía de modo que las entradas de la transacción sean anónimas.",
+  "Ability to escrow funds to a multi-signature style address via non-malleable transactions.": "Capacidad de depositar fondos en garantía hacia una dirección de tipo multifirma mediante transacciones no maleables.",
+  "Ability to specify relative time locks for commitment transactions to support unilateral channel closing.": "Capacidad de especificar bloqueos temporales relativos para las transacciones de compromiso, a fin de admitir el cierre unilateral del canal.",
+  "Ability to validate zk-Channels-specific opening and closing transactions:": "Capacidad de validar transacciones de apertura y de cierre específicas de zk-Channels:",
+  "check the validity of randomized/blinded signature on the channel state in closing token;": "verificar la validez de la firma aleatorizada/a ciegas sobre el estado del canal en el token de cierre;",
+  "check the validity of revocation lock in the event of a channel dispute by merchant.": "verificar la validez del bloqueo de revocación en caso de una disputa del canal por parte del comerciante.",
+  "Ability to enforce a transaction flow thanks to Transparent ZCash Extensions [#zip-0222]": "Capacidad de hacer cumplir un flujo de transacciones gracias a las Transparent ZCash Extensions [#zip-0222]",
+  "Ability to verify transaction outputs using TZEs such that:": "Capacidad de verificar las salidas de las transacciones mediante TZE de modo que:",
+  "if customer-initiated closing, one output pays out to customer with a time lock (to allow merchant to dispute customer balance) and one output pays out to merchant immediately;": "si el cierre es iniciado por el cliente, una salida paga al cliente con un bloqueo temporal (para permitir que el comerciante dispute el saldo del cliente) y una salida paga al comerciante de inmediato;",
+  "if merchant-initiated closing, a single output pays the merchant the full balance of the channel with a time lock that allows for customer dispute.": "si el cierre es iniciado por el comerciante, una única salida paga al comerciante el saldo total del canal con un bloqueo temporal que permite la disputa del cliente.",
+  "<g1>Channel Operation Assumptions.</g1>": "<g1>Supuestos de operación del canal.</g1>",
+  "Channels funded by the customer alone and dual-funded channels are both supported.": "Se admiten tanto los canales financiados únicamente por el cliente como los canales con financiación dual.",
+  "Either the customer or the merchant can initiate channel closing.": "Tanto el cliente como el comerciante pueden iniciar el cierre del canal.",
+  "If the customer initiates closing, then the merchant can dispute the closing transaction if they disagrees with the closing token in the closing transaction.": "Si el cliente inicia el cierre, el comerciante puede disputar la transacción de cierre si no está de acuerdo con el token de cierre incluido en la transacción de cierre.",
+  "If the merchant initiates closing, the merchant posts a transaction claiming all the funds in the channel for themselves with a timelock. This gives the customer the opportunity to post their own valid closing transaction with the current channel balances. If the customer posts their own closing transaction, the merchant has an additional opportunity to dispute if necessary.": "Si el comerciante inicia el cierre, este publica una transacción que reclama para sí todos los fondos del canal con un bloqueo temporal. Esto le da al cliente la oportunidad de publicar su propia transacción de cierre válida con los saldos actuales del canal. Si el cliente publica su propia transacción de cierre, el comerciante tiene una oportunidad adicional de disputarla si es necesario.",
+  "<x1/>1.2 TZEs requirement for zk-Channels protocol": "<x1/>1.2 Requisitos de TZE para el protocolo zk-Channels",
+  "Ability to check the sender of the current transaction;": "Capacidad de verificar el remitente de la transacción actual;",
+  "Ability to check the owner of an address;": "Capacidad de verificar el propietario de una dirección;",
+  "Ability to check the amount of an address;": "Capacidad de verificar el monto de una dirección;",
+  "Ability to check the current block height;": "Capacidad de verificar la altura de bloque actual;",
+  "Ability to check information about a transaction of an input TZE address;": "Capacidad de verificar información sobre una transacción de una dirección TZE de entrada;",
+  "Ability to verify Pointcheval-Sanders signatures on specific messages;": "Capacidad de verificar firmas Pointcheval-Sanders sobre mensajes específicos;",
+  "Ability to assert a hash lock result;": "Capacidad de afirmar el resultado de un hash lock;",
+  "<x1/>2 Algorithms and variables": "<x1/>2 Algoritmos y variables",
+  "<x1/>2.1 Customer and Merchant Signing Keys": "<x1/>2.1 Claves de firma del cliente y del comerciante",
+  "The customer and the merchant both have key pairs from a suitable signature scheme to send and receive transactions. e.g. ECDSA or RedDSA signature key pairs. These are denoted as: <x1/>, <x2/> and <x3/>, <x4/>, respectively, where <x5/> stands for \"public key\" and <x6/> stands for the corresponding \"secret key\".": "El cliente y el comerciante tienen ambos pares de claves de un esquema de firma adecuado para enviar y recibir transacciones, p. ej., pares de claves de firma ECDSA o RedDSA. Estos se denotan como: <x1/>, <x2/> y <x3/>, <x4/>, respectivamente, donde <x5/> significa \"clave pública\" y <x6/> significa la \"clave secreta\" correspondiente.",
+  "The merchant must be able to issue blind signatures, for instance Pointcheval-Sanders (PS) blind signature, so they have an additional keypair; this keypair is denoted as: <x1/>, <x2/>. To verify a PS signature, we will use the following function: <x3/>.": "El comerciante debe poder emitir firmas ciegas, por ejemplo firmas ciegas Pointcheval-Sanders (PS), por lo que tiene un par de claves adicional; este par de claves se denota como: <x1/>, <x2/>. Para verificar una firma PS, se utilizará la siguiente función: <x3/>.",
+  "The customer key pair is specific to the channel and must not be reused. The merchant key pair is long term and should be used for all customer channels.": "El par de claves del cliente es específico del canal y no debe reutilizarse. El par de claves del comerciante es de largo plazo y debería usarse para todos los canales de clientes.",
+  "<x1/>2.2 Channel States": "<x1/>2.2 Estados del canal",
+  "zk-Channels relies on the concept of <g1>states</g1>. When the customer initiates a payment, they query the merchant to accept a new state while revoking the current one.": "zk-Channels se basa en el concepto de <g1>estados</g1>. Cuando el cliente inicia un pago, consulta al comerciante para que acepte un nuevo estado mientras revoca el actual.",
+  "The only zk-channel's invariants are the channel identifier <x1/>, and its participants' public keys. A channel state consists of:": "Los únicos invariantes de un zk-channel son el identificador del canal <x1/> y las claves públicas de sus participantes. Un estado del canal consiste en:",
+  "the channel id: <x1/>;": "el identificador del canal: <x1/>;",
+  "the merchant's public keys: <x1/> (defined in 1.1);": "las claves públicas del comerciante: <x1/> (definidas en 1.1);",
+  "the customer's public keys: <x1/> (defined in 1.1);": "las claves públicas del cliente: <x1/> (definidas en 1.1);",
+  "the customer's balance: <x1/>;": "el saldo del cliente: <x1/>;",
+  "the merchant's balance: <x1/>;": "el saldo del comerciante: <x1/>;",
+  "the revocation lock: <x1/> which is instantiated as a hash lock, <x2/> where <x3/> is the revocation secret.": "el candado de revocación: <x1/>, que se instancia como un candado de hash, <x2/>, donde <x3/> es el secreto de revocación.",
+  "The revocation lock is needed by the merchant to dispute a customer close on an outdated state.": "El comerciante necesita el candado de revocación para disputar un cierre del cliente sobre un estado desactualizado.",
+  "<x1/>3 Opening a channel": "<x1/>3 Apertura de un canal",
+  "To open a channel, the customer and merchant exchange key information and set the channel identifier <x1/>.": "Para abrir un canal, el cliente y el comerciante intercambian información de claves y establecen el identificador del canal <x1/>.",
+  "They agree on their respective initial balances <x1/> and <x2/>.": "Acuerdan sus saldos iniciales respectivos <x1/> y <x2/>.",
+  "The customer picks an inital revocation lock <x1/>.": "El cliente elige un candado de revocación inicial <x1/>.",
+  "The customer and merchant escrow the necessary funds in a funding transaction, denoted <x1/>.": "El cliente y el comerciante depositan en custodia los fondos necesarios en una transacción de financiación, denotada <x1/>.",
+  "As such, the escrow transaction presents:": "Como tal, la transacción de custodia presenta:",
+  "an opening channel state <x1/>;": "un estado del canal de apertura <x1/>;",
+  "potentially additional information such as a delay &lt;delay&gt;.": "potencialmente información adicional, como un retardo &lt;delay&gt;.",
+  "<x1/>4 Closing a channel": "<x1/>4 Cierre de un canal",
+  "A customer should be able to unilaterally close the channel by posting a <x1/> transaction. This transaction presents:": "Un cliente debería poder cerrar el canal de forma unilateral publicando una transacción <x1/>. Esta transacción presenta:",
+  "a closing channel state <x1/>;": "un estado del canal de cierre <x1/>;",
+  "a unblinded signature from the merchant on the channel state: <x1/> such that <x2/>.": "una firma no ciega del comerciante sobre el estado del canal: <x1/>, tal que <x2/>.",
+  "If the transaction is validated and mined, &lt;merch-balance&gt; is sent to the merchant and &lt;cust-balance&gt; is locked for a delay &lt;delay&gt; during which the merchant can dispute the channel closing thanks to a <x1/> transaction, and after which the customer can claim it thanks to a <x2/> transaction.": "Si la transacción se valida y se mina, &lt;merch-balance&gt; se envía al comerciante y &lt;cust-balance&gt; queda bloqueado durante un retardo &lt;delay&gt;, en el cual el comerciante puede disputar el cierre del canal mediante una transacción <x1/>, y después del cual el cliente puede reclamarlo mediante una transacción <x2/>.",
+  "The merchant can dispute a customer close by posting a <x1/> transaction. This transaction presents:": "El comerciante puede disputar un cierre del cliente publicando una transacción <x1/>. Esta transacción presenta:",
+  "a revocation secret <x1/> such that for the revocation lock <x2/> posted in <x3/> we have <x4/>.": "un secreto de revocación <x1/> tal que para el candado de revocación <x2/> publicado en <x3/> se cumple <x4/>.",
+  "If the transaction is validated and mined, the total balance (&lt;cust-balance&gt; + &lt;merch-balance&gt;) is sent to the merchant.": "Si la transacción se valida y se mina, el saldo total (&lt;cust-balance&gt; + &lt;merch-balance&gt;) se envía al comerciante.",
+  "A merchant should be able to unilaterally close the channel by posting a closing transaction <x1/>.": "Un comerciante debería poder cerrar el canal de forma unilateral publicando una transacción de cierre <x1/>.",
+  "If the transaction is validated and mined, the total balance is locked for a delay &lt;delay&gt; during which the customer can overwrite the spend with a <x1/> transaction, and after which the merchant can claim it thanks to a <x2/> transaction.": "Si la transacción se valida y se mina, el saldo total queda bloqueado durante un retardo &lt;delay&gt;, en el cual el cliente puede sobrescribir el gasto mediante una transacción <x1/>, y después del cual el comerciante puede reclamarlo mediante una transacción <x2/>.",
+  "The customer and merchant may also negotiate off-chain to form a <g1>mutual close transaction</g1>, <x2/>. This transaction presents:": "El cliente y el comerciante también pueden negociar fuera de la cadena para formar una <g1>transacción de cierre mutuo</g1>, <x2/>. Esta transacción presenta:",
+  "a truncated closing channel state <x1/> without the revocation lock and the merchant's blind signature public key;": "un estado del canal de cierre truncado <x1/> sin el candado de revocación ni la clave pública de firma ciega del comerciante;",
+  "two signatures from the customer <x1/> and the merchant <x2/> on this truncated state such that <x3/> and <x4/>.": "dos firmas, una del cliente <x1/> y otra del comerciante <x2/>, sobre este estado truncado, tales que <x3/> y <x4/>.",
+  "If the transaction is validated and mined, the balance &lt;cust-balance&gt; is sent to the customer and the balance &lt;merch-balance&gt; is sent to the merchant.": "Si la transacción se valida y se mina, el saldo &lt;cust-balance&gt; se envía al cliente y el saldo &lt;merch-balance&gt; se envía al comerciante.",
+  "<x1/>zk-Channels TZE transactions": "<x1/>Transacciones TZE de zk-Channels",
+  "We present in this section the individual transactions for opening and closing a zk-Channel as well as disputing and claiming funds of a zkChannel.": "En esta sección presentamos las transacciones individuales para abrir y cerrar un zk-Channel, así como para disputar y reclamar fondos de un zkChannel.",
+  "For simplicity, we describe the minimal information needed to understand the workflow, that is we show only the relevant part of the verify_tze functions and do not detail more than necessary the transaction structure.": "Por simplicidad, describimos la información mínima necesaria para entender el flujo de trabajo; es decir, mostramos solo la parte pertinente de las funciones verify_tze y no detallamos más de lo necesario la estructura de la transacción.",
+  "<x1/>1 Escrow transaction": "<x1/>1 Transacción de custodia",
+  "We present here the escrow transaction <x1/>:": "Presentamos aquí la transacción de custodia <x1/>:",
+  "Field": "Campo",
+  "Value": "Valor",
+  "tx_in_count": "tx_in_count",
+  "tx_in": "tx_in",
+  "[&lt;cust-input&gt;, &lt;merch-input&gt;]": "[&lt;cust-input&gt;, &lt;merch-input&gt;]",
+  "tx_out_count": "tx_out_count",
+  "tx_out": "tx_out",
+  "tze_in_count": "tze_in_count",
+  "tze_in": "tze_in",
+  "tze_out_count": "tze_out_count",
+  "tze_out": "tze_out",
+  "[&lt;escrow-out&gt;]": "[&lt;escrow-out&gt;]",
+  "lock_time": "lock_time",
+  "With,": "Con",
+  "&lt;cust-input&gt; being a transparent address comprising an initial amount of &lt;cust-balance&gt;.": "&lt;cust-input&gt; siendo una dirección transparente que comprende un monto inicial de &lt;cust-balance&gt;.",
+  "&lt;merch-input&gt; being a transparent address comprising an initial amount of &lt;merch-balance&gt;.": "&lt;merch-input&gt; siendo una dirección transparente que comprende un monto inicial de &lt;merch-balance&gt;.",
+  "with &lt;escrow-out&gt; being a tze input:": "con &lt;escrow-out&gt; siendo una entrada tze:",
+  "amount = &lt;merch-balance&gt; + &lt;cust-balance&gt;": "amount = &lt;merch-balance&gt; + &lt;cust-balance&gt;",
+  "precondition =": "precondition =",
+  "tze_id = 0 // <g1>zk-Channels TZE type</g1>": "tze_id = 0 // <g1>tipo TZE de zk-Channels</g1>",
+  "tze_mode = 0 // <g1>escrow mode</g1>": "tze_mode = 0 // <g1>modo de custodia</g1>",
+  "tze_data_payload_len =": "tze_data_payload_len =",
+  "tze_data_payload = &lt;cid&gt; || &lt;merch-pk&gt; || &lt;merch-ps-pk&gt; || &lt;cust-pk&gt;": "tze_data_payload = &lt;cid&gt; || &lt;merch-pk&gt; || &lt;merch-ps-pk&gt; || &lt;cust-pk&gt;",
+  "An escrow transaction can either be spent by a mutual close, merchant expiry or customer close transaction.": "Una transacción de custodia puede gastarse mediante un cierre mutuo, un vencimiento del comerciante o una transacción de cierre del cliente.",
+  "<x1/>2 Mutual close": "<x1/>2 Cierre mutuo",
+  "We present here the mutual close transaction <x1/>:": "Presentamos aquí la transacción de cierre mutuo <x1/>:",
+  "[&lt;merch-output&gt;, &lt;cust-output&gt;]": "[&lt;merch-output&gt;, &lt;cust-output&gt;]",
+  "[&lt;escrow-in&gt;]": "[&lt;escrow-in&gt;]",
+  "&lt;escrow-in&gt;:": "&lt;escrow-in&gt;:",
+  "prevout_hash = &lt;escrow-tx&gt;": "prevout_hash = &lt;escrow-tx&gt;",
+  "prevout_in = 0": "prevout_in = 0",
+  "witness :": "witness :",
+  "tze_id = 0 // <g1>zkChannels TZE type</g1>": "tze_id = 0 // <g1>tipo TZE de zkChannels</g1>",
+  "tze_mode = 0 // <g1>escrow mode&gt;</g1>": "tze_mode = 0 // <g1>modo de custodia&gt;</g1>",
+  "tze_data_payload = &lt;merch-sig&gt; || &lt;cust-sig&gt;": "tze_data_payload = &lt;merch-sig&gt; || &lt;cust-sig&gt;",
+  "&lt;merch-output&gt; being a transparent address comprising an amount of &lt;merch-balance&gt;;": "siendo &lt;merch-output&gt; una dirección transparente que comprende un monto de &lt;merch-balance&gt;;",
+  "&lt;cust-output&gt; being a transparent address comprising an amount of &lt;cust-balance&gt;.": "siendo &lt;cust-output&gt; una dirección transparente que comprende un monto de &lt;cust-balance&gt;.",
+  "The tze_verify function works as follow:": "La función tze_verify funciona de la siguiente manera:",
+  "<g1>tze_verify(mode, precondition, witness):</g1>": "<g1>tze_verify(mode, precondition, witness):</g1>",
+  "if mode == 0 AND context.tx.tx_out_counts == 2:": "if mode == 0 AND context.tx.tx_out_counts == 2:",
+  "// <g1>Check the transaction's structure</g1>": "// <g1>Verificar la estructura de la transacción</g1>",
+  "if context.tx.tx_in_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:": "if context.tx.tx_in_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:",
+  "Return false": "Return false",
+  "// <g1>Define the variables</g1>": "// <g1>Definir las variables</g1>",
+  "cid || merch-pk || merch-ps-pk || cust-pk = precondition": "cid || merch-pk || merch-ps-pk || cust-pk = precondition",
+  "merch-sig || cust-sig = witness": "merch-sig || cust-sig = witness",
+  "msg = TODO // <g1>hash of tx without witnesses</g1>": "msg = TODO // <g1>hash de la transacción sin testigos</g1>",
+  "// <g1>Check the tx signatures</g1>": "// <g1>Verificar las firmas de la transacción</g1>",
+  "if Verify(merch-pk, msg, merch-sig) != 1": "if Verify(merch-pk, msg, merch-sig) != 1",
+  "Return False": "Return False",
+  "if Verify(cust-pk, msg, cust-sig) != 1": "if Verify(cust-pk, msg, cust-sig) != 1",
+  "Return True": "Return True",
+  "<x1/>3 Expiry": "<x1/>3 Expiración",
+  "<x1/>3.1 Expiry": "<x1/>3.1 Expiración",
+  "We present here the unilateral merchant close transaction, also called expiry, <x1/>:": "Presentamos aquí la transacción de cierre unilateral del comerciante, también llamada expiración, <x1/>:",
+  "[&lt;expiry-out&gt;]": "[&lt;expiry-out&gt;]",
+  "witness:": "witness:",
+  "tze_id = 0 // <g1>zkChannels' TZE type</g1>": "tze_id = 0 // <g1>tipo TZE de zkChannels</g1>",
+  "tze_data_payload = &lt;merch-sig&gt;": "tze_data_payload = &lt;merch-sig&gt;",
+  "&lt;expiry-out&gt;:": "&lt;expiry-out&gt;:",
+  "precondition:": "precondition:",
+  "tze_mode = 2 // <g1>expiry mode</g1>": "tze_mode = 2 // <g1>modo de expiración</g1>",
+  "The tze_verify functions works as follows:": "Las funciones tze_verify funcionan de la siguiente manera:",
+  "if mode == 0 AND context.tx.tze_out_count == 1 AND context.tx.tx_out[0].precondition.mode == EXPIRY:": "if mode == 0 AND context.tx.tze_out_count == 1 AND context.tx.tx_out[0].precondition.mode == EXPIRY:",
+  "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShildedOutput != 0 OR context.tx.nJoinsplit != 0:": "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShildedOutput != 0 OR context.tx.nJoinsplit != 0:",
+  "init-cid || init-merch-pk || init-merch-ps-pk || init-cust-pk = precondition": "init-cid || init-merch-pk || init-merch-ps-pk || init-cust-pk = precondition",
+  "merch-sig = witness": "merch-sig = witness",
+  "cid || merch-pk || merch-ps-pk || cust-pk = context.tx.tze_out[0].precondition.tze_data_payload": "cid || merch-pk || merch-ps-pk || cust-pk = context.tx.tze_out[0].precondition.tze_data_payload",
+  "// <g1>Check the variables consistency</g1>": "// <g1>Verificar la consistencia de las variables</g1>",
+  "if init-cid != cid:": "if init-cid != cid:",
+  "if init-merch-pk != merch-pk:": "if init-merch-pk != merch-pk:",
+  "if init-merch-ps-pk != merch-ps-pk:": "if init-merch-ps-pk != merch-ps-pk:",
+  "if init-cust-pk != cust-pk:": "if init-cust-pk != cust-pk:",
+  "// <g1>Verify the tx signature</g1>": "// <g1>Verificar la firma de la transacción</g1>",
+  "if Verify(merch-pk, msg, merch-sig) = 0": "if Verify(merch-pk, msg, merch-sig) = 0",
+  "<x1/>3.2 Merchant claim": "<x1/>3.2 Reclamo del comerciante",
+  "We present here the merchant claim transaction <x1/> following a <x2/> transaction.": "Presentamos aquí la transacción de reclamo del comerciante <x1/> que sigue a una transacción <x2/>.",
+  "[&lt;merch-claim]": "[&lt;merch-claim]",
+  "[&lt;expiry-in&gt;]": "[&lt;expiry-in&gt;]",
+  "&lt;expiry-in&gt;:": "&lt;expiry-in&gt;:",
+  "prevout_hash = &lt;expiry-tx&gt;": "prevout_hash = &lt;expiry-tx&gt;",
+  "&lt;merch-claim&gt; being a transparent address comprising an amount of &lt;cust-balance&gt; + &lt;merch-balance&gt;.": "&lt;merch-claim&gt; siendo una dirección transparente que comprende un monto de &lt;cust-balance&gt; + &lt;merch-balance&gt;.",
+  "<g1>tze_verify(type, mode, precondition, witness)</g1>": "<g1>tze_verify(type, mode, precondition, witness)</g1>",
+  "if mode == 2:": "if mode == 2:",
+  "if context.tx.tx_in_count != 0 OR context.tx.tx_in_count != 1 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0: - Return false": "if context.tx.tx_in_count != 0 OR context.tx.tx_in_count != 1 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0: - Devolver false",
+  "sig = witness": "sig = witness",
+  "msg = TODO // <g1>hash of the tx without witnesses</g1>": "msg = TODO // <g1>hash de la transacción sin testigos</g1>",
+  "if Verify(merch-pk, msg, sig) == 1:": "if Verify(merch-pk, msg, sig) == 1:",
+  "// <g1>Check the delay</g1>": "// <g1>Verificar el retraso</g1>",
+  "expiry-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO": "expiry-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO",
+  "if context.block-height &lt; expiry-height + DELAY:": "if context.block-height &lt; expiry-height + DELAY:",
+  "<x1/>4 Customer close": "<x1/>4 Cierre del cliente",
+  "<x1/>4.1 Customer close": "<x1/>4.1 Cierre del cliente",
+  "We present here the customer close transaction <x1/> following either a <x2/> or a <x3/> transaction.": "Presentamos aquí la transacción de cierre del cliente <x1/> que sigue a una transacción <x2/> o <x3/>.",
+  "[&lt;merch-output]": "[&lt;merch-output]",
+  "[&lt;expiry-in&gt; OR &lt;escrow-in&gt;]": "[&lt;expiry-in&gt; OR &lt;escrow-in&gt;]",
+  "[&lt;close-out]": "[&lt;close-out]",
+  "tze_data_payload = &lt;merch-ps-sig&gt; || &lt;cust-sig&gt;": "tze_data_payload = &lt;merch-ps-sig&gt; || &lt;cust-sig&gt;",
+  "&lt;merch-output&gt; being a transaprent address comprising an amount of &lt;merch-balance&gt;;": "&lt;merch-output&gt; siendo una dirección transparente que comprende un monto de &lt;merch-balance&gt;;",
+  "&lt;close-out&gt;:": "&lt;close-out&gt;:",
+  "amount = &lt;cust-balance&gt;": "amount = &lt;cust-balance&gt;",
+  "tze_mode = 1 // <g1>close mode</g1>": "tze_mode = 1 // <g1>modo de cierre</g1>",
+  "tze_data_payload = &lt;cid&gt; || &lt;merch-pk&gt; || &lt;cust-pk&gt; || &lt;rev-lock&gt;": "tze_data_payload = &lt;cid&gt; || &lt;merch-pk&gt; || &lt;cust-pk&gt; || &lt;rev-lock&gt;",
+  "<g1>tze_verify(mode, precondition, witness)</g1>": "<g1>tze_verify(mode, precondition, witness)</g1>",
+  "if (mode == 0 OR mode == 2) AND context.tx.tze_out_count == 1 AND context.tx.tze_out[0].precondition.mode = CLOSE:": "if (mode == 0 OR mode == 2) AND context.tx.tze_out_count == 1 AND context.tx.tze_out[0].precondition.mode = CLOSE:",
+  "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count != 1 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShildedOutput != 0 OR context.tx.nJoinsplit != 0: - Return false": "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count != 1 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShildedOutput != 0 OR context.tx.nJoinsplit != 0: - Return false",
+  "merch-ps-sig || cust-sig = witness": "merch-ps-sig || cust-sig = witness",
+  "cid || merch-pk || cust-pk || rev-lock = context.tx.tze_out[0].precondition.tze_data_payload": "cid || merch-pk || cust-pk || rev-lock = context.tx.tze_out[0].precondition.tze_data_payload",
+  "merch-balance = context.tx.tx_out[0].value": "merch-balance = context.tx.tx_out[0].value",
+  "cust-balance = context.tx.tze_out[0].amount": "cust-balance = context.tx.tze_out[0].amount",
+  "state = cid || cust-pk || rev-lock || cust-balance || merch-balance": "state = cid || cust-pk || rev-lock || cust-balance || merch-balance",
+  "// <g1>Check the variables' consistency</g1>": "// <g1>Comprobar la consistencia de las variables</g1>",
+  "// <g1>Verify the PS signature</g1>": "// <g1>Verificar la firma PS</g1>",
+  "if PS_sig.Verify(merch-ps-pk, state, merch-ps-sig) != 1:": "if PS_sig.Verify(merch-ps-pk, state, merch-ps-sig) != 1:",
+  "if Verify(cust-pk, msg, cust-sig) != 1:": "if Verify(cust-pk, msg, cust-sig) != 1:",
+  "// <g1>Check merch-balance is sent to the merchant</g1>": "// <g1>Comprobar que merch-balance se envía al comerciante</g1>",
+  "if context.tx.tx_out[0] != merch-balance || &lt;ZCash P2PKH version bytes (0x1C || 0xB8 for mainnet)&gt; || Hash_160(merch-pk)": "if context.tx.tx_out[0] != merch-balance || &lt;ZCash P2PKH version bytes (0x1C || 0xB8 for mainnet)&gt; || Hash_160(merch-pk)",
+  "<x1/>4.2 Customer claim": "<x1/>4.2 Reclamación del cliente",
+  "We present here the customer claim transaction <x1/> following a <x2/> transaction.": "Presentamos aquí la transacción de reclamación del cliente <x1/> que sigue a una transacción <x2/>.",
+  "[&lt;cust-claim]": "[&lt;cust-claim]",
+  "[&lt;close-in&gt;]": "[&lt;close-in&gt;]",
+  "&lt;close-in&gt;:": "&lt;close-in&gt;:",
+  "prevout_hash = &lt;close-tx&gt;": "prevout_hash = &lt;close-tx&gt;",
+  "tze_data_payload = &lt;cust-sig&gt;": "tze_data_payload = &lt;cust-sig&gt;",
+  "&lt;cust-claim&gt; being a transparent address comprising an amount of &lt;cust-balance&gt;.": "siendo &lt;cust-claim&gt; una dirección transparente que comprende un monto de &lt;cust-balance&gt;.",
+  "if mode == 1:": "if mode == 1:",
+  "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count == 1 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:": "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count == 1 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:",
+  "cid, merch-pk, cust-pk, rev-lock = precondition": "cid, merch-pk, cust-pk, rev-lock = precondition",
+  "// <g1>Check the tx signature</g1>": "// <g1>Verificar la firma de la transacción</g1>",
+  "if Verify(cust-pk, msg, sig) == 1:": "if Verify(cust-pk, msg, sig) == 1:",
+  "close-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO": "close-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO",
+  "if context.block-height &lt; close-height + DELAY:": "if context.block-height &lt; close-height + DELAY:",
+  "<x1/>4.3 Dispute": "<x1/>4.3 Disputa",
+  "We present here how the merchant dispute the transaction <x1/> with a <x2/> transaction.": "Presentamos aquí cómo el comerciante disputa la transacción <x1/> con una transacción <x2/>.",
+  "[&lt;merch-disp]": "[&lt;merch-disp]",
+  "tze_data_payload = &lt;merch-sig&gt; || &lt;rev-secret&gt;": "tze_data_payload = &lt;merch-sig&gt; || &lt;rev-secret&gt;",
+  "&lt;merch-disp&gt; being a transparent address comprising an amount of &lt;cust-balance&gt;.": "siendo &lt;merch-disp&gt; una dirección transparente que comprende un monto de &lt;cust-balance&gt;.",
+  "The tze_function works as follow:": "La tze_function funciona de la siguiente manera:",
+  "<g1>tze_verify(zkChannels-type, close-mode, precondition, witness)</g1>": "<g1>tze_verify(zkChannels-type, close-mode, precondition, witness)</g1>",
+  "msg = TODO // hash of tx without witnesses": "msg = TODO // hash de la transacción sin testigos",
+  "// <g1>Check the hash lock</g1>": "// <g1>Verificar el bloqueo de hash</g1>",
+  "if rev-lock != SHA256(rev-secret):": "if rev-lock != SHA256(rev-secret):",
+  "<x1/>TZE_VERIFY function": "<x1/>Función TZE_VERIFY",
+  "// <g1>Check the transaction structure</g1>": "// <g1>Verificar la estructura de la transacción</g1>",
+  "if context.tx.tx_in_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:": "if context.tx.tx_in_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:",
+  "if mode == 0: // <g1>escrow mode</g1>": "if mode == 0: // <g1>modo de depósito en garantía</g1>",
+  "if context.tx.tze_out_count == 1:": "if context.tx.tze_out_count == 1:",
+  "if context.tx.tze_out[0].precondition.tze_mode == 1: // <g1>This is a close transaction</g1>": "if context.tx.tze_out[0].precondition.tze_mode == 1: // <g1>Esta es una transacción de cierre</g1>",
+  "if context.tx.tx_out_count != 1:": "if context.tx.tx_out_count != 1:",
+  "if init-cid != cid OR init-merch-pk != merch-pk OR init-cust-pk != cust-pk:": "if init-cid != cid OR init-merch-pk != merch-pk OR init-cust-pk != cust-pk:",
+  "if Verify(cust-pk, msg, cust-sig) != 1 OR PS_sig.Verify(merch-ps-pk, state, merch-ps-sig) != 1:": "if Verify(cust-pk, msg, cust-sig) != 1 OR PS_sig.Verify(merch-ps-pk, state, merch-ps-sig) != 1:",
+  "if context.tx.tx_out[0] == merch-balance || &lt;ZCash P2PKH version bytes (0x1C || 0xB8 for mainnet)&gt; || Hash_160(merch-pk)": "if context.tx.tx_out[0] == merch-balance || &lt;ZCash P2PKH version bytes (0x1C || 0xB8 for mainnet)&gt; || Hash_160(merch-pk)",
+  "if context.tx.tze_out[0].precondition.tze_mode == 2: // <g1>This is an expiry transaction</g1>": "if context.tx.tze_out[0].precondition.tze_mode == 2: // <g1>Esta es una transacción de vencimiento</g1>",
+  "if context.tx.tx_out_count != 0:": "if context.tx.tx_out_count != 0:",
+  "if init-cid != cid OR init-merch-pk != merch-pk OR init-merch-ps-pk != merch-ps-pk OR init-cust-pk != cust-pk:": "if init-cid != cid OR init-merch-pk != merch-pk OR init-merch-ps-pk != merch-ps-pk OR init-cust-pk != cust-pk:",
+  "if Verify(merch-pk, msg, merch-sig) == 1:": "if Verify(merch-pk, msg, merch-sig) == 1:",
+  "if context.tx.tze_out_count == 0 AND if context.tx.tx_out_count == 2: // <g1>This is a mutual close transaction</g1>": "if context.tx.tze_out_count == 0 AND if context.tx.tx_out_count == 2: // <g1>Esta es una transacción de cierre mutuo</g1>",
+  "if Verify(init-merch-pk, msg, merch-sig) == 1 AND Verify(init-cust-pk, msg, cust-sig) == 1:": "if Verify(init-merch-pk, msg, merch-sig) == 1 AND Verify(init-cust-pk, msg, cust-sig) == 1:",
+  "else if mode == 1: // <g1>close mode</g1>": "else if mode == 1: // <g1>modo de cierre</g1>",
+  "sig, (rev-secret) = witness": "sig, (rev-secret) = witness",
+  "if context.tx.tx_out.count == 1:": "if context.tx.tx_out.count == 1:",
+  "if context.tx.tze_out_count != 0:": "if context.tx.tze_out_count != 0:",
+  "if Verify(cust-pk, msg, sig) == 1: // <g1>This is a customer claim transaction</g1>": "if Verify(cust-pk, msg, sig) == 1: // <g1>Esta es una transacción de reclamo del cliente</g1>",
+  "if context.block-height &gt;= expiry-height + DELAY:": "if context.block-height &gt;= expiry-height + DELAY:",
+  "if Verify(merch-pk, msg, sig) == 1:// <g1>This is a dispute transaction</g1>": "if Verify(merch-pk, msg, sig) == 1:// <g1>Esta es una transacción de disputa</g1>",
+  "if rev-lock == SHA256(rev-secret):": "if rev-lock == SHA256(rev-secret):",
+  "else if mode == 2: // <g1>expiry mode</g1>": "else if mode == 2: // <g1>modo de vencimiento</g1>",
+  "if context.tx.tze_out_count == 1: // <g1>This is a close transaction</g1>": "if context.tx.tze_out_count == 1: // <g1>Esta es una transacción de cierre</g1>",
+  "else if context.tx.tx_out_count == 1: // <g1>This is a merchant claim transaction</g1>": "else if context.tx.tx_out_count == 1: // <g1>Esta es una transacción de reclamo del comerciante</g1>",
+  "<x1/>Transaction Malleability": "<x1/>Maleabilidad de las transacciones",
+  "As the transaction id is not built upon the TZE witnesses, any change to the transaction's signature does not modify its id.": "Como el id de la transacción no se construye a partir de los testigos TZE, cualquier cambio en la firma de la transacción no modifica su id.",
+  "The preconditions are non-malleable as they are signed with a non-malleable signature.": "Las precondiciones no son maleables porque están firmadas con una firma no maleable.",
+  "To prevent witness malleability, we intend to fix the witness payload's size in the tze_verify such that the addition or removal of any bit would result in a verification failure. Any change to the bits should either result in a verification failure, when the revocation secret or a signature is corrupted, or a pass, when the PS signature is randomized.": "Para evitar la maleabilidad del testigo, pretendemos fijar el tamaño del contenido del testigo en tze_verify de modo que la adición o eliminación de cualquier bit resulte en una falla de verificación. Cualquier cambio en los bits debería resultar, ya sea en una falla de verificación, cuando el secreto de revocación o una firma están corruptos, o en una aprobación, cuando la firma PS está aleatorizada.",
+  "<x1/>References": "<x1/>Referencias",
+  "Docutils System Messages": "Mensajes del sistema de Docutils",
+  "System Message: ERROR/3 (<x1/>, line 9)": "Mensaje del sistema: ERROR/3 (<x1/>, línea 9)",
+  "Too many autonumbered footnote references: only 0 corresponding footnote available.": "Demasiadas referencias a notas al pie con numeración automática: solo hay 0 notas al pie correspondientes disponibles.",
+  "System Message: ERROR/3 (<x1/>, line 9); <g2><g3>backlink</g3></g2>": "Mensaje del sistema: ERROR/3 (<x1/>, línea 9); <g2><g3>retroenlace</g3></g2>",
+  "Unknown target name: \"zk-channels-paper\".": "Nombre de destino desconocido: \"zk-channels-paper\".",
+  "System Message: ERROR/3 (<x1/>, line 14); <g2><g3>backlink</g3></g2>": "Mensaje del sistema: ERROR/3 (<x1/>, línea 14); <g2><g3>retroenlace</g3></g2>"
+ },
+ "reviews": {
+  "Add support for zk-Channels protocol": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The key words \"MUST\" and \"MUST NOT\" in this document are to be interpreted as described in RFC 2119. <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This proposal specifies three possible approaches for integrating the zk-Channels protocol <g1><g2>[#zk-Channels-paper]_</g2></g1> into Zcash.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Layer 2 protocols like Lightning enable scalable payments for Bitcoin but lack the mechanisms to provide strong privacy guarantees on the payment network. Zcash offers private transactions but currently lacks features that would enable a Lightning-style payment channel. This proposal specifies an integration of the zkChannel privacy-preserving payment channel protocol on top of Zcash <g1><g2>[#zk-Channels-paper]_</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>zk-Channels high level Overview": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "zk-Channels enables two parties, a customer and a merchant, to open an assymetric anonymous payment channel where only the customer may initiate channel opening and payments. While the channel opening and closure are broadcast on-chain, making the channel's participants at most pseudonymous, the payments are done directly between the customer and merchant offchain in an anonymous and unlinkable fashion.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The channel opening can be split in three phases: initialisation, activation and unlink:": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"unlink\" is translated as \"desenlace\" (outcome), which changes the meaning of the phase name; it should be \"desvinculación\"."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "La apertura del canal puede dividirse en tres fases: inicialización, activación y desenlace:"
+  },
+  "in the initialisation phase, the customer and merchant set up the channel by agreeing on initial balances and auxiliary information.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "in the activation phase, the merchant ensures that the channel has been properly funded and sends to the client a payment token to allow the customer to transfer funds.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"Ensures\" is rendered as \"verifica\" (verifies), turning the merchant's assurance into a mere check."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "en la fase de activación, el comerciante verifica que el canal haya sido financiado correctamente y envía al cliente un token de pago para permitirle transferir fondos."
+  },
+  "the unlink phase goal is to unlink the channel opening with futher payments by performing a first unlinkable payment with null amount.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"unlink phase\" is mistranslated as \"fase de desenlace\", which means denouement, not unlinking."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "el objetivo de la fase de desenlace es desvincular la apertura del canal de pagos posteriores realizando un primer pago inenlazable de monto nulo."
+  },
+  "The off-chain payments is also split in three phases: setup, update state, and unmask.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "in the setup phase, the customer generates a new channel state privately and sends to the customer a payment request. The merchant checks checks this is not a double spend, and if so either accept or reject the new payment.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "in the update state phase, the customer and merchant participate in a zk-protocol where the merchant agrees on the new payment, by signing blindy on the new channel state, while revoking the current state.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "in the unmask phase, the customer and merchant gets the payment and revocation token to close the zk-channel onchain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The channel can be closed in three different ways:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "unilaterally by the merchant. In that case, the merchant uses the closing information exchanged in the channel initialisation to broadcast an expiry transaction onchain; the total amount is time-locked.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "during the time lock, the customer can broadcast a customer close which nullify the expiry transaction;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "after the time lock, the merchant can claim the funds.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "unilaterally by the customer. In that case, the customer uses the close authorization message received in a update state phase to broadcase a customer close transaction onchain; the merchant balance is sent directly to the merchant while the customer balance is time-locked.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "during the time lock, the customer balance can be disputed by the merchant, in case the customer closed on an outdated state, by revealing the revocation secret. In that case, all funds go to the merchant;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "after the time lock, the customer can claim the funds.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "mutually. In that case, the customer and merchant exchange information to generate a multisig transaction closing the channel.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>1. Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>1.1 General requirements for zk-Channels protocol": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "zk-Channels private payment channels require the following capabilities to provide anonymity properties for users on a payment network:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to create an escrow transaction such that the transaction inputs are anonymous.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to escrow funds to a multi-signature style address via non-malleable transactions.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to specify relative time locks for commitment transactions to support unilateral channel closing.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to validate zk-Channels-specific opening and closing transactions:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "check the validity of randomized/blinded signature on the channel state in closing token;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "check the validity of revocation lock in the event of a channel dispute by merchant.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to enforce a transaction flow thanks to Transparent ZCash Extensions [#zip-0222]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to verify transaction outputs using TZEs such that:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if customer-initiated closing, one output pays out to customer with a time lock (to allow merchant to dispute customer balance) and one output pays out to merchant immediately;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if merchant-initiated closing, a single output pays the merchant the full balance of the channel with a time lock that allows for customer dispute.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Channel Operation Assumptions.</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Channels funded by the customer alone and dual-funded channels are both supported.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Either the customer or the merchant can initiate channel closing.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If the customer initiates closing, then the merchant can dispute the closing transaction if they disagrees with the closing token in the closing transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If the merchant initiates closing, the merchant posts a transaction claiming all the funds in the channel for themselves with a timelock. This gives the customer the opportunity to post their own valid closing transaction with the current channel balances. If the customer posts their own closing transaction, the merchant has an additional opportunity to dispute if necessary.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>1.2 TZEs requirement for zk-Channels protocol": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to check the sender of the current transaction;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to check the owner of an address;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to check the amount of an address;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to check the current block height;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to check information about a transaction of an input TZE address;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to verify Pointcheval-Sanders signatures on specific messages;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ability to assert a hash lock result;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>2 Algorithms and variables": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>2.1 Customer and Merchant Signing Keys": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The customer and the merchant both have key pairs from a suitable signature scheme to send and receive transactions. e.g. ECDSA or RedDSA signature key pairs. These are denoted as: <x1/>, <x2/> and <x3/>, <x4/>, respectively, where <x5/> stands for \"public key\" and <x6/> stands for the corresponding \"secret key\".": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The merchant must be able to issue blind signatures, for instance Pointcheval-Sanders (PS) blind signature, so they have an additional keypair; this keypair is denoted as: <x1/>, <x2/>. To verify a PS signature, we will use the following function: <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The customer key pair is specific to the channel and must not be reused. The merchant key pair is long term and should be used for all customer channels.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>2.2 Channel States": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "zk-Channels relies on the concept of <g1>states</g1>. When the customer initiates a payment, they query the merchant to accept a new state while revoking the current one.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The only zk-channel's invariants are the channel identifier <x1/>, and its participants' public keys. A channel state consists of:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the channel id: <x1/>;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the merchant's public keys: <x1/> (defined in 1.1);": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the customer's public keys: <x1/> (defined in 1.1);": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the customer's balance: <x1/>;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the merchant's balance: <x1/>;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "the revocation lock: <x1/> which is instantiated as a hash lock, <x2/> where <x3/> is the revocation secret.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The revocation lock is needed by the merchant to dispute a customer close on an outdated state.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>3 Opening a channel": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "To open a channel, the customer and merchant exchange key information and set the channel identifier <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "They agree on their respective initial balances <x1/> and <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The customer picks an inital revocation lock <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The customer and merchant escrow the necessary funds in a funding transaction, denoted <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "As such, the escrow transaction presents:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "an opening channel state <x1/>;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "potentially additional information such as a delay &lt;delay&gt;.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>4 Closing a channel": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A customer should be able to unilaterally close the channel by posting a <x1/> transaction. This transaction presents:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a closing channel state <x1/>;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a unblinded signature from the merchant on the channel state: <x1/> such that <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If the transaction is validated and mined, &lt;merch-balance&gt; is sent to the merchant and &lt;cust-balance&gt; is locked for a delay &lt;delay&gt; during which the merchant can dispute the channel closing thanks to a <x1/> transaction, and after which the customer can claim it thanks to a <x2/> transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The merchant can dispute a customer close by posting a <x1/> transaction. This transaction presents:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a revocation secret <x1/> such that for the revocation lock <x2/> posted in <x3/> we have <x4/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If the transaction is validated and mined, the total balance (&lt;cust-balance&gt; + &lt;merch-balance&gt;) is sent to the merchant.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A merchant should be able to unilaterally close the channel by posting a closing transaction <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If the transaction is validated and mined, the total balance is locked for a delay &lt;delay&gt; during which the customer can overwrite the spend with a <x1/> transaction, and after which the merchant can claim it thanks to a <x2/> transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The customer and merchant may also negotiate off-chain to form a <g1>mutual close transaction</g1>, <x2/>. This transaction presents:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a truncated closing channel state <x1/> without the revocation lock and the merchant's blind signature public key;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "two signatures from the customer <x1/> and the merchant <x2/> on this truncated state such that <x3/> and <x4/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If the transaction is validated and mined, the balance &lt;cust-balance&gt; is sent to the customer and the balance &lt;merch-balance&gt; is sent to the merchant.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>zk-Channels TZE transactions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "We present in this section the individual transactions for opening and closing a zk-Channel as well as disputing and claiming funds of a zkChannel.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For simplicity, we describe the minimal information needed to understand the workflow, that is we show only the relevant part of the verify_tze functions and do not detail more than necessary the transaction structure.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>1 Escrow transaction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "We present here the escrow transaction <x1/>:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Field": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Value": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tx_in_count": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tx_in": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;cust-input&gt;, &lt;merch-input&gt;]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tx_out_count": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tx_out": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_in_count": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_in": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_out_count": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_out": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;escrow-out&gt;]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "lock_time": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "With,": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;cust-input&gt; being a transparent address comprising an initial amount of &lt;cust-balance&gt;.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;merch-input&gt; being a transparent address comprising an initial amount of &lt;merch-balance&gt;.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "with &lt;escrow-out&gt; being a tze input:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "amount = &lt;merch-balance&gt; + &lt;cust-balance&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "precondition =": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_id = 0 // <g1>zk-Channels TZE type</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_mode = 0 // <g1>escrow mode</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_data_payload_len =": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_data_payload = &lt;cid&gt; || &lt;merch-pk&gt; || &lt;merch-ps-pk&gt; || &lt;cust-pk&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An escrow transaction can either be spent by a mutual close, merchant expiry or customer close transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>2 Mutual close": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "We present here the mutual close transaction <x1/>:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;merch-output&gt;, &lt;cust-output&gt;]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;escrow-in&gt;]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;escrow-in&gt;:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "prevout_hash = &lt;escrow-tx&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "prevout_in = 0": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "witness :": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_id = 0 // <g1>zkChannels TZE type</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_mode = 0 // <g1>escrow mode&gt;</g1>": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The &gt; entity present in the English inside the placeholder is missing in the Spanish."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "tze_mode = 0 // <g1>modo de custodia</g1>"
+  },
+  "tze_data_payload = &lt;merch-sig&gt; || &lt;cust-sig&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;merch-output&gt; being a transparent address comprising an amount of &lt;merch-balance&gt;;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;cust-output&gt; being a transparent address comprising an amount of &lt;cust-balance&gt;.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The tze_verify function works as follow:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>tze_verify(mode, precondition, witness):</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if mode == 0 AND context.tx.tx_out_counts == 2:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Check the transaction's structure</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_in_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Return false": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Define the variables</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "cid || merch-pk || merch-ps-pk || cust-pk = precondition": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "merch-sig || cust-sig = witness": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "msg = TODO // <g1>hash of tx without witnesses</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Check the tx signatures</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(merch-pk, msg, merch-sig) != 1": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Return False": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(cust-pk, msg, cust-sig) != 1": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Return True": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>3 Expiry": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>3.1 Expiry": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "We present here the unilateral merchant close transaction, also called expiry, <x1/>:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;expiry-out&gt;]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "witness:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_id = 0 // <g1>zkChannels' TZE type</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_data_payload = &lt;merch-sig&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;expiry-out&gt;:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "precondition:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_mode = 2 // <g1>expiry mode</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The tze_verify functions works as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if mode == 0 AND context.tx.tze_out_count == 1 AND context.tx.tx_out[0].precondition.mode == EXPIRY:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShildedOutput != 0 OR context.tx.nJoinsplit != 0:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "init-cid || init-merch-pk || init-merch-ps-pk || init-cust-pk = precondition": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "merch-sig = witness": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "cid || merch-pk || merch-ps-pk || cust-pk = context.tx.tze_out[0].precondition.tze_data_payload": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Check the variables consistency</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if init-cid != cid:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if init-merch-pk != merch-pk:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if init-merch-ps-pk != merch-ps-pk:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if init-cust-pk != cust-pk:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Verify the tx signature</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(merch-pk, msg, merch-sig) = 0": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>3.2 Merchant claim": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "We present here the merchant claim transaction <x1/> following a <x2/> transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;merch-claim]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;expiry-in&gt;]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;expiry-in&gt;:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "prevout_hash = &lt;expiry-tx&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;merch-claim&gt; being a transparent address comprising an amount of &lt;cust-balance&gt; + &lt;merch-balance&gt;.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>tze_verify(type, mode, precondition, witness)</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if mode == 2:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_in_count != 0 OR context.tx.tx_in_count != 1 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0: - Return false": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "sig = witness": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "msg = TODO // <g1>hash of the tx without witnesses</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(merch-pk, msg, sig) == 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Check the delay</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "expiry-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.block-height &lt; expiry-height + DELAY:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>4 Customer close": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>4.1 Customer close": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "We present here the customer close transaction <x1/> following either a <x2/> or a <x3/> transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;merch-output]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;expiry-in&gt; OR &lt;escrow-in&gt;]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;close-out]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_data_payload = &lt;merch-ps-sig&gt; || &lt;cust-sig&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;merch-output&gt; being a transaprent address comprising an amount of &lt;merch-balance&gt;;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;close-out&gt;:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "amount = &lt;cust-balance&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_mode = 1 // <g1>close mode</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_data_payload = &lt;cid&gt; || &lt;merch-pk&gt; || &lt;cust-pk&gt; || &lt;rev-lock&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>tze_verify(mode, precondition, witness)</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if (mode == 0 OR mode == 2) AND context.tx.tze_out_count == 1 AND context.tx.tze_out[0].precondition.mode = CLOSE:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count != 1 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShildedOutput != 0 OR context.tx.nJoinsplit != 0: - Return false": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The pseudocode instruction 'Return false' is code and must not be translated to 'Devolver false'."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count != 1 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShildedOutput != 0 OR context.tx.nJoinsplit != 0: - Devolver false"
+  },
+  "merch-ps-sig || cust-sig = witness": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "cid || merch-pk || cust-pk || rev-lock = context.tx.tze_out[0].precondition.tze_data_payload": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "merch-balance = context.tx.tx_out[0].value": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "cust-balance = context.tx.tze_out[0].amount": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "state = cid || cust-pk || rev-lock || cust-balance || merch-balance": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Check the variables' consistency</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Verify the PS signature</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if PS_sig.Verify(merch-ps-pk, state, merch-ps-sig) != 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(cust-pk, msg, cust-sig) != 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Check merch-balance is sent to the merchant</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_out[0] != merch-balance || &lt;ZCash P2PKH version bytes (0x1C || 0xB8 for mainnet)&gt; || Hash_160(merch-pk)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>4.2 Customer claim": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "We present here the customer claim transaction <x1/> following a <x2/> transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;cust-claim]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;close-in&gt;]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;close-in&gt;:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "prevout_hash = &lt;close-tx&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_data_payload = &lt;cust-sig&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;cust-claim&gt; being a transparent address comprising an amount of &lt;cust-balance&gt;.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if mode == 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_in_count != 0 OR context.tx.tx_out_count == 1 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "cid, merch-pk, cust-pk, rev-lock = precondition": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Check the tx signature</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(cust-pk, msg, sig) == 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "close-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.block-height &lt; close-height + DELAY:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>4.3 Dispute": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "We present here how the merchant dispute the transaction <x1/> with a <x2/> transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "[&lt;merch-disp]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "tze_data_payload = &lt;merch-sig&gt; || &lt;rev-secret&gt;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "&lt;merch-disp&gt; being a transparent address comprising an amount of &lt;cust-balance&gt;.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The tze_function works as follow:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>tze_verify(zkChannels-type, close-mode, precondition, witness)</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "msg = TODO // hash of tx without witnesses": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Check the hash lock</g1>": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"lock\" is left in English without reason; only \"hash\" is a keep term, so the phrase should be translated."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "// <g1>Verificar el hash lock</g1>"
+  },
+  "if rev-lock != SHA256(rev-secret):": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>TZE_VERIFY function": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "// <g1>Check the transaction structure</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_in_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if mode == 0: // <g1>escrow mode</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tze_out_count == 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tze_out[0].precondition.tze_mode == 1: // <g1>This is a close transaction</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_out_count != 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if init-cid != cid OR init-merch-pk != merch-pk OR init-cust-pk != cust-pk:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(cust-pk, msg, cust-sig) != 1 OR PS_sig.Verify(merch-ps-pk, state, merch-ps-sig) != 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_out[0] == merch-balance || &lt;ZCash P2PKH version bytes (0x1C || 0xB8 for mainnet)&gt; || Hash_160(merch-pk)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tze_out[0].precondition.tze_mode == 2: // <g1>This is an expiry transaction</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_out_count != 0:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if init-cid != cid OR init-merch-pk != merch-pk OR init-merch-ps-pk != merch-ps-pk OR init-cust-pk != cust-pk:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(merch-pk, msg, merch-sig) == 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tze_out_count == 0 AND if context.tx.tx_out_count == 2: // <g1>This is a mutual close transaction</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(init-merch-pk, msg, merch-sig) == 1 AND Verify(init-cust-pk, msg, cust-sig) == 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "else if mode == 1: // <g1>close mode</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "sig, (rev-secret) = witness": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tx_out.count == 1:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tze_out_count != 0:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(cust-pk, msg, sig) == 1: // <g1>This is a customer claim transaction</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.block-height &gt;= expiry-height + DELAY:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if Verify(merch-pk, msg, sig) == 1:// <g1>This is a dispute transaction</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if rev-lock == SHA256(rev-secret):": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "else if mode == 2: // <g1>expiry mode</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "if context.tx.tze_out_count == 1: // <g1>This is a close transaction</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "else if context.tx.tx_out_count == 1: // <g1>This is a merchant claim transaction</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Transaction Malleability": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "As the transaction id is not built upon the TZE witnesses, any change to the transaction's signature does not modify its id.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The preconditions are non-malleable as they are signed with a non-malleable signature.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "To prevent witness malleability, we intend to fix the witness payload's size in the tze_verify such that the addition or removal of any bit would result in a verification failure. Any change to the bits should either result in a verification failure, when the revocation secret or a signature is corrupted, or a pass, when the PS signature is randomized.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Docutils System Messages": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "System Message: ERROR/3 (<x1/>, line 9)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Too many autonumbered footnote references: only 0 corresponding footnote available.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "System Message: ERROR/3 (<x1/>, line 9); <g2><g3>backlink</g3></g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Unknown target name: \"zk-channels-paper\".": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "System Message: ERROR/3 (<x1/>, line 14); <g2><g3>backlink</g3></g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  }
+ }
+}

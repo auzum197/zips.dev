@@ -1,0 +1,537 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" en este documento deben interpretarse según lo descrito en BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparezcan en mayúsculas.</p>
+<p>El carácter § se utiliza para referirse a secciones de la Zcash Protocol Specification (Especificación del Protocolo Zcash). <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>Los términos "Mainnet" y "Testnet" deben interpretarse como se describe en § 3.12 ‘Mainnet and Testnet’. <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>El término "full validator" en este documento debe interpretarse como se define en § 3.3 ‘The Block Chain’. <sup><a href="#user-content-fn-protocol-blockchain" id="user-content-fnref-protocol-blockchain" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>Los términos "rama de consenso", "consensus branch ID", "epoch" y "actualización de red" deben interpretarse como se describe en ZIP 200. <sup><a href="#user-content-fn-zip-0200" id="user-content-fnref-zip-0200" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup></p>
+<p>Los términos "v7 transaction", "effecting data", "authorizing data", "sighash variant" y "transaction identifier" deben interpretarse como se describe en ZIP 248. <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup></p>
+<p>El término "binding signing key", escrito <math><mrow><mi>𝖻</mi><mi>𝗌</mi><mi>𝗄</mi></mrow></math>, debe interpretarse como se define en § 4.13 ‘Balance and Binding Signature (Sapling)’ para un paquete Sapling <sup><a href="#user-content-fn-protocol-saplingbalance" id="user-content-fnref-protocol-saplingbalance" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup> y en § 4.14 ‘Balance and Binding Signature (Orchard)’ para un paquete Orchard o Ironwood. <sup><a href="#user-content-fn-protocol-orchardbalance" id="user-content-fnref-protocol-orchardbalance" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup></p>
+<p>Los términos que siguen deben interpretarse de la siguiente manera:</p>
+<dl><dt>Paquete blindado</dt><dd>Un paquete Sapling, Orchard o Ironwood de una transacción v7, como se define en ZIP 248. <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup></dd><dt>Firmante</dt><dd>Una parte que realiza una firma de autorización de gasto o una firma de entrada transparente para una transacción. Cada participante en una sesión de firma de umbral es un firmante.</dd><dt>Momento de firma</dt><dd>El momento en el que un firmante realiza su firma para una transacción.</dd><dt>Altura objetivo</dt><dd>La altura del siguiente bloque después de la punta de la cadena, según la ve una billetera en un momento dado.</dd><dt>Completar una transacción</dt><dd>Realizar los pasos que hacen que una transacción v7 firmada esté lista para difundirse. Los pasos son: establecer los campos <code>nConsensusBranchId</code> y <code>nExpiryHeight</code>; seleccionar el ancla de cada paquete blindado y crear sus pruebas, si aún no existen; y realizar la firma de enlace de cada paquete blindado.</dd><dt>Difusión diferida</dt><dd>Completar y difundir una transacción en un momento posterior a su momento de firma. El dispositivo o la parte que lo hace podría no poseer ninguna clave de gasto.</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>El ZIP 248 <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-3" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> permite que cada firma en una transacción v7 seleccione una variante de hash de firma ("sighash"). Su única variante, la variante 0, se compromete a todos los datos que producen efectos de la transacción, incluidos el ID de la rama de consenso y la altura de expiración.</p>
+<p>Este ZIP define la variante de sighash 1, que se compromete a los mismos datos excepto esos dos campos. La variante 1 está disponible para las firmas de autorización de gastos y las firmas de entradas transparentes. Las firmas de enlace continúan usando la variante 0.</p>
+<p>El titular de una clave de gasto puede entonces autorizar una transacción en un momento dado, y un dispositivo sin esa clave puede completarla y difundirla más adelante, incluso después de una actualización de red. Ese dispositivo establece el ID de la rama de consenso, la altura de expiración y las anclas como lo haría para una transacción firmada en ese momento, de modo que estos campos no revelan cuánto tiempo antes fue firmada la transacción. El uso de la variante 1 es en sí mismo visible en la transacción.</p>
+<p>Una firma de variante 1 no expira y es válida en toda rama de consenso que acepte la transacción. En una transacción con un paquete blindado, hacer uso de esto requiere la clave de firma de enlace del paquete. La parte que construyó el paquete conoce esa clave, y también toda parte a la que haya revelado la aleatoriedad del compromiso de valor. Este ZIP especifica el comportamiento de billetera que estas propiedades requieren.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Cada firma en una transacción de versión 5 o versión 6 se compromete a los campos <code>nConsensusBranchId</code> y <code>nExpiryHeight</code>. <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> También lo hace toda firma de variante 0 en una transacción v7. <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-4" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> Por lo tanto, un firmante debe conocer, en el momento de firma, la rama de consenso en la que la transacción será minada y la última altura en la que puede ser minada.</p>
+<p>Un firmante conoce ambas cosas cuando difunde de inmediato. No las conoce cuando la firma y la difusión están separadas, por ejemplo:</p>
+<ul>
+<li>Una billetera de hardware o un dispositivo sin conexión firma, y otro dispositivo difunde más adelante.</li>
+<li>Varias partes firman con un esquema de firma de umbral <sup><a href="#user-content-fn-zip-0312" id="user-content-fnref-zip-0312" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>, y reunir suficientes participaciones de firma toma un tiempo impredecible.</li>
+<li>Una billetera firma un programa de transacciones en una sesión y las difunde a lo largo de días o semanas, como en la migración de Orchard a Ironwood. <sup><a href="#user-content-fn-zip-0318" id="user-content-fnref-zip-0318" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup></li>
+<li>Una billetera mantiene su clave de gasto solo mientras el usuario está presente, y difunde desde una tarea en segundo plano.</li>
+</ul>
+<p>Los firmantes que hoy difieren la difusión sortean cada compromiso a un costo:</p>
+<ul>
+<li><strong>Altura de expiración.</strong> La altura de expiración predeterminada es unos 50 minutos después de que se crea la transacción. <sup><a href="#user-content-fn-zip-0203" id="user-content-fnref-zip-0203" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> Un firmante que difiere la difusión por más tiempo debe firmar una altura de expiración posterior o desactivar la expiración. Cualquiera de las dos opciones difiere de lo que hacen otras billeteras, y por lo tanto marca la transacción. Una altura de expiración posterior también puede revelar el momento de firma. El ZIP 318 limita esa fuga calculando la altura de expiración a partir de periodos de 30 días, pero el resultado aún difiere del predeterminado. <sup><a href="#user-content-fn-zip-0318" id="user-content-fnref-zip-0318-2" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup></li>
+<li><strong>ID de la rama de consenso.</strong> Una firma es válida en una rama de consenso, de modo que una transacción firmada se vuelve inválida cuando se activa una actualización de red. Un firmante puede firmar una copia por cada rama de consenso que pudiera aplicar, como exige el ZIP 318. <sup><a href="#user-content-fn-zip-0318" id="user-content-fnref-zip-0318-3" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup> Esto multiplica el trabajo de firma y solo es posible para actualizaciones de red cuyos ID de rama de consenso se conocen en el momento de firma.</li>
+</ul>
+<p>Las anclas solían plantear el mismo problema. El formato de transacción de versión 6 las convirtió en datos de autorización, de modo que las pruebas pueden crearse después de la firma contra un ancla elegida en ese momento <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-2" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>, y el formato v7 conserva esta propiedad. <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-5" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> El ID de la rama de consenso y la altura de expiración son los campos restantes que un firmante debe predecir. Las variantes de sighash del ZIP 248 permiten que una firma los omita sin otro cambio al formato de transacción.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Implicaciones de privacidad</h1>
+<p>La variante de sighash de cada firma está codificada en los datos de autorización, de modo que un observador del block chain puede ver qué transacciones contienen firmas de variante 1. Si solo las transacciones con difusión diferida usaran la variante 1, su presencia revelaría el diferimiento. Por lo tanto, este ZIP recomienda que una billetera que admite la difusión diferida use la variante 1 para toda transacción v7 que contenga un paquete blindado.</p>
+<p>Entre las transacciones que usan la variante 1, este ZIP busca ocultar cuánto tiempo antes de la difusión se firmó una transacción. El ID de la rama de consenso, la altura de expiración y las anclas se eligen en la finalización según las reglas de una transacción firmada en ese momento, de modo que no portan información sobre el momento de firma. Las soluciones descritas en [Motivación] no logran esto.</p>
+<p>Algunos datos firmados aún pueden revelar información sobre el momento de firma:</p>
+<ul>
+<li>La comisión, si la comisión convencional de una transacción de esa forma cambia entre la firma y la difusión.</li>
+<li>El lock time, si el firmante lo deriva de la altura de bloque en el momento de firma.</li>
+<li>La versión de transacción y las variantes de paquete, que reflejan las opciones disponibles en el momento de firma.</li>
+</ul>
+<p>Un observador de transacciones no minadas también puede saber que una transacción se finalizó dos veces. Dos finalizaciones de una transacción firmada tienen los mismos datos efectores, aparte de los dos campos. Una billetera que firma de nuevo produce datos efectores distintos.</p>
+<p>Una billetera que delega la finalización a otra parte revela a esa parte todo lo que le proporciona. Una clave de firma binding no revela nada sobre notas ni direcciones. Las entradas privadas de las pruebas revelan los valores y las direcciones de las notas concernidas.</p>
+<p>Este ZIP no afecta el momento de las difusiones ni otra información visible en la capa de red.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ul>
+<li>Una firma de variante 1 sigue siendo válida cualesquiera que sean los valores de <code>nConsensusBranchId</code> y <code>nExpiryHeight</code>.</li>
+<li>Una firma de variante 1 se compromete a todos los demás datos a los que se compromete una firma de variante 0.</li>
+<li>Una transacción finalizada tiene el ID de rama de consenso, la altura de expiración y las anclas que tendría si se hubiera firmado en el momento de la finalización.</li>
+<li>En una transacción que contiene un paquete blindado, solo una parte que conoce la clave de firma de enlace de cada paquete blindado puede cambiar el identificador de transacción, hacer que la transacción sea válida después de que expire, o hacerla válida en otra rama de consenso.</li>
+<li>El formato de transacción, el identificador de transacción y el compromiso de datos de autorización no cambian.</li>
+<li>Las reglas de consenso para el ID de la rama de consenso y la altura de expiración no se debilitan.</li>
+<li>Un resumen de firma de variante 1 no cuesta más compresiones de hash que un resumen de firma de variante 0.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<ul>
+<li>Este ZIP no cambia los formatos de transacción de versión 5 ni de versión 6 ni sus algoritmos de sighash.</li>
+<li>Este ZIP no protege una firma de variante 1 contra la repetición en otra rama de consenso por una parte que conoce la aleatoriedad del compromiso de valor de sus paquetes blindados. [Cross-chain replay] indica qué partes pueden repetir una transacción, y bajo qué condiciones.</li>
+<li>Este ZIP no protege una transacción que no tiene paquete blindado y cuyas entradas transparentes usan todas la variante 1. Cualquier parte puede cambiar su identificador de transacción o repetirla en otra rama de consenso.</li>
+<li>Este ZIP no admite firmar un gasto de una salida transparente de una transacción que aún no se ha completado. Una entrada transparente se refiere a esa transacción por su identificador de transacción, y cada finalización tiene uno diferente.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="sighash-variant-1"><a class="hanchor" href="#sighash-variant-1" aria-hidden="true" tabindex="-1">#</a>Variante 1 de sighash</h2>
+<p>Este ZIP define la variante 1 de sighash para transacciones v7. <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-6" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> Una firma que usa la variante 1 tiene <code>sighashVariant = 0x01</code>. El <code>associatedData</code> de la variante 1 es la cadena de bytes vacía. El <code>sighashInfo</code> de tal firma es por lo tanto el byte único <code>0x01</code>, codificado con <code>sizeSighashInfo = 1</code>.</p>
+<p>La variante 1 está definida para la variante 0 de paquete de los tipos de paquete transparente, Sapling, Orchard e Ironwood. La siguiente tabla enumera las firmas de esos paquetes y las variantes de sighash que están definidas para cada uno de ellos.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Paquete</th><th><code>bundleType</code></th><th>Firma</th><th>Variante 0</th><th>Variante 1</th></tr></thead><tbody><tr><td>Transparente</td><td>0</td><td>Firmas verificadas por los scripts de una entrada</td><td>✅</td><td>✅</td></tr><tr><td>Sapling</td><td>2</td><td><code>vSpendAuthSigsSapling[i]</code></td><td>✅</td><td>✅</td></tr><tr><td>Sapling</td><td>2</td><td><code>bindingSigSapling</code></td><td>✅</td><td>❌</td></tr><tr><td>Orchard</td><td>3</td><td><code>vSpendAuthSigsOrchard[i]</code></td><td>✅</td><td>✅</td></tr><tr><td>Orchard</td><td>3</td><td><code>bindingSigOrchard</code></td><td>✅</td><td>❌</td></tr><tr><td>Ironwood</td><td>4</td><td><code>vSpendAuthSigsOrchard[i]</code></td><td>✅</td><td>✅</td></tr><tr><td>Ironwood</td><td>4</td><td><code>bindingSigOrchard</code></td><td>✅</td><td>❌</td></tr></tbody></table>
+<p>La variante de sighash de una entrada transparente está dada por el campo <code>sighashInfo</code> de su <code>TransparentInputAuth</code>. Se aplica a toda firma que se verifica cuando se evalúan los scripts de esa entrada.</p>
+<p>Cada firma selecciona su variante de sighash de manera independiente de las demás firmas de la transacción. Una transacción PUEDE (MAY) contener tanto firmas de variante 0 como firmas de variante 1.</p>
+<p>Este ZIP no define la variante 1 para ningún otro tipo de paquete o variante de paquete. Un ZIP que registre otro tipo de paquete o variante de paquete especifica si la variante 1 está definida para sus firmas.</p>
+<h2 id="variant-1-signature-digest"><a class="hanchor" href="#variant-1-signature-digest" aria-hidden="true" tabindex="-1">#</a>Resumen de firma de variante 1</h2>
+<p>Una firma que usa la variante 1 se compromete al resumen definido en esta sección. El resumen tiene la estructura del resumen de firma de variante 0 del ZIP 248 <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-7" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>, con <code>txid_digest</code> reemplazado por <code>effects_sig_digest</code>:</p>
+<pre><code>signature_digest
+├── sighashVariant
+├── effects_sig_digest
+│   ├── header_sig_digest
+│   ├── value_pool_deltas_digest
+│   └── effects_bundles_digest
+├── amounts_sig_digest
+├── scriptpubkeys_sig_digest
+├── bundleType
+├── bundleVariant
+└── signature_context
+</code></pre>
+<p>Todos los resúmenes son hashes BLAKE2b-256 personalizados. Todas las cadenas de personalización tienen 16 bytes de longitud.</p>
+<p>Los campos <code>nConsensusBranchId</code> y <code>nExpiryHeight</code> de la transacción no son entradas de ninguna parte de este resumen. El identificador de rama de consenso tampoco forma parte de ninguna cadena de personalización usada en este resumen.</p>
+<h3 id="v1-signature_digest"><a class="hanchor" href="#v1-signature_digest" aria-hidden="true" tabindex="-1">#</a>V1: signature_digest</h3>
+<p>Un hash BLAKE2b-256 de los siguientes valores:</p>
+<pre><code>V1.1: sighashVariant            (1 byte, 0x01)
+V1.2: effects_sig_digest        (32-byte hash output)
+V1.3: amounts_sig_digest        (32-byte hash output)
+V1.4: scriptpubkeys_sig_digest  (32-byte hash output)
+V1.5: bundleType                (compactSize encoding)
+V1.6: bundleVariant             (compactSize encoding)
+V1.7: signature_context         (bundle-defined byte string)
+</code></pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre><code>"ZcashSigHash_v7_" (2 underscore characters)
+</code></pre>
+<p>Esta es la personalización del resumen de firma de variante 0. El valor de <code>sighashVariant</code> distingue los dos resúmenes.</p>
+<p><code>amounts_sig_digest</code> y <code>scriptpubkeys_sig_digest</code> son los resúmenes con esos nombres definidos en el ZIP 248. <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-8" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> Se comprometen con los valores y con las claves públicas de script de las monedas gastadas por todas las entradas transparentes de la transacción.</p>
+<p><code>bundleType</code> y <code>bundleVariant</code> identifican el paquete que contiene la firma.</p>
+<p><code>signature_context</code> es la cadena de bytes que el ZIP 248 define para una firma de variante 0 en la misma posición. Es el campo final, sin prefijo de longitud.</p>
+<ul>
+<li>Para una entrada transparente, es la concatenación de estos campos de la entrada que se firma: <code>prevout</code> (36 bytes), <code>value</code> (con signo, little-endian de 8 bytes), <code>scriptPubKey</code> (con prefijo de longitud <code>compactSize</code>), <code>nSequence</code> (sin signo, little-endian de 4 bytes) y <code>input_index</code> (sin signo, little-endian de 2 bytes).</li>
+<li>Para <code>vSpendAuthSigsSapling[i]</code>, es la codificación sin signo, little-endian de 2 bytes de <math><mi>i</mi></math>.</li>
+<li>Para <code>vSpendAuthSigsOrchard[i]</code> en un paquete Orchard o un paquete Ironwood, es la codificación sin signo, little-endian de 2 bytes de <math><mi>i</mi></math>.</li>
+</ul>
+<h3 id="v12-effects_sig_digest"><a class="hanchor" href="#v12-effects_sig_digest" aria-hidden="true" tabindex="-1">#</a>V1.2: effects_sig_digest</h3>
+<p>Un hash BLAKE2b-256 de los siguientes valores:</p>
+<pre><code>V1.2a: header_sig_digest         (32-byte hash output)
+V1.2b: value_pool_deltas_digest  (32-byte hash output)
+V1.2c: effects_bundles_digest    (32-byte hash output)
+</code></pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre><code>"ZTxSigEffectHash"
+</code></pre>
+<p><code>value_pool_deltas_digest</code> y <code>effects_bundles_digest</code> son los valores T.2 y T.3 del resumen del identificador de transacción definido en el ZIP 248. <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-9" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> Se comprometen al mapa completo del delta del conjunto de valores y a los datos de efectos de cada paquete de la transacción.</p>
+<h3 id="v12a-header_sig_digest"><a class="hanchor" href="#v12a-header_sig_digest" aria-hidden="true" tabindex="-1">#</a>V1.2a: header_sig_digest</h3>
+<p>Un hash BLAKE2b-256 de los siguientes valores:</p>
+<pre><code>V1.2a.i:   version          (4-byte little-endian version identifier including overwintered flag)
+V1.2a.ii:  nVersionGroupId  (4-byte little-endian version group identifier)
+V1.2a.iii: lock_time        (4-byte little-endian nLockTime value)
+</code></pre>
+<p>El campo de personalización de este hash se establece en:</p>
+<pre><code>"ZTxSigHeaderHash"
+</code></pre>
+<h2 id="consensus-rules"><a class="hanchor" href="#consensus-rules" aria-hidden="true" tabindex="-1">#</a>Reglas de consenso</h2>
+<p>Las siguientes reglas se aplican a las transacciones v7 a partir de la activación de este ZIP. Los validadores completos DEBEN (MUST) aplicarlas.</p>
+<ul>
+<li>
+<p>Una firma cuyo <code>sighashInfo</code> es el byte único <code>0x01</code> DEBE (MUST) verificarse contra el resumen definido en [Resumen de firma de variante 1].</p>
+</li>
+<li>
+<p>El <code>sighashInfo</code> de cada <code>TransparentInputAuth</code>, de cada elemento de <code>vSpendAuthSigsSapling</code> y de cada elemento de <code>vSpendAuthSigsOrchard</code> en un paquete Orchard o Ironwood DEBE (MUST) ser una codificación que esté definida para esa firma. El ZIP 248 y este ZIP definen dos codificaciones de este tipo: el byte único <code>0x00</code> y el byte único <code>0x01</code>.</p>
+</li>
+<li>
+<p>El <code>sighashInfo</code> de <code>bindingSigSapling</code>, y de <code>bindingSigOrchard</code> en un paquete Orchard o Ironwood, DEBE (MUST) ser el byte único <code>0x00</code>.</p>
+</li>
+<li>
+<p>Para cada <code>TransparentInputAuth</code> cuyo <code>sighashInfo</code> especifica la variante de sighash 1, el byte <code>hash_type</code> de toda firma no vacía suministrada a <code>OP_CHECKSIG</code>, <code>OP_CHECKSIGVERIFY</code>, <code>OP_CHECKMULTISIG</code> o <code>OP_CHECKMULTISIGVERIFY</code> al validar esa entrada DEBE (MUST) ser <code>SIGHASH_ALL</code> (<code>0x01</code>).</p>
+</li>
+<li>
+<p>El campo <code>nConsensusBranchId</code> de una transacción v7 DEBE (MUST) ser igual al identificador de rama de consenso de la época del bloque que contiene la transacción. Esta regla se aplica sin importar qué variantes de sighash usen las firmas de la transacción.</p>
+</li>
+</ul>
+<p>Las reglas de consenso para <code>nExpiryHeight</code> en § 7.1.2 ‘Transaction Consensus Rules’ <sup><a href="#user-content-fn-protocol-txnconsensus" id="user-content-fnref-protocol-txnconsensus" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup> no cambian. El identificador de transacción y el compromiso de los datos de autorización se calculan como se especifica en el ZIP 248 <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-10" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>, de modo que el identificador de transacción sigue comprometiendo ambos campos.</p>
+<h2 id="requirements-for-signing"><a class="hanchor" href="#requirements-for-signing" aria-hidden="true" tabindex="-1">#</a>Requisitos para firmar</h2>
+<p>Una firma de variante 1 no limita la rama de consenso ni las alturas a las que se puede minar una transacción. En una transacción que contiene un paquete blindado, las firmas de vinculación se comprometen a <code>nConsensusBranchId</code> y <code>nExpiryHeight</code>, por lo que solo una parte que conozca todas las claves de firma de vinculación puede elegirlos. En una transacción sin paquete blindado cuyas entradas transparentes usan todas la variante 1, ninguna firma se compromete a estos campos. Cualquier parte puede cambiarlos, y con ellos el identificador de transacción.</p>
+<p>En una sesión de firmado con umbral, los requisitos siguientes se aplican a cada participante.</p>
+<ul>
+<li>
+<p>Una billetera que admite la difusión diferida DEBERÍA (SHOULD) usar la variante 1 para toda firma de autorización de gasto y toda firma de entrada transparente de una transacción v7 que contenga un paquete blindado, ya difiera o no la difusión de esa transacción.</p>
+</li>
+<li>
+<p>Un firmante DEBERÍA (SHOULD) usar la variante 0 para una transacción v7 que no contenga ningún paquete blindado, a menos que la difusión de esa transacción sea diferida.</p>
+</li>
+<li>
+<p>Un firmante DEBERÍA (SHOULD) usar la misma variante de sighash para toda firma que realice de una transacción.</p>
+</li>
+<li>
+<p>Un firmante que usa la variante 1 DEBERÍA (SHOULD) firmar solo transacciones con <code>lock_time = 0</code>, a menos que el propósito de la transacción requiera un tiempo de bloqueo.</p>
+</li>
+<li>
+<p>Un firmante que pide a un usuario confirmar los detalles de una transacción antes de realizar una firma de variante 1 DEBERÍA (SHOULD) indicar al usuario que la firma no limita cuándo se puede minar la transacción. NO DEBE (MUST NOT) presentar una altura de expiración como un límite de la autorización.</p>
+</li>
+</ul>
+<h2 id="requirements-for-completing-a-transaction"><a class="hanchor" href="#requirements-for-completing-a-transaction" aria-hidden="true" tabindex="-1">#</a>Requisitos para completar una transacción</h2>
+<p>Una billetera que completa una transacción v7 que contiene una firma de variante 1:</p>
+<ul>
+<li>
+<p>DEBE (MUST) establecer <code>nConsensusBranchId</code> en el identificador de rama de consenso de la época que contiene la altura objetivo.</p>
+</li>
+<li>
+<p>DEBE (MUST) establecer <code>nExpiryHeight</code> como lo hace para una transacción que firma en el momento de la compleción. El momento de la firma NO DEBE (MUST NOT) afectar el valor. El valor DEBERÍA (SHOULD) ser la altura objetivo más el delta de expiración predeterminado vigente en la altura objetivo. <sup><a href="#user-content-fn-zip-0203" id="user-content-fnref-zip-0203-2" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup></p>
+</li>
+<li>
+<p>DEBERÍA (SHOULD) seleccionar el ancla de cada paquete blindado como lo hace para una transacción que crea en el momento de la compleción, y DEBERÍA (SHOULD) crear las pruebas del paquete contra ese ancla.</p>
+</li>
+<li>
+<p>DEBE (MUST) realizar la firma de vinculación de cada paquete blindado después de establecer <code>nConsensusBranchId</code> y <code>nExpiryHeight</code>.</p>
+</li>
+</ul>
+<p>Una billetera DEBERÍA (SHOULD) completar una transacción solo cuando está a punto de difundirla.</p>
+<p>Una transacción completada deja de ser válida si expira, o si se activa una actualización de red, antes de que se mine. Una billetera PUEDE (MAY) entonces completarla de nuevo. Cada compleción tiene un identificador de transacción diferente. Todas las compleciones gastan las mismas entradas, por lo que a lo sumo una puede minarse, y los nodos las manejan como manejan cualquier transacción que gaste la misma entrada.</p>
+<h2 id="requirements-for-wallets-that-hold-variant-1-signatures"><a class="hanchor" href="#requirements-for-wallets-that-hold-variant-1-signatures" aria-hidden="true" tabindex="-1">#</a>Requisitos para billeteras que retienen firmas de variante 1</h2>
+<p>Una firma de variante 1 sigue siendo válida hasta que la transacción ya no pueda minarse. Eso ocurre cuando se gasta una de sus entradas, o cuando el consenso deja de aceptar su versión de transacción o una de sus variantes de paquete. El paso de una altura de expiración y la activación de una actualización de red no la terminan.</p>
+<p>Los siguientes requisitos se aplican a una billetera que ha hecho, o que almacena, firmas de variante 1 para una transacción. En ellos, la billetera decide que una transacción ha sido minada según su política de confirmación habitual.</p>
+<ul>
+<li>
+<p>La billetera NO DEBE (MUST NOT) tratar la transacción como cancelada o fallida porque haya pasado la altura de expiración de una finalización.</p>
+</li>
+<li>
+<p>Si la billetera crea otra transacción para tomar su lugar, por ejemplo para hacer el mismo pago, la nueva transacción DEBE (MUST) gastar al menos una entrada de la transacción que reemplaza. Así, a lo sumo una de las dos puede minarse.</p>
+</li>
+<li>
+<p>Para cancelar la transacción, la billetera DEBE (MUST) gastar al menos una de sus entradas en otra transacción. DEBE (MUST) tratar la cancelación como efectiva solo cuando esa otra transacción haya sido minada.</p>
+</li>
+<li>
+<p>Hasta que la transacción se mine, la billetera DEBERÍA (SHOULD) identificarla por los nullifier y las salidas transparentes que gasta, y no por un identificador de transacción.</p>
+</li>
+<li>
+<p>La billetera DEBERÍA (SHOULD) dar una clave de firma de vinculación, o la aleatoriedad del compromiso de valor de la cual se deriva, solo a una parte que la necesite para verificar o completar la transacción. Una vez que las firmas de autorización de gasto y las pruebas de la transacción son públicas, toda parte que conozca la clave de firma de vinculación de cada paquete blindado puede completar la transacción de nuevo. Puede hacerlo en cualquier momento posterior, en cualquier rama de consenso que acepte la transacción.</p>
+</li>
+</ul>
+<h2 id="changes-to-zip-248"><a class="hanchor" href="#changes-to-zip-248" aria-hidden="true" tabindex="-1">#</a>Cambios a ZIP 248</h2>
+<p>En los cambios siguientes, «ZIP TBD» representa el número que los Editores de ZIP asignan a este ZIP, y <code>[#zip-tbd]_</code> representa una referencia a él.</p>
+<p>En «Sighash Variants», después de:</p>
+<blockquote>
+<pre><code>Variant 0 is the "commit to all effecting data" sighash algorithm.
+</code></pre>
+</blockquote>
+<p>añadir:</p>
+<blockquote>
+<pre><code>Variant 1 commits to all effecting data except the consensus branch ID and
+the expiry height. It is defined in ZIP TBD. [#zip-tbd]_
+</code></pre>
+</blockquote>
+<p>En «Variant 0 Signature Digest», reemplazar:</p>
+<blockquote>
+<pre><code>For sighash variant 0 (the only variant
+currently defined for v7 transactions), the digest algorithm is as specified
+below.
+</code></pre>
+</blockquote>
+<p>con:</p>
+<blockquote>
+<pre><code>For sighash variant 0, the digest algorithm is as specified below. The digest
+algorithm for sighash variant 1 is specified in ZIP TBD. [#zip-tbd]_
+</code></pre>
+</blockquote>
+<p>En «Bundle-local rules», reemplazar:</p>
+<blockquote>
+<pre><code>* For each ``TransparentInputAuth`` whose ``sighashInfo`` specifies sighash
+  variant 0, the ``hash_type`` byte of every nonempty signature supplied to
+</code></pre>
+</blockquote>
+<p>con:</p>
+<blockquote>
+<pre><code>* For each ``TransparentInputAuth`` whose ``sighashInfo`` specifies sighash
+  variant 0 or sighash variant 1, the ``hash_type`` byte of every nonempty
+  signature supplied to
+</code></pre>
+</blockquote>
+<p>y añadir la regla:</p>
+<blockquote>
+<pre><code>* The ``sighashInfo`` of ``bindingSigSapling``, and of ``bindingSigOrchard``
+  in an Orchard or Ironwood bundle, MUST specify sighash variant 0.
+  [#zip-tbd]_
+</code></pre>
+</blockquote>
+<p>En «Transparent Sighash Algorithms», reemplazar el párrafo completo con:</p>
+<blockquote>
+<pre><code>For the transparent bundle at ``bundleVariant = 0``, sighash variants 0 and 1
+are defined. The ``associatedData`` of each is the empty byte string. A
+signature made with variant 0 commits to the digest defined in `Variant 0
+Signature Digest`_. A signature made with variant 1 commits to the variant 1
+signature digest defined in ZIP TBD. [#zip-tbd]_ In both cases
+``bundleType = 0``, ``bundleVariant = 0``, and ``signature_context`` is as
+defined in `S.7: Transparent Signature Context`_.
+</code></pre>
+</blockquote>
+<p>En «Sapling Sighash Algorithms», reemplazar el primer párrafo con:</p>
+<blockquote>
+<pre><code>For the Sapling bundle at ``bundleVariant = 0``, sighash variants 0 and 1 are
+defined for a ``spendAuthSig``, and only sighash variant 0 is defined for a
+``bindingSig``. The ``associatedData`` of each variant is the empty byte
+string. A signature made with variant 0 commits to the digest defined in
+`Variant 0 Signature Digest`_. A ``spendAuthSig`` made with variant 1 commits
+to the variant 1 signature digest defined in ZIP TBD. [#zip-tbd]_ In both
+cases ``bundleType = 2`` and ``bundleVariant = 0``.
+</code></pre>
+</blockquote>
+<p>En «Orchard Protocol Sighash Algorithms», reemplazar el primer párrafo con:</p>
+<blockquote>
+<pre><code>For the Orchard and Ironwood bundles at ``bundleVariant = 0``, sighash
+variants 0 and 1 are defined for a ``spendAuthSig``, and only sighash variant
+0 is defined for a ``bindingSig``. The ``associatedData`` of each variant is
+the empty byte string. A signature made with variant 0 commits to the digest
+defined in `Variant 0 Signature Digest`_. A ``spendAuthSig`` made with
+variant 1 commits to the variant 1 signature digest defined in ZIP TBD.
+[#zip-tbd]_ In both cases ``bundleType = 3`` for Orchard or
+``bundleType = 4`` for Ironwood, and ``bundleVariant = 0``.
+</code></pre>
+</blockquote>
+<p>En «Referencias», añadir:</p>
+<blockquote>
+<pre><code>.. [#zip-tbd] `ZIP TBD: Sighash Variant for Deferred Broadcast &#x3C;draft-nuttycom-deferred-broadcast-sighash.md>`_
+</code></pre>
+</blockquote>
+<h2 id="changes-to-the-protocol-specification"><a class="hanchor" href="#changes-to-the-protocol-specification" aria-hidden="true" tabindex="-1">#</a>Cambios a la especificación del protocolo</h2>
+<p>Estos cambios se escriben respecto de la especificación del protocolo tal como la modifica ZIP 248. <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-11" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> Cada cambio se aplica a partir de la activación de este ZIP.</p>
+<h3 id="-410-sighash-transaction-hashing"><a class="hanchor" href="#-410-sighash-transaction-hashing" aria-hidden="true" tabindex="-1">#</a>§ 4.10 ‘SIGHASH Transaction Hashing’</h3>
+<p>ZIP 248 añade la siguiente oración a esta sección. <sup><a href="#user-content-fn-protocol-sighash" id="user-content-fnref-protocol-sighash" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup></p>
+<blockquote>
+<p>Los algoritmos SIGHASH usados para transacciones v7 están definidos en ZIP 248.</p>
+</blockquote>
+<p>Después de ella, añadir:</p>
+<blockquote>
+<p>Una firma en una transacción v7 que usa la variante de sighash 1, según se define en ZIP TBD, no se compromete a un ID de rama de consenso ni al campo <code>nExpiryHeight</code>. El ID de rama de consenso de dicha transacción está restringido por la regla sobre su campo <code>nConsensusBranchId</code> en § 7.1.2 «Transaction Consensus Rules».</p>
+</blockquote>
+<h3 id="-712-transaction-consensus-rules"><a class="hanchor" href="#-712-transaction-consensus-rules" aria-hidden="true" tabindex="-1">#</a>§ 7.1.2 «Reglas de consenso de transacciones»</h3>
+<p>Esta sección contiene la siguiente regla. <sup><a href="#user-content-fn-protocol-txnconsensus" id="user-content-fnref-protocol-txnconsensus-2" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup></p>
+<blockquote>
+<p>[NU5 en adelante] Si <math><mrow><mrow><mi>𝖾</mi><mi>𝖿</mi><mi>𝖿</mi><mi>𝖾</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝖵</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mo>≥</mo><mn>5</mn></mrow></math>, el campo <code>nConsensusBranchId</code> DEBE (MUST) coincidir con el ID de rama de consenso usado para los hashes de transacción SIGHASH, según se especifica en [ZIP-244].</p>
+</blockquote>
+<p>Después de ella, añadir:</p>
+<blockquote>
+<p>Si <math><mrow><mrow><mi>𝖾</mi><mi>𝖿</mi><mi>𝖿</mi><mi>𝖾</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝖵</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mo>≥</mo><mn>7</mn></mrow></math>, el campo <code>nConsensusBranchId</code> DEBE (MUST) ser igual al ID de rama de consenso de la época del bloque que contiene la transacción, sean cuales sean las variantes de sighash que usen las firmas de la transacción.</p>
+</blockquote>
+<h2 id="applicability"><a class="hanchor" href="#applicability" aria-hidden="true" tabindex="-1">#</a>Aplicabilidad</h2>
+<p>Todos estos cambios se aplican de manera idéntica a Mainnet y Testnet.</p>
+<h1 id="security-considerations"><a class="hanchor" href="#security-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de seguridad</h1>
+<h2 id="cross-chain-replay"><a class="hanchor" href="#cross-chain-replay" aria-hidden="true" tabindex="-1">#</a>Reproducción entre cadenas</h2>
+<p>Una reproducción (replay) aplica los efectos de una transacción firmada en una segunda block chain, sin una nueva firma del firmante. Esta sección considera una segunda cadena que comparte historia con la primera y tiene un ID de rama de consenso diferente, como el otro lado de una división de cadena en una actualización de red.</p>
+<p>La variante 0 impide dicha reproducción, porque toda firma se compromete al ID de rama de consenso. <sup><a href="#user-content-fn-zip-0200" id="user-content-fnref-zip-0200-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> La variante 1 elimina esa protección de las firmas que la usan. Otros dos casos son iguales para ambas variantes. Las cadenas con el mismo ID de rama de consenso no tienen protección contra reproducción. Las cadenas que no comparten historia, como Mainnet y Testnet, no tienen entradas en común.</p>
+<p>Una reproducción no puede cambiar los efectos de una transacción. Gasta las mismas entradas y crea las mismas salidas, con los mismos valores y destinatarios. Una transacción puede reproducirse en la segunda cadena solo si se cumplen todas las siguientes condiciones:</p>
+<ol>
+<li>La segunda cadena acepta la versión de la transacción, los tipos y variantes de los paquetes, y la variante de sighash 1, y la transacción cumple las demás reglas de consenso de esa cadena.</li>
+<li>Toda entrada existe y no está gastada en la segunda cadena. Para una entrada transparente, la salida a la que se refiere existe allí con el mismo identificador de transacción e índice. Para un gasto blindado, el compromiso de nota está en el árbol de compromisos de notas allí, y el nullifier de la transacción no ha sido revelado allí.</li>
+<li>Toda firma de variante 0 de la transacción se hace de nuevo. El identificador de transacción difiere en la segunda cadena, por lo que ninguna firma de variante 0 sigue siendo válida.</li>
+<li>Las pruebas de cada paquete blindado son válidas para un ancla de la segunda cadena.</li>
+</ol>
+<p>Una entrada creada antes de que las cadenas se separaran satisface la condición 2 hasta que se gaste en la segunda cadena. Las entradas creadas después están restringidas:</p>
+<ul>
+<li>Una salida transparente creada después por una transacción de versión 5 o superior nunca la satisface, porque el identificador de esa transacción se compromete al ID de rama de consenso.</li>
+<li>Una nota de Orchard o Ironwood creada después la satisface solo si la transacción que creó la nota fue ella misma reproducida.</li>
+<li>Una nota de Sapling creada después también necesita la misma posición en el árbol de compromisos de notas de ambas cadenas, porque su nullifier depende de esa posición.</li>
+</ul>
+<p>Las condiciones 3 y 4 determinan qué partes pueden reproducir una transacción:</p>
+<ul>
+<li><strong>Cualquier parte.</strong> Una transacción sin paquete blindado, en la que toda entrada transparente usa la variante 1, no tiene firma de variante 0 ni prueba. Cualquier parte que la vea puede reproducirla.</li>
+<li><strong>Una parte que conoce la clave de firma de vinculación de cada paquete blindado.</strong> Esta parte puede hacer las firmas de vinculación de nuevo. Si toda otra firma usa la variante 1, puede reproducir la transacción con las pruebas existentes, siempre que sus anclas sean de antes de que las cadenas se separaran. Esas anclas son válidas en ambas cadenas, porque un ancla puede referirse al estado de árbol final de cualquier bloque anterior. <sup><a href="#user-content-fn-protocol-transactions" id="user-content-fnref-protocol-transactions" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup></li>
+<li><strong>Una parte que conoce las entradas privadas de cada prueba.</strong> <sup><a href="#user-content-fn-protocol-spendstatement" id="user-content-fnref-protocol-spendstatement" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup> <sup><a href="#user-content-fn-protocol-actionstatement" id="user-content-fnref-protocol-actionstatement" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup> Estas entradas incluyen la aleatoriedad del compromiso de valor, de la cual se derivan las claves de firma de vinculación. Esta parte también puede crear pruebas nuevas, por lo que puede reproducir tal transacción sin importar sus anclas.</li>
+</ul>
+<p>Ninguna parte puede reproducir una transacción que tenga una firma de autorización de gasto de variante 0 o una firma de entrada transparente sin la clave que hizo esa firma.</p>
+<p>El constructor de un paquete blindado elige la aleatoriedad de su compromiso de valor y el aleatorizador de autorización de gasto <math><mi>α</mi></math> de cada gasto. Las firmas de autorización de gasto se comprometen a los compromisos de valor y a <code>rk</code>, por lo que estas elecciones quedan fijadas una vez que la transacción está firmada. No pueden recuperarse a partir de la transacción ni de una clave de visualización completa. Por lo tanto, la segunda y la tercera parte anteriores son el constructor, y cualquier parte a la que este haya divulgado estos valores:</p>
+<ul>
+<li>Cuando una billetera de hardware firma, el constructor es la billetera acompañante que posee la clave de visualización completa. <sup><a href="#user-content-fn-zip-0374" id="user-content-fnref-zip-0374" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup></li>
+<li>En una sesión de firma FROST, el constructor es el Coordinator. Este divulga las aperturas de los compromisos de valor a cada participante, por lo que cada participante conoce las claves de firma de vinculación. Véase [Threshold signing with FROST].</li>
+</ul>
+<p>Un observador de la block chain no puede reproducir una transacción que contiene un paquete blindado. Tampoco puede hacerlo el destinatario de una de sus salidas, ni un poseedor de la clave de visualización completa que no conoce estos valores.</p>
+<p>Un firmante impide la reproducción de una transacción firmada en una cadena gastando una de sus entradas en esa cadena en otra transacción.</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<h2 id="omitting-the-consensus-branch-id"><a class="hanchor" href="#omitting-the-consensus-branch-id" aria-hidden="true" tabindex="-1">#</a>Omisión del ID de rama de consenso</h2>
+<p>La variante 0 se compromete al ID de rama de consenso para proporcionar protección contra reproducción en ambos sentidos: una firma hecha para una rama de consenso es inválida en todas las demás. <sup><a href="#user-content-fn-zip-0200" id="user-content-fnref-zip-0200-3" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> Esa protección es lo que impide la difusión diferida a través de una actualización de red.</p>
+<p>Una firma de variante 1 sigue comprometiéndose a la versión de la transacción, el ID de grupo de versión, y el tipo y la variante de cada paquete. El ZIP 248 fija la semántica de cada tipo y variante de paquete durante toda la vida de una versión de transacción. <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-12" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> Por lo tanto, una actualización de red no puede cambiar el significado de los datos que el firmante autorizó. Puede dejar de aceptar una versión de transacción o una variante de paquete, en cuyo caso la transacción ya no puede ser minada y el firmante no pierde nada.</p>
+<p>Un firmante acepta dos riesgos al usar la variante 1:</p>
+<ul>
+<li>Si la block chain se divide en dos ramas de consenso duraderas, una parte que pueda completar la transacción puede hacer que se mine en ambas. Véase [Reproducción entre cadenas].</li>
+<li>Una actualización de red puede cambiar reglas de consenso que no forman parte de la semántica de un paquete, como la forma en que se distribuyen las comisiones. La transacción se mina entonces bajo reglas que difieren de las vigentes al momento de la firma.</li>
+</ul>
+<h2 id="omitting-the-expiry-height"><a class="hanchor" href="#omitting-the-expiry-height" aria-hidden="true" tabindex="-1">#</a>Omisión de la altura de expiración</h2>
+<p>La variante 0 se compromete a la altura de expiración para que el firmante limite el tiempo durante el cual la transacción puede ser minada. <sup><a href="#user-content-fn-zip-0203" id="user-content-fnref-zip-0203-3" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> Un firmante que difiere la difusión no puede conocer la altura objetivo al momento de la difusión. Si la altura de expiración permanece bajo la firma, el firmante debe deshabilitar la expiración o firmar una altura de expiración lejana, con los costos descritos en [Motivación].</p>
+<p>Se consideró una variante cuyo <code>associatedData</code> llevara un límite superior sobre la altura de expiración. Esta permitiría al firmante mantener un límite sobre la validez de su firma. Fue rechazada porque el límite sería visible en la transacción y revelaría el momento de la firma, como lo hace una altura de expiración lejana.</p>
+<p>El costo de omitir la altura de expiración es que una firma permanece válida hasta que se gasta una entrada de la transacción. Sin los requisitos en [Requisitos para billeteras que conservan firmas de variante 1], una billetera podría considerar un pago expirado como cancelado, realizar el pago nuevamente desde notas distintas, y luego ver ambos pagos minados.</p>
+<h2 id="fields-that-variant-1-still-commits-to"><a class="hanchor" href="#fields-that-variant-1-still-commits-to" aria-hidden="true" tabindex="-1">#</a>Campos a los que la variante 1 todavía se compromete</h2>
+<ul>
+<li>La versión de la transacción y el ID de grupo de versión, porque determinan cómo se interpreta cada uno de los demás campos.</li>
+<li>El lock time, porque el firmante lo elige a propósito. A diferencia de la altura de expiración, su valor usual, cero, es independiente del momento de la firma.</li>
+<li>El mapa de deltas de grupos de valor y, por lo tanto, la comisión, porque la comisión es un efecto de la transacción. Una parte que completa la transacción no puede cambiar lo que el firmante paga.</li>
+</ul>
+<h2 id="structure-of-the-variant-1-digest"><a class="hanchor" href="#structure-of-the-variant-1-digest" aria-hidden="true" tabindex="-1">#</a>Estructura del digest de la variante 1</h2>
+<p>El digest de la variante 1 reemplaza una entrada de 32 bytes del digest de la variante 0 por otra, de modo que la preimagen de <code>signature_digest</code> conserva su disposición y longitud. Con codificaciones de un byte del tipo y la variante de paquete, los campos anteriores a <code>signature_context</code> ocupan 99 bytes. Por lo tanto, el digest para una firma de autorización de gasto blindado necesita una compresión BLAKE2b, igual que para la variante 0.</p>
+<p><code>effects_sig_digest</code> se calcula una vez por transacción, a partir del digest de deltas de grupos de valor y del digest de paquetes de efectos que el identificador de transacción también usa. <code>header_sig_digest</code> tiene una entrada de 12 bytes y <code>effects_sig_digest</code> tiene una entrada de 96 bytes, por lo que cada uno necesita una compresión. Ambos tienen sus propias cadenas de personalización porque aplican hash a datos distintos de los correspondientes digests del identificador de transacción.</p>
+<p>Un firmante que solo hace firmas de variante 1 no necesita el identificador de transacción, por lo que puede firmar antes de que se conozcan el ID de rama de consenso y la altura de expiración.</p>
+<p><code>effects_sig_digest</code> tiene el mismo valor para cada completación de una transacción firmada. Una billetera puede usarlo para reconocer una transacción minada como una completación de una transacción que firmó.</p>
+<h2 id="rationale-for-binding-signatures-using-variant-0"><a class="hanchor" href="#rationale-for-binding-signatures-using-variant-0" aria-hidden="true" tabindex="-1">#</a>Justificación de las firmas de enlace que usan la variante 0</h2>
+<p>Una parte sin material de claves puede cambiar un campo de una transacción exactamente cuando ninguna firma en la transacción se compromete a ese campo. Si cada firma usara la variante 1, cualquier parte podría cambiar el ID de rama de consenso y la altura de expiración:</p>
+<ul>
+<li>El identificador de transacción sería maleable por terceros, lo que el ZIP 244 se propuso evitar. <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244-2" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup></li>
+<li>Cualquier parte podría volver válida una transacción expirada. Un destinatario podría hacer esto con un pago que el remitente creía cancelado.</li>
+</ul>
+<p>Una sola firma de variante 0 basta para evitar ambos casos. La firma de enlace es la elección natural:</p>
+<ul>
+<li>Hacerla requiere la clave de firma de enlace y ninguna autoridad de gasto, por lo que un dispositivo que no posee claves de gasto puede hacerla.</li>
+<li>La clave de firma de enlace se deriva de la aleatoriedad del compromiso de valor del paquete. La parte que crea las pruebas ya conoce esa aleatoriedad. Ningún observador y ningún destinatario la conoce.</li>
+<li>La clave de firma de enlace es el logaritmo discreto de un elemento de grupo que cualquiera puede calcular a partir de la transacción. Entregarla a otra parte no revela nada sobre notas ni direcciones.</li>
+<li>La firma de enlace se hace en último lugar en cualquier caso.</li>
+</ul>
+<p>La restricción es una regla de consenso y no una recomendación, de modo que toda transacción que use la variante 1 con un paquete blindado tenga la misma forma. Con una recomendación, aparecerían dos formas en el block chain, y la forma revelaría algo sobre la billetera que produjo la transacción.</p>
+<h2 id="threshold-signing-with-frost"><a class="hanchor" href="#threshold-signing-with-frost" aria-hidden="true" tabindex="-1">#</a>Firma de umbral con FROST</h2>
+<p>Esta sección describe el ZIP 312 <sup><a href="#user-content-fn-zip-0312" id="user-content-fnref-zip-0312-2" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup> según lo revisado por dos propuestas abiertas. <sup><a href="#user-content-fn-zip-0312-pr895" id="user-content-fnref-zip-0312-pr895" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup> <sup><a href="#user-content-fn-zip-0312-pr1459" id="user-content-fnref-zip-0312-pr1459" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup></p>
+<p>La variante 1 no necesita ningún cambio en el protocolo de firma. El aleatorizador se deriva de los compromisos de firma y no del mensaje. El resumen de la variante 1 se compromete a cada clave de validación aleatorizada, igual que el resumen de la variante 0, de modo que el Coordinator todavía completa la primera ronda de cada sesión antes de derivar un aleatorizador.</p>
+<p>La variante 1 elimina una causa de sesiones fallidas. Con la variante 0, una sesión que no termina antes de la altura de expiración, o antes de que se active una actualización de red, comienza de nuevo con nonces nuevos. Unos compromisos de firma nuevos dan un aleatorizador nuevo y una clave de validación aleatorizada nueva, de modo que la transacción y sus pruebas se construyen de nuevo. Con la variante 1, una sesión puede terminar en cualquier momento.</p>
+<p>La variante 1 también cambia lo que significa una aprobación por un umbral de participantes:</p>
+<ul>
+<li>La aprobación no tiene límite de tiempo. El Coordinator puede conservar las firmas agregadas y difundir la transacción en cualquier momento posterior. Solo otra sesión de firma, que gasta una de las entradas, cancela la aprobación.</li>
+<li>Cada participante de la sesión puede completar la transacción. El Coordinador envía a cada participante las aperturas de los compromisos de valor, para que el participante pueda verificar los valores que autoriza. A partir de ellas, el participante puede calcular cada clave de firma de vinculación. Una vez que la transacción se ha difundido, sus firmas de autorización de gasto y sus pruebas son públicas. Cualquier participante puede entonces completarla de nuevo después de que expire, o en otra rama de consenso en la que su ancla sea válida. Cada participante también posee la clave de visualización completa y conoce los aleatorizadores, por lo que puede crear pruebas nuevas donde el ancla no sea válida.</li>
+</ul>
+<p>Por lo tanto, todavía se requiere un umbral de participantes para autorizar los efectos de una transacción. No se requiere para elegir cuándo, o en qué rama de consenso, se mina una transacción autorizada. [Open issues] enumera los cambios que necesita el ZIP 312.</p>
+<h2 id="rationale-for-permitting-transparent-only-transactions"><a class="hanchor" href="#rationale-for-permitting-transparent-only-transactions" aria-hidden="true" tabindex="-1">#</a>Justificación de permitir transacciones solo transparentes</h2>
+<p>Una transacción sin paquete blindado no tiene firma de enlace. Si todas sus entradas transparentes usan la variante 1, cualquier parte puede cambiar su ID de rama de consenso y su altura de expiración. Este borrador permite tales transacciones porque la firma sin conexión es común para los fondos transparentes. [Open issues] enumera alternativas más estrictas.</p>
+<p>Un firmante que posee la clave de una entrada transparente en el momento de la finalización puede evitar esta propiedad: firma esa entrada con la variante 0 en ese momento.</p>
+<h2 id="rationale-for-the-completion-requirements"><a class="hanchor" href="#rationale-for-the-completion-requirements" aria-hidden="true" tabindex="-1">#</a>Justificación de los requisitos de finalización</h2>
+<p>Los requisitos de [Requirements for completing a transaction] dan a una transacción completada el ID de rama de consenso, la altura de expiración y las anclas de una transacción que se firma en el mismo momento. Un observador no puede distinguir las dos por esos campos.</p>
+<p>La recomendación de usar la variante 1 para toda transacción que contenga un paquete blindado pone a las transacciones que se firman y difunden de inmediato en el mismo conjunto. Para esas transacciones el costo es pequeño, porque las firmas de enlace todavía se comprometen a ambos campos. La recomendación excluye las transacciones sin paquete blindado, donde ninguna firma se comprometería a ellos.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Este ZIP no ha sido programado para su despliegue. Depende del formato de transacciones v7 <sup><a href="#user-content-fn-zip-0248" id="user-content-fnref-zip-0248-13" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> y puede activarse en la actualización de red que activa ese formato, o en una posterior. Antes de que este ZIP se active, la variante 1 no es una variante de sighash definida, y una transacción que la use es inválida.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>Ninguna todavía.</p>
+<h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Cuestiones abiertas</h1>
+<ul>
+<li><strong>Transacciones solo transparentes.</strong> ¿Debería exigirse que toda transacción v7 contenga al menos una firma con la variante 0? Esa regla haría que todo identificador de transacción v7 fuera no maleable por partes sin material de clave. También impediría la difusión diferida de una transacción que tiene un solo firmante y ningún paquete blindado. Una alternativa más estrecha define la variante 1 para entradas transparentes solo en transacciones que contienen un paquete blindado.</li>
+<li><strong>Rechazo de variantes no definidas.</strong> El ZIP 248 describe el conjunto de variantes de sighash como cerrado, pero no establece ninguna regla de consenso que rechace un <code>sighashVariant</code> no definido o un <code>sighashInfo</code> de longitud incorrecta. Este ZIP establece esa regla para las firmas que cubre. La regla general pertenece al ZIP 248.</li>
+<li><strong>Registro de variantes.</strong> El ZIP 248 no tiene un registro de variantes de sighash. El número 1 es provisional hasta que los Editores de ZIP lo confirmen.</li>
+<li><strong>Elección del formato de transacciones.</strong> El ZIP 248 recomienda que una billetera use el formato de transacciones más antiguo que admita las funciones que una transacción requiere. Hasta que las transacciones v7 sean comunes, el uso del formato v7 junto con la variante 1 puede, por lo tanto, sugerir una difusión diferida.</li>
+<li><strong>Transacciones creadas parcialmente.</strong> El ZIP 374 <sup><a href="#user-content-fn-zip-0374" id="user-content-fnref-zip-0374-2" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup> necesita campos que registren la variante de sighash de cada firma, y necesita decir qué rol establece el ID de rama de consenso y la altura de expiración.</li>
+<li><strong>Firma con umbral.</strong> El ZIP 312 define el mensaje de una sesión de firma como el hash de transacción SIGHASH. <sup><a href="#user-content-fn-zip-0312" id="user-content-fnref-zip-0312-3" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup> Para una transacción v7 necesita decir que el mensaje es el resumen para la variante de sighash de la firma, y que cada participante verifica qué variante se le pide firmar. Su revisión propuesta dice que las sesiones de una transacción firman el mismo mensaje. <sup><a href="#user-content-fn-zip-0312-pr1459" id="user-content-fnref-zip-0312-pr1459-2" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup> Eso no se cumple para una transacción v7, porque el ZIP 248 pone el índice del gasto en cada resumen. Su modelo de amenazas necesita decir que una aprobación hecha con la variante 1 no tiene límite de tiempo, y qué partes pueden completar la transacción. Está abierto si un participante podría verificar los valores que autoriza sin las aperturas de los compromisos de valor, de modo que solo el Coordinator pudiera completar la transacción.</li>
+<li><strong>Vectores de prueba.</strong> Se necesitan vectores de prueba para el resumen de firma de la variante 1. Deberían mostrar que el resumen no cambia cuando cambia <code>nConsensusBranchId</code> o <code>nExpiryHeight</code>, que cambia cuando cambian cualesquiera otros datos que afectan el efecto, y que difiere del resumen de la variante 0 de la misma transacción.</li>
+</ul>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Información sobre BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" y "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Versión 2026.9.1 [NU7] o posterior</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Versión 2026.9.1 [NU7]. Sección 3.12: Mainnet y Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-blockchain">
+<p><a href="/upstream/protocol/protocol.pdf#blockchain">Zcash Protocol Specification, Versión 2026.9.1 [NU7]. Sección 3.3: The Block Chain</a> <a href="#user-content-fnref-protocol-blockchain" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0200">
+<p><a href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a> <a href="#user-content-fnref-zip-0200" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0200-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0200-3" data-footnote-backref="" aria-label="Back to reference 5-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0248">
+<p><a href="/upstream/zip-0248.rst">ZIP 248: Extensible Transaction Format</a> <a href="#user-content-fnref-zip-0248" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0248-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0248-3" data-footnote-backref="" aria-label="Back to reference 6-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-0248-4" data-footnote-backref="" aria-label="Back to reference 6-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-zip-0248-5" data-footnote-backref="" aria-label="Back to reference 6-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-zip-0248-6" data-footnote-backref="" aria-label="Back to reference 6-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-zip-0248-7" data-footnote-backref="" aria-label="Back to reference 6-7" class="data-footnote-backref">↩<sup>7</sup></a> <a href="#user-content-fnref-zip-0248-8" data-footnote-backref="" aria-label="Back to reference 6-8" class="data-footnote-backref">↩<sup>8</sup></a> <a href="#user-content-fnref-zip-0248-9" data-footnote-backref="" aria-label="Back to reference 6-9" class="data-footnote-backref">↩<sup>9</sup></a> <a href="#user-content-fnref-zip-0248-10" data-footnote-backref="" aria-label="Back to reference 6-10" class="data-footnote-backref">↩<sup>10</sup></a> <a href="#user-content-fnref-zip-0248-11" data-footnote-backref="" aria-label="Back to reference 6-11" class="data-footnote-backref">↩<sup>11</sup></a> <a href="#user-content-fnref-zip-0248-12" data-footnote-backref="" aria-label="Back to reference 6-12" class="data-footnote-backref">↩<sup>12</sup></a> <a href="#user-content-fnref-zip-0248-13" data-footnote-backref="" aria-label="Back to reference 6-13" class="data-footnote-backref">↩<sup>13</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-saplingbalance">
+<p><a href="/upstream/protocol/protocol.pdf#saplingbalance">Zcash Protocol Specification, Versión 2026.9.1 [NU7]. Sección 4.13: Balance and Binding Signature (Sapling)</a> <a href="#user-content-fnref-protocol-saplingbalance" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-orchardbalance">
+<p><a href="/upstream/protocol/protocol.pdf#orchardbalance">Zcash Protocol Specification, Versión 2026.9.1 [NU7]. Sección 4.14: Balance and Binding Signature (Orchard)</a> <a href="#user-content-fnref-protocol-orchardbalance" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0244">
+<p><a href="/upstream/zip-0244.rst">ZIP 244: Transaction Identifier Non-Malleability</a> <a href="#user-content-fnref-zip-0244" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0244-2" data-footnote-backref="" aria-label="Back to reference 9-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0229">
+<p><a href="/upstream/zip-0229.md">ZIP 229: Version 6 Transaction Format</a> <a href="#user-content-fnref-zip-0229" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0229-2" data-footnote-backref="" aria-label="Back to reference 10-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0312">
+<p><a href="/upstream/zip-0312.rst">ZIP 312: FROST for Spend Authorization Multisignatures</a> <a href="#user-content-fnref-zip-0312" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0312-2" data-footnote-backref="" aria-label="Back to reference 11-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0312-3" data-footnote-backref="" aria-label="Back to reference 11-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0318">
+<p><a href="/upstream/zip-0318.md">ZIP 318: Orchard to Ironwood Migration</a> <a href="#user-content-fnref-zip-0318" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0318-2" data-footnote-backref="" aria-label="Back to reference 12-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0318-3" data-footnote-backref="" aria-label="Back to reference 12-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0203">
+<p><a href="/upstream/zip-0203.rst">ZIP 203: Transaction Expiry</a> <a href="#user-content-fnref-zip-0203" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0203-2" data-footnote-backref="" aria-label="Back to reference 13-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0203-3" data-footnote-backref="" aria-label="Back to reference 13-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-txnconsensus">
+<p><a href="/upstream/protocol/protocol.pdf#txnconsensus">Zcash Protocol Specification, Versión 2026.9.1 [NU7]. Sección 7.1.2: Reglas de consenso de transacciones</a> <a href="#user-content-fnref-protocol-txnconsensus" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-txnconsensus-2" data-footnote-backref="" aria-label="Back to reference 14-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-sighash">
+<p><a href="/upstream/protocol/protocol.pdf#sighash">Zcash Protocol Specification, Version 2026.9.1 [NU7]. Section 4.10: SIGHASH Transaction Hashing</a> <a href="#user-content-fnref-protocol-sighash" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-transactions">
+<p><a href="/upstream/protocol/protocol.pdf#transactions">Zcash Protocol Specification, Version 2026.9.1 [NU7]. Section 3.4: Transactions and Treestates</a> <a href="#user-content-fnref-protocol-transactions" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-spendstatement">
+<p><a href="/upstream/protocol/protocol.pdf#spendstatement">Zcash Protocol Specification, Version 2026.9.1 [NU7]. Section 4.18.2: Spend Statement (Sapling)</a> <a href="#user-content-fnref-protocol-spendstatement" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-actionstatement">
+<p><a href="/upstream/protocol/protocol.pdf#actionstatement">Zcash Protocol Specification, Version 2026.9.1 [NU7]. Section 4.18.4: Action Statement (Orchard)</a> <a href="#user-content-fnref-protocol-actionstatement" data-footnote-backref="" aria-label="Back to reference 18" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0374">
+<p><a href="/upstream/zip-0374.md">ZIP 374: Partially Created Zcash Transaction Format</a> <a href="#user-content-fnref-zip-0374" data-footnote-backref="" aria-label="Back to reference 19" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0374-2" data-footnote-backref="" aria-label="Back to reference 19-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0312-pr895">
+<p><a href="https://github.com/zcash/zips/pull/895">ZIP 312: Specify key generation, change randomizer handling (zcash/zips pull request 895)</a> <a href="#user-content-fnref-zip-0312-pr895" data-footnote-backref="" aria-label="Back to reference 20" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0312-pr1459">
+<p><a href="https://github.com/zcash/zips/pull/1459">ZIP 312: Key generation: DKG base point, recovery data, several spends, clarifications (zcash/zips pull request 1459)</a> <a href="#user-content-fnref-zip-0312-pr1459" data-footnote-backref="" aria-label="Back to reference 21" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0312-pr1459-2" data-footnote-backref="" aria-label="Back to reference 21-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+</ol>
+</section>

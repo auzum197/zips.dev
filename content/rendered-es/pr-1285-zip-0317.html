@@ -1,0 +1,1639 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)", "RECOMENDADO (RECOMMENDED)" y "PUEDE (MAY)" en este documento deben interpretarse como se describe en BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparezcan en mayúsculas.</p>
+<p>El término "comisión de transacción convencional" en este documento hace referencia al valor de una comisión de transacción que las billeteras usan convencionalmente, y que un usuario puede razonablemente esperar que los mineros de la red de Zcash acepten para incluir una transacción en un bloque.</p>
+<p>Los términos "Mainnet", "Testnet" y "zatoshi" en este documento se definen como en <a class="brackets" href="#protocol-networks" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>El objetivo de este ZIP es cambiar las comisiones convencionales de las transacciones haciéndolas depender de la cantidad de entradas y salidas de una transacción, y obtener el respaldo de este cambio por parte de los desarrolladores de billeteras, los mineros y los usuarios de Zcash.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>A la luz de la reciente actividad de la red Mainnet, es momento de revisar y actualizar la comisión de transacción estándar de 1,000 zatoshi establecida en ZIP 313 <a class="brackets" href="#zip-0313" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>.</p>
+<p>La comisión de transacción convencional actualmente es de 0.00001 ZEC o 1,000 zatoshis, según lo especificado en ZIP 313. Esto permitió explorar casos de uso novedosos de la blockchain de Zcash. La red de Zcash ha operado durante casi 2 años con una comisión de transacción convencional de 1,000 zatoshis, sin considerar la cantidad total de entradas y salidas de cada transacción. Bajo esta comisión convencional, parte del uso de la cadena se ha caracterizado por transacciones con muchas salidas, de 1,100 salidas, pagando la misma comisión convencional que una transacción con 2 salidas.</p>
+<p>El objetivo de la nueva política de comisiones, una vez que se aplique, es que las comisiones pagadas por las transacciones reflejen de manera justa los costos de procesamiento que sus entradas y salidas imponen a diversos participantes de la red. Esto tenderá a desalentar patrones de uso que causen denegación de servicio, ya sea intencional o no intencional, permitiendo al mismo tiempo comisiones bajas para los casos de uso de transacciones regulares.</p>
+
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ul class="simple">
+<li><p>La fórmula de la comisión convencional no debería favorecer ni discriminar contra ninguno de los protocolos Orchard, Sapling o transparente.</p></li>
+<li><p>La comisión de una transacción debería escalar linealmente con la cantidad de entradas y/o salidas.</p></li>
+<li><p>Los usuarios no deberían ser penalizados por enviar transacciones construidas con relleno de entradas y salidas para reducir la fuga de información. (La política predeterminada empleada por zcashd y los SDK móviles rellena hasta dos entradas y dos salidas por cada pool blindado usado por la transacción).</p></li>
+<li><p>Los usuarios deberían poder gastar una pequeña cantidad de UTXOs o notas con valor inferior a la comisión marginal por entrada.</p></li>
+<li><p>La comisión convencional no debería filtrar información privada usada en la construcción de la transacción; es decir, debería poder computarse únicamente a partir de los datos públicos de la transacción.</p></li>
+<li><p>Se debería desalentar a los usuarios de emitir nuevos activos personalizados considerados "basura". La comisión debería reflejar el costo de añadir nuevos datos al estado global.</p></li>
+</ul>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="notation"><a class="hanchor" href="#notation" aria-hidden="true" tabindex="-1">#</a>Notación</h2>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>a</mi>
+  <mo>,</mo>
+  <mi>b</mi>
+  <mo stretchy="false">)</mo>
+</math> el menor entre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>b</mi>
+</math>. <br> Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖺</mi>
+    <mi>𝗑</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>a</mi>
+  <mo>,</mo>
+  <mi>b</mi>
+  <mo stretchy="false">)</mo>
+</math> el mayor entre <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>a</mi>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>b</mi>
+</math>. <br> Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖿</mi>
+    <mi>𝗅</mi>
+    <mi>𝗈</mi>
+    <mi>𝗈</mi>
+    <mi>𝗋</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+</math> el mayor entero <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>≤</mo>
+  <mi>x</mi>
+</math>. <br> Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝖼</mi>
+    <mi>𝖾</mi>
+    <mi>𝗂</mi>
+    <mi>𝗅</mi>
+    <mi>𝗂</mi>
+    <mi>𝗇</mi>
+    <mi>𝗀</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>x</mi>
+  <mo stretchy="false">)</mo>
+</math> el menor entero <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>≥</mo>
+  <mi>x</mi>
+</math>.</p>
+
+<h2 id="fee-calculation"><a class="hanchor" href="#fee-calculation" aria-hidden="true" tabindex="-1">#</a>Cálculo de la comisión</h2>
+<p>Esta especificación define varios parámetros que se utilizan para calcular la comisión convencional:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Parámetro</p></th>
+<th class="head"><p>Valor</p></th>
+<th class="head"><p>Unidades</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑔</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math></p></td>
+<td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>5000</mn>
+</math></p></td>
+<td><p>zatoshi por acción lógica (como se define más abajo)</p></td>
+</tr>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑔</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑒</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+</math></p></td>
+<td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>2</mn>
+</math></p></td>
+<td><p>acciones lógicas</p></td>
+</tr>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑝</mi>
+    <mn>2</mn>
+    <mi>𝑝</mi>
+    <mi>𝑘</mi>
+    <mi>ℎ</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑡</mi>
+    <mi>𝑎</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑖</mi>
+    <mi>𝑧</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math></p></td>
+<td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>150</mn>
+</math></p></td>
+<td><p>bytes</p></td>
+</tr>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑝</mi>
+    <mn>2</mn>
+    <mi>𝑝</mi>
+    <mi>𝑘</mi>
+    <mi>ℎ</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑡</mi>
+    <mi>𝑎</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑜</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑖</mi>
+    <mi>𝑧</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math></p></td>
+<td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>34</mn>
+</math></p></td>
+<td><p>bytes</p></td>
+</tr>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑐</mi>
+    <mi>𝑟</mi>
+    <mi>𝑒</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑠</mi>
+    <mi>𝑡</mi>
+  </mrow>
+</math></p></td>
+<td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mn>100</mn>
+</math></p></td>
+<td><p>acciones lógicas</p></td>
+</tr>
+</tbody>
+</table>
+<p>Las billeteras que implementen esta especificación DEBERÍAN (SHOULD) usar una comisión convencional calculada en zatoshis según las siguientes fórmulas:</p>
+<p><br></p>
+<pre class="math">\begin{array}{lcl}
+  \mathit{free\_memo\_chunks}                    &#x26;=&#x26; \begin{cases}
+                                                       2, &#x26;\!\!\text{if } \mathit{nOutputsSapling} + \mathit{nA\kern-0.05em ctionsOrchard} > 0, \\
+                                                       0, &#x26;\!\!\text{otherwise}
+                                                     \end{cases}
+  \\[4ex]
+  \mathit{contribution}_{\,\mathsf{Transparent}} &#x26;=&#x26; \mathsf{max}\big(\mathsf{ceiling}\big(\frac{\mathit{tx\_in\_total\_size}}{\mathit{p2pkh\_standard\_input\_size}}\big),\,
+                                                                      \mathsf{ceiling}\big(\frac{\mathit{tx\_out\_total\_size}}{\mathit{p2pkh\_standard\_output\_size}}\big)\big) \\
+  \mathit{contribution}_{\,\mathsf{Sprout}}      &#x26;=&#x26; 2 \cdot \mathit{nJoinSplit} \\
+  \mathit{contribution}_{\,\mathsf{Sapling}}     &#x26;=&#x26; \mathsf{max}(\mathit{nSpendsSapling},\, \mathit{nOutputsSapling}) \\
+  \mathit{contribution}_{\,\mathsf{Orchard}}     &#x26;=&#x26; \mathit{nA\kern-0.1em ctionsOrchard} \\
+  \mathit{contribution}_{\,\mathsf{ZSAIssuance}} &#x26;=&#x26; \mathit{nZS\kern-0.1em AIssueNotes} \\
+  \mathit{contribution}_{\,\mathsf{ZSACreation}} &#x26;=&#x26; \mathit{creation\_cost} \cdot \mathit{nA\kern-0.1em ssetCreations} \\
+  \mathit{contribution}_{\,\mathsf{Memos}}       &#x26;=&#x26; \mathsf{max}\big(0, \mathit{nMemoChunks} - \mathit{free\_memo\_chunks}\big) \\
+  \\
+  \mathit{logical\_actions}                      &#x26;=&#x26; \mathit{contribution}_{\,\mathsf{Transparent}} +
+                                                     \mathit{contribution}_{\,\mathsf{Sprout}} +
+                                                     \mathit{contribution}_{\,\mathsf{Sapling}} +
+                                                     \mathit{contribution}_{\,\mathsf{Orchard}} \\
+                                &#x26; &#x26; \hspace{1em} +\; \mathit{contribution}_{\,\mathsf{ZSAIssuance}} +
+                                                     \mathit{contribution}_{\,\mathsf{ZSACreation}} +
+                                                     \mathit{contribution}_{\,\mathsf{Memos}} \\
+  \\
+  \mathit{conventional\_fee} &#x26;=&#x26; \mathit{marginal\_fee} \cdot \mathsf{max}(\mathit{grace\_actions},\, \mathit{logical\_actions}) \\[6ex]
+\end{array}
+</pre>
+<p>Las entradas de esta fórmula se toman de campos de la transacción definidos en la especificación del protocolo de Zcash <a class="brackets" href="#protocol-txnencoding" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Entrada</p></th>
+<th class="head"><p>Unidades</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+    <mi>_</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑡</mi>
+    <mi>𝑜</mi>
+    <mi>𝑡</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑖</mi>
+    <mi>𝑧</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math></p></td>
+<td><p>bytes</p></td>
+<td><p>tamaño total en bytes del campo <span class="docutils literal">tx_in</span></p></td>
+</tr>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+    <mi>_</mi>
+    <mi>𝑜</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑡</mi>
+    <mi>𝑜</mi>
+    <mi>𝑡</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑖</mi>
+    <mi>𝑧</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math></p></td>
+<td><p>bytes</p></td>
+<td><p>tamaño total en bytes del campo <span class="docutils literal">tx_out</span></p></td>
+</tr>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑛</mi>
+    <mi>𝐽</mi>
+    <mi>𝑜</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑆</mi>
+    <mi>𝑝</mi>
+    <mi>𝑙</mi>
+    <mi>𝑖</mi>
+    <mi>𝑡</mi>
+  </mrow>
+</math></p></td>
+<td><p>número</p></td>
+<td><p>el número de JoinSplits de Sprout</p></td>
+</tr>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑛</mi>
+    <mi>𝑆</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑠</mi>
+    <mi>𝑆</mi>
+    <mi>𝑎</mi>
+    <mi>𝑝</mi>
+    <mi>𝑙</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑔</mi>
+  </mrow>
+</math></p></td>
+<td><p>número</p></td>
+<td><p>el número de gastos (spends) de Sapling</p></td>
+</tr>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑛</mi>
+    <mi>𝑂</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑠</mi>
+    <mi>𝑆</mi>
+    <mi>𝑎</mi>
+    <mi>𝑝</mi>
+    <mi>𝑙</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑔</mi>
+  </mrow>
+</math></p></td>
+<td><p>número</p></td>
+<td><p>el número de salidas de Sapling</p></td>
+</tr>
+<tr><td><p><tt class="math">\mathit{nA\kern-0.1em ctionsOrchard}</tt></p></td>
+<td><p>número</p></td>
+<td><p>el número de acciones (Actions) de Orchard</p></td>
+</tr>
+<tr><td><p><tt class="math">\mathit{nZS\kern-0.1em AIssueNotes}</tt></p></td>
+<td><p>número</p></td>
+<td><p>la cantidad de salidas de <span class="docutils literal">IssueNote</span></p></td>
+</tr>
+<tr><td><p><tt class="math">\mathit{nA\kern-0.1em ssetCreations}</tt></p></td>
+<td><p>número</p></td>
+<td><p>la cantidad de activos personalizados recién añadidos al Estado Global de Emisión</p></td>
+</tr>
+<tr><td><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑛</mi>
+    <mi>𝑀</mi>
+    <mi>𝑒</mi>
+    <mi>𝑚</mi>
+    <mi>𝑜</mi>
+    <mi>𝐶</mi>
+    <mi>ℎ</mi>
+    <mi>𝑢</mi>
+    <mi>𝑛</mi>
+    <mi>𝑘</mi>
+    <mi>𝑠</mi>
+  </mrow>
+</math></p></td>
+<td><p>número</p></td>
+<td><p>la cantidad de fragmentos de memo</p></td>
+</tr>
+</tbody>
+</table>
+<p>No es un requisito de consenso que las comisiones sigan esta fórmula; sin embargo, las billeteras DEBERÍAN (SHOULD) crear transacciones que paguen esta comisión, con el fin de reducir la fuga de información, salvo que el usuario lo anule.</p>
+<h3 id="rationale-for-logical-actions"><a class="hanchor" href="#rationale-for-logical-actions" aria-hidden="true" tabindex="-1">#</a>Justificación de las acciones lógicas</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p>La intención es que la comisión pagada por una transacción dependa de su impacto en la red, sin discriminar entre diferentes protocolos (Orchard, Sapling o transparente). El impacto en la red depende de las cantidades de entradas y salidas.</p>
+<p>Una propuesta anterior usaba <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑠</mi>
+  </mrow>
+  <mo>+</mo>
+  <mrow>
+    <mi>𝑜</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑠</mi>
+  </mrow>
+</math> en lugar de acciones lógicas. Esto habría perjudicado a las transacciones de Orchard, como resultado de que una Action de Orchard combina una entrada y una salida. El efecto de esta combinación es que Orchard requiere relleno (padding) de las entradas o de las salidas para asegurar que el número de entradas y de salidas sea el mismo. El uso de los protocolos de Sapling y transparente no requiere este relleno, por lo que esto podría haber discriminado efectivamente contra Orchard.</p>
+</details>
+<h3 id="rationale-for-the-chosen-parameters"><a class="hanchor" href="#rationale-for-the-chosen-parameters" aria-hidden="true" tabindex="-1">#</a>Justificación de los parámetros elegidos</h3>
+<details>
+<summary>Hacer clic para mostrar/ocultar</summary><p><strong>¿Por qué no cobrar simplemente por acción, sin una ventana de tolerancia?</strong></p>
+<ul class="simple">
+<li><p>Esto asegura que no haya penalización por rellenar una transacción de 1 acción para convertirla en una transacción de 2 acciones. Tal relleno es deseable para reducir la fuga de información derivada de la aridad de entradas y salidas, y es el enfoque estándar utilizado por <cite>zcashd</cite> y el constructor de transacciones del SDK móvil.</p></li>
+<li><p>Sin una ventana de tolerancia, una entrada con valor inferior a la comisión marginal nunca valdría la pena incluirla en la transacción resultante. Con una ventana de tolerancia, una entrada con valor inferior a <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑔</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math> <em>sí</em> vale la pena incluirla, si hay disponible una segunda entrada que cubra tanto el monto de la salida principal como la comisión de transacción convencional.</p></li>
+</ul>
+<p><strong>¿Por qué una ventana de tolerancia de 2?</strong></p>
+<p>Una transacción de 1 entrada y 2 salidas (o de 2 acciones) es la transacción más pequeña posible que permite tanto una salida a un destinatario como una salida de cambio. Sin embargo, como se indicó anteriormente, <cite>zcashd</cite> y el constructor de transacciones del SDK móvil rellenarán el número de entradas hasta al menos 2.</p>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+</math> el número mínimo de acciones lógicas que pueden usarse para ejecutar transacciones económicamente relevantes que producen cambio. Debido al relleno mencionado, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>2</mn>
+</math>.</p>
+<p>Tener un tamaño de ventana de tolerancia mayor que <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+</math> aumentaría el costo de crear tal transacción mínima. Si el costo que creemos que los usuarios tolerarán para una transacción mínima es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+</math>, entonces las posibles elecciones de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑔</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math> están acotadas superiormente por <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+  <mo stretchy="false">/</mo>
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖺</mi>
+    <mi>𝗑</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝑔</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑒</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>. Por lo tanto, la elección óptima de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑔</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑒</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+</math> para maximizar el costo por acción lógica de los ataques de denegación de servicio para un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+</math> dado, es <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑔</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑒</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+    <mo>=</mo>
+    <mn>2</mn>
+  </mrow>
+</math>. Esto también asegura que un adversario de denegación de servicio no obtenga una ventaja significativa en el costo por acción lógica usando transacciones con un número menor o mayor de acciones lógicas.</p>
+<p><strong>Contribución transparente</strong></p>
+<p>La fórmula especificada calcula la contribución de las entradas y salidas transparentes con base en su tamaño total en relación con una entrada o salida típica. Otro enfoque considerado fue calcular esta contribución simplemente como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖺</mi>
+    <mi>𝗑</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+    <mi>𝑝</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑒</mi>
+    <mi>𝑛</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑠</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+    <mi>𝑝</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑒</mi>
+    <mi>𝑛</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑜</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑠</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math>. Sin embargo, esto permitiría a un adversario de denegación de servicio crear transacciones con componentes transparentes que contengan scripts de tamaño arbitrariamente grande.</p>
+<p>Los valores elegidos para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑝</mi>
+    <mn>2</mn>
+    <mi>𝑝</mi>
+    <mi>𝑘</mi>
+    <mi>ℎ</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑡</mi>
+    <mi>𝑎</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑖</mi>
+    <mi>𝑧</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑝</mi>
+    <mn>2</mn>
+    <mi>𝑝</mi>
+    <mi>𝑘</mi>
+    <mi>ℎ</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑡</mi>
+    <mi>𝑎</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑜</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑖</mi>
+    <mi>𝑧</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math> se basan en la longitud máxima codificada para entradas y salidas P2PKH, de la siguiente manera:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑝</mi>
+    <mn>2</mn>
+    <mi>𝑝</mi>
+    <mi>𝑘</mi>
+    <mi>ℎ</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑡</mi>
+    <mi>𝑎</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑖</mi>
+    <mi>𝑧</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math></p>
+<ul>
+<li><p>outpoint: 36 bytes</p></li>
+<li><p>script: 110 bytes</p>
+<ul>
+<li><p>1 (longitud total) + 1 (longitud de la firma) + 72 (firma) + 1 (tipo de sighash) + 1 (longitud de la pubkey) + 33 (pubkey) + 1 (margen)</p></li>
+</ul>
+</li>
+<li><p>sequence: 4 bytes</p></li>
+</ul>
+</li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑝</mi>
+    <mn>2</mn>
+    <mi>𝑝</mi>
+    <mi>𝑘</mi>
+    <mi>ℎ</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑡</mi>
+    <mi>𝑎</mi>
+    <mi>𝑛</mi>
+    <mi>𝑑</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑜</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>𝑝</mi>
+    <mi>𝑢</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑠</mi>
+    <mi>𝑖</mi>
+    <mi>𝑧</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math></p>
+<ul>
+<li><p>value: 8 bytes</p></li>
+<li><p>script: 26 bytes</p>
+<ul>
+<li><p>1 (longitud del script) + 25 (script P2PKH)</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>Las salidas P2SH son más pequeñas que las salidas P2PKH, pero las entradas P2SH pueden ser más grandes que las entradas P2PKH. Por ejemplo, una entrada multisig 2-de-3 es alrededor de un 70 % más grande, y se cuenta como tal al calcular el número de acciones lógicas.</p>
+<p><strong>Comisión marginal</strong></p>
+<p>Esto devuelve la comisión convencional para una transacción mínima (como se describió anteriormente) a la comisión convencional original de 10000 zatoshis especificada en <a class="brackets" href="#zip-0313" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></a>, e impone un costo no trivial para posibles ataques de denegación de servicio.</p>
+<p><strong>Costo de creación de ZSA</strong></p>
+<p>Cada activo personalizado (Custom Asset) recién creado añade una nueva fila al Global Issuance State <a class="brackets" href="#zip-0227-global-issuance-state" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a> que los validadores completos deben rastrear a perpetuidad. La emisión, finalización o quema posterior de activos personalizados (Custom Assets) existentes solo cambia los valores de la fila correspondiente. Imponer un costo mayor a los eventos de creación de activos personalizados (Custom Assets) desincentiva la creación de activos "basura".</p>
+<p><strong>Fragmentos de memo</strong></p>
+<p>Hacer que la comisión sea lineal en la cantidad de fragmentos de memo tiene las siguientes propiedades:</p>
+<ul class="simple">
+<li><p>La comisión requerida para añadir más fragmentos de memo escala al mismo ritmo que añadir acciones lógicas, por lo que no constituye un mecanismo más barato para que un adversario infle el tamaño de la cadena.</p></li>
+<li><p>Una "transacción de línea base" (una nota gastada, una salida a un destinatario externo con un memo, una salida de cambio sin memo) tiene la misma comisión que antes.</p></li>
+<li><p>Una "transacción de difusión" (muchas salidas a diferentes destinatarios, todas con el mismo memo) tiene la misma comisión que antes (pero es una transacción más pequeña).</p></li>
+<li><p>Una "transacción de muchos memos" (muchas salidas a diferentes destinatarios, todas con memos únicos) tiene a lo sumo aproximadamente el doble de la comisión que antes.</p></li>
+</ul>
+<p>Combinado con la restricción del tamaño del conjunto de memos, la comisión adicional máxima para un conjunto de memos de ZIP 231 <a class="brackets" href="#zip-0231" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>7<span class="fn-bracket">]</span></a> respecto de transacciones anteriores es de 0.0019 ZEC.</p>
+</details>
+
+<h2 id="transaction-relaying"><a class="hanchor" href="#transaction-relaying" aria-hidden="true" tabindex="-1">#</a>Retransmisión de transacciones</h2>
+<p>zcashd, zebrad y potencialmente otras implementaciones de nodos implementan restricciones basadas en comisiones sobre la retransmisión de transacciones del mempool. Se espera que los nodos que normalmente retransmiten transacciones lo hagan para las transacciones que pagan al menos la comisión convencional especificada en este ZIP, a menos que haya otras razones para no hacerlo por robustez o mitigación de denegación de servicio.</p>
+<p>Si una transacción tiene más de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑏</mi>
+    <mi>𝑙</mi>
+    <mi>𝑜</mi>
+    <mi>𝑐</mi>
+    <mi>𝑘</mi>
+    <mi>_</mi>
+    <mi>𝑢</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑎</mi>
+    <mi>𝑖</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑙</mi>
+    <mi>𝑖</mi>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑡</mi>
+  </mrow>
+</math> «acciones no pagadas» según lo definido por el <a class="reference internal" href="#recommended-algorithm-for-block-template-construction">algoritmo recomendado para la construcción de plantillas de bloque</a>, nunca será minada por ese algoritmo. Los nodos PUEDEN (MAY) descartar estas transacciones, o transacciones con más acciones no pagadas que un límite configurable (véase la sección de <a class="reference internal" href="#deployment">Despliegue</a> para el comportamiento real de las implementaciones de nodos).</p>
+
+<h2 id="mempool-size-limiting"><a class="hanchor" href="#mempool-size-limiting" aria-hidden="true" tabindex="-1">#</a>Limitación del tamaño del mempool</h2>
+<p>zcashd y zebrad limitan el tamaño del mempool como se describe en <a class="brackets" href="#zip-0401" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a>. Esto especifica un <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑙</mi>
+    <mi>𝑜</mi>
+    <mi>𝑤</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+    <mi>_</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>𝑡</mi>
+    <mi>𝑦</mi>
+  </mrow>
+</math> que se suma al «peso de desalojo» si la transacción paga una comisión inferior a la comisión de transacción convencional. Este umbral se modifica para usar la nueva fórmula de comisión convencional.</p>
+
+<h2 id="block-production"><a class="hanchor" href="#block-production" aria-hidden="true" tabindex="-1">#</a>Producción de bloques</h2>
+<p>Los mineros, los grupos de minería y otros productores de bloques seleccionan transacciones para su inclusión en bloques utilizando una variedad de criterios. El algoritmo de la siguiente sección está planeado para ser implementado por <cite>zcashd</cite> y <cite>zebrad</cite>.</p>
+<h3 id="recommended-algorithm-for-block-template-construction"><a class="hanchor" href="#recommended-algorithm-for-block-template-construction" aria-hidden="true" tabindex="-1">#</a>Algoritmo recomendado para la construcción de plantillas de bloque</h3>
+<p>Definir las constantes <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑤</mi>
+    <mi>𝑒</mi>
+    <mi>𝑖</mi>
+    <mi>𝑔</mi>
+    <mi>ℎ</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>_</mi>
+    <mi>𝑐</mi>
+    <mi>𝑎</mi>
+    <mi>𝑝</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>4</mn>
+</math> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑏</mi>
+    <mi>𝑙</mi>
+    <mi>𝑜</mi>
+    <mi>𝑐</mi>
+    <mi>𝑘</mi>
+    <mi>_</mi>
+    <mi>𝑢</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑎</mi>
+    <mi>𝑖</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑙</mi>
+    <mi>𝑖</mi>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑡</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>50</mn>
+</math>.</p>
+<p>Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑐</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑣</mi>
+    <mi>𝑒</mi>
+    <mi>𝑛</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> la comisión convencional para la transacción <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> calculada según la sección <a class="reference internal" href="#fee-calculation">Cálculo de la comisión</a>.</p>
+<p>Sea $mathit{unpaid_actions}(mathit{tx}) = begin{cases}mathsf{max}!left(0,, mathsf{max}(mathit{grace_actions},, mathit{tx.logical_actions}) - mathsf{floor}!left(frac{mathit{tx.fee}}{mathit{marginal_fee}}right)right),&#x26;textsf{si }mathit{tx}textsf{ es una transacción que no es coinbase} \ 0,&#x26;textsf{si }mathit{tx}textsf{ es una transacción coinbase.}end{cases}$</p>
+<p>Sea <code class="math-src">$mathit{block_unpaid_actions}(mathit{block}) = sum_{mathit{tx} ,in, mathit{block}}, mathit{unpaid_actions}(mathit{tx})$</code>.</p>
+<p>El siguiente algoritmo es RECOMENDADO (RECOMMENDED) para construir una plantilla de bloque a partir de un conjunto de transacciones en el mempool de un nodo:</p>
+<ol class="arabic">
+<li><p>Establézcase que la plantilla de bloque <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>T</mi>
+</math> incluya un marcador de posición para la transacción coinbase (véase la Nota más abajo).</p></li>
+<li><p>Construir el conjunto de transacciones candidatas. Una implementación PUEDE (MAY) admitir cadenas de transacciones dependientes en el mempool, o PUEDE (MAY) restringir el conjunto de candidatas a transacciones cuyas entradas ya estén todas confirmadas en la cadena. En concreto, ya sea:</p>
+<ol class="loweralpha simple">
+<li><p>(Transacciones dependientes permitidas.) Para cada transacción <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> en el mempool, añadir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> al conjunto de transacciones candidatas. Se dice que una transacción <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> del conjunto de candidatas es <em>elegible</em> si todo ancestro en el mempool de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> ya ha sido incluido en <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>T</mi>
+</math>; de lo contrario, es <em>no elegible</em>. Un "ancestro en el mempool" de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> es cualquier transacción en el mempool de la cual <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> gasta, directa o transitivamente, una salida transparente. O:</p></li>
+<li><p>(Transacciones dependientes omitidas.) Para cada transacción <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> en el mempool cuyas entradas transparentes (si las hay) gasten todas salidas de transacciones ya confirmadas en la cadena (es decir, no otras transacciones del mempool), añadir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> al conjunto de transacciones candidatas. Toda transacción candidata es <em>elegible</em>.</p></li>
+</ol>
+<p>En cualquiera de los dos casos, para cada transacción candidata <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+  </mrow>
+</math> calcular $mathit{tx.weight_ratio} = mathsf{min}!left(frac{mathsf{max}(1,, mathit{tx.fee})}{mathit{conventional_fee}(mathit{tx})},, mathit{weight_ratio_cap}right)$.</p>
+</li>
+<li><p>Repetir mientras exista alguna transacción candidata elegible que pague al menos la comisión convencional:</p>
+<ol class="loweralpha simple">
+<li><p>Elegir una de esas transacciones al azar con probabilidad en proporción directa a su <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑤</mi>
+    <mi>𝑒</mi>
+    <mi>𝑖</mi>
+    <mi>𝑔</mi>
+    <mi>ℎ</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+  </mrow>
+</math>, y retirarla del conjunto de transacciones candidatas. Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+</math> la plantilla de bloque <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>T</mi>
+</math> con esta transacción incluida (después de sus ancestros en el mempool, que por elegibilidad ya están en <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>T</mi>
+</math>).</p></li>
+<li><p>Si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+</math> estaría dentro del límite de tamaño de bloque y del límite de sigops de bloque <a class="brackets" href="#sigop-limit" id="footnote-reference-9" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a>, establézcase $T := B$.</p></li>
+</ol>
+</li>
+<li><p>Repetir mientras exista alguna transacción candidata elegible:</p>
+<ol class="loweralpha simple">
+<li><p>Elegir una de esas transacciones al azar con probabilidad en proporción directa a su <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑤</mi>
+    <mi>𝑒</mi>
+    <mi>𝑖</mi>
+    <mi>𝑔</mi>
+    <mi>ℎ</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+  </mrow>
+</math>, y retirarla del conjunto de transacciones candidatas. Sea <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+</math> la plantilla de bloque <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>T</mi>
+</math> con esta transacción incluida (después de sus ancestros en el mempool, que por elegibilidad ya están en <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>T</mi>
+</math>).</p></li>
+<li><p>Si <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>B</mi>
+</math> estaría dentro del límite de tamaño de bloque, del límite de sigops de bloque <a class="brackets" href="#sigop-limit" id="footnote-reference-10" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑏</mi>
+    <mi>𝑙</mi>
+    <mi>𝑜</mi>
+    <mi>𝑐</mi>
+    <mi>𝑘</mi>
+    <mi>_</mi>
+    <mi>𝑢</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑎</mi>
+    <mi>𝑖</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mi>B</mi>
+  <mo stretchy="false">)</mo>
+  <mo>≤</mo>
+  <mrow>
+    <mi>𝑏</mi>
+    <mi>𝑙</mi>
+    <mi>𝑜</mi>
+    <mi>𝑐</mi>
+    <mi>𝑘</mi>
+    <mi>_</mi>
+    <mi>𝑢</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑎</mi>
+    <mi>𝑖</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑙</mi>
+    <mi>𝑖</mi>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑡</mi>
+  </mrow>
+</math>, establézcase $T := B$.</p></li>
+</ol>
+</li>
+<li><p>Devuélvase <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>T</mi>
+</math>.</p></li>
+</ol>
+<p>Nota: En el paso 1, la transacción coinbase final no puede incluirse en esta etapa porque depende de las comisiones pagadas por otras transacciones. En la práctica, esta dificultad puede superarse reservando espacio y sigops suficientes para permitir modificar la transacción coinbase según sea necesario, al evaluar contra los límites de espacio de bloque y de sigops de bloque en los pasos 3b y 4b.</p>
+
+<h3 id="rationale-for-block-template-construction-algorithm"><a class="hanchor" href="#rationale-for-block-template-construction-algorithm" aria-hidden="true" tabindex="-1">#</a>Justificación del algoritmo de construcción de plantillas de bloque</h3>
+<p>Es probable que no todas las billeteras se actualicen de inmediato para pagar las comisiones (generalmente más altas) especificadas por este ZIP. Para poder desplegar este algoritmo de plantilla de bloque más rápidamente y aun así dar a las transacciones creadas por tales billeteras una oportunidad razonable de ser minadas, permitimos un número limitado de acciones lógicas «no pagadas» en cada bloque. Hablando en términos generales, si a una transacción le falta pagar la comisión de transacción convencional por <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> veces la comisión marginal, lo contamos como <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>k</mi>
+</math> acciones lógicas no pagadas.</p>
+<p>Independientemente de qué tan lleno esté el mempool (según la limitación de costos <a class="brackets" href="#zip-0401" id="footnote-reference-11" role="doc-noteref"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></a> del ZIP 401), e independientemente de la estrategia que un adversario de denegación de servicio pueda usar, el número de acciones lógicas no pagadas en cada bloque siempre está limitado a como máximo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑏</mi>
+    <mi>𝑙</mi>
+    <mi>𝑜</mi>
+    <mi>𝑐</mi>
+    <mi>𝑘</mi>
+    <mi>_</mi>
+    <mi>𝑢</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑎</mi>
+    <mi>𝑖</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑙</mi>
+    <mi>𝑖</mi>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑡</mi>
+  </mrow>
+</math>.</p>
+<p>La ponderación en el paso 2 no crea una situación en la que el adversario obtenga una ventaja significativa sobre otros usuarios pagando más que la comisión convencional, por dos razones:</p>
+<ol class="arabic simple">
+<li><p>El tope de la relación de ponderación limita la probabilidad relativa de elegir una transacción dada a como máximo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑤</mi>
+    <mi>𝑒</mi>
+    <mi>𝑖</mi>
+    <mi>𝑔</mi>
+    <mi>ℎ</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>_</mi>
+    <mi>𝑐</mi>
+    <mi>𝑎</mi>
+    <mi>𝑝</mi>
+  </mrow>
+</math> veces mayor que la de una transacción que paga exactamente la comisión convencional.</p></li>
+<li><p>Compárese el caso en que el adversario paga <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>c</mi>
+</math> veces la comisión convencional por una transacción, con aquel en que paga la comisión convencional por <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>c</mi>
+</math> transacciones. En el primer caso, es más probable que logre incluir <em>cada</em> transacción en el bloque en relación con las transacciones competidoras de otros usuarios, <em>pero</em> esas transacciones ocupan menos espacio de bloque, siendo todo lo demás igual (por ejemplo, la elección de tipos de entrada o salida). Esto no es lo que el atacante quiere; logra incluir una transacción en el bloque solo a costa de dejar más espacio de bloque para las transacciones de los otros usuarios.</p></li>
+</ol>
+<p>La justificación para elegir <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑤</mi>
+    <mi>𝑒</mi>
+    <mi>𝑖</mi>
+    <mi>𝑔</mi>
+    <mi>ℎ</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>_</mi>
+    <mi>𝑐</mi>
+    <mi>𝑎</mi>
+    <mi>𝑝</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>4</mn>
+</math> es como un compromiso entre no permitir ninguna priorización de transacciones respecto de las que pagan la comisión convencional, y permitir una priorización arbitraria basada en la capacidad de pago.</p>
+<p>Calcular <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+    <mo>.</mo>
+    <mi>𝑤</mi>
+    <mi>𝑒</mi>
+    <mi>𝑖</mi>
+    <mi>𝑔</mi>
+    <mi>ℎ</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+  </mrow>
+</math> en términos de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝗆</mi>
+    <mi>𝖺</mi>
+    <mi>𝗑</mi>
+  </mrow>
+  <mo stretchy="false">(</mo>
+  <mn>1</mn>
+  <mo>,</mo>
+  <mspace width="0.1667em"></mspace>
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+    <mo>.</mo>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> en lugar de solo <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑡</mi>
+    <mi>𝑥</mi>
+    <mo>.</mo>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math> evita la necesidad de definir «con probabilidad en proporción directa a su <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑤</mi>
+    <mi>𝑒</mi>
+    <mi>𝑖</mi>
+    <mi>𝑔</mi>
+    <mi>ℎ</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+  </mrow>
+</math>» para el caso en que todas las transacciones candidatas restantes tendrían <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑤</mi>
+    <mi>𝑒</mi>
+    <mi>𝑖</mi>
+    <mi>𝑔</mi>
+    <mi>ℎ</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>0</mn>
+</math>.</p>
+<p>El conjunto de candidatas del paso 2 se especifica en dos variantes para que el algoritmo acomode tanto a las implementaciones que rastrean cadenas de transacciones dependientes en el mempool como a las que no. Incluir transacciones dependientes tiende a aumentar el total de comisiones recaudadas y permite que hijos que pagan comisión "atraigan" padres con menor comisión; omitirlas es más simple y evita la necesidad de razonar sobre conjuntos de ancestros al evaluar los límites de tamaño de bloque, de sigops y de acciones no pagadas. Ambas variantes son conformes. En cualquiera de los dos casos, el <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑤</mi>
+    <mi>𝑒</mi>
+    <mi>𝑖</mi>
+    <mi>𝑔</mi>
+    <mi>ℎ</mi>
+    <mi>𝑡</mi>
+    <mi>_</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+  </mrow>
+</math> de cada transacción candidata se calcula a partir de su propia comisión y comisión convencional; el algoritmo no redistribuye comisiones de un hijo a sus ancestros al elegir candidatas.</p>
+
+<h3 id="incentive-compatibility-for-miners"><a class="hanchor" href="#incentive-compatibility-for-miners" aria-hidden="true" tabindex="-1">#</a>Compatibilidad de incentivos para los mineros</h3>
+<p>Los mineros tienen un incentivo para realizar este cambio porque:</p>
+<ul class="simple">
+<li><p>tenderá a aumentar las comisiones que se les deben;</p></li>
+<li><p>las comisiones actuarán como un factor de amortiguación del tiempo necesario para procesar los bloques y, por lo tanto, de la tasa de bloques huérfanos.</p></li>
+</ul>
+
+
+
+<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de seguridad y privacidad</h1>
+<p>Las comisiones de transacción no estándar pueden revelar usuarios, billeteras o versiones de billetera específicas, lo que reduciría la privacidad de esos usuarios específicos y del resto de la red. Sin embargo, la ventaja de un despliegue más rápido se sopesó contra la sincronización del cambio en el comportamiento de las billeteras en una altura de bloque específica.</p>
+<p>A largo plazo, el tema de las comisiones debe reconsiderarse en propuestas futuras separadas a medida que los bloques comiencen a llenarse de manera consistente. Los desarrolladores y operadores de billeteras deberían monitorear la red de Zcash para detectar un crecimiento rápido en las tasas de transacciones, y considerar cambios adicionales en la selección de comisiones y/u otras soluciones de escalado si es necesario.</p>
+<h2 id="denial-of-service"><a class="hanchor" href="#denial-of-service" aria-hidden="true" tabindex="-1">#</a>Denegación de servicio</h2>
+<p>Un ataque de denegación de servicio basado en la tasa de transacciones ocurre cuando un atacante genera suficientes transacciones en un período de tiempo para impedir que las transacciones legítimas sean minadas, o para obstaculizar la sincronización de bloques para los nodos completos o los mineros.</p>
+<p>Existen dos protecciones primarias contra este tipo de ataque en Zcash: el límite de tamaño de bloque y las comisiones de transacción. El límite de tamaño de bloque garantiza que los nodos completos y los mineros puedan mantenerse al día con la blockchain incluso si los bloques están completamente llenos. Sin embargo, los usuarios que envían transacciones legítimas pueden no ver sus transacciones confirmadas de manera oportuna.</p>
+<p>Esta propuesta no altera cómo se pagan las comisiones de las transacciones a los mineros.</p>
+
+
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Las billeteras DEBERÍAN (SHOULD) desplegar estos cambios de inmediato. Los nodos DEBERÍAN (SHOULD) desplegar de inmediato el cambio al umbral de <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑙</mi>
+    <mi>𝑜</mi>
+    <mi>𝑤</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+    <mi>_</mi>
+    <mi>𝑝</mi>
+    <mi>𝑒</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>𝑡</mi>
+    <mi>𝑦</mi>
+  </mrow>
+</math> descrito en <a class="reference internal" href="#mempool-size-limiting">Limitación del tamaño del mempool</a>.</p>
+<p>Los nodos que admiten la construcción de plantillas de bloque DEBERÍAN (SHOULD) desplegar de inmediato el nuevo <a class="reference internal" href="#recommended-algorithm-for-block-template-construction">Algoritmo recomendado para la construcción de plantillas de bloque</a>, y los mineros DEBERÍAN (SHOULD) usar nodos que hayan sido actualizados a este algoritmo.</p>
+<p>Los desarrolladores de nodos DEBERÍAN (SHOULD) coordinar los calendarios para desplegar restricciones en sus políticas de aceptación de transacciones en el mempool y de retransmisión entre pares. Estos cambios de política NO DEBERÍAN (SHOULD NOT) desplegarse antes de los cambios en la construcción de plantillas de bloque para los mineros descritos en el párrafo precedente.</p>
+<h2 id="deployment-in-zcashd"><a class="hanchor" href="#deployment-in-zcashd" aria-hidden="true" tabindex="-1">#</a>Despliegue en zcashd</h2>
+<p><cite>zcashd</cite> v5.5.0 implementó el uso de las comisiones del ZIP 317 por defecto para su billetera interna en los siguientes PR:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6527">https://github.com/zcash/zcash/pull/6527</a> (cálculo de la comisión)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6524">https://github.com/zcash/zcash/pull/6524</a> (implementación principal)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6559">https://github.com/zcash/zcash/pull/6559</a> (seguimiento de #6524)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6568">https://github.com/zcash/zcash/pull/6568</a> (para <span class="docutils literal">z_shieldcoinbase</span>)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6576">https://github.com/zcash/zcash/pull/6576</a> (seguimiento de #6568)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6569">https://github.com/zcash/zcash/pull/6569</a> (para <span class="docutils literal">z_mergetoaddress</span>)</p></li>
+</ul>
+<p><cite>zcashd</cite> v5.5.0 implementó el <a class="reference internal" href="#recommended-algorithm-for-block-template-construction">Algoritmo recomendado para la construcción de plantillas de bloque</a> en:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6460">https://github.com/zcash/zcash/pull/6460</a> (preparación)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6607">https://github.com/zcash/zcash/pull/6607</a> (seguimiento de #6460)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6527">https://github.com/zcash/zcash/pull/6527</a> (cálculo de la comisión)</p></li>
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6564">https://github.com/zcash/zcash/pull/6564</a> (construcción de plantillas de bloque)</p></li>
+</ul>
+<p>El valor usado para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑏</mi>
+    <mi>𝑙</mi>
+    <mi>𝑜</mi>
+    <mi>𝑐</mi>
+    <mi>𝑘</mi>
+    <mi>_</mi>
+    <mi>𝑢</mi>
+    <mi>𝑛</mi>
+    <mi>𝑝</mi>
+    <mi>𝑎</mi>
+    <mi>𝑖</mi>
+    <mi>𝑑</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>_</mi>
+    <mi>𝑙</mi>
+    <mi>𝑖</mi>
+    <mi>𝑚</mi>
+    <mi>𝑖</mi>
+    <mi>𝑡</mi>
+  </mrow>
+</math> por <cite>zcashd</cite> puede anularse mediante el parámetro de configuración <span class="docutils literal"><span class="pre">-blockunpaidactionlimit</span></span>.</p>
+<p><cite>zcashd</cite> v5.5.0 también implementó el cambio en <a class="reference internal" href="#mempool-size-limiting">Limitación del tamaño del mempool</a> para usar la comisión del ZIP 317 como umbral de penalización por comisión baja, en:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6564">https://github.com/zcash/zcash/pull/6564</a></p></li>
+</ul>
+<p>Como se describe en la sección <a class="reference internal" href="#transaction-relaying">Retransmisión de transacciones</a>, los nodos PUEDEN (MAY) descartar transacciones con más acciones no pagadas que un límite dado. A partir de <cite>zcashd</cite> v5.6.0, esto se controla mediante la opción de configuración <span class="docutils literal"><span class="pre">-txunpaidactionlimit</span></span>, cuyo valor por defecto es 50 acciones no pagadas (el mismo valor por defecto que <span class="docutils literal"><span class="pre">-blockunpaidactionlimit</span></span>). Este comportamiento está implementado en:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6646">https://github.com/zcash/zcash/pull/6646</a></p></li>
+</ul>
+<p>Nótese que <cite>zcashd</cite> también exige que las transacciones paguen al menos una comisión de "umbral de retransmisión". Como parte del trabajo del ZIP 317, esta regla se simplificó para <cite>zcashd</cite> v5.5.0:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/zcash/zcash/pull/6542/files#diff-34d21af3c614ea3cee120df276c9c4ae95053830d7f1d3deaf009a4625409ad2">https://github.com/zcash/zcash/pull/6542/files#diff-34d21af3c614ea3cee120df276c9c4ae95053830d7f1d3deaf009a4625409ad2</a></p></li>
+</ul>
+
+<h2 id="deployment-in-zebra"><a class="hanchor" href="#deployment-in-zebra" aria-hidden="true" tabindex="-1">#</a>Despliegue en zebra</h2>
+<p><cite>zebra</cite> no proporciona una billetera, por lo que no necesita calcular comisiones del ZIP 317 para construir transacciones.</p>
+<p><cite>zebra</cite> v1.0.0-rc.3 implementó el <a class="reference internal" href="#recommended-algorithm-for-block-template-construction">algoritmo recomendado para la construcción de plantillas de bloque</a> actual en:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/ZcashFoundation/zebra/pull/5724">https://github.com/ZcashFoundation/zebra/pull/5724</a></p></li>
+<li><p><a class="reference external" href="https://github.com/ZcashFoundation/zebra/pull/5776">https://github.com/ZcashFoundation/zebra/pull/5776</a> (actualización del algoritmo)</p></li>
+</ul>
+<p><cite>zebra</cite> v1.0.0-rc.2 había implementado una versión anterior de este algoritmo. El valor utilizado para <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>b</mi>
+  <mi>l</mi>
+  <mi>o</mi>
+  <mi>c</mi>
+  <mi>k</mi>
+  <mi>_</mi>
+  <mi>u</mi>
+  <mi>n</mi>
+  <mi>p</mi>
+  <mi>a</mi>
+  <mi>i</mi>
+  <mi>d</mi>
+  <mi>_</mi>
+  <mi>a</mi>
+  <mi>c</mi>
+  <mi>t</mi>
+  <mi>i</mi>
+  <mi>o</mi>
+  <mi>n</mi>
+  <mi>_</mi>
+  <mi>l</mi>
+  <mi>i</mi>
+  <mi>m</mi>
+  <mi>i</mi>
+  <mi>t</mi>
+</math> en <cite>zebra</cite> no es configurable.</p>
+<p><cite>zebra</cite> v1.0.0-rc.2 implementó el cambio en <a class="reference internal" href="#mempool-size-limiting">Limitación del tamaño del mempool</a> en:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/ZcashFoundation/zebra/pull/5703">https://github.com/ZcashFoundation/zebra/pull/5703</a></p></li>
+</ul>
+<p><cite>zebra</cite> v1.0.0-rc.8 implementó los cambios en <a class="reference internal" href="#transaction-relaying">Retransmisión de transacciones</a> en:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/ZcashFoundation/zebra/pull/6556">https://github.com/ZcashFoundation/zebra/pull/6556</a></p></li>
+</ul>
+<p><cite>zebra</cite> usa una regla de umbral de retransmisión similar a la de <cite>zcashd</cite>, pero además aplica una comisión mínima de 100 zatoshi (esto difiere de <cite>zcashd</cite> solo para transacciones válidas de menos de 1000 bytes, suponiendo que <cite>zcashd</cite> use su valor por defecto para <span class="docutils literal"><span class="pre">-minrelaytxfee</span></span>).</p>
+
+
+<h1 id="considered-alternatives"><a class="hanchor" href="#considered-alternatives" aria-hidden="true" tabindex="-1">#</a>Alternativas consideradas</h1>
+<p>Esta sección describe propuestas alternativas que no han sido adoptadas.</p>
+<p>En iteraciones anteriores de esta especificación, la comisión marginal se multiplicaba por la suma de entradas y salidas. Esto significa que las alternativas que se dan a continuación equivalen aproximadamente a la mitad de lo que serían bajo la fórmula actual.</p>
+<p>Posibles alternativas para los parámetros:</p>
+<ul class="simple">
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑔</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>250</mn>
+</math> en la propuesta de @nuttycom.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑔</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1000</mn>
+</math> adaptado de la propuesta <a class="brackets" href="#madars-1" id="footnote-reference-12" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a> de @madars.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑔</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>2500</mn>
+</math> en la propuesta de @daira.</p></li>
+<li><p><math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑔</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>1000</mn>
+</math> para transacciones blindadas, de blindaje y de desblindaje, y <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑚</mi>
+    <mi>𝑎</mi>
+    <mi>𝑟</mi>
+    <mi>𝑔</mi>
+    <mi>𝑖</mi>
+    <mi>𝑛</mi>
+    <mi>𝑎</mi>
+    <mi>𝑙</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+  <mo>=</mo>
+  <mn>10000</mn>
+</math> para transacciones transparentes, adaptado de la propuesta de @nighthawk24.</p></li>
+</ul>
+<p>(En las propuestas originales de @madars y @nighthawk24, había un parámetro <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑏</mi>
+    <mi>𝑎</mi>
+    <mi>𝑠</mi>
+    <mi>𝑒</mi>
+    <mi>_</mi>
+    <mi>𝑓</mi>
+    <mi>𝑒</mi>
+    <mi>𝑒</mi>
+  </mrow>
+</math> adicional que hacía que la relación entre la comisión y el número de entradas/salidas fuera no proporcional por encima del umbral <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mi>𝑔</mi>
+    <mi>𝑟</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑒</mi>
+    <mi>_</mi>
+    <mi>𝑎</mi>
+    <mi>𝑐</mi>
+    <mi>𝑡</mi>
+    <mi>𝑖</mi>
+    <mi>𝑜</mi>
+    <mi>𝑛</mi>
+    <mi>𝑠</mi>
+  </mrow>
+</math>. Esto ya no es expresable con la fórmula especificada anteriormente.)</p>
+
+<h1 id="endorsements"><a class="hanchor" href="#endorsements" aria-hidden="true" tabindex="-1">#</a>Adhesiones</h1>
+<p>Las siguientes entidades y desarrolladores del software listado expresaron su apoyo al mecanismo de comisión actualizado:</p>
+<ul class="simple">
+<li><p>Zecwallet Suite (Zecwallet Lite para Escritorio/iOS/Android y Zecwallet FullNode)</p></li>
+<li><p>Nighthawk Wallet para Android e iOS</p></li>
+<li><p>Electric Coin Company</p></li>
+<li><p>Zcash Foundation (Fundación Zcash)</p></li>
+</ul>
+
+<h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Agradecimientos</h1>
+<p>Gracias a Madars Virza por proponer inicialmente un mecanismo de comisión similar al propuesto en este ZIP <a class="brackets" href="#madars-1" id="footnote-reference-13" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>, y por encontrar una posible debilidad en una versión anterior del algoritmo de construcción de plantillas de bloque. Gracias también a Kris Nuttycombe, Jack Grigg, Francisco Gindre, Greg Pfeil, Teor y Deirdre Connolly por sus revisiones y mejoras sugeridas.</p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2022.3.8. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-txnencoding" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#txnencoding">Zcash Protocol Specification, Version 2022.3.8. Section 7.1: Transaction Encoding and Consensus</a></p>
+</aside>
+<aside class="footnote brackets" id="sigop-limit" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-9">1</a>,<a role="doc-backlink" href="#footnote-reference-10">2</a>)</span>
+<p><a class="reference external" href="https://github.com/zcash/zips/issues/568">zcash/zips issue #568 - Document block transparent sigops limit consensus rule</a></p>
+</aside>
+<aside class="footnote brackets" id="madars-1" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-12">1</a>,<a role="doc-backlink" href="#footnote-reference-13">2</a>)</span>
+<p><a class="reference external" href="https://forum.zcashcommunity.com/t/zip-reduce-default-shielded-transaction-fee-to-1000-zats/37566/89">Madars concrete soft-fork proposal</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0227-global-issuance-state" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-6">6</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0227.rst#global-issuance-state">ZIP 227: Issuance of Zcash Shielded Assets — Global Issuance State</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0231" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">7</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0231.rst">ZIP 231: Memo Bundles</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0313" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>8<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-3">1</a>,<a role="doc-backlink" href="#footnote-reference-5">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0313.rst">ZIP 313: Reduce Conventional Transaction Fee to 1000 zatoshis</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0401" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>9<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-8">1</a>,<a role="doc-backlink" href="#footnote-reference-11">2</a>)</span>
+<p><a class="reference external" href="/upstream/zip-0401.rst">ZIP 401: Addressing Mempool Denial-of-Service</a></p>
+</aside>
+</aside>
+

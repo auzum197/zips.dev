@@ -1,0 +1,1488 @@
+{
+ "segments": {
+  "Zcash Shielded Coinholder Voting": "Votación de titulares de monedas blindadas de Zcash",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\" and \"MAY\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\" y \"PUEDE (MAY)\" de este documento deben interpretarse como se describe en BCP 14 <g1><g2>1</g2></g1> cuando, y solo cuando, aparecen en mayúsculas.",
+  "The terms below are to be interpreted as follows:": "Los términos que figuran a continuación deben interpretarse de la siguiente manera:",
+  "Vote chain": "Cadena de votación",
+  "The blockchain that serves as the single source of truth for voting operations. See [System Overview] for the state it maintains.": "La blockchain que sirve como única fuente de verdad para las operaciones de votación. Véase [System Overview] para el estado que mantiene.",
+  "Voting round": "Ronda de votación",
+  "A complete instance of a coinholder vote, scoped to a single Zcash mainnet snapshot and a fresh Election Authority key.": "Una instancia completa de una votación de titulares de monedas, limitada a una única instantánea de mainnet de Zcash y una clave nueva de la Election Authority.",
+  "Vote round ID": "Identificador de ronda de votación",
+  "A unique identifier for a voting round. See [Poll Creation] for the computation.": "Un identificador único para una ronda de votación. Véase [Poll Creation] para el cálculo.",
+  "Poll runner": "Administrador de la votación",
+  "The entity responsible for conducting a voting round.": "La entidad responsable de llevar a cabo una ronda de votación.",
+  "Vote manager": "Gestor de votos",
+  "The on-chain role authorized to create voting rounds.": "El rol autorizado en la cadena para crear rondas de votación.",
+  "Bootstrap operator": "Operador de arranque",
+  "The entity that provisions the vote chain genesis and initial validator set.": "La entidad que aprovisiona la génesis de la cadena de votación y el conjunto inicial de validadores.",
+  "Validator": "Validador",
+  "A vote chain consensus participant. See [Validator] under Roles for responsibilities and keypair details.": "Un participante de consenso de la cadena de votación. Véase [Validator] en Roles para las responsabilidades y los detalles del par de claves.",
+  "Nullifier service operator": "Operador del servicio de nullifiers",
+  "The entity that runs the nullifier exclusion PIR server. See [Nullifier Service Operator] under Roles for responsibilities.": "La entidad que ejecuta el servidor PIR de exclusión de nullifiers. Véase [Nullifier Service Operator] en Roles para las responsabilidades.",
+  "Bonded validator": "Validador con garantía",
+  "A validator whose stake is active under the standard Cosmos SDK <x1/> module <g2><g3>2</g3></g2>: its delegation is committed, it participates in consensus, and it is eligible to produce blocks.": "Un validador cuya participación está activa bajo el módulo <x1/> estándar de Cosmos SDK <g2><g3>2</g3></g2>: su delegación está comprometida, participa en el consenso y es elegible para producir bloques.",
+  "Submission server": "Servidor de envío",
+  "An untrusted service that accepts encrypted vote share payloads from voters and submits the corresponding share reveal transactions to the vote chain. Specified in <x1/> <g2><g3>3</g3></g2>.": "Un servicio no confiable que acepta cargas útiles cifradas de participaciones de voto de los votantes y envía las transacciones de revelación de participación correspondientes a la cadena de votación. Se especifica en <x1/> <g2><g3>3</g3></g2>.",
+  "Election Authority (EA)": "Autoridad Electoral (EA)",
+  "A virtual signing key, jointly constructed by validators during a key ceremony so that no single party holds the private key. Used to encrypt vote shares and decrypt the final tally. See <x1/> <g2><g3>4</g3></g2> for the ceremony protocol.": "Una clave de firma virtual, construida conjuntamente por los validadores durante una ceremonia de claves de modo que ninguna parte individual posea la clave privada. Se usa para cifrar las participaciones de voto y descifrar el recuento final. Véase <x1/> <g2><g3>4</g3></g2> para el protocolo de la ceremonia.",
+  "Snapshot height": "Altura de instantánea",
+  "The Zcash mainnet block height at which eligible Orchard note balances are captured. See [Snapshot Configuration] for constraints.": "La altura de bloque de mainnet de Zcash en la que se capturan los saldos de notas de Orchard elegibles. Véase [Snapshot Configuration] para las restricciones.",
+  "For definitions of cryptographic terms including <g1>alternate nullifier</g1>, <g2>nullifier non-membership tree</g2>, <g3>nullifier domain</g3>, <g4>pool snapshot</g4>, and <g5>claim</g5>, see the Orchard Proof-of-Balance ZIP <g6><g7>5</g7></g6>. For EA key ceremony terms, see <x8/> <g9><g10>4</g10></g9>. For PIR-related terms, see <x11/> <g12><g13>6</g13></g12>.": "Para las definiciones de términos criptográficos, incluidos <g1>nullifier alterno</g1>, <g2>árbol de no pertenencia de nullifiers</g2>, <g3>dominio de nullifiers</g3>, <g4>instantánea del conjunto</g4> y <g5>reclamo</g5>, véase el ZIP de Orchard Proof-of-Balance <g6><g7>5</g7></g6>. Para los términos de la ceremonia de claves de la EA, véase <x8/> <g9><g10>4</g10></g9>. Para los términos relacionados con PIR, véase <x11/> <g12><g13>6</g13></g12>.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This ZIP specifies how to operate the infrastructure for Zcash shielded coinholder voting. It defines a purpose-built vote chain built on Cosmos SDK, three operator roles (bootstrap operator, vote manager, validator), and the lifecycle of a voting round from snapshot selection through tally verification.": "Este ZIP especifica cómo operar la infraestructura para la votación de tenedores de monedas blindados de Zcash. Define una cadena de votación de propósito específico construida sobre Cosmos SDK, tres roles de operador (operador de arranque, gestor de votos, validador) y el ciclo de vida de una ronda de votación desde la selección de la instantánea hasta la verificación del recuento.",
+  "The vote chain stores vote commitments in a Poseidon Merkle tree, tracks three nullifier sets to prevent double-voting, and accumulates encrypted vote shares as homomorphic El Gamal ciphertexts. Each transaction (delegation, vote, share reveal) is verified by a zero-knowledge proof on-chain. Validators join through an automated onboarding script that handles binary distribution, key generation, and on-chain registration. A separate nullifier service provides private information retrieval of exclusion proofs so voters can prove note non-spending without revealing which notes they hold.": "La cadena de votación almacena compromisos de voto en un árbol Merkle de Poseidon, rastrea tres conjuntos de nullifiers para prevenir el doble voto y acumula participaciones de voto cifradas como textos cifrados El Gamal homomórficos. Cada transacción (delegación, voto, revelación de participación) se verifica mediante una prueba de conocimiento cero en la cadena. Los validadores se incorporan mediante un script automatizado de incorporación que gestiona la distribución de binarios, la generación de claves y el registro en la cadena. Un servicio de nullifiers separado proporciona recuperación de información privada de pruebas de exclusión, de modo que los votantes puedan demostrar el no gasto de notas sin revelar qué notas poseen.",
+  "Tally correctness is independently verifiable: validators submit partial decryptions which are Lagrange-combined on-chain. Any party with access to the chain state can re-derive the combination from the stored partials and confirm the decrypted result.": "La corrección del recuento es verificable de forma independiente: los validadores envían descifrados parciales que se combinan con Lagrange en la cadena. Cualquier parte con acceso al estado de la cadena puede volver a derivar la combinación a partir de los parciales almacenados y confirmar el resultado descifrado.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "The Zcash Shielded Voting Protocol <g1><g2>7</g2></g1> defines a cryptographic protocol for private coinholder voting. This ZIP specifies the deployment infrastructure required to run that protocol: the vote chain, operator roles, and voting round lifecycle.": "El Protocolo de Votación Blindada de Zcash <g1><g2>7</g2></g1> define un protocolo criptográfico para la votación privada de tenedores de monedas. Este ZIP especifica la infraestructura de despliegue necesaria para ejecutar ese protocolo: la cadena de votación, los roles de operador y el ciclo de vida de la ronda de votación.",
+  "<x1/>Privacy Implications": "<x1/>Implicaciones de privacidad",
+  "Zero-knowledge proofs and encryption hide the contents of delegations, votes, and share reveals, but not the network-layer metadata associated with their submission. A vote chain validator sees the source IP, submission timestamp, connection correlation, and P2P propagation pattern of every transaction it receives.": "Las pruebas de conocimiento cero y el cifrado ocultan el contenido de las delegaciones, los votos y las revelaciones de participación, pero no los metadatos de la capa de red asociados con su envío. Un validador de la cadena de votación ve la IP de origen, la marca de tiempo del envío, la correlación de conexiones y el patrón de propagación P2P de cada transacción que recibe.",
+  "PIR queries against the nullifier service are private in content but not in timing: a nullifier service operator sees the source IP and time of each query, which reveals that a given client is participating in the current voting round.": "Las consultas PIR al servicio de nullifiers son privadas en contenido pero no en tiempo: un operador del servicio de nullifiers ve la IP de origen y el momento de cada consulta, lo que revela que un cliente dado está participando en la ronda de votación actual.",
+  "The vote chain is a public ledger. Transaction contents are encrypted or zero-knowledge-proven, but their existence, ordering, and block-inclusion timing are a permanent public record.": "La cadena de votación es un libro mayor público. Los contenidos de las transacciones están cifrados o probados con conocimiento cero, pero su existencia, su orden y el momento de su inclusión en bloques son un registro público permanente.",
+  "Bootstrap operators learn the network identities of validators during onboarding (see [Onboarding Validators]).": "Los operadores de arranque conocen las identidades de red de los validadores durante la incorporación (véase [Onboarding Validators]).",
+  "Validator power distribution affects the trust model for the EA key ceremony. See <x1/> <g2><g3>4</g3></g2> for EA-specific privacy implications.": "La distribución de poder de los validadores afecta el modelo de confianza de la ceremonia de claves del EA. Véase <x1/> <g2><g3>4</g3></g2> para las implicaciones de privacidad específicas del EA.",
+  "<x1/>Requirements": "<x1/>Requisitos",
+  "A new poll runner can set up infrastructure and conduct a voting round by following this specification and the referenced companion ZIPs.": "Un nuevo organizador de votación puede configurar la infraestructura y realizar una ronda de votación siguiendo esta especificación y los ZIPs complementarios referenciados.",
+  "A Zcash coinholder with eligible Orchard funds at the round's snapshot height can participate in the voting round using a conforming wallet client.": "Un tenedor de monedas de Zcash con fondos elegibles en Orchard a la altura de la instantánea de la ronda puede participar en la ronda de votación usando un cliente de billetera conforme.",
+  "The vote chain operates as a public, verifiable ledger — anyone can run a monitoring node to audit.": "La cadena de votación opera como un libro mayor público y verificable: cualquiera puede ejecutar un nodo de monitoreo para auditar.",
+  "The system operates with partial validator availability.": "El sistema opera con disponibilidad parcial de los validadores.",
+  "<x1/>Non-requirements": "<x1/>No requisitos",
+  "Governance policy decisions such as proposal eligibility, quorum requirements, and fund disbursement rules (see ZIP 1016 <g1><g2>8</g2></g1>).": "Decisiones de política de gobernanza como la elegibilidad de propuestas, los requisitos de quórum y las reglas de desembolso de fondos (véase el ZIP 1016 <g1><g2>8</g2></g1>).",
+  "<x1/>Specification": "<x1/>Especificación",
+  "<x1/>Proposals and Decisions": "<x1/>Propuestas y decisiones",
+  "The voting process specified by this ZIP allows a poll runner to put one or more questions — <g1>proposals</g1> — to eligible voters. For each proposal, voters choose exactly one of a predefined set of labeled <g2>options</g2>; the chosen option is the voter's <g3>decision</g3> for that proposal.": "El proceso de votación especificado por este ZIP permite a un organizador de votación plantear una o más preguntas — <g1>propuestas</g1> — a votantes elegibles. Para cada propuesta, los votantes eligen exactamente una de un conjunto predefinido de <g2>opciones</g2> etiquetadas; la opción elegida es la <g3>decisión</g3> del votante para esa propuesta.",
+  "<x1/>Structure of a proposal": "<x1/>Estructura de una propuesta",
+  "Each proposal has:": "Cada propuesta tiene:",
+  "A <g1>title</g1>, short and human-readable.": "Un <g1>título</g1>, breve y legible por humanos.",
+  "An optional <g1>description</g1> providing additional context.": "Una <g1>descripción</g1> opcional que proporciona contexto adicional.",
+  "Between 2 and 8 <g1>options</g1>, each carrying a human-readable label. Option labels MUST be non-empty ASCII strings.": "Entre 2 y 8 <g1>opciones</g1>, cada una con una etiqueta legible por humanos. Las etiquetas de las opciones DEBEN (MUST) ser cadenas ASCII no vacías.",
+  "Proposals in a voting round are assigned 1-indexed sequential identifiers; options within a proposal are assigned 0-indexed sequential indices.": "Las propuestas de una ronda de votación reciben identificadores secuenciales indexados desde 1; las opciones dentro de una propuesta reciben índices secuenciales indexados desde 0.",
+  "<x1/>Decisions": "<x1/>Decisiones",
+  "A <g1>decision</g1> is a voter's chosen option for a specific proposal, represented as the option's 0-indexed position within that proposal's option list. Decisions are recorded in the encrypted share accumulator, keyed by <x2/>; see <x3/> <g4><g5>7</g5></g4> for the cryptographic construction.": "Una <g1>decisión</g1> es la opción elegida por un votante para una propuesta específica, representada como la posición indexada desde 0 de la opción dentro de la lista de opciones de esa propuesta. Las decisiones se registran en el acumulador cifrado de participaciones, con claves <x2/>; véase <x3/> <g4><g5>7</g5></g4> para la construcción criptográfica.",
+  "<x1/>Kinds of polls that can be expressed": "<x1/>Clases de votaciones que pueden expresarse",
+  "A voting round can carry <g1>1 to 15 independent proposals</g1>, and each proposal can offer <g2>2 to 8 labeled options</g2>. This is sufficient for:": "Una ronda de votación puede llevar <g1>de 1 a 15 propuestas independientes</g1>, y cada propuesta puede ofrecer <g2>de 2 a 8 opciones etiquetadas</g2>. Esto es suficiente para:",
+  "Yes/no questions (\"Approve proposal X?\" with options Yes / No).": "Preguntas de sí/no («¿Aprueba la propuesta X?» con opciones Sí / No).",
+  "Multiple-choice preference questions (for example, choosing among named candidates or funding tiers).": "Preguntas de preferencia de opción múltiple (por ejemplo, elegir entre candidatos nombrados o niveles de financiamiento).",
+  "Rating-style questions using a fixed option ladder.": "Preguntas de estilo de calificación mediante una escala fija de opciones.",
+  "The following ballot shapes are out of scope for this specification:": "Las siguientes formas de papeleta quedan fuera del alcance de esta especificación:",
+  "Free-form write-in answers.": "Respuestas de escritura libre.",
+  "Ranked-choice or weighted-ranking ballots.": "Papeletas de preferencia jerarquizada o de ponderación jerárquica.",
+  "More than 15 proposals in a single voting round, or more than 8 options in a single proposal.": "Más de 15 propuestas en una sola ronda de votación, o más de 8 opciones en una sola propuesta.",
+  "The 15-proposal upper bound is imposed by the zero-knowledge vote authority bitmask (1 bit is reserved as a sentinel). Polls requiring more proposals or richer ballot structures are split across multiple rounds or expressed through an external layer.": "El límite superior de 15 propuestas lo impone la máscara de bits de autoridad de voto de conocimiento cero (1 bit se reserva como centinela). Las votaciones que requieran más propuestas o estructuras de papeleta más ricas se dividen en varias rondas o se expresan mediante una capa externa.",
+  "<x1/>System Overview": "<x1/>Visión general del sistema",
+  "The coinholder voting system operates on a purpose-built Cosmos SDK vote chain. Zcash mainnet snapshots provide the set of eligible Orchard note balances.": "El sistema de votación de tenedores de monedas opera sobre una cadena de votación construida específicamente con el SDK de Cosmos. Las instantáneas de la mainnet de Zcash proporcionan el conjunto de saldos elegibles de notas de Orchard.",
+  "The vote chain stores:": "La cadena de votación almacena:",
+  "A <g1>Vote Commitment Tree</g1> (VCT): a Poseidon Merkle tree of vote commitments.": "Un <g1>árbol de compromisos de voto</g1> (VCT): un árbol Merkle de Poseidon de compromisos de voto.",
+  "Three <g1>nullifier sets</g1>: governance nullifiers (alternate nullifiers from note claims), VAN nullifiers (from delegation consumption), and share nullifiers (from share reveals).": "Tres <g1>conjuntos de nullifiers</g1>: nullifiers de gobernanza (nullifiers alternativos de reclamaciones de notas), nullifiers VAN (del consumo de delegaciones) y nullifiers de participaciones (de revelaciones de participaciones).",
+  "An <g1>encrypted share accumulator</g1> per (proposal, decision): the homomorphic sum of El Gamal ciphertexts for each vote option.": "Un <g1>acumulador cifrado de participaciones</g1> por (propuesta, decisión): la suma homomórfica de cifrados El Gamal para cada opción de voto.",
+  "The vote chain verifies a zero-knowledge proof for each transaction type: delegation, vote, and share reveal. The proof circuits are specified in <x1/> <g2><g3>7</g3></g2>.": "La cadena de votación verifica una prueba de conocimiento cero para cada tipo de transacción: delegación, voto y revelación de participación. Los circuitos de prueba se especifican en <x1/> <g2><g3>7</g3></g2>.",
+  "<x1/>Deployment Architecture": "<x1/>Arquitectura de despliegue",
+  "A complete deployment consists of:": "Un despliegue completo consta de:",
+  "<g1>Vote chain nodes</g1> — one or more <x2/> instances running CometBFT consensus. Each <x3/> binary additionally includes the <g4>submission server</g4> (an untrusted service that accepts vote share payloads from clients and submits the corresponding share reveal transactions at client-specified times). The submission server shares the node's process but is functionally decoupled from chain consensus; see <x5/> <g6><g7>3</g7></g6>.": "<g1>Nodos de la cadena de votación</g1> — una o más instancias de <x2/> que ejecutan el consenso CometBFT. Cada binario <x3/> incluye además el <g4>servidor de envío</g4> (un servicio no confiable que acepta cargas útiles de participaciones de voto de los clientes y envía las transacciones de revelación de participación correspondientes en los momentos especificados por el cliente). El servidor de envío comparte el proceso del nodo, pero está desacoplado funcionalmente del consenso de la cadena; véase <x5/> <g6><g7>3</g7></g6>.",
+  "<g1>Nullifier service</g1> — a PIR server that provides private nullifier exclusion proofs to voters (see [Nullifier Service]).": "<g1>Servicio de nullifiers</g1> — un servidor PIR que proporciona a los votantes pruebas privadas de exclusión de nullifiers (véase [Nullifier Service]).",
+  "<g1>Vote configuration document</g1> — a per-round document published by the vote manager that lists the network endpoints of the vote chain nodes and nullifier service operators participating in the round. The document format and distribution rules are specified in <x2/> <g3><g4>9</g4></g3>; see also [Vote Configuration Publication].": "<g1>Documento de configuración de votación</g1> — un documento por ronda publicado por el administrador de votación que enumera los puntos de conexión de red de los nodos de la cadena de votación y de los operadores del servicio de nullifiers que participan en la ronda. El formato del documento y las reglas de distribución se especifican en <x2/> <g3><g4>9</g4></g3>; véase también [Vote Configuration Publication].",
+  "<x1/>Roles": "<x1/>Roles",
+  "<x1/>Bootstrap Operator": "<x1/>Operador de arranque",
+  "The bootstrap operator generates the vote chain genesis block and provisions the initial validator set. At genesis, a single vote manager account is created with a balance of the chain's native token (denom <x1/>) sized to fund all planned validators. From that account the bootstrap operator funds each validator via <x2/>, a transfer message gated by the vote chain's ante handler: the vote manager MAY send to any address, and bonded validators MAY send to the vote manager or to other bonded validators; all other transfers — including the standard Cosmos bank <x3/> and <x4/> messages — are rejected.": "El operador de arranque genera el bloque génesis de la cadena de votación y provee el conjunto inicial de validadores. En el génesis, se crea una única cuenta de administrador de votación con un saldo del token nativo de la cadena (denom <x1/>) dimensionado para financiar a todos los validadores planificados. Desde esa cuenta, el operador de arranque financia a cada validador mediante <x2/>, un mensaje de transferencia controlado por el ante handler de la cadena de votación: el administrador de votación PUEDE (MAY) enviar a cualquier dirección, y los validadores con delegación PUEDEN (MAY) enviar al administrador de votación o a otros validadores con delegación; todas las demás transferencias —incluidos los mensajes estándar <x3/> y <x4/> del módulo bank de Cosmos— son rechazadas.",
+  "The amount transferred to each validator at bonding time determines their consensus voting power. An even distribution across validators reduces the risk of consensus capture. The bootstrap operator's activities are confined to genesis. The keypair that controls the genesis <x1/> address continues afterwards as the initial vote manager (see [Vote Manager]), and MAY transfer that role via <x2/>.": "El monto transferido a cada validador al momento de la delegación determina su poder de voto de consenso. Una distribución uniforme entre los validadores reduce el riesgo de captura del consenso. Las actividades del operador de arranque se limitan al génesis. El par de claves que controla la dirección <x1/> del génesis continúa después como administrador de votación inicial (véase [Vote Manager]), y PUEDE (MAY) transferir ese rol mediante <x2/>.",
+  "<x1/>Vote Manager": "<x1/>Administrador de votación",
+  "The vote manager is the only account authorized to initialize the chain's voting round (see [Poll Creation]).": "El administrador de votación es la única cuenta autorizada para inicializar la ronda de votación de la cadena (véase [Poll Creation]).",
+  "The vote manager address is set in the genesis block (see [Genesis Validator Setup]). The current vote manager MAY transfer the role to another address via <x1/>; the transfer is atomic and moves the full account balance to the new address. No other account can claim or reassign the role.": "La dirección del administrador de votación se establece en el bloque génesis (véase [Genesis Validator Setup]). El administrador de votación actual PUEDE (MAY) transferir el rol a otra dirección mediante <x1/>; la transferencia es atómica y mueve el saldo completo de la cuenta a la nueva dirección. Ninguna otra cuenta puede reclamar o reasignar el rol.",
+  "<x1/>Validator": "<x1/>Validador",
+  "Validators participate in consensus, the EA key ceremony (see <x1/> <g2><g3>4</g3></g2>), and automatic tally computation. Each validator maintains three keypairs:": "Los validadores participan en el consenso, en la ceremonia de claves de EA (véase <x1/> <g2><g3>4</g3></g2>) y en el cálculo automático del escrutinio. Cada validador mantiene tres pares de claves:",
+  "<g1>Consensus keypair</g1>: used for CometBFT consensus.": "<g1>Par de claves de consenso</g1>: usado para el consenso CometBFT.",
+  "<g1>Account keypair</g1>: used for submitting chain transactions.": "<g1>Par de claves de cuenta</g1>: usado para enviar transacciones a la cadena.",
+  "<g1>Pallas keypair</g1>: used for ECIES key exchange during the EA ceremony.": "<g1>Par de claves Pallas</g1>: usado para el intercambio de claves ECIES durante la ceremonia de EA.",
+  "Validators join the network by following the flow described in [Onboarding Validators].": "Los validadores se unen a la red siguiendo el flujo descrito en [Onboarding Validators].",
+  "Each validator additionally runs the submission server bundled into the <x1/> binary, which receives encrypted vote share payloads from voters and submits the corresponding share reveal transactions on their behalf. See <x2/> <g3><g4>3</g4></g3>.": "Cada validador ejecuta además el servidor de envío incluido en el binario <x1/>, que recibe cargas útiles cifradas de participaciones de voto de los votantes y envía en su nombre las transacciones de revelación de participación correspondientes. Véase <x2/> <g3><g4>3</g4></g3>.",
+  "<x1/>Nullifier Service Operator": "<x1/>Operador del servicio de nullifiers",
+  "A nullifier service operator runs the nullifier exclusion PIR server that wallet clients query to obtain Merkle non-membership proofs for the Zcash mainnet nullifier set at the snapshot height. The PIR server is a separate binary, distributed independently of the vote chain node, with its own ingest pipeline and HTTP query endpoint. Specified in <x1/> <g2><g3>6</g3></g2>.": "Un operador del servicio de nullifiers ejecuta el servidor PIR de exclusión de nullifiers al que consultan los clientes de billetera para obtener pruebas de no pertenencia Merkle para el conjunto de nullifiers de Zcash mainnet en la altura de la instantánea. El servidor PIR es un binario separado, distribuido de forma independiente del nodo de la cadena de votación, con su propia canalización de ingesta y punto de conexión de consultas HTTP. Se especifica en <x1/> <g2><g3>6</g3></g2>.",
+  "<x1/>Vote Chain Infrastructure": "<x1/>Infraestructura de la cadena de votación",
+  "<x1/>Genesis Validator Setup": "<x1/>Configuración de validadores del génesis",
+  "The bootstrap operator obtains the vote chain binary <x1/> either from a published release of the reference implementation (see [Reference implementation]) or by building from source, and initializes a new single-validator chain for the voting round.": "El operador de arranque obtiene el binario de la cadena de votación <x1/> bien sea de una versión publicada de la implementación de referencia (véase [Reference implementation]) o compilándolo a partir del código fuente, e inicializa una nueva cadena de un solo validador para la ronda de votación.",
+  "Initialization proceeds as follows:": "La inicialización procede de la siguiente manera:",
+  "<g1>Choose a chain identifier.</g1> Each voting round uses its own chain identifier so that transactions signed for one round cannot be misinterpreted by software configured for another round.": "<g1>Elegir un identificador de cadena.</g1> Cada ronda de votación usa su propio identificador de cadena para que las transacciones firmadas para una ronda no puedan ser malinterpretadas por un software configurado para otra ronda.",
+  "<g1>Generate the bootstrap operator's keypairs.</g1> Generate a CometBFT consensus keypair, a Cosmos account keypair, and a Pallas keypair (see [Validator] for the role of each).": "<g1>Generar los pares de claves del operador de arranque.</g1> Generar un par de claves de consenso de CometBFT, un par de claves de cuenta de Cosmos y un par de claves de Pallas (véase [Validator] para el papel de cada uno).",
+  "<g1>Construct the genesis block.</g1> Populate the genesis state with:": "<g1>Construir el bloque génesis.</g1> Poblar el estado génesis con:",
+  "The chain identifier from step 1.": "El identificador de cadena del paso 1.",
+  "The vote manager singleton, set to an address controlled by the bootstrap operator (see [Bootstrap Operator]).": "El singleton del gestor de votos, fijado a una dirección controlada por el operador de arranque (véase [Bootstrap Operator]).",
+  "An initial balance for the vote manager account, in the chain's native token (<x1/>), sized to fund the planned validator set via subsequent authorized transfers.": "Un saldo inicial para la cuenta del gestor de votos, en el token nativo de la cadena (<x1/>), dimensionado para financiar el conjunto de validadores planificado mediante transferencias autorizadas posteriores.",
+  "A minimum ceremony validator count required before the EA key ceremony can proceed.": "Una cantidad mínima de validadores de ceremonia requerida antes de que la ceremonia de claves EA pueda proceder.",
+  "The bootstrap operator's own validator entry, bonded with consensus voting power and with its Pallas public key registered.": "La propia entrada de validador del operador de arranque, con poder de voto de consenso en garantía y con su clave pública de Pallas registrada.",
+  "The standard Cosmos SDK module states (auth, bank, staking) as required by the Cosmos SDK runtime.": "Los estados estándar de los módulos de Cosmos SDK (auth, bank, staking) según lo requerido por el entorno de ejecución de Cosmos SDK.",
+  "<g1>Start the node.</g1> Starting <x2/> begins block production and the chain transitions out of the genesis state.": "<g1>Iniciar el nodo.</g1> Iniciar <x2/> comienza la producción de bloques y la cadena sale del estado génesis.",
+  "The genesis state does not pre-populate voting rounds, nullifier sets, tally results, or PIR data; these are all populated through subsequent on-chain transactions during the voting round.": "El estado génesis no prepopula rondas de votación, conjuntos de nullifiers, resultados de escrutinio ni datos PIR; todos estos se pueblan mediante transacciones posteriores en la cadena durante la ronda de votación.",
+  "After the chain is producing blocks, the bootstrap operator publishes the initial vote configuration document listing the genesis node's public URL, so that joining validators and wallet clients can find the network. See [Vote Configuration Publication].": "Una vez que la cadena produce bloques, el operador de arranque publica el documento de configuración de votación inicial que lista la URL pública del nodo génesis, para que los validadores que se incorporan y los clientes de billetera puedan encontrar la red. Véase [Vote Configuration Publication].",
+  "<x1/>Onboarding Validators": "<x1/>Incorporación de validadores",
+  "A new validator joins the vote chain by following these steps:": "Un nuevo validador se incorpora a la cadena de votación siguiendo estos pasos:",
+  "<g1>Acquire the vote chain binary.</g1> Obtain <x2/> either from a published release of the reference implementation (see [Reference implementation]) or by building from source. Binary releases MUST be verified against a published checksum before use.": "<g1>Adquirir el binario de la cadena de votación.</g1> Obtener <x2/> bien sea de una versión publicada de la implementación de referencia (véase [Reference implementation]) o compilándolo a partir del código fuente. Las versiones binarias DEBEN (MUST) verificarse contra una suma de verificación publicada antes de su uso.",
+  "<g1>Discover the network and initialize.</g1> Read the vote configuration document for the target poll (see [Vote Configuration Publication]) to find at least one active validator. Fetch the chain's genesis block from that validator and initialize a local node directory.": "<g1>Descubrir la red e inicializar.</g1> Leer el documento de configuración de votación de la encuesta objetivo (véase [Vote Configuration Publication]) para encontrar al menos un validador activo. Obtener el bloque génesis de la cadena de ese validador e inicializar un directorio de nodo local.",
+  "<g1>Generate keypairs.</g1> Generate the validator's consensus keypair, account keypair, and Pallas keypair (see [Validator]).": "<g1>Generar los pares de claves.</g1> Generar el par de claves de consenso del validador, el par de claves de cuenta y el par de claves de Pallas (véase [Validator]).",
+  "<g1>Sync the chain.</g1> Start the node, connect to the active validators listed in the vote configuration document via CometBFT peer-exchange, and sync to the current height.": "<g1>Sincronizar la cadena.</g1> Iniciar el nodo, conectarse a los validadores activos listados en el documento de configuración de votación mediante el intercambio de pares de CometBFT, y sincronizar hasta la altura actual.",
+  "<g1>Register in the vote configuration document.</g1> Propose an update to the document adding the new validator's public URL.": "<g1>Registrarse en el documento de configuración de votación.</g1> Proponer una actualización del documento que añada la URL pública del nuevo validador.",
+  "<g1>Wait for funding.</g1> The vote manager reviews the proposed update, applies it, and funds the new validator's account via an authorized transfer (see [Bootstrap Operator] for the funding mechanism).": "<g1>Esperar la financiación.</g1> El administrador de votación revisa la actualización propuesta, la aplica y financia la cuenta del nuevo validador mediante una transferencia autorizada (véase [Bootstrap Operator] para el mecanismo de financiación).",
+  "<g1>Register on-chain.</g1> Once funds are received, submit the validator registration transaction that wraps a standard Cosmos staking validator creation message together with the validator's Pallas public key, atomically binding the key to the new validator.": "<g1>Registrarse en la cadena.</g1> Una vez recibidos los fondos, enviar la transacción de registro del validador que envuelve un mensaje estándar de creación de validador de staking de Cosmos junto con la clave pública Pallas del validador, vinculando la clave al nuevo validador de forma atómica.",
+  "The amount transferred at step 6 determines the new validator's consensus voting power. The vote chain rejects raw Cosmos staking validator creation messages: every validator MUST be registered through the wrapped form so that a Pallas public key is bound at creation time. A validator without a registered Pallas key is bonded for consensus but cannot participate in the EA ceremony (see [Validator]).": "El monto transferido en el paso 6 determina el poder de votación de consenso del nuevo validador. La cadena de votación rechaza los mensajes de creación de validador de staking de Cosmos sin envolver: todo validador DEBE (MUST) registrarse mediante la forma envuelta para que una clave pública Pallas quede vinculada en el momento de la creación. Un validador sin una clave Pallas registrada queda vinculado para el consenso, pero no puede participar en la ceremonia de EA (véase [Validator]).",
+  "The reference implementation (see [Reference implementation]) includes an automated <x1/> script that performs the above steps. The script is parameterized by the vote configuration document URL; the same script is used for any poll and is not specialized per poll.": "La implementación de referencia (véase [Reference implementation]) incluye un script <x1/> automatizado que realiza los pasos anteriores. El script se parametriza mediante la URL del documento de configuración de votación; el mismo script se usa para cualquier encuesta y no está especializado por encuesta.",
+  "<x1/>Nullifier Service": "<x1/>Servicio de nullifier",
+  "The nullifier service is an external service that lets voters privately verify that their Orchard nullifiers are absent from the Zcash mainnet nullifier set at the snapshot height, using private information retrieval. A voter's PIR query reveals neither which nullifier is being checked nor the answer to any observer of the network.": "El servicio de nullifier es un servicio externo que permite a los votantes verificar de forma privada que sus nullifiers de Orchard estén ausentes del conjunto de nullifiers de la mainnet de Zcash en la altura de la instantánea, mediante recuperación de información privada. La consulta PIR de un votante no revela a ningún observador de la red qué nullifier se está verificando ni la respuesta.",
+  "The service is run by a nullifier service operator (see [Nullifier Service Operator]) using the implementation referenced in [Reference implementation]. The PIR construction and database layout are specified in <x1/> <g2><g3>6</g3></g2>.": "El servicio es operado por un operador del servicio de nullifier (véase [Nullifier Service Operator]) usando la implementación referenciada en [Reference implementation]. La construcción PIR y el diseño de la base de datos se especifican en <x1/> <g2><g3>6</g3></g2>.",
+  "The service operates as a three-stage pipeline:": "El servicio opera como una tubería de tres etapas:",
+  "<g1>Ingest</g1>: fetch the Zcash mainnet nullifier set up to the chosen snapshot height from a Zcash node and persist it to local storage.": "<g1>Ingesta</g1>: obtener el conjunto de nullifiers de la mainnet de Zcash hasta la altura de instantánea elegida desde un nodo de Zcash y persistirlo en el almacenamiento local.",
+  "<g1>Export</g1>: build the nullifier non-membership tree (an Indexed Merkle Tree as specified in <x2/> <g3><g4>5</g4></g3>) and export the PIR database tiers as specified in <x5/> <g6><g7>6</g7></g6>. The exported files allow the server to restart without rebuilding the tree from raw nullifiers.": "<g1>Exportación</g1>: construir el árbol de no membresía de nullifiers (un Indexed Merkle Tree según lo especificado en <x2/> <g3><g4>5</g4></g3>) y exportar los niveles de la base de datos PIR según lo especificado en <x5/> <g6><g7>6</g7></g6>. Los archivos exportados permiten que el servidor se reinicie sin reconstruir el árbol a partir de nullifiers sin procesar.",
+  "<g1>Serve</g1>: accept PIR queries from voters and return encrypted responses over HTTP. The operator publishes the service URL by adding it to the vote configuration document (see [Vote Configuration Publication]).": "<g1>Servicio</g1>: aceptar consultas PIR de los votantes y devolver respuestas cifradas por HTTP. El operador publica la URL del servicio añadiéndola al documento de configuración de votación (véase [Vote Configuration Publication]).",
+  "The PIR client-server query and response wire format is not yet specified in any normative document. See [Open Issues].": "El formato de transmisión de consulta y respuesta entre cliente y servidor PIR aún no está especificado en ningún documento normativo. Véase [Open Issues].",
+  "<x1/>Vote Configuration Publication": "<x1/>Publicación de la configuración de votación",
+  "The vote manager publishes a vote configuration document for the chain's voting round, in the format and via the publication channel described in <x1/> <g2><g3>9</g3></g2>. Wallets and joining validators fetch the document from that channel; the vote chain itself does not provide a service-discovery endpoint.": "El administrador de votación publica un documento de configuración de votación para la ronda de votación de la cadena, en el formato y mediante el canal de publicación descritos en <x1/> <g2><g3>9</g3></g2>. Las billeteras y los validadores que se incorporan obtienen el documento de ese canal; la cadena de votación en sí no proporciona un punto final de descubrimiento de servicios.",
+  "The vote manager publishes the initial document once the genesis validator is producing blocks. New validators and nullifier service operators are added by proposing updates to the document, which the vote manager reviews and applies; for validators this proposal is automated by the join.sh flow described in [Onboarding Validators], while nullifier service operators propose their entries directly. The document is incremental — new entries are added without removing earlier ones — and any active entry can serve as an entry point for new joiners; there is no distinguished seed node.": "El administrador de votación publica el documento inicial una vez que el validador génesis está produciendo bloques. Los nuevos validadores y operadores del servicio de nullifier se añaden proponiendo actualizaciones al documento, que el administrador de votación revisa y aplica; para los validadores, esta propuesta es automatizada por el flujo join.sh descrito en [Onboarding Validators], mientras que los operadores del servicio de nullifier proponen sus entradas directamente. El documento es incremental — se añaden nuevas entradas sin eliminar las anteriores — y cualquier entrada activa puede servir como punto de entrada para los nuevos participantes; no hay un nodo semilla distinguido.",
+  "Each voting round runs on its own vote chain with its own publication channel. The vote manager announces the channel URL out-of-band before the round opens, so that wallet implementers can configure their wallets to fetch from it — either as a bundled default or as a user-supplied setting. There is no automated cross-poll discovery; a new poll requires the vote manager to communicate the new channel to wallets and end users through whatever distribution path they choose.": "Cada ronda de votación se ejecuta en su propia cadena de votación con su propio canal de publicación. El administrador de votación anuncia la URL del canal por medios externos antes de que la ronda abra, de modo que los implementadores de billeteras puedan configurar sus billeteras para obtener el documento de ella — ya sea como un valor predeterminado incluido o como un ajuste provisto por el usuario. No hay un descubrimiento automatizado entre encuestas; una nueva encuesta requiere que el administrador de votación comunique el nuevo canal a las billeteras y a los usuarios finales por la ruta de distribución que elija.",
+  "<x1/>Conducting a Voting Round": "<x1/>Realización de una ronda de votación",
+  "<x1/>Snapshot Configuration": "<x1/>Configuración de la instantánea",
+  "A voting round is anchored to a Zcash mainnet snapshot: a specific mainnet block height at which the eligible Orchard pool is captured. The poll runner chooses this snapshot height subject to the following constraint:": "Una ronda de votación se ancla a una instantánea de la mainnet de Zcash: una altura de bloque específica de la mainnet en la cual se captura el conjunto elegible de Orchard. El organizador de la encuesta elige esta altura de instantánea sujeta a la siguiente restricción:",
+  "The height MUST be at or after NU5 activation, since the protocol requires Orchard.": "La altura DEBE (MUST) ser igual o posterior a la activación de NU5, dado que el protocolo requiere Orchard.",
+  "Choosing the snapshot height is the start of round setup, not a single automatic action. The poll runner is responsible for the following coordinated activities:": "La elección de la altura de instantánea es el inicio de la configuración de la ronda, no una única acción automática. El organizador de la encuesta es responsable de las siguientes actividades coordinadas:",
+  "<g1>Determine the snapshot's commitment values.</g1> Compute the Orchard note commitment tree root (<x2/>) and the nullifier non-membership Indexed Merkle Tree root (<x3/>) at the chosen height. These values are deterministic given the height; they are derived from Zcash mainnet state.": "<g1>Determinar los valores de compromiso de la instantánea.</g1> Calcular la raíz del árbol de compromisos de notas de Orchard (<x2/>) y la raíz del Indexed Merkle Tree de no pertenencia de nullifiers (<x3/>) en la altura elegida. Estos valores son deterministas dada la altura; se derivan del estado de la mainnet de Zcash.",
+  "<g1>Ensure the nullifier service has the snapshot's PIR database.</g1> The poll runner coordinates with each nullifier service operator (see [Nullifier Service Operator]) so that their ingest and export pipelines (see [Nullifier Service]) have run to the chosen height before the round opens, so wallets can query exclusion proofs against that snapshot.": "<g1>Asegurar que el servicio de nullifier tenga la base de datos PIR de la instantánea.</g1> El organizador de la encuesta se coordina con cada operador del servicio de nullifier (véase [Nullifier Service Operator]) para que sus procesos de ingesta y exportación (véase [Nullifier Service]) se hayan ejecutado hasta la altura elegida antes de que la ronda abra, de modo que las billeteras puedan consultar pruebas de exclusión contra esa instantánea.",
+  "<g1>Use the values during chain bootstrap.</g1> <x2/> and <x3/> are passed into the genesis state (see [Genesis Validator Setup]) and into the voting round initialization transaction (see [Poll Creation]) so that on-chain verifiers and wallet clients use them as ZKP public inputs.": "<g1>Usar los valores durante el arranque de la cadena.</g1> <x2/> y <x3/> se pasan al estado génesis (véase [Genesis Validator Setup]) y a la transacción de inicialización de la ronda de votación (véase [Poll Creation]) para que los verificadores de la cadena y los clientes de billetera los usen como entradas públicas de los ZKP.",
+  "<x1/>Poll Creation": "<x1/>Creación de la encuesta",
+  "The vote manager initializes the chain's voting round by submitting a transaction carrying the client-supplied subset of the <x1/> structure specified in <x2/> <g3><g4>9</g4></g3>. The vote manager supplies <x5/>, <x6/>, <x7/>, <x8/>, <x9/>, <x10/>, <x11/>, <x12/>, and <x13/>; the transaction's signer becomes the <x14/> field of the resulting <x15/>. The chain derives the remaining fields (<x16/>, <x17/>, <x18/>, <x19/>) at inclusion or during the round lifecycle.": "El administrador de votación inicializa la ronda de votación de la cadena enviando una transacción que lleva el subconjunto provisto por el cliente de la estructura <x1/> especificada en <x2/> <g3><g4>9</g4></g3>. El administrador de votación provee <x5/>, <x6/>, <x7/>, <x8/>, <x9/>, <x10/>, <x11/>, <x12/> y <x13/>; el firmante de la transacción se convierte en el campo <x14/> del <x15/> resultante. La cadena deriva los campos restantes (<x16/>, <x17/>, <x18/>, <x19/>) al incluir la transacción o durante el ciclo de vida de la ronda.",
+  "The chain rejects the transaction if the signer is not the current vote manager, or if the <x1/> field violates the constraints in [Proposals and Decisions].": "La cadena rechaza la transacción si el firmante no es el administrador de votación actual, o si el campo <x1/> viola las restricciones en [Proposals and Decisions].",
+  "The vote chain derives the 32-byte <x1/> from the transaction fields after inclusion, using the Poseidon construction specified in the \"Voting Round Identifier\" section of <x2/> <g3><g4>10</g4></g3>. The result is a Pallas field element so that the round ID can enter ZKP circuits as a public input.": "La cadena de votación deriva el <x1/> de 32 bytes a partir de los campos de la transacción después de su inclusión, usando la construcción Poseidon especificada en la sección \"Voting Round Identifier\" de <x2/> <g3><g4>10</g4></g3>. El resultado es un elemento de campo de Pallas para que el identificador de la ronda pueda entrar a los circuitos ZKP como entrada pública.",
+  "The round enters the <g1>PENDING</g1> state. The EA key ceremony (see <x2/> <g3><g4>4</g4></g3>) runs automatically. On successful completion, the round transitions to <g5>ACTIVE</g5>, the voting window opens, and the transition timestamp is recorded as <x6/>. Clients use <x7/> together with <x8/> to compute the last-moment buffer for submission timing, as specified in the \"Last-Moment Buffer\" section of <x9/> <g10><g11>11</g11></g10>.": "La ronda entra en el estado <g1>PENDING</g1>. La ceremonia de claves EA (véase <x2/> <g3><g4>4</g4></g3>) se ejecuta automáticamente. Tras completarse con éxito, la ronda transiciona a <g5>ACTIVE</g5>, la ventana de votación se abre y la marca de tiempo de la transición se registra como <x6/>. Los clientes usan <x7/> junto con <x8/> para calcular el amortiguador de último momento para el momento de envío, como se especifica en la sección \"Last-Moment Buffer\" de <x9/> <g10><g11>11</g11></g10>.",
+  "<x1/>Round Lifecycle": "<x1/>Ciclo de vida de la ronda",
+  "<g1>PENDING</g1>: round created, awaiting EA key ceremony.": "<g1>PENDING</g1>: ronda creada, en espera de la ceremonia de claves EA.",
+  "<g1>ACTIVE</g1>: ceremony complete, voting window open. Voters may delegate, vote, and submit shares (see <x2/> <g3><g4>7</g4></g3>).": "<g1>ACTIVE</g1>: ceremonia completada, ventana de votación abierta. Los votantes pueden delegar, votar y enviar participaciones (véase <x2/> <g3><g4>7</g4></g3>).",
+  "<g1>TALLYING</g1>: <x2/> has passed. Validators submit partial decryptions, the chain combines them, and tally decryption runs automatically (see <x3/> <g4><g5>4</g5></g4>). The chain enforces a bounded timeout on the TALLYING state: if a tally is not submitted within this timeout, the round auto-finalizes with no tally, preserving liveness.": "<g1>TALLYING</g1>: <x2/> ha pasado. Los validadores envían descifrados parciales, la cadena los combina y el descifrado del escrutinio se ejecuta automáticamente (véase <x3/> <g4><g5>4</g5></g4>). La cadena impone un tiempo límite acotado al estado TALLYING: si no se envía un escrutinio dentro de este tiempo límite, la ronda se finaliza automáticamente sin escrutinio, preservando la vivacidad.",
+  "<g1>FINALIZED</g1>: tally published and verifiable. A round that auto-finalized due to a TALLYING timeout publishes no tally.": "<g1>FINALIZED</g1>: escrutinio publicado y verificable. Una ronda que se finalizó automáticamente debido a un tiempo límite de TALLYING no publica escrutinio.",
+  "<x1/>Coinholder Participation": "<x1/>Participación de los tenedores de monedas",
+  "For a Zcash coinholder to participate in a voting round, they must satisfy an eligibility precondition and follow a wallet- driven participation flow. The protocol details for each step are specified in companion ZIPs; this section ties them together from the coinholder's perspective.": "Para que un tenedor de monedas de Zcash participe en una ronda de votación, debe satisfacer un requisito previo de elegibilidad y seguir un flujo de participación impulsado por la billetera. Los detalles del protocolo para cada paso se especifican en ZIPs complementarios; esta sección los vincula desde la perspectiva del tenedor de monedas.",
+  "<x1/>Eligibility": "<x1/>Elegibilidad",
+  "Voting weight derives from the value held in a coinholder's Orchard notes at the round's snapshot height (see [Snapshot Configuration]). Funds held in Sapling or transparent pools at the snapshot height carry no voting weight; coinholders who wish to participate with such funds MUST migrate them to Orchard before the snapshot height.": "El peso de votación se deriva del valor mantenido en las notas de Orchard de un tenedor de monedas en la altura de instantánea de la ronda (véase [Snapshot Configuration]). Los fondos mantenidos en pools de Sapling o transparentes en la altura de instantánea no conllevan peso de votación; los tenedores de monedas que deseen participar con tales fondos DEBEN (MUST) migrarlos a Orchard antes de la altura de instantánea.",
+  "<x1/>Wallet Setup": "<x1/>Configuración de la billetera",
+  "A wallet client obtains the vote configuration document for the round (see [Vote Configuration Publication]), which lists the vote chain endpoints, the nullifier service endpoints, and the protocol versions in use. The configuration document schema and the wallet-side validation rules are specified in <x1/> <g2><g3>9</g3></g2>.": "Un cliente de billetera obtiene el documento de configuración de votación para la ronda (véase [Vote Configuration Publication]), que enumera los puntos de conexión de la cadena de votación, los puntos de conexión del servicio de nullifier y las versiones del protocolo en uso. El esquema del documento de configuración y las reglas de validación del lado de la billetera se especifican en <x1/> <g2><g3>9</g3></g2>.",
+  "<x1/>Participation Flow": "<x1/>Flujo de participación",
+  "For each Orchard note the coinholder uses as voting weight, the wallet performs:": "Para cada nota de Orchard que el tenedor de monedas utiliza como peso de votación, la billetera realiza:",
+  "<g1>Retrieve a non-membership proof.</g1> Query a nullifier service endpoint to retrieve a Merkle non-membership proof for the note's alternate nullifier against the snapshot's <x2/>, as specified in <x3/> <g4><g5>6</g5></g4>.": "<g1>Recuperar una prueba de no pertenencia.</g1> Consultar un punto de conexión del servicio de nullifier para recuperar una prueba de no pertenencia Merkle para el nullifier alternativo de la nota contra el <x2/> de la instantánea, según lo especificado en <x3/> <g4><g5>6</g5></g4>.",
+  "<g1>Submit a delegation transaction.</g1> Construct a Delegation Proof asserting ownership of the eligible note without revealing which note it is, and submit the transaction to a vote chain endpoint listed in the vote configuration document. This produces a Vote Authority Note (VAN) on the vote commitment tree. The proof construction and the on-chain handling are specified in the Delegation Phase of <x2/> <g3><g4>7</g4></g3>.": "<g1>Enviar una transacción de delegación.</g1> Construir una Delegation Proof que afirme la propiedad de la nota elegible sin revelar cuál nota es, y enviar la transacción a un punto de conexión de la cadena de votación enumerado en el documento de configuración de votación. Esto produce una Vote Authority Note (VAN) en el árbol de compromisos de votación. La construcción de la prueba y el manejo en cadena se especifican en la Delegation Phase de <x2/> <g3><g4>7</g4></g3>.",
+  "For each proposal the coinholder votes on, the wallet performs:": "Para cada propuesta en la que vota el tenedor de monedas, la billetera realiza:",
+  "<g1>Submit a vote transaction.</g1> Construct a Vote Proof consuming the current VAN and producing a new VAN with the relevant proposal authority bit cleared, plus a Vote Commitment binding the chosen option, as specified in the Vote Phase of <x2/> <g3><g4>7</g4></g3>.": "<g1>Enviar una transacción de voto.</g1> Construir una Vote Proof que consuma la VAN actual y produzca una nueva VAN con el bit de autoridad de la propuesta correspondiente desactivado, más un Vote Commitment que vincule la opción elegida, según lo especificado en la Vote Phase de <x2/> <g3><g4>7</g4></g3>.",
+  "<g1>Submit encrypted vote shares.</g1> Send the share payloads to submission server endpoints, which queue them and submit share reveal transactions on the coinholder's behalf at client-specified times. Share decomposition, server selection, and the last-moment buffer rules are specified in <x2/> <g3><g4>3</g4></g3>.": "<g1>Enviar las participaciones de voto cifradas.</g1> Enviar las cargas útiles de las participaciones a los puntos de conexión de los servidores de envío, que las ponen en cola y envían transacciones de revelación de participaciones en nombre del tenedor de monedas en los momentos especificados por el cliente. La descomposición de las participaciones, la selección de servidores y las reglas del margen de último momento se especifican en <x2/> <g3><g4>3</g4></g3>.",
+  "After <x1/>, the coinholder may verify the final tally following [Verification and Auditing].": "Después de <x1/>, el tenedor de monedas puede verificar el escrutinio final siguiendo [Verification and Auditing].",
+  "<x1/>Verification and Auditing": "<x1/>Verificación y auditoría",
+  "The vote chain is publicly readable. Any party running a full node of the chain — a validator, the vote manager, or an independent observer — can verify all aspects of a voting round by replaying chain state and applying the verification procedures defined in companion ZIPs.": "La cadena de votación es de lectura pública. Cualquier parte que ejecute un nodo completo de la cadena —un validador, el administrador de la votación o un observador independiente— puede verificar todos los aspectos de una ronda de votación reproduciendo el estado de la cadena y aplicando los procedimientos de verificación definidos en los ZIPs complementarios.",
+  "This section uses the following procedures imported by reference:": "Esta sección utiliza los siguientes procedimientos importados por referencia:",
+  "<g1>Out-of-Circuit Verification of the Claim proof</g1> in <x2/> <g3><g4>5</g4></g3> — the abstract balance-proof primitive on which the Delegation Proof is built.": "<g1>Out-of-Circuit Verification of the Claim proof</g1> en <x2/> <g3><g4>5</g4></g3> — la primitiva abstracta de prueba de saldo sobre la cual se construye la Delegation Proof.",
+  "<g1>Out-of-Circuit Verification of the Delegation Proof, the Vote Proof, and the Vote Reveal Proof</g1> in <x2/> <g3><g4>7</g4></g3>.": "<g1>Out-of-Circuit Verification of the Delegation Proof, the Vote Proof, and the Vote Reveal Proof</g1> en <x2/> <g3><g4>7</g4></g3>.",
+  "<g1>Authentication Path</g1> verification and the exclusion-range check for the nullifier non-membership tree, in <x2/> <g3><g4>6</g4></g3>.": "Verificación de <g1>Authentication Path</g1> y la comprobación de rango de exclusión para el árbol de no pertenencia de nullifiers, en <x2/> <g3><g4>6</g4></g3>.",
+  "<g1>Proof Verification</g1> (DLEQ verification of partial decryptions) and the <g2>Tally</g2> procedure (Lagrange combination and plaintext recovery), in <x3/> <g4><g5>4</g5></g4>.": "<g1>Proof Verification</g1> (verificación DLEQ de los descifrados parciales) y el procedimiento <g2>Tally</g2> (combinación de Lagrange y recuperación de texto plano), en <x3/> <g4><g5>4</g5></g4>.",
+  "A full-node operator combines these procedures to verify a voting round across three layers:": "Un operador de nodo completo combina estos procedimientos para verificar una ronda de votación a través de tres capas:",
+  "<g1>Per-transaction zero-knowledge proof verification.</g1> Each delegation, vote, and share reveal transaction carries a Halo 2 proof that is checked at inclusion against the Out-of-Circuit Verification rules in <x2/>. Those rules apply the Claim proof verification from the balance proof ZIP and the Authentication Path / exclusion-range checks from the PIR ZIP transitively, so a single proof verification enforces the structural correctness of all three layers at once.": "<g1>Verificación de pruebas de conocimiento cero por transacción.</g1> Cada transacción de delegación, voto y revelación de participación lleva una prueba de Halo 2 que se comprueba al momento de la inclusión contra las reglas de Out-of-Circuit Verification en <x2/>. Esas reglas aplican la verificación de la Claim proof del ZIP de prueba de saldo y las comprobaciones de Authentication Path / rango de exclusión del ZIP de PIR de manera transitiva, de modo que una sola verificación de prueba garantiza la corrección estructural de las tres capas a la vez.",
+  "<g1>Nullifier set integrity.</g1> The chain maintains three nullifier sets — governance nullifiers (from delegation), VAN nullifiers (from voting), and share nullifiers (from share reveals) — and rejects any transaction that would re-use a previously published nullifier. A full-node operator confirms set integrity by replaying every accepted transaction and checking that no nullifier appears twice.": "<g1>Integridad del conjunto de nullifiers.</g1> La cadena mantiene tres conjuntos de nullifiers —nullifiers de gobernanza (de las delegaciones), nullifiers de VAN (de los votos) y nullifiers de participación (de las revelaciones de participaciones)— y rechaza cualquier transacción que reutilice un nullifier publicado previamente. Un operador de nodo completo confirma la integridad del conjunto reproduciendo cada transacción aceptada y comprobando que ningún nullifier aparezca dos veces.",
+  "<g1>Tally correctness.</g1> A full-node operator re-aggregates the encrypted share ciphertexts per (<x2/>, <x3/>) from the on-chain share reveal transactions, applies the DLEQ Proof Verification to each stored partial decryption, re-derives the Lagrange combination, and confirms the decrypted aggregate following the Tally procedure in <x4/>.": "<g1>Corrección del escrutinio.</g1> Un operador de nodo completo vuelve a agregar los textos cifrados de participaciones cifradas por (<x2/>, <x3/>) a partir de las transacciones de revelación de participaciones en cadena, aplica la DLEQ Proof Verification a cada descifrado parcial almacenado, vuelve a derivar la combinación de Lagrange y confirma el agregado descifrado siguiendo el procedimiento Tally en <x4/>.",
+  "Because every input to verification — proofs, nullifiers, ciphertexts, and partial decryptions — is stored on the public vote chain, no full-node operator needs to trust any other participant. A round that auto-finalized due to a TALLYING timeout (see [Round Lifecycle]) verifies as having no tally; this is itself a verifiable property of the chain state.": "Dado que toda entrada de la verificación —pruebas, nullifiers, textos cifrados y descifrados parciales— se almacena en la cadena de votación pública, ningún operador de nodo completo necesita confiar en ningún otro participante. Una ronda que se autofinalizó debido a un tiempo de espera de TALLYING (véase [Round Lifecycle]) se verifica como sin escrutinio; esto es en sí mismo una propiedad verificable del estado de la cadena.",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "<g1>Separate vote chain (not Zcash mainnet)</g1>: the vote chain is purpose-built for governance with ZKP-optimized state transitions (Poseidon hashing, custom transaction types). Zcash mainnet's transaction throughput and scripting model are not designed for interactive multi-phase voting protocols.": "<g1>Cadena de votación separada (no la mainnet de Zcash)</g1>: la cadena de votación está construida a propósito para la gobernanza con transiciones de estado optimizadas para ZKP (hash de Poseidon, tipos de transacción personalizados). El rendimiento de transacciones y el modelo de scripting de la mainnet de Zcash no están diseñados para protocolos de votación interactivos multifase.",
+  "<g1>Orchard-only snapshots</g1>: the voting protocol is built on Orchard's circuit-friendly primitives (Poseidon hashing, Pallas curve). Sapling and transparent pools use incompatible cryptographic constructions. The corresponding requirement on coinholders is stated in [Eligibility].": "<g1>Instantáneas solo de Orchard</g1>: el protocolo de votación está construido sobre los primitivos aptos para circuitos de Orchard (hash de Poseidon, curva Pallas). Los conjuntos de Sapling y los transparentes usan construcciones criptográficas incompatibles. El requisito correspondiente sobre los tenedores de monedas se enuncia en [Eligibility].",
+  "<g1>Cosmos SDK</g1>: provides a mature BFT consensus engine (CometBFT), validator lifecycle management (bonding, jailing for missed blocks or missed ceremony acknowledgements, consensus power distribution), and a transaction pipeline that can be extended with custom message types and ante handlers for ZKP verification. The alternative — building a chain from scratch — would duplicate well-tested consensus infrastructure.": "<g1>Cosmos SDK</g1>: proporciona un motor de consenso BFT maduro (CometBFT), gestión del ciclo de vida de los validadores (vinculación, encarcelamiento por bloques perdidos o acuses de recibo de ceremonia perdidos, distribución del poder de consenso) y una canalización de transacciones que puede extenderse con tipos de mensaje personalizados y manejadores ante para la verificación de ZKP. La alternativa —construir una cadena desde cero— duplicaría infraestructura de consenso bien probada.",
+  "<g1>Funding equals voting power</g1>: bonding serves three purposes: it determines which validators participate in consensus and the EA key ceremony (and thus can decrypt the tally), it enables jailing of inactive validators who miss blocks or ceremony acknowledgements, and an even funding split gives each validator a roughly equal probability of becoming the block proposer — not important for correctness, but important for liveness.": "<g1>La financiación equivale al poder de votación</g1>: la vinculación sirve para tres propósitos: determina qué validadores participan en el consenso y en la ceremonia de claves de la EA (y por tanto pueden descifrar el escrutinio), permite encarcelar a los validadores inactivos que pierden bloques o acuses de recibo de ceremonia, y una distribución uniforme de la financiación da a cada validador una probabilidad aproximadamente igual de convertirse en el proponente del bloque —no es importante para la corrección, pero sí para la vivacidad.",
+  "<g1>Automated validator onboarding</g1>: <x2/> eliminates manual coordination between the bootstrap operator and joining validators. The self-registration, admin-approval, and auto-bonding flow allows the network to grow without requiring validators to build from source or understand Cosmos SDK tooling.": "<g1>Incorporación automatizada de validadores</g1>: <x2/> elimina la coordinación manual entre el operador de arranque y los validadores que se incorporan. El flujo de autorregistro, aprobación del administrador y vinculación automática permite que la red crezca sin exigir que los validadores compilen desde el código fuente o entiendan las herramientas del Cosmos SDK.",
+  "<g1>Vote manager reassignment</g1>: only the current vote manager can transfer the role (via <x2/>). This is a deliberate single-party control: the vote manager can create rounds but cannot forge votes, and the worst-case mitigation for a compromised vote manager is to spin up a new chain.": "<g1>Reasignación del gestor de votación</g1>: solo el gestor de votación actual puede transferir el rol (mediante <x2/>). Este es un control deliberado de una sola parte: el gestor de votación puede crear rondas pero no puede falsificar votos, y la mitigación en el peor de los casos para un gestor de votación comprometido es iniciar una nueva cadena.",
+  "<x1/>Reference implementation": "<x1/>Implementación de referencia",
+  "<g1><g2>12</g2></g1> — Cosmos SDK vote chain (<x3/>) implementing the chain-side state, ceremony, tally, and submission server.": "<g1><g2>12</g2></g1> — cadena de votación en Cosmos SDK (<x3/>) que implementa el estado de la cadena, la ceremonia, el escrutinio y el servidor de envío.",
+  "<g1><g2>13</g2></g1> — PIR server and client for privately retrieving nullifier non-membership proofs.": "<g1><g2>13</g2></g1> — servidor y cliente PIR para recuperar de forma privada pruebas de no pertenencia de nullifiers.",
+  "<x1/>Open Issues": "<x1/>Problemáticas abiertas",
+  "<g1>Role consolidation</g1>: evaluate whether the bootstrap operator and vote manager concepts (already the same keypair at genesis; see [Bootstrap Operator]) merit separate treatment in the specification.": "<g1>Consolidación de roles</g1>: evaluar si los conceptos de operador de arranque y gestor de votación (ya el mismo par de claves en la génesis; véase [Bootstrap Operator]) merecen un tratamiento separado en la especificación.",
+  "<g1>PIR client-server wire format</g1>: the query and response wire format used between wallet clients and the nullifier service (see [Nullifier Service]) is not currently specified in any ZIP. The PIR draft scopes its outer transport out of remit, and the wallet API ZIP describes only the endpoint URLs. A normative spec home is needed before wallet clients and nullifier service servers from independent implementations can interoperate.": "<g1>Formato de cable cliente-servidor de PIR</g1>: el formato de cable de consulta y respuesta usado entre los clientes de billetera y el servicio de nullifiers (véase [Nullifier Service]) no está actualmente especificado en ningún ZIP. El borrador de PIR excluye de su alcance el transporte exterior, y el ZIP de API de billetera describe solo las URL de los puntos de conexión. Se necesita un hogar normativo de especificación antes de que los clientes de billetera y los servidores del servicio de nullifiers de implementaciones independientes puedan interoperar.",
+  "<x1/>References": "<x1/>Referencias",
+  "<x1/>Footnotes": "<x1/>Notas al pie",
+  "<g1>Information on BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": "<g1>Información sobre BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" y \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>",
+  "<g1>Cosmos SDK <x2/> module documentation</g1> <g3>↩</g3>": "<g1>Documentación del módulo <x2/> del Cosmos SDK</g1> <g3>↩</g3>",
+  "<g1>Draft ZIP: Vote Share Submission Server</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7>": "<g1>Borrador de ZIP: Vote Share Submission Server</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7>",
+  "<g1>Draft ZIP: Election Authority Key Ceremony</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13>": "<g1>Borrador de ZIP: Election Authority Key Ceremony</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13>",
+  "<g1>Draft ZIP: Orchard Proof-of-Balance</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5>": "<g1>Borrador de ZIP: Orchard Proof-of-Balance</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5>",
+  "<g1>Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11>": "<g1>Borrador de ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11>",
+  "<g1>Draft ZIP: Zcash Shielded Voting Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13>": "<g1>Borrador de ZIP: Zcash Shielded Voting Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13>",
+  "<g1>ZIP 1016: Community and Coinholder Funding Model</g1> <g2>↩</g2>": "<g1>ZIP 1016: Community and Coinholder Funding Model</g1> <g2>↩</g2>",
+  "<g1>Draft ZIP: Shielded Voting Wallet API</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7>": "<g1>Borrador de ZIP: Shielded Voting Wallet API</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7>",
+  "<g1>Draft ZIP: Zcash Shielded Voting Protocol, Section: Voting Round Identifier</g1> <g2>↩</g2>": "<g1>Borrador de ZIP: Zcash Shielded Voting Protocol, Sección: Voting Round Identifier</g1> <g2>↩</g2>",
+  "<g1>Draft ZIP: Vote Share Submission Server, Section: Last-Moment Buffer</g1> <g2>↩</g2>": "<g1>Borrador de ZIP: Vote Share Submission Server, Sección: Last-Moment Buffer</g1> <g2>↩</g2>",
+  "<g1>valargroup/vote-sdk: Cosmos SDK vote chain for shielded voting</g1> <g2>↩</g2>": "<g1>valargroup/vote-sdk: cadena de votación del Cosmos SDK para votación blindada</g1> <g2>↩</g2>",
+  "<g1>valargroup/vote-nullifier-pir: PIR system for nullifier non-membership proofs</g1> <g2>↩</g2>": "<g1>valargroup/vote-nullifier-pir: sistema PIR para pruebas de no pertenencia de nullifier</g1> <g2>↩</g2>"
+ },
+ "reviews": {
+  "Zcash Shielded Coinholder Voting": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The key words \"MUST\" and \"MAY\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The terms below are to be interpreted as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Vote chain": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The blockchain that serves as the single source of truth for voting operations. See [System Overview] for the state it maintains.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Voting round": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A complete instance of a coinholder vote, scoped to a single Zcash mainnet snapshot and a fresh Election Authority key.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Vote round ID": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A unique identifier for a voting round. See [Poll Creation] for the computation.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Poll runner": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The entity responsible for conducting a voting round.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Vote manager": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The on-chain role authorized to create voting rounds.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Bootstrap operator": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The entity that provisions the vote chain genesis and initial validator set.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Validator": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A vote chain consensus participant. See [Validator] under Roles for responsibilities and keypair details.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Nullifier service operator": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The entity that runs the nullifier exclusion PIR server. See [Nullifier Service Operator] under Roles for responsibilities.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Bonded validator": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A validator whose stake is active under the standard Cosmos SDK <x1/> module <g2><g3>2</g3></g2>: its delegation is committed, it participates in consensus, and it is eligible to produce blocks.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Submission server": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An untrusted service that accepts encrypted vote share payloads from voters and submits the corresponding share reveal transactions to the vote chain. Specified in <x1/> <g2><g3>3</g3></g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Election Authority (EA)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A virtual signing key, jointly constructed by validators during a key ceremony so that no single party holds the private key. Used to encrypt vote shares and decrypt the final tally. See <x1/> <g2><g3>4</g3></g2> for the ceremony protocol.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Snapshot height": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The Zcash mainnet block height at which eligible Orchard note balances are captured. See [Snapshot Configuration] for constraints.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For definitions of cryptographic terms including <g1>alternate nullifier</g1>, <g2>nullifier non-membership tree</g2>, <g3>nullifier domain</g3>, <g4>pool snapshot</g4>, and <g5>claim</g5>, see the Orchard Proof-of-Balance ZIP <g6><g7>5</g7></g6>. For EA key ceremony terms, see <x8/> <g9><g10>4</g10></g9>. For PIR-related terms, see <x11/> <g12><g13>6</g13></g12>.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word 'pool' is left in English although it is not a glossary 'keep' term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Para las definiciones de términos criptográficos, incluidos <g1>nullifier alterno</g1>, <g2>árbol de no pertenencia de nullifiers</g2>, <g3>dominio de nullifiers</g3>, <g4>instantánea de pool</g4> y <g5>reclamo</g5>, véase el ZIP de Orchard Proof-of-Balance <g6><g7>5</g7></g6>. Para los términos de la ceremonia de claves de la EA, véase <x8/> <g9><g10>4</g10></g9>. Para los términos relacionados con PIR, véase <x11/> <g12><g13>6</g13></g12>."
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP specifies how to operate the infrastructure for Zcash shielded coinholder voting. It defines a purpose-built vote chain built on Cosmos SDK, three operator roles (bootstrap operator, vote manager, validator), and the lifecycle of a voting round from snapshot selection through tally verification.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote chain stores vote commitments in a Poseidon Merkle tree, tracks three nullifier sets to prevent double-voting, and accumulates encrypted vote shares as homomorphic El Gamal ciphertexts. Each transaction (delegation, vote, share reveal) is verified by a zero-knowledge proof on-chain. Validators join through an automated onboarding script that handles binary distribution, key generation, and on-chain registration. A separate nullifier service provides private information retrieval of exclusion proofs so voters can prove note non-spending without revealing which notes they hold.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Tally correctness is independently verifiable: validators submit partial decryptions which are Lagrange-combined on-chain. Any party with access to the chain state can re-derive the combination from the stored partials and confirm the decrypted result.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The Zcash Shielded Voting Protocol <g1><g2>7</g2></g1> defines a cryptographic protocol for private coinholder voting. This ZIP specifies the deployment infrastructure required to run that protocol: the vote chain, operator roles, and voting round lifecycle.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Privacy Implications": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Zero-knowledge proofs and encryption hide the contents of delegations, votes, and share reveals, but not the network-layer metadata associated with their submission. A vote chain validator sees the source IP, submission timestamp, connection correlation, and P2P propagation pattern of every transaction it receives.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "PIR queries against the nullifier service are private in content but not in timing: a nullifier service operator sees the source IP and time of each query, which reveals that a given client is participating in the current voting round.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote chain is a public ledger. Transaction contents are encrypted or zero-knowledge-proven, but their existence, ordering, and block-inclusion timing are a permanent public record.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Bootstrap operators learn the network identities of validators during onboarding (see [Onboarding Validators]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Validator power distribution affects the trust model for the EA key ceremony. See <x1/> <g2><g3>4</g3></g2> for EA-specific privacy implications.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A new poll runner can set up infrastructure and conduct a voting round by following this specification and the referenced companion ZIPs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A Zcash coinholder with eligible Orchard funds at the round's snapshot height can participate in the voting round using a conforming wallet client.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote chain operates as a public, verifiable ledger — anyone can run a monitoring node to audit.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The system operates with partial validator availability.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Non-requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Governance policy decisions such as proposal eligibility, quorum requirements, and fund disbursement rules (see ZIP 1016 <g1><g2>8</g2></g1>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Proposals and Decisions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The voting process specified by this ZIP allows a poll runner to put one or more questions — <g1>proposals</g1> — to eligible voters. For each proposal, voters choose exactly one of a predefined set of labeled <g2>options</g2>; the chosen option is the voter's <g3>decision</g3> for that proposal.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Structure of a proposal": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Each proposal has:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A <g1>title</g1>, short and human-readable.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An optional <g1>description</g1> providing additional context.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Between 2 and 8 <g1>options</g1>, each carrying a human-readable label. Option labels MUST be non-empty ASCII strings.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Proposals in a voting round are assigned 1-indexed sequential identifiers; options within a proposal are assigned 0-indexed sequential indices.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Decisions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A <g1>decision</g1> is a voter's chosen option for a specific proposal, represented as the option's 0-indexed position within that proposal's option list. Decisions are recorded in the encrypted share accumulator, keyed by <x2/>; see <x3/> <g4><g5>7</g5></g4> for the cryptographic construction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Kinds of polls that can be expressed": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A voting round can carry <g1>1 to 15 independent proposals</g1>, and each proposal can offer <g2>2 to 8 labeled options</g2>. This is sufficient for:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Yes/no questions (\"Approve proposal X?\" with options Yes / No).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Multiple-choice preference questions (for example, choosing among named candidates or funding tiers).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Rating-style questions using a fixed option ladder.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The following ballot shapes are out of scope for this specification:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Free-form write-in answers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Ranked-choice or weighted-ranking ballots.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "More than 15 proposals in a single voting round, or more than 8 options in a single proposal.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The 15-proposal upper bound is imposed by the zero-knowledge vote authority bitmask (1 bit is reserved as a sentinel). Polls requiring more proposals or richer ballot structures are split across multiple rounds or expressed through an external layer.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>System Overview": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The coinholder voting system operates on a purpose-built Cosmos SDK vote chain. Zcash mainnet snapshots provide the set of eligible Orchard note balances.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The English word \"purpose-built\" is left untranslated in the Spanish text."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "El sistema de votación de tenedores de monedas opera sobre una cadena de votación purpose-built construida con el SDK de Cosmos. Las instantáneas de la mainnet de Zcash proporcionan el conjunto de saldos elegibles de notas de Orchard."
+  },
+  "The vote chain stores:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A <g1>Vote Commitment Tree</g1> (VCT): a Poseidon Merkle tree of vote commitments.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Three <g1>nullifier sets</g1>: governance nullifiers (alternate nullifiers from note claims), VAN nullifiers (from delegation consumption), and share nullifiers (from share reveals).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An <g1>encrypted share accumulator</g1> per (proposal, decision): the homomorphic sum of El Gamal ciphertexts for each vote option.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote chain verifies a zero-knowledge proof for each transaction type: delegation, vote, and share reveal. The proof circuits are specified in <x1/> <g2><g3>7</g3></g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Deployment Architecture": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A complete deployment consists of:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Vote chain nodes</g1> — one or more <x2/> instances running CometBFT consensus. Each <x3/> binary additionally includes the <g4>submission server</g4> (an untrusted service that accepts vote share payloads from clients and submits the corresponding share reveal transactions at client-specified times). The submission server shares the node's process but is functionally decoupled from chain consensus; see <x5/> <g6><g7>3</g7></g6>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Nullifier service</g1> — a PIR server that provides private nullifier exclusion proofs to voters (see [Nullifier Service]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Vote configuration document</g1> — a per-round document published by the vote manager that lists the network endpoints of the vote chain nodes and nullifier service operators participating in the round. The document format and distribution rules are specified in <x2/> <g3><g4>9</g4></g3>; see also [Vote Configuration Publication].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Roles": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Bootstrap Operator": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The bootstrap operator generates the vote chain genesis block and provisions the initial validator set. At genesis, a single vote manager account is created with a balance of the chain's native token (denom <x1/>) sized to fund all planned validators. From that account the bootstrap operator funds each validator via <x2/>, a transfer message gated by the vote chain's ante handler: the vote manager MAY send to any address, and bonded validators MAY send to the vote manager or to other bonded validators; all other transfers — including the standard Cosmos bank <x3/> and <x4/> messages — are rejected.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The key word MAY does not agree with its plural subject: 'los validadores ... PUEDE (MAY)' must be 'PUEDEN (MAY)'."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "El operador de arranque genera el bloque génesis de la cadena de votación y provee el conjunto inicial de validadores. En el génesis, se crea una única cuenta de administrador de votación con un saldo del token nativo de la cadena (denom <x1/>) dimensionado para financiar a todos los validadores planificados. Desde esa cuenta, el operador de arranque financia a cada validador mediante <x2/>, un mensaje de transferencia controlado por el ante handler de la cadena de votación: el administrador de votación PUEDE (MAY) enviar a cualquier dirección, y los validadores con delegación PUEDE (MAY) enviar al administrador de votación o a otros validadores con delegación; todas las demás transferencias —incluidos los mensajes estándar <x3/> y <x4/> del módulo bank de Cosmos— son rechazadas."
+  },
+  "The amount transferred to each validator at bonding time determines their consensus voting power. An even distribution across validators reduces the risk of consensus capture. The bootstrap operator's activities are confined to genesis. The keypair that controls the genesis <x1/> address continues afterwards as the initial vote manager (see [Vote Manager]), and MAY transfer that role via <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Vote Manager": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote manager is the only account authorized to initialize the chain's voting round (see [Poll Creation]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote manager address is set in the genesis block (see [Genesis Validator Setup]). The current vote manager MAY transfer the role to another address via <x1/>; the transfer is atomic and moves the full account balance to the new address. No other account can claim or reassign the role.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Validator": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Validators participate in consensus, the EA key ceremony (see <x1/> <g2><g3>4</g3></g2>), and automatic tally computation. Each validator maintains three keypairs:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Consensus keypair</g1>: used for CometBFT consensus.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Account keypair</g1>: used for submitting chain transactions.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Pallas keypair</g1>: used for ECIES key exchange during the EA ceremony.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Validators join the network by following the flow described in [Onboarding Validators].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Each validator additionally runs the submission server bundled into the <x1/> binary, which receives encrypted vote share payloads from voters and submits the corresponding share reveal transactions on their behalf. See <x2/> <g3><g4>3</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Nullifier Service Operator": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A nullifier service operator runs the nullifier exclusion PIR server that wallet clients query to obtain Merkle non-membership proofs for the Zcash mainnet nullifier set at the snapshot height. The PIR server is a separate binary, distributed independently of the vote chain node, with its own ingest pipeline and HTTP query endpoint. Specified in <x1/> <g2><g3>6</g3></g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Vote Chain Infrastructure": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Genesis Validator Setup": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The bootstrap operator obtains the vote chain binary <x1/> either from a published release of the reference implementation (see [Reference implementation]) or by building from source, and initializes a new single-validator chain for the voting round.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Initialization proceeds as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Choose a chain identifier.</g1> Each voting round uses its own chain identifier so that transactions signed for one round cannot be misinterpreted by software configured for another round.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Generate the bootstrap operator's keypairs.</g1> Generate a CometBFT consensus keypair, a Cosmos account keypair, and a Pallas keypair (see [Validator] for the role of each).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Construct the genesis block.</g1> Populate the genesis state with:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The chain identifier from step 1.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote manager singleton, set to an address controlled by the bootstrap operator (see [Bootstrap Operator]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An initial balance for the vote manager account, in the chain's native token (<x1/>), sized to fund the planned validator set via subsequent authorized transfers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A minimum ceremony validator count required before the EA key ceremony can proceed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The bootstrap operator's own validator entry, bonded with consensus voting power and with its Pallas public key registered.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The standard Cosmos SDK module states (auth, bank, staking) as required by the Cosmos SDK runtime.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Start the node.</g1> Starting <x2/> begins block production and the chain transitions out of the genesis state.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The final full stop of the sentence is missing."
+   ],
+   "model": "glm-5.3-flash"
+  },
+  "The genesis state does not pre-populate voting rounds, nullifier sets, tally results, or PIR data; these are all populated through subsequent on-chain transactions during the voting round.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "After the chain is producing blocks, the bootstrap operator publishes the initial vote configuration document listing the genesis node's public URL, so that joining validators and wallet clients can find the network. See [Vote Configuration Publication].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Onboarding Validators": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A new validator joins the vote chain by following these steps:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Acquire the vote chain binary.</g1> Obtain <x2/> either from a published release of the reference implementation (see [Reference implementation]) or by building from source. Binary releases MUST be verified against a published checksum before use.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Discover the network and initialize.</g1> Read the vote configuration document for the target poll (see [Vote Configuration Publication]) to find at least one active validator. Fetch the chain's genesis block from that validator and initialize a local node directory.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Generate keypairs.</g1> Generate the validator's consensus keypair, account keypair, and Pallas keypair (see [Validator]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Sync the chain.</g1> Start the node, connect to the active validators listed in the vote configuration document via CometBFT peer-exchange, and sync to the current height.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Register in the vote configuration document.</g1> Propose an update to the document adding the new validator's public URL.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Wait for funding.</g1> The vote manager reviews the proposed update, applies it, and funds the new validator's account via an authorized transfer (see [Bootstrap Operator] for the funding mechanism).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Register on-chain.</g1> Once funds are received, submit the validator registration transaction that wraps a standard Cosmos staking validator creation message together with the validator's Pallas public key, atomically binding the key to the new validator.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The amount transferred at step 6 determines the new validator's consensus voting power. The vote chain rejects raw Cosmos staking validator creation messages: every validator MUST be registered through the wrapped form so that a Pallas public key is bound at creation time. A validator without a registered Pallas key is bonded for consensus but cannot participate in the EA ceremony (see [Validator]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The reference implementation (see [Reference implementation]) includes an automated <x1/> script that performs the above steps. The script is parameterized by the vote configuration document URL; the same script is used for any poll and is not specialized per poll.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Nullifier Service": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The nullifier service is an external service that lets voters privately verify that their Orchard nullifiers are absent from the Zcash mainnet nullifier set at the snapshot height, using private information retrieval. A voter's PIR query reveals neither which nullifier is being checked nor the answer to any observer of the network.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The service is run by a nullifier service operator (see [Nullifier Service Operator]) using the implementation referenced in [Reference implementation]. The PIR construction and database layout are specified in <x1/> <g2><g3>6</g3></g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The service operates as a three-stage pipeline:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Ingest</g1>: fetch the Zcash mainnet nullifier set up to the chosen snapshot height from a Zcash node and persist it to local storage.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Export</g1>: build the nullifier non-membership tree (an Indexed Merkle Tree as specified in <x2/> <g3><g4>5</g4></g3>) and export the PIR database tiers as specified in <x5/> <g6><g7>6</g7></g6>. The exported files allow the server to restart without rebuilding the tree from raw nullifiers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Serve</g1>: accept PIR queries from voters and return encrypted responses over HTTP. The operator publishes the service URL by adding it to the vote configuration document (see [Vote Configuration Publication]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The PIR client-server query and response wire format is not yet specified in any normative document. See [Open Issues].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Vote Configuration Publication": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote manager publishes a vote configuration document for the chain's voting round, in the format and via the publication channel described in <x1/> <g2><g3>9</g3></g2>. Wallets and joining validators fetch the document from that channel; the vote chain itself does not provide a service-discovery endpoint.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"endpoint\" is mistranslated as \"punto de entrada\", which conflicts with \"entry point\" elsewhere; it should be \"punto final\"."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "El administrador de votación publica un documento de configuración de votación para la ronda de votación de la cadena, en el formato y mediante el canal de publicación descritos en <x1/> <g2><g3>9</g3></g2>. Las billeteras y los validadores que se incorporan obtienen el documento de ese canal; la cadena de votación en sí no proporciona un punto de entrada para el descubrimiento de servicios."
+  },
+  "The vote manager publishes the initial document once the genesis validator is producing blocks. New validators and nullifier service operators are added by proposing updates to the document, which the vote manager reviews and applies; for validators this proposal is automated by the join.sh flow described in [Onboarding Validators], while nullifier service operators propose their entries directly. The document is incremental — new entries are added without removing earlier ones — and any active entry can serve as an entry point for new joiners; there is no distinguished seed node.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Each voting round runs on its own vote chain with its own publication channel. The vote manager announces the channel URL out-of-band before the round opens, so that wallet implementers can configure their wallets to fetch from it — either as a bundled default or as a user-supplied setting. There is no automated cross-poll discovery; a new poll requires the vote manager to communicate the new channel to wallets and end users through whatever distribution path they choose.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"cross-poll discovery\" is mistranslated as discovery of crossed polls; it means discovery between polls."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Cada ronda de votación se ejecuta en su propia cadena de votación con su propio canal de publicación. El administrador de votación anuncia la URL del canal por medios externos antes de que la ronda abra, de modo que los implementadores de billeteras puedan configurar sus billeteras para obtener el documento de ella — ya sea como un valor predeterminado incluido o como un ajuste provisto por el usuario. No hay un descubrimiento automatizado de encuestas cruzadas; una nueva encuesta requiere que el administrador de votación comunique el nuevo canal a las billeteras y a los usuarios finales por la ruta de distribución que elija."
+  },
+  "<x1/>Conducting a Voting Round": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Snapshot Configuration": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A voting round is anchored to a Zcash mainnet snapshot: a specific mainnet block height at which the eligible Orchard pool is captured. The poll runner chooses this snapshot height subject to the following constraint:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The height MUST be at or after NU5 activation, since the protocol requires Orchard.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Choosing the snapshot height is the start of round setup, not a single automatic action. The poll runner is responsible for the following coordinated activities:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Determine the snapshot's commitment values.</g1> Compute the Orchard note commitment tree root (<x2/>) and the nullifier non-membership Indexed Merkle Tree root (<x3/>) at the chosen height. These values are deterministic given the height; they are derived from Zcash mainnet state.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Ensure the nullifier service has the snapshot's PIR database.</g1> The poll runner coordinates with each nullifier service operator (see [Nullifier Service Operator]) so that their ingest and export pipelines (see [Nullifier Service]) have run to the chosen height before the round opens, so wallets can query exclusion proofs against that snapshot.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Use the values during chain bootstrap.</g1> <x2/> and <x3/> are passed into the genesis state (see [Genesis Validator Setup]) and into the voting round initialization transaction (see [Poll Creation]) so that on-chain verifiers and wallet clients use them as ZKP public inputs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Poll Creation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote manager initializes the chain's voting round by submitting a transaction carrying the client-supplied subset of the <x1/> structure specified in <x2/> <g3><g4>9</g4></g3>. The vote manager supplies <x5/>, <x6/>, <x7/>, <x8/>, <x9/>, <x10/>, <x11/>, <x12/>, and <x13/>; the transaction's signer becomes the <x14/> field of the resulting <x15/>. The chain derives the remaining fields (<x16/>, <x17/>, <x18/>, <x19/>) at inclusion or during the round lifecycle.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The chain rejects the transaction if the signer is not the current vote manager, or if the <x1/> field violates the constraints in [Proposals and Decisions].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote chain derives the 32-byte <x1/> from the transaction fields after inclusion, using the Poseidon construction specified in the \"Voting Round Identifier\" section of <x2/> <g3><g4>10</g4></g3>. The result is a Pallas field element so that the round ID can enter ZKP circuits as a public input.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The round enters the <g1>PENDING</g1> state. The EA key ceremony (see <x2/> <g3><g4>4</g4></g3>) runs automatically. On successful completion, the round transitions to <g5>ACTIVE</g5>, the voting window opens, and the transition timestamp is recorded as <x6/>. Clients use <x7/> together with <x8/> to compute the last-moment buffer for submission timing, as specified in the \"Last-Moment Buffer\" section of <x9/> <g10><g11>11</g11></g10>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Round Lifecycle": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>PENDING</g1>: round created, awaiting EA key ceremony.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>ACTIVE</g1>: ceremony complete, voting window open. Voters may delegate, vote, and submit shares (see <x2/> <g3><g4>7</g4></g3>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>TALLYING</g1>: <x2/> has passed. Validators submit partial decryptions, the chain combines them, and tally decryption runs automatically (see <x3/> <g4><g5>4</g5></g4>). The chain enforces a bounded timeout on the TALLYING state: if a tally is not submitted within this timeout, the round auto-finalizes with no tally, preserving liveness.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>FINALIZED</g1>: tally published and verifiable. A round that auto-finalized due to a TALLYING timeout publishes no tally.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Coinholder Participation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For a Zcash coinholder to participate in a voting round, they must satisfy an eligibility precondition and follow a wallet- driven participation flow. The protocol details for each step are specified in companion ZIPs; this section ties them together from the coinholder's perspective.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Eligibility": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Voting weight derives from the value held in a coinholder's Orchard notes at the round's snapshot height (see [Snapshot Configuration]). Funds held in Sapling or transparent pools at the snapshot height carry no voting weight; coinholders who wish to participate with such funds MUST migrate them to Orchard before the snapshot height.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Wallet Setup": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A wallet client obtains the vote configuration document for the round (see [Vote Configuration Publication]), which lists the vote chain endpoints, the nullifier service endpoints, and the protocol versions in use. The configuration document schema and the wallet-side validation rules are specified in <x1/> <g2><g3>9</g3></g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Participation Flow": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For each Orchard note the coinholder uses as voting weight, the wallet performs:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Retrieve a non-membership proof.</g1> Query a nullifier service endpoint to retrieve a Merkle non-membership proof for the note's alternate nullifier against the snapshot's <x2/>, as specified in <x3/> <g4><g5>6</g5></g4>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Submit a delegation transaction.</g1> Construct a Delegation Proof asserting ownership of the eligible note without revealing which note it is, and submit the transaction to a vote chain endpoint listed in the vote configuration document. This produces a Vote Authority Note (VAN) on the vote commitment tree. The proof construction and the on-chain handling are specified in the Delegation Phase of <x2/> <g3><g4>7</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For each proposal the coinholder votes on, the wallet performs:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Submit a vote transaction.</g1> Construct a Vote Proof consuming the current VAN and producing a new VAN with the relevant proposal authority bit cleared, plus a Vote Commitment binding the chosen option, as specified in the Vote Phase of <x2/> <g3><g4>7</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Submit encrypted vote shares.</g1> Send the share payloads to submission server endpoints, which queue them and submit share reveal transactions on the coinholder's behalf at client-specified times. Share decomposition, server selection, and the last-moment buffer rules are specified in <x2/> <g3><g4>3</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "After <x1/>, the coinholder may verify the final tally following [Verification and Auditing].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Verification and Auditing": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote chain is publicly readable. Any party running a full node of the chain — a validator, the vote manager, or an independent observer — can verify all aspects of a voting round by replaying chain state and applying the verification procedures defined in companion ZIPs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This section uses the following procedures imported by reference:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Out-of-Circuit Verification of the Claim proof</g1> in <x2/> <g3><g4>5</g4></g3> — the abstract balance-proof primitive on which the Delegation Proof is built.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Out-of-Circuit Verification of the Delegation Proof, the Vote Proof, and the Vote Reveal Proof</g1> in <x2/> <g3><g4>7</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Authentication Path</g1> verification and the exclusion-range check for the nullifier non-membership tree, in <x2/> <g3><g4>6</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Proof Verification</g1> (DLEQ verification of partial decryptions) and the <g2>Tally</g2> procedure (Lagrange combination and plaintext recovery), in <x3/> <g4><g5>4</g5></g4>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A full-node operator combines these procedures to verify a voting round across three layers:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Per-transaction zero-knowledge proof verification.</g1> Each delegation, vote, and share reveal transaction carries a Halo 2 proof that is checked at inclusion against the Out-of-Circuit Verification rules in <x2/>. Those rules apply the Claim proof verification from the balance proof ZIP and the Authentication Path / exclusion-range checks from the PIR ZIP transitively, so a single proof verification enforces the structural correctness of all three layers at once.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The verb 'enforces' is mistranslated as 'aplica', changing the meaning to 'applies' instead of 'guarantees'."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>Verificación de pruebas de conocimiento cero por transacción.</g1> Cada transacción de delegación, voto y revelación de participación lleva una prueba de Halo 2 que se comprueba al momento de la inclusión contra las reglas de Out-of-Circuit Verification en <x2/>. Esas reglas aplican la verificación de la Claim proof del ZIP de prueba de saldo y las comprobaciones de Authentication Path / rango de exclusión del ZIP de PIR de manera transitiva, de modo que una sola verificación de prueba aplica la corrección estructural de las tres capas a la vez."
+  },
+  "<g1>Nullifier set integrity.</g1> The chain maintains three nullifier sets — governance nullifiers (from delegation), VAN nullifiers (from voting), and share nullifiers (from share reveals) — and rejects any transaction that would re-use a previously published nullifier. A full-node operator confirms set integrity by replaying every accepted transaction and checking that no nullifier appears twice.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Tally correctness.</g1> A full-node operator re-aggregates the encrypted share ciphertexts per (<x2/>, <x3/>) from the on-chain share reveal transactions, applies the DLEQ Proof Verification to each stored partial decryption, re-derives the Lagrange combination, and confirms the decrypted aggregate following the Tally procedure in <x4/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Because every input to verification — proofs, nullifiers, ciphertexts, and partial decryptions — is stored on the public vote chain, no full-node operator needs to trust any other participant. A round that auto-finalized due to a TALLYING timeout (see [Round Lifecycle]) verifies as having no tally; this is itself a verifiable property of the chain state.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Separate vote chain (not Zcash mainnet)</g1>: the vote chain is purpose-built for governance with ZKP-optimized state transitions (Poseidon hashing, custom transaction types). Zcash mainnet's transaction throughput and scripting model are not designed for interactive multi-phase voting protocols.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Orchard-only snapshots</g1>: the voting protocol is built on Orchard's circuit-friendly primitives (Poseidon hashing, Pallas curve). Sapling and transparent pools use incompatible cryptographic constructions. The corresponding requirement on coinholders is stated in [Eligibility].": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"pools\" is left in English although it is not a glossary keep term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>Instantáneas solo de Orchard</g1>: el protocolo de votación está construido sobre los primitivos aptos para circuitos de Orchard (hash de Poseidon, curva Pallas). Los pools de Sapling y transparente usan construcciones criptográficas incompatibles. El requisito correspondiente sobre los tenedores de monedas se enuncia en [Eligibility]."
+  },
+  "<g1>Cosmos SDK</g1>: provides a mature BFT consensus engine (CometBFT), validator lifecycle management (bonding, jailing for missed blocks or missed ceremony acknowledgements, consensus power distribution), and a transaction pipeline that can be extended with custom message types and ante handlers for ZKP verification. The alternative — building a chain from scratch — would duplicate well-tested consensus infrastructure.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Funding equals voting power</g1>: bonding serves three purposes: it determines which validators participate in consensus and the EA key ceremony (and thus can decrypt the tally), it enables jailing of inactive validators who miss blocks or ceremony acknowledgements, and an even funding split gives each validator a roughly equal probability of becoming the block proposer — not important for correctness, but important for liveness.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Automated validator onboarding</g1>: <x2/> eliminates manual coordination between the bootstrap operator and joining validators. The self-registration, admin-approval, and auto-bonding flow allows the network to grow without requiring validators to build from source or understand Cosmos SDK tooling.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Vote manager reassignment</g1>: only the current vote manager can transfer the role (via <x2/>). This is a deliberate single-party control: the vote manager can create rounds but cannot forge votes, and the worst-case mitigation for a compromised vote manager is to spin up a new chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Reference implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1><g2>12</g2></g1> — Cosmos SDK vote chain (<x3/>) implementing the chain-side state, ceremony, tally, and submission server.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1><g2>13</g2></g1> — PIR server and client for privately retrieving nullifier non-membership proofs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Open Issues": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Role consolidation</g1>: evaluate whether the bootstrap operator and vote manager concepts (already the same keypair at genesis; see [Bootstrap Operator]) merit separate treatment in the specification.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>PIR client-server wire format</g1>: the query and response wire format used between wallet clients and the nullifier service (see [Nullifier Service]) is not currently specified in any ZIP. The PIR draft scopes its outer transport out of remit, and the wallet API ZIP describes only the endpoint URLs. A normative spec home is needed before wallet clients and nullifier service servers from independent implementations can interoperate.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word 'endpoints' is left in English although it is not a glossary keep term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>Formato de cable cliente-servidor de PIR</g1>: el formato de cable de consulta y respuesta usado entre los clientes de billetera y el servicio de nullifiers (véase [Nullifier Service]) no está actualmente especificado en ningún ZIP. El borrador de PIR excluye de su alcance el transporte exterior, y el ZIP de API de billetera describe solo las URL de los endpoints. Se necesita un hogar normativo de especificación antes de que los clientes de billetera y los servidores del servicio de nullifiers de implementaciones independientes puedan interoperar."
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Footnotes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Information on BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Cosmos SDK <x2/> module documentation</g1> <g3>↩</g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Vote Share Submission Server</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Election Authority Key Ceremony</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Orchard Proof-of-Balance</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Zcash Shielded Voting Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>ZIP 1016: Community and Coinholder Funding Model</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Shielded Voting Wallet API</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Zcash Shielded Voting Protocol, Section: Voting Round Identifier</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Vote Share Submission Server, Section: Last-Moment Buffer</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>valargroup/vote-sdk: Cosmos SDK vote chain for shielded voting</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>valargroup/vote-nullifier-pir: PIR system for nullifier non-membership proofs</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  }
+ }
+}

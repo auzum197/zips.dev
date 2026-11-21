@@ -1,0 +1,403 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)" y "PUEDE (MAY)" en este documento se interpretarán como se describe en el BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparezcan en mayúsculas.</p>
+<p>Los términos "dirección unificada" y "Receptor" se interpretan según lo definido en ZIP 316. <sup><a href="#user-content-fn-zip-0316" id="user-content-fnref-zip-0316" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<dl><dt>Envelopa</dt><dd>Un mensaje cifrado, con relleno a uno de tres tamaños.</dd><dt>Buzón</dt><dd>Una cola de Envelopas mantenida por un Servidor de Buzones bajo un ID de Buzón.</dd><dt>Conversación</dt><dd>El estado que dos billeteras comparten tras una primera Envelopa: un secreto del que derivan claves de Envelopa e IDs de Buzón.</dd><dt>Buzón de contacto, Buzón por pares</dt><dd>El Buzón derivado de un Receiver de Orchard, y uno derivado de una Conversación, una dirección y una época de una semana de duración.</dd><dt>Vinculación de enrutamiento</dt><dd>Una especificación de cómo las billeteras alcanzan los Servidores de Buzones, y opcionalmente entre sí, a través de una red de anonimato.</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP especifica un canal fuera de cadena entre billeteras de Zcash. Una billetera que posee la dirección unificada de otra billetera deposita una Envelopa cifrada en un Buzón, accediendo al Servidor de Buzones a través de una red de anonimato, y el destinatario la recupera más tarde. Ninguna de las dos billeteras revela su identidad de red a la otra ni al servidor.</p>
+<p>No se añade nada a la dirección unificada. El ID de Buzón y el Servidor de Buzones se derivan del Receiver de Orchard de la dirección, la Envelopa se cifra para ese Receiver mediante el acuerdo de claves de Orchard, y la recuperación requiere la clave de visualización de entrada. Toda primera Envelopa también inicia una Conversación, cuyos buzones rotan en cada época, de modo que un intercambio continuo no acumule metadatos bajo un solo identificador. El enrutamiento está separado del almacenamiento: los buzones se alcanzan a través de cualquier red de anonimato soportada, y las respuestas inmediatas también pueden ir directamente entre las billeteras. Se definen tipos de carga útil para acuses de recibo, texto, solicitudes de pago de ZIP 321 y PCZT.</p>
+<p>Cualquiera que posea la clave de visualización de entrada de Orchard del destinatario puede leer y recuperar sus Envelopas, y un Servidor de Buzones ve el volumen y la temporización de lo que recibe cada ID de Buzón. El Apéndice A esboza Vinculaciones de enrutamiento para la mixnet de Nym <sup><a href="#user-content-fn-nym" id="user-content-fnref-nym" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> y para Tor. <sup><a href="#user-content-fn-tor-rend" id="user-content-fnref-tor-rend" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Varios protocolos de billetera necesitan un canal directo entre billeteras, y cada billetera que desea uno actualmente construye el suyo propio:</p>
+<ul>
+<li>Los flujos de multifirma y de firmantes de hardware pasan PCZT <sup><a href="#user-content-fn-pczt" id="user-content-fnref-pczt" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> entre las partes.</li>
+<li>La firma FROST (ZIP 312 <sup><a href="#user-content-fn-zip-0312" id="user-content-fnref-zip-0312" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>) necesita un canal confidencial y autenticado que el ZIP 312 deja fuera de su alcance. Este ZIP provee confidencialidad y anonimato; una carga útil de FROST llevaría su propia autenticación.</li>
+<li>Las solicitudes de pago (ZIP 321 <sup><a href="#user-content-fn-zip-0321" id="user-content-fnref-zip-0321" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>) no tienen un transporte de billetera a billetera.</li>
+<li>Project Tachyon <sup><a href="#user-content-fn-tachyon" id="user-content-fnref-tachyon" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup> <sup><a href="#user-content-fn-tachyon-post" id="user-content-fnref-tachyon-post" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> propone eliminar la distribución de secretos dentro de la banda de las transacciones, lo que convierte un canal de entrega fuera de cadena en un requisito.</li>
+</ul>
+<p>Los memos en cadena son hoy el único canal estándar. Incluso sin su límite de tamaño (ZIP 231 <sup><a href="#user-content-fn-zip-0231" id="user-content-fnref-zip-0231" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>) cuestan comisiones, se almacenan para siempre y necesitan una confirmación de bloque por ronda. El ZIP 324 <sup><a href="#user-content-fn-zip-0324" id="user-content-fnref-zip-0324" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup> cubre el caso en que el remitente no tiene una dirección para el destinatario; este ZIP cubre el caso en que sí la tiene.</p>
+<p>La entrega fuera de banda a través de una mixnet, con un buzón para destinatarios desconectados, se ha propuesto antes. <sup><a href="#user-content-fn-hornby-2020" id="user-content-fnref-hornby-2020" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup> <sup><a href="#user-content-fn-zips-629" id="user-content-fnref-zips-629" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> La integración de Nym × Zcash <sup><a href="#user-content-fn-nym-zcash" id="user-content-fnref-nym-zcash" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup> enruta la sincronización de la cadena y el envío de transacciones a través de la mixnet, no los mensajes de billetera a billetera.</p>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Implicaciones de privacidad</h1>
+<p><strong>Titulares de la clave de visualización de entrada.</strong> Quien posea la clave de visualización de entrada de Orchard de una cuenta puede leer y recuperar toda Envelopa que se haya enviado a sus direcciones, y al recuperarla puede hacer que el servidor las elimine. También puede derivar el secreto de toda Conversación iniciada con esas direcciones, y así leer, recuperar y enviar Envelopas en ellas, en ambas direcciones. No hay confidencialidad hacia adelante. Las Envelopas pueden revelar más que las notas: un PCZT muestra una transacción antes de que se firme. Las claves de visualización de la billetera que inicia una Conversación no dan acceso a ella.</p>
+<p>Todas las direcciones diversificadas de una cuenta comparten una sola clave de visualización de entrada, por lo que usar una dirección distinta no ayuda. Las claves de visualización de cuentas distintas no están relacionadas: un usuario que comparte la clave de visualización de una cuenta, por ejemplo con un auditor o un servicio de solo visualización, mantiene sus mensajes fuera del alcance de su titular únicamente recibiéndolos en direcciones de otra cuenta.</p>
+<p><strong>Servidores de Buzones.</strong> Un servidor nunca conoce una identidad de red. Ve cada ID de Buzón que mantiene y el número, el tamaño y la temporización de las Envelopas depositadas en él y recuperadas de él. Un Buzón de Contacto vive tanto como su dirección, y cualquiera que conozca la dirección puede calcular su ID y su servidor, de modo que ese servidor mantiene un registro de tráfico de larga duración para la dirección. Los ID de Buzones por pares cambian en cada época y solo pueden ser calculados por las dos billeteras y los titulares de la clave de visualización del respondedor.</p>
+<p><strong>Vinculación de direcciones.</strong> Las direcciones diversificadas de una billetera tienen Buzones de Contacto no relacionados. Un servidor aún puede vincularlas si la billetera las recupera juntas, por eso las recuperaciones usan sesiones y horarios separados.</p>
+<p><strong>Sin señal de adhesión.</strong> Toda dirección con un Receptor de Orchard tiene un Buzón de Contacto, implemente o no su billetera este ZIP, de modo que un remitente no puede saber si su Envelopa será leída.</p>
+<p><strong>La otra billetera.</strong> Las Envelopas no autentican a su remitente. Una respuesta muestra al remitente que el destinatario estaba en línea. Ambas billeteras pueden recuperar de los Buzones por Pares de ambas direcciones, por lo que cada una puede ver cuándo las recuperaciones de la otra provocan que sus Envelopas se eliminen, y una billetera en Conversaciones con dos direcciones puede compararlas.</p>
+<p><strong>Observadores de red.</strong> La privacidad está limitada por el conjunto de anonimato de la Vinculación de enrutamiento. El punto de entrada de una billetera a la red ve su dirección IP, pero ningún ID de Buzón, servidor ni dirección de Zcash.</p>
+<p><strong>Denegación de servicio.</strong> Cualquiera puede depositar bajo cualquier ID de Buzón, a costa del almacenamiento del servidor y del ancho de banda del destinatario.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ul>
+<li>Un remitente que posea solo la dirección unificada de un destinatario puede entregar un mensaje sin contacto previo, mientras el destinatario está desconectado.</li>
+<li>Las direcciones unificadas y el ZIP 316 quedan sin cambios, y el primer contacto no necesita material de claves más allá de las claves de Orchard existentes del destinatario.</li>
+<li>Una billetera puede usar muchas direcciones diversificadas sin que un Servidor de Buzones, un observador de red o un remitente puedan vincularlas.</li>
+<li>Ningún Servidor de Buzones ni observador de red conoce la identidad de red de un remitente o destinatario, y ninguna de las dos billeteras conoce la de la otra.</li>
+<li>Ninguna de las partes que ve la dirección IP de una billetera queda vinculada a las direcciones o buzones de esa billetera.</li>
+<li>Dos billeteras pueden seguir intercambiando mensajes sin que un Servidor de Buzones acumule metadatos bajo un identificador de larga duración.</li>
+<li>Un Envelope no revela nada sobre su contenido más allá de su tamaño.</li>
+<li>El protocolo no depende de ninguna red ni token en particular.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<ul>
+<li>Autenticación del remitente, entrega garantizada, confidencialidad hacia adelante y mensajería de grupo.</li>
+<li>Copia de seguridad y recuperación. Los Buzones de Contacto pueden recalcularse a partir de las direcciones y claves de visualización de la billetera; las Conversaciones no.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="notation"><a class="hanchor" href="#notation" aria-hidden="true" tabindex="-1">#</a>Notación</h2>
+<p><math><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟤𝟧𝟨</mn></mrow></math> y <math><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟧𝟣𝟤</mn></mrow></math> <sup><a href="#user-content-fn-protocol-blake2" id="user-content-fnref-protocol-blake2" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup>, <math><mrow><mi>𝖣</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗒</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><msup><mi>𝗁</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math> <sup><a href="#user-content-fn-protocol-diversifyhash" id="user-content-fnref-protocol-diversifyhash" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>, <math><mrow><mi>𝖳</mi><mi>𝗈</mi><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><msup><mi>𝗋</mi><mrow class="tml-sml-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow></math> <sup><a href="#user-content-fn-protocol-orchardkeycomponents" id="user-content-fnref-protocol-orchardkeycomponents" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup>, <math><mrow><mi>𝖲</mi><mi>𝗒</mi><mi>𝗆</mi></mrow></math> <sup><a href="#user-content-fn-protocol-sym" id="user-content-fnref-protocol-sym" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup>, <math><msup><mrow><mi>𝖦</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗉</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗁</mi></mrow><mi>ℙ</mi></msup></math> <sup><a href="#user-content-fn-protocol-grouphash" id="user-content-fnref-protocol-grouphash" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup>, <math><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub></math> y <math><msub><mi class="mathcal">𝒪</mi><mi>ℙ</mi></msub></math> <sup><a href="#user-content-fn-protocol-pallasandvesta" id="user-content-fnref-protocol-pallasandvesta" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup>, y <math><mrow><mi>𝖨</mi><mn>𝟤</mn><mi>𝖫</mi><mi>𝖤</mi><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow></math> y <math><mrow><mi>𝖫</mi><mi>𝖤</mi><mi>𝖡</mi><mi>𝖲</mi><mn>𝟤</mn><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow></math> <sup><a href="#user-content-fn-protocol-endian" id="user-content-fnref-protocol-endian" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup> son como se definen en la Zcash Protocol Specification (Especificación del Protocolo Zcash).</p>
+<ul>
+<li><math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>Q</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><msub><mrow><mi>𝖫</mi><mi>𝖤</mi><mi>𝖡</mi><mi>𝖲</mi><mn>𝟤</mn><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow><mn>256</mn></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msub><mrow><mi>𝗋</mi><mi>𝖾</mi><mi>𝗉</mi><mi>𝗋</mi></mrow><mi>ℙ</mi></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>Q</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</li>
+<li><math><mrow><mrow><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>p</mi><mo separator="true">,</mo><mi>x</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>=</mo><mrow><mi>𝖳</mi><mi>𝗈</mi><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><msup><mi>𝗋</mi><mrow class="tml-sml-pad"><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟧𝟣𝟤</mn></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>p</mi><mo separator="true">,</mo><mi>x</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</li>
+<li><math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>b</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math> es la cadena de un byte con valor <math><mi>b</mi></math>.</li>
+</ul>
+<p>Los enteros se codifican en little-endian. Los tiempos se expresan en horas desde el epoch de Unix, redondeados hacia abajo.</p>
+<p>En todo el documento, <math><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝖽</mi><mo separator="true">,</mo><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></math> es un Receptor de Orchard con codificación sin procesar <math><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗏</mi></mrow></math>, <sup><a href="#user-content-fn-protocol-orchardaddrencoding" id="user-content-fnref-protocol-orchardaddrencoding" data-footnote-ref="" aria-describedby="footnote-label">22</a></sup> clave de visualización entrante <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>, y <math><mrow><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo>=</mo><mrow><mi>𝖣</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝖿</mi><mi>𝗒</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><msup><mi>𝗁</mi><mrow><mi>𝖮</mi><mi>𝗋</mi><mi>𝖼</mi><mi>𝗁</mi><mi>𝖺</mi><mi>𝗋</mi><mi>𝖽</mi></mrow></msup></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>𝖽</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<h2 id="envelopes"><a class="hanchor" href="#envelopes" aria-hidden="true" tabindex="-1">#</a>Sobres</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>version</code></td><td><code>byte</code></td><td><math><mn>1</mn></math></td></tr><tr><td><code>ephemeralKey</code></td><td><code>byte[32]</code></td><td><math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></td></tr><tr><td><code>ciphertext</code></td><td><code>byte[N + 16]</code></td><td><math><mi>N</mi></math> es 2048, 32768 o 262144</td></tr></tbody></table>
+<p>El texto en claro es:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>seed</code></td><td><code>byte[32]</code></td><td>Aleatorio uniforme</td></tr><tr><td><code>payload_type</code></td><td><code>u16</code></td><td>Véase <a href="#payloads">Cargas útiles</a></td></tr><tr><td><code>flags</code></td><td><code>byte</code></td><td>Bit 0: <code>ack_requested</code></td></tr><tr><td><code>expiry_time</code></td><td><code>u32</code></td><td>Momento a partir del cual se descarta el Sobre</td></tr><tr><td><code>fast_len</code></td><td><code>byte</code></td><td>Longitud de <code>fast_reply</code></td></tr><tr><td><code>fast_reply</code></td><td><code>byte[fast_len]</code></td><td>Véase <a href="#fast-mode">Modo rápido</a>; puede estar vacío</td></tr><tr><td><code>payload_len</code></td><td><code>u32</code></td><td>Longitud de <code>payload</code></td></tr><tr><td><code>payload</code></td><td><code>byte[payload_len]</code></td><td></td></tr><tr><td>relleno</td><td><code>byte[]</code></td><td>Bytes en cero hasta el menor <math><mi>N</mi></math> que quepa</td></tr></tbody></table>
+<p>Cada Envelope pertenece a una Conversation con secreto <math><mi>κ</mi></math>, y es enviado por su <em>iniciador</em> (<math><mrow><mi>δ</mi><mo>=</mo><mn>0</mn></mrow></math>) o su <em>respondedor</em> (<math><mrow><mi>δ</mi><mo>=</mo><mn>1</mn></mrow></math>). <math><msub><mi>𝗀</mi><mi>𝖽</mi></msub></math>, <math><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow></math> y <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> a continuación son los del Receiver del respondedor. Con</p>
+<p><math><mrow><mspace width="2em"></mspace><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙴𝚜𝚔___"</mtext><mo separator="true">,</mo><mrow><mi>𝚜</mi><mi>𝚎</mi><mi>𝚎</mi><mi>𝚍</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mspace width="1em"></mspace><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><msub><mi>𝗀</mi><mi>𝖽</mi></msub></mrow></math></p>
+<p><math><mrow><mspace width="2em"></mspace><mi>𝖪</mi><mo>=</mo><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟤𝟧𝟨</mn></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙿𝚊𝚒𝚛𝙺_"</mtext><mo separator="true">,</mo><mi>κ</mi><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>δ</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝚎</mi><mi>𝚙</mi><mi>𝚑</mi><mi>𝚎</mi><mi>𝚖</mi><mi>𝚎</mi><mi>𝚛</mi><mi>𝚊</mi><mi>𝚕</mi><mi>𝙺</mi><mi>𝚎</mi><mi>𝚢</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p>el texto cifrado es <math><mrow><mi>𝖲</mi><mi>𝗒</mi><mi>𝗆</mi><mi>.</mi><mi>𝖤</mi><mi>𝗇</mi><mi>𝖼</mi><mi>𝗋</mi><mi>𝗒</mi><mi>𝗉</mi><msub><mi>𝗍</mi><mi>𝖪</mi></msub></mrow></math> del texto en claro.</p>
+<p>Un <em>primer Envelope</em> inicia una Conversation. Su remitente es el iniciador, y</p>
+<p><math><mrow><mspace width="2em"></mspace><mi>κ</mi><mo>=</mo><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟤𝟧𝟨</mn></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙿𝚊𝚒𝚛𝚂_"</mtext><mo separator="true">,</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝚎</mi><mi>𝚙</mi><mi>𝚑</mi><mi>𝚎</mi><mi>𝚖</mi><mi>𝚎</mi><mi>𝚛</mi><mi>𝚊</mi><mi>𝚕</mi><mi>𝙺</mi><mi>𝚎</mi><mi>𝚢</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></p>
+<p>que el respondedor calcula a partir de <math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow></mrow></math>, como en el descifrado de notas de Orchard.</p>
+<p>El destinatario procesa un Envelope únicamente como primer Envelope hacia el Receiver cuyo Contact Mailbox fue obtenido, o en la Conversation y dirección del Pairwise Mailbox del que fue obtenido o de la dirección <code>fast_reply</code> a la que llegó. DEBE (MUST) descartar el Envelope, sin ningún comportamiento que dependa de qué comprobación falló, si:</p>
+<ul>
+<li><code>version</code> o la longitud es desconocida;</li>
+<li>el descifrado falla, el texto en claro no se analiza sintácticamente o el relleno no es cero;</li>
+<li><math><mrow><mrow><mi>𝚎</mi><mi>𝚙</mi><mi>𝚑</mi><mi>𝚎</mi><mi>𝚖</mi><mi>𝚎</mi><mi>𝚛</mi><mi>𝚊</mi><mi>𝚕</mi><mi>𝙺</mi><mi>𝚎</mi><mi>𝚢</mi></mrow><mo>≠</mo><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mrow><mi>𝖾</mi><mi>𝗌</mi><mi>𝗄</mi></mrow><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>;</li>
+<li>se ha alcanzado <code>expiry_time</code>; o</li>
+<li>ya ha procesado un Envelope con este <code>ephemeralKey</code>.</li>
+</ul>
+<p>Ignora la carga útil de un <code>payload_type</code> desconocido y los bits desconocidos de <code>flags</code>, que los remitentes fijan en cero.</p>
+<h2 id="payloads"><a class="hanchor" href="#payloads" aria-hidden="true" tabindex="-1">#</a>Cargas útiles</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th><code>payload_type</code></th><th>Nombre</th><th><code>payload</code></th></tr></thead><tbody><tr><td><math><mn>1</mn></math></td><td>Ack</td><td><code>ephemeralKey</code> del Envelope reconocido</td></tr><tr><td><math><mn>2</mn></math></td><td>Texto</td><td>Texto UTF-8 para mostrar al usuario</td></tr><tr><td><math><mn>3</mn></math></td><td>Solicitud de pago</td><td>URI ZIP 321 en UTF-8 <sup><a href="#user-content-fn-zip-0321" id="user-content-fnref-zip-0321-2" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></td></tr><tr><td><math><mn>4</mn></math></td><td>PCZT</td><td>PCZT serializado <sup><a href="#user-content-fn-pczt" id="user-content-fnref-pczt-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>; referencia de formato por determinar</td></tr></tbody></table>
+<p>Un Ack NO DEBE (MUST NOT) fijar <code>ack_requested</code>. Las cargas útiles NO DEBEN (MUST NOT) portar autoridad de gasto, como claves de gasto o URI de ZIP 324. <sup><a href="#user-content-fn-zip-0324" id="user-content-fnref-zip-0324-2" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup></p>
+<h2 id="mailboxes"><a class="hanchor" href="#mailboxes" aria-hidden="true" tabindex="-1">#</a>Buzones</h2>
+<p>Un Mailbox ID es <math><mrow><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>G</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝖯</mi><mi>𝗈</mi><mi>𝗂</mi><mi>𝗇</mi><mi>𝗍</mi><mi>𝖡</mi><mi>𝗒</mi><mi>𝗍</mi><mi>𝖾</mi><mi>𝗌</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>P</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>, donde <math><mrow><mi>P</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>a</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mi>G</mi></mrow></math> para un escalar <math><mi>a</mi></math> que autoriza la obtención. Una derivación que a continuación produce <math><msub><mi class="mathcal">𝒪</mi><mi>ℙ</mi></msub></math> para <math><mi>G</mi></math> o <math><mi>P</mi></math> no define ningún buzón.</p>
+<p>El <strong>Buzón de Contacto</strong> (Contact Mailbox) de un Receiver tiene</p>
+<p><math><mrow><mspace width="2em"></mspace><mi>r</mi><mo>=</mo><mrow><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙼𝚋𝚡𝙾𝚛𝚌"</mtext><mo separator="true">,</mo><mrow><mi>𝗋</mi><mi>𝖼</mi><mi>𝗏</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mspace width="1em"></mspace><mi>G</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>r</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><msub><mi>𝗀</mi><mi>𝖽</mi></msub><mo separator="true">,</mo><mspace width="1em"></mspace><mi>P</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>r</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mrow><mi>𝗉</mi><msub><mi>𝗄</mi><mi>𝖽</mi></msub></mrow></mrow></math></p>
+<p>por lo tanto <math><mrow><mi>a</mi><mo>=</mo><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></mrow></math>.</p>
+<p>El <strong>Buzón por Pares</strong> (Pairwise Mailbox) de una Conversation para la dirección <math><mi>δ</mi></math> y la época <math><mi>e</mi></math> tiene, con <math><mrow><mi>m</mi><mo>=</mo><mi>κ</mi><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>δ</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><msub><mrow><mi>𝖨</mi><mn>𝟤</mn><mi>𝖫</mi><mi>𝖤</mi><mi>𝖮</mi><mi>𝖲</mi><mi>𝖯</mi></mrow><mn>32</mn></msub><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>e</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>,</p>
+<p><math><mrow><mspace width="2em"></mspace><mi>G</mi><mo>=</mo><msup><mrow><mi>𝖦</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗎</mi><mi>𝗉</mi><mi>𝖧</mi><mi>𝖺</mi><mi>𝗌</mi><mi>𝗁</mi></mrow><mi>ℙ</mi></msup><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚣.𝚌𝚊𝚜𝚑:𝚆𝚊𝚕𝚕𝚎𝚝𝙼𝚜𝚐-𝚙𝚊𝚒𝚛"</mtext><mo separator="true">,</mo><mi>m</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mspace width="1em"></mspace><mi>a</mi><mo>=</mo><mrow><mi>𝖲</mi><mi>𝖼</mi><mi>𝖺</mi><mi>𝗅</mi><mi>𝖺</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝙿𝚊𝚒𝚛𝚇_"</mtext><mo separator="true">,</mo><mi>m</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo separator="true">,</mo><mspace width="1em"></mspace><mi>P</mi><mo>=</mo><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>a</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mspace width="0.1667em"></mspace><mi>G</mi></mrow></math></p>
+<p>La época en el tiempo <math><mi>t</mi></math> es <math><mrow><mrow><mi>𝖿</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝗈</mi><mi>𝗋</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>t</mi><mi>/</mi><mn>168</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>.</p>
+<p>Una entrada del Server List es un <code>server_id</code> de 32 bytes y, para cada red en la que se encuentra el servidor, una dirección en el formato del Routing Binding de esa red. El Mailbox Server de un Mailbox ID <math><mrow><mi>𝗂</mi><mi>𝖽</mi></mrow></math> es la entrada con el <math><mrow><mrow><mi>𝖡</mi><mi>𝖫</mi><mi>𝖠</mi><mi>𝖪</mi><mi>𝖤</mi><mn>𝟤</mn><mi>𝖻</mi><mtext>-</mtext><mn>𝟤𝟧𝟨</mn></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mtext>"𝚉𝚌𝚊𝚜𝚑_𝚆𝙼𝚜𝚐𝚂𝚛𝚟𝚂𝚎𝚕"</mtext><mo separator="true">,</mo><mrow><mi>𝚜</mi><mi>𝚎</mi><mi>𝚛</mi><mi>𝚟</mi><mi>𝚎</mi><mi>𝚛</mi><mi>_</mi><mi>𝚒</mi><mi>𝚍</mi></mrow><mspace width="0.1667em"></mspace><mi>|</mi><mi>|</mi><mspace width="0.1667em"></mspace><mrow><mi>𝗂</mi><mi>𝖽</mi></mrow><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> más pequeño, comparado como una cadena de bytes.</p>
+<p>PENDIENTE: especificar la Lista de Servidores; véase <a href="#open-issues">Temas abiertos</a>.</p>
+<h2 id="conversations"><a class="hanchor" href="#conversations" aria-hidden="true" tabindex="-1">#</a>Conversaciones</h2>
+<p>Un primer Envelope se deposita en el Buzón de Contacto del Receiver al que está cifrado. En la Conversation que inicia:</p>
+<ul>
+<li>Un Envelope se deposita en el Buzón por Pares de la dirección de su remitente y de la época en la que se deposita.</li>
+<li>El respondedor obtiene los Buzones por Pares para <math><mrow><mi>δ</mi><mo>=</mo><mn>0</mn></mrow></math> desde el momento en que envía por primera vez un Envelope.</li>
+<li>El iniciador obtiene los Buzones por Pares para <math><mrow><mi>δ</mi><mo>=</mo><mn>1</mn></mrow></math> durante todo el tiempo que desee una respuesta. NO DEBE (MUST NOT) enviar otro Envelope en la Conversation hasta haber recibido uno; hasta entonces, cualquier cosa adicional que envíe es otro primer Envelope.</li>
+<li>Una billetera obtiene el buzón de la época actual, y el de una época terminada hasta que lo haya obtenido al menos 24 horas después de que la época terminó.</li>
+</ul>
+<p>Cada Conversation le cuesta al respondedor un programa de obtención, por lo que una billetera NO DEBERÍA (SHOULD NOT) responder a un primer Envelope, ni siquiera con un Ack, sin la aprobación del usuario. Cualquiera de las dos billeteras PUEDE (MAY) olvidar una Conversation en cualquier momento; no se le informa a la otra.</p>
+<h2 id="mailbox-servers"><a class="hanchor" href="#mailbox-servers" aria-hidden="true" tabindex="-1">#</a>Servidores de Buzones</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Solicitud</th><th>Campos</th><th>Respuesta</th></tr></thead><tbody><tr><td>Depósito</td><td><math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math>, <code>mailbox_id</code>, un Envelope</td><td>Ninguna</td></tr><tr><td>Fetch</td><td><math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mn>2</mn><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math>, <code>mailbox_id</code>, <code>after</code> (<code>u64</code>), <code>time</code> (<code>u32</code>), <code>sig</code> (<code>byte[64]</code>)</td><td>tripletas (<code>seq</code> (<code>u64</code>), <code>len</code> (<code>u32</code>), Envelope)</td></tr></tbody></table>
+<p>El servidor asigna a cada Envelope depositado un <code>seq</code> distinto de cero y mayor que cualquiera que haya asignado jamás bajo ese Mailbox ID. Fetch devuelve, en orden, los Envelopes con <code>seq</code> mayor que <code>after</code>, hasta un tamaño elegido por el servidor, y permite al servidor eliminar los que tengan <code>seq</code> hasta <code>after</code>. El servidor PUEDE (MAY) también descartar Envelopes tras un período de retención de su elección.</p>
+<p><code>sig</code> es una firma RedPallas <sup><a href="#user-content-fn-protocol-reddsa" id="user-content-fnref-protocol-reddsa" data-footnote-ref="" aria-describedby="footnote-label">23</a></sup> con el generador <math><mi>G</mi></math> en lugar del fijo, clave de firma <math><mi>a</mi></math>, y clave de validación <math><mi>P</mi></math>, sobre <code>server_id</code> seguido de la solicitud sin <code>sig</code>. La billetera DEBERÍA (SHOULD) hacer que la entrada aleatoria de la firma <math><mi>T</mi></math> dependa de <math><mi>a</mi></math> así como de aleatoriedad fresca, ya que un <math><mi>T</mi></math> repetido o predecible revela <math><mi>a</mi></math>.</p>
+<p>El servidor DEBE (MUST) descartar una solicitud, sin responder, si está mal formada, incluso cuando cualquiera de las dos mitades de <code>mailbox_id</code> no sea la codificación de un punto de Pallas distinto de <math><msub><mi class="mathcal">𝒪</mi><mi>ℙ</mi></msub></math>, o, en el caso de Fetch, si <code>time</code> no está dentro de una hora del reloj del servidor o <code>sig</code> no valida. NO DEBE (MUST NOT) distinguir un buzón para el que no tiene nada de uno vacío.</p>
+<h2 id="routing"><a class="hanchor" href="#routing" aria-hidden="true" tabindex="-1">#</a>Enrutamiento</h2>
+<p>Un Routing Binding transporta las solicitudes a los Mailbox Servers y las respuestas de vuelta. DEBE (MUST):</p>
+<ul>
+<li>ocultar la identidad de red de la billetera ante el servidor y ante todos excepto el propio punto de entrada de la billetera a la red;</li>
+<li>mantener las solicitudes y respuestas confidenciales y auténticas entre la billetera y el servidor;</li>
+<li>proporcionar <em>sesiones</em> tales que ni el servidor ni un observador de la red puedan saber si dos solicitudes en sesiones diferentes provienen de una misma billetera.</li>
+</ul>
+<p>Su especificación indica el formato de la dirección del servidor, el encuadre de las solicitudes, las respuestas y los Envelopes enviados en modo rápido, qué es una sesión y qué puede observar cada parte.</p>
+<p>Una billetera DEBE (MUST) usar una sesión nueva para cada Deposit, y NO DEBE (MUST NOT) usar una sesión para dos Mailbox IDs. NO DEBE (MUST NOT) omitir la red de anonimato cuando esta no está disponible.</p>
+<h3 id="fast-mode"><a class="hanchor" href="#fast-mode" aria-hidden="true" tabindex="-1">#</a>Modo rápido</h3>
+<p>Un Routing Binding PUEDE (MAY) definir direcciones en las que una billetera puede recibir Envelopes directamente por un tiempo limitado sin revelar su identidad de red al remitente. <code>fast_reply</code>, si no está vacío, es:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>network_id</code></td><td><code>byte</code></td><td>Identifica el Routing Binding</td></tr><tr><td><code>valid_until</code></td><td><code>u32</code></td><td>Momento a partir del cual la dirección no se usa</td></tr><tr><td><code>address</code></td><td><code>byte[]</code></td><td>Según lo especificado por el Routing Binding</td></tr></tbody></table>
+<p>Una billetera DEBE (MUST) crear una dirección nueva para cada <code>fast_reply</code> y usarla para nada más, de modo que ni su anfitrión ni la otra billetera puedan vincularla a una dirección de Zcash o a otro <code>fast_reply</code>.</p>
+<p>Una billetera que responde a un Envelope con un <code>fast_reply</code> PUEDE (MAY), antes de <code>valid_until</code> y además de depositar su respuesta, enviar el mismo Envelope a <code>address</code> desde una sesión que no se use para nada más.</p>
+<h2 id="wallet-behaviour"><a class="hanchor" href="#wallet-behaviour" aria-hidden="true" tabindex="-1">#</a>Comportamiento de la billetera</h2>
+<ul>
+<li>Las billeteras DEBERÍAN (SHOULD) obtener cada buzón según su propio calendario aleatorizado, independiente de las acciones del usuario y de sus otros buzones, y DEBERÍAN (SHOULD) fijar <code>after</code> en el último <code>seq</code> que recibieron, o en <math><mn>0</mn></math>.</li>
+<li>Las billeteras DEBERÍAN (SHOULD) retrasar los Acks, y los depósitos que no forman parte de un intercambio interactivo, por un tiempo aleatorio, en particular en relación con una transmisión relacionada en la cadena. DEBERÍAN (SHOULD) enviar un Ack solo cuando <code>ack_requested</code> está fijado.</li>
+<li>Las billeteras NO DEBEN (MUST NOT) presentar un mensaje como proveniente de una parte con nombre.</li>
+<li>Las billeteras NO DEBERÍAN (SHOULD NOT) obtener los Contact Mailboxes de una cuenta cuya clave de visualización de entrantes hayan exportado, y DEBERÍAN (SHOULD) dar direcciones de otra cuenta para la mensajería en su lugar. Si los obtienen, DEBERÍAN (SHOULD) decirle al usuario que el titular de la clave puede leer y eliminar los mensajes de la cuenta y enviar mensajes en sus Conversations.</li>
+</ul>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<p><strong>¿Por qué reutilizar las claves de Orchard?</strong> Cualquier dirección con un Orchard Receiver ya es una clave pública de cifrado, así que el primer contacto no necesita nada nuevo. El costo es el poder que otorga a los titulares de las claves de visualización de entrantes.</p>
+<p><strong>¿Por qué derivar el buzón en lugar de anunciarlo?</strong> Anunciarlo necesitaría un ZIP 316 Metadata Item, alargaría las direcciones y permitiría poner un mismo buzón en dos direcciones, vinculándolas. La derivación da a cada dirección diversificada su propio buzón. A cambio, los remitentes no pueden saber si un destinatario lee los mensajes, las billeteras tienen que ponerse de acuerdo en una Server List, y la obtención tiene que ser autorizada por una clave que la billetera ya tiene.</p>
+<p><strong>¿Por qué un Mailbox ID es un par de puntos?</strong> Permite que un servidor verifique el conocimiento de <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math> sin que el destinatario le haya comunicado nada, y sin que el que obtiene revele su Receiver. Bajo la suposición de Diffie–Hellman Decisorio, el par no puede vincularse al Receiver ni al buzón de otra dirección con el mismo <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>; tampoco las firmas.</p>
+<p><strong>¿Por qué se comprueba <math><mrow><mi>𝖾</mi><mi>𝗉</mi><mi>𝗄</mi></mrow></math>?</strong> Por la razón dada en el ZIP 212: <sup><a href="#user-content-fn-zip-0212" id="user-content-fnref-zip-0212" data-footnote-ref="" aria-describedby="footnote-label">24</a></sup> un Envelope cifrado a una dirección también se descifra con cualquier otra dirección con el mismo <math><mrow><mi>𝗂</mi><mi>𝗏</mi><mi>𝗄</mi></mrow></math>, así que sin la comprobación un remitente podría depositar un Envelope hecho para una dirección en el buzón de otra y aprender de una reacción que pertenecen a una misma billetera. La comprobación también vincula <math><mi>κ</mi></math> a un solo Receiver.</p>
+<p><strong>¿Por qué Conversations?</strong> Un Contact Mailbox da a su servidor un registro de todo lo enviado a una dirección. Los Pairwise Mailboxes trasladan un intercambio en curso a identificadores que cambian semanalmente, y dan al destinatario una forma de responder sin que el remitente divulgue una dirección. Épocas más cortas filtrarían menos, pero le costarían a una billetera que regresa una obtención por cada época y Conversation perdidas.</p>
+<p><strong>¿Por qué no hay una solicitud de eliminación?</strong> Eliminar en la obtención siguiente pone un retraso aleatorio entre la lectura de un Envelope y su desaparición, que el remitente de una Conversation puede observar.</p>
+<p><strong>¿Por qué separar el enrutamiento de los buzones?</strong> Una parte que almacena mensajes para la dirección de una billetera y además ve la dirección IP de la billetera, como lo haría una puerta de enlace de Nym nombrada en una dirección, puede vincular ambas. Aquí el servidor que almacena los Envelopes nunca ve una dirección IP, y el punto de entrada que ve una nunca conoce un Mailbox ID. También significa que billeteras en redes distintas pueden intercambiar mensajes, y que el protocolo sobrevive a cualquier red en particular.</p>
+<p><strong>¿Por qué tamaños fijos?</strong> Las longitudes exactas filtrarían los tipos de carga útil.</p>
+<p><strong>¿Por qué no una carga útil ZIP 324?</strong> Un remitente en este canal ya tiene la dirección del destinatario y puede pagarle, y un URI de ZIP 324 conlleva autoridad de gasto que cualquier titular de una clave de visualización de entrantes podría usar.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>Ninguna todavía.</p>
+<h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Cuestiones abiertas</h1>
+<ul>
+<li>La Server List: codificación, mantenimiento, distribución, autenticación, manejo de cambios, y si es obligatorio implementar una red. Si los operadores pudieran elegir su <code>server_id</code>, uno podría elegirlo de modo que se le seleccione para una dirección en particular.</li>
+<li>Quién opera los Mailbox Servers y qué los financia; cuotas, retención, y si Deposit debería llevar un pago o una prueba de trabajo.</li>
+<li>Si al final se necesita una señal de participación voluntaria.</li>
+<li>Si las Conversations deberían añadir un intercambio de claves efímeras en sus dos primeros Envelopes. Eso daría secreto hacia adelante y excluiría a un titular de una clave de visualización que solo lee, aunque no a uno que responde a un primer Envelope antes que la billetera. Los primeros Envelopes no pueden protegerse sin publicar una clave de mensajería separada, para lo cual una dirección no tiene lugar.</li>
+<li>Si Fetch necesita una forma de omitir los Envelopes grandes.</li>
+<li>Destinatarios que solo tienen Sapling.</li>
+<li>Tipos de carga útil para los mensajes de ronda de FROST, con su autenticación, y para la entrega de notas fuera de la cadena.</li>
+</ul>
+<h1 id="appendix-a-routing-bindings-non-normative"><a class="hanchor" href="#appendix-a-routing-bindings-non-normative" aria-hidden="true" tabindex="-1">#</a>Apéndice A: Enlaces de enrutamiento (no normativo)</h1>
+<p>Estos esbozos existen para que el protocolo pueda evaluarse contra redes reales. Los elementos marcados TBD tienen que resolverse antes de que cualquiera de los dos sea normativo.</p>
+<h2 id="nym-mixnet"><a class="hanchor" href="#nym-mixnet" aria-hidden="true" tabindex="-1">#</a>Mixnet de Nym</h2>
+<p><code>network_id</code> <math><mn>1</mn></math>.</p>
+<ul>
+<li><strong>Dirección del servidor.</strong> La dirección de cliente Nym de 96 bytes <sup><a href="#user-content-fn-nym-addressing" id="user-content-fnref-nym-addressing" data-footnote-ref="" aria-describedby="footnote-label">25</a></sup> de un cliente operado por el servidor.</li>
+<li><strong>Sesiones.</strong> Un cliente Nym con claves nuevas. Cada uno tiene que registrarse con una puerta de enlace de entrada y mantener credenciales de ancho de banda; el costo y la latencia por solicitud, y quién paga, están por determinar (TBD).</li>
+<li><strong>Encuadre.</strong> Una solicitud es un mensaje de Nym. Fetch adjunta SURBs de respuesta <sup><a href="#user-content-fn-nym-surbs" id="user-content-fnref-nym-surbs" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup> para la respuesta; cuántos, y cómo el servidor pide más, está por determinar (TBD).</li>
+<li><strong>Modo rápido.</strong> <code>address</code> es la dirección de 96 bytes de un cliente creado para ese propósito, con una puerta de enlace elegida de forma independiente; un Envelope es un mensaje de Nym. Su puerta de enlace retiene los mensajes mientras el cliente está desconectado, durante 24 horas por defecto, <sup><a href="#user-content-fn-nym-gateway-retention" id="user-content-fnref-nym-gateway-retention" data-footnote-ref="" aria-describedby="footnote-label">27</a></sup> lo que acota <code>valid_until</code>.</li>
+<li><strong>Observabilidad.</strong> La puerta de enlace de entrada de una billetera ve su dirección IP y el volumen de su tráfico, pero no el destino. Los retrasos de mezcla y el tráfico de cobertura dificultan a un adversario pasivo global. Los Envelopes más grandes ocupan más paquetes.</li>
+</ul>
+<h2 id="tor"><a class="hanchor" href="#tor" aria-hidden="true" tabindex="-1">#</a>Tor</h2>
+<p><code>network_id</code> <math><mn>2</mn></math>.</p>
+<ul>
+<li><strong>Dirección del servidor.</strong> La clave pública de 32 bytes de un onion service versión 3. <sup><a href="#user-content-fn-tor-rend" id="user-content-fnref-tor-rend-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> El puerto está por determinar (TBD).</li>
+<li><strong>Sesiones.</strong> Una conexión sobre un circuito compartido con ninguna otra sesión.</li>
+<li><strong>Encuadre.</strong> Una solicitud por conexión, con la solicitud y la respuesta precedidas cada una por una longitud de <code>u32</code> (TBD).</li>
+<li><strong>Observabilidad.</strong> El guard de una billetera ve su dirección IP y el momento de su tráfico. Tor no añade retrasos ni tráfico de cobertura, por lo que un adversario pasivo global puede correlacionar el tráfico de una billetera con las solicitudes que llegan a un servidor.</li>
+</ul>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Información sobre BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" y "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0316">
+<p><a href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a> <a href="#user-content-fnref-zip-0316" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-nym">
+<p><a href="https://nym.com/docs">Documentación de Nym</a> <a href="#user-content-fnref-nym" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tor-rend">
+<p><a href="https://spec.torproject.org/rend-spec/">Tor Rendezvous Specification - Version 3</a> <a href="#user-content-fnref-tor-rend" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-tor-rend-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-pczt">
+<p><a href="https://github.com/zcash/librustzcash/tree/main/pczt">Partially Created Zcash Transactions (crate <code>pczt</code> de librustzcash)</a> <a href="#user-content-fnref-pczt" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-pczt-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0312">
+<p><a href="/upstream/zip-0312.rst">ZIP 312: FROST for Spend Authorization Multisignatures</a> <a href="#user-content-fnref-zip-0312" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0321">
+<p><a href="/upstream/zip-0321.rst">ZIP 321: Payment Request URIs</a> <a href="#user-content-fnref-zip-0321" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0321-2" data-footnote-backref="" aria-label="Back to reference 7-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-tachyon">
+<p><a href="https://eprint.iacr.org/2025/2031">Sean Bowe e Ian Miers, "A Note on Notes: Towards Scalable Anonymous Payments via Evolving Nullifiers and Oblivious Synchronization", IACR ePrint 2025/2031</a> <a href="#user-content-fnref-tachyon" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-tachyon-post">
+<p><a href="https://forum.zcashcommunity.com/t/scaling-zcash-tachyon-ragu/50789">Sean Bowe, "Tachyon: Scaling Zcash with Oblivious Synchronization" (hilo del Zcash Community Forum (Foro de la Comunidad de Zcash))</a> <a href="#user-content-fnref-tachyon-post" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0231">
+<p><a href="/upstream/zip-0231.md">ZIP 231: Memo Bundles</a> <a href="#user-content-fnref-zip-0231" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0324">
+<p><a href="/upstream/zip-0324.rst">ZIP 324: URI-Encapsulated Payments</a> <a href="#user-content-fnref-zip-0324" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0324-2" data-footnote-backref="" aria-label="Back to reference 11-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-hornby-2020">
+<p><a href="https://defuse.ca/downloads/Fixing%20Privacy%20Problems%20in%20the%20Zcash%20Light%20Wallet%20Protocol.pdf">Taylor Hornby, "Fixing Privacy Problems in the Zcash Light Wallet Protocol" (2020)</a> <a href="#user-content-fnref-hornby-2020" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zips-629">
+<p><a href="https://github.com/zcash/zips/issues/629">zips#629: Scalability Design Explorations around changing Payment Flows</a> <a href="#user-content-fnref-zips-629" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-nym-zcash">
+<p><a href="https://zcash-sdk.nym.com/">Nym × Zcash Integration Guide</a> <a href="#user-content-fnref-nym-zcash" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-blake2">
+<p><a href="/upstream/protocol/protocol.pdf#concreteblake2">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 5.4.1.2: BLAKE2 Hash Functions</a> <a href="#user-content-fnref-protocol-blake2" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-diversifyhash">
+<p><a href="/upstream/protocol/protocol.pdf#concretediversifyhash">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 5.4.1.6: DiversifyHash^Sapling and DiversifyHash^Orchard Hash Functions</a> <a href="#user-content-fnref-protocol-diversifyhash" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-orchardkeycomponents">
+<p><a href="/upstream/protocol/protocol.pdf#orchardkeycomponents">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 4.2.3: Orchard Key Components</a> <a href="#user-content-fnref-protocol-orchardkeycomponents" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-sym">
+<p><a href="/upstream/protocol/protocol.pdf#concretesym">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 5.4.3: Symmetric Encryption</a> <a href="#user-content-fnref-protocol-sym" data-footnote-backref="" aria-label="Back to reference 18" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-grouphash">
+<p><a href="/upstream/protocol/protocol.pdf#concretegrouphashpallasandvesta">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 5.4.9.8: Group Hash into Pallas and Vesta</a> <a href="#user-content-fnref-protocol-grouphash" data-footnote-backref="" aria-label="Back to reference 19" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-pallasandvesta">
+<p><a href="/upstream/protocol/protocol.pdf#pallasandvesta">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 5.4.9.6: Pallas and Vesta</a> <a href="#user-content-fnref-protocol-pallasandvesta" data-footnote-backref="" aria-label="Back to reference 20" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-endian">
+<p><a href="/upstream/protocol/protocol.pdf#endian">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 5.1: Integers, Bit Sequences, and Endianness</a> <a href="#user-content-fnref-protocol-endian" data-footnote-backref="" aria-label="Back to reference 21" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-orchardaddrencoding">
+<p><a href="/upstream/protocol/protocol.pdf#orchardpaymentaddrencoding">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 5.6.4.2: Orchard Raw Payment Addresses</a> <a href="#user-content-fnref-protocol-orchardaddrencoding" data-footnote-backref="" aria-label="Back to reference 22" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-reddsa">
+<p><a href="/upstream/protocol/protocol.pdf#concretereddsa">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 5.4.7: RedDSA, RedJubjub y RedPallas</a> <a href="#user-content-fnref-protocol-reddsa" data-footnote-backref="" aria-label="Back to reference 23" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0212">
+<p><a href="/upstream/zip-0212.rst">ZIP 212: Permitir que el destinatario derive el secreto efímero del texto en claro de la nota</a> <a href="#user-content-fnref-zip-0212" data-footnote-backref="" aria-label="Back to reference 24" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-nym-addressing">
+<p><a href="https://nym.com/docs/network/reference/addressing">Documentación de Nym: Sistema de direccionamiento</a> <a href="#user-content-fnref-nym-addressing" data-footnote-backref="" aria-label="Back to reference 25" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-nym-surbs">
+<p><a href="https://nym.com/docs/network/mixnet-mode/anonymous-replies">Documentación de Nym: Respuestas anónimas (SURBs)</a> <a href="#user-content-fnref-nym-surbs" data-footnote-backref="" aria-label="Back to reference 26" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-nym-gateway-retention">
+<p><a href="https://github.com/nymtech/nym/blob/develop/nym-node/src/config/gateway_tasks.rs">fuente de <code>nym-node</code>: <code>StaleMessageDebug::DEFAULT_STALE_MESSAGES_MAX_AGE</code> en <code>config/gateway_tasks.rs</code></a> <a href="#user-content-fnref-nym-gateway-retention" data-footnote-backref="" aria-label="Back to reference 27" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

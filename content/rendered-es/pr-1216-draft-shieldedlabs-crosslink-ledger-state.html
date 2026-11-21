@@ -1,0 +1,180 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)" y "PUEDE (MAY)" en este texto deben interpretarse como se describe en el BCP 14 <a class="brackets" href="#bcp14" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos "Mainnet" y "Testnet" en este documento deben interpretarse según lo definido en la especificación del protocolo de Zcash <a class="brackets" href="#protocol-networks" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a>.</p>
+<p>Los términos que siguen deben interpretarse de la siguiente manera:</p>
+<dl class="simple">
+<dt>RSM-SL-v1</dt>
+<dd><p>La instanciación v1 de Shielded Labs del módulo de estado de roster referenciado por el ZIP de visión general de Crosslink <a class="brackets" href="#zip-crosslink-overview" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+</dd>
+<dt>Estado idealizado del libro mayor</dt>
+<dd><p>Una estructura de datos abstracta puntual, usada para razonamiento de especificación y consenso. Las implementaciones PUEDEN (MAY) usar disposiciones internas equivalentes, pero DEBEN (MUST) producir exactamente las mismas transiciones de estado verificables externamente que si hubieran actualizado esta estructura idealizada directamente.</p>
+</dd>
+<dt>Bono</dt>
+<dd><p>Un monto de ZEC delegado, asociado con un identificador de Finalizer y rastreado por las reglas de estado del libro mayor de esta especificación.</p>
+</dd>
+<dt>Roster de candidatos</dt>
+<dd><p>Una asignación determinista de identificadores de Finalizer a pesos de voto, calculada sumando todos los bonos actualmente vigentes de cada Finalizer.</p>
+</dd>
+<dt>Conjunto de Finalizers activos</dt>
+<dd><p>Los <span class="docutils literal">K</span> Finalizers con mayor peso de voto en el Roster de candidatos, donde <span class="docutils literal">K = 100</span>.</p>
+</dd>
+<dt>Ancestro final más reciente</dt>
+<dd><p>Para cualquier bloque punta de PoW, el ancestro más reciente único en la cadena de esa punta que está finalizado bajo CCC-SL <a class="brackets" href="#zip-ccc-sl" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p>
+</dd>
+</dl>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP especifica los cambios de estado del libro mayor de Crosslink requeridos por RSM-SL-v1. Define la extensión del estado puntual idealizado del libro mayor y las reglas de mutación del libro mayor que actualizan este estado, incluidas la distribución de emisión y las mutaciones de roster.</p>
+<p>La especificación está estratificada:</p>
+<ul class="simple">
+<li><p>acciones de Proof-of-Stake abstractas sobre el estado del libro mayor, y</p></li>
+<li><p>extensiones de consenso concretas a los campos y la semántica de las transacciones de Zcash.</p></li>
+</ul>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>El ZIP de visión general de Crosslink define RSM-SL-v1 conceptualmente, pero deja los detalles de estado y mutación de consenso a una especificación complementaria. Los nodos necesitan una definición única y determinista de:</p>
+<ul class="simple">
+<li><p>cómo se derivan los pesos de voto de los Finalizer a partir de los bonos en cadena,</p></li>
+<li><p>cómo se selecciona el roster BFT activo, y</p></li>
+<li><p>cómo evoluciona el estado relacionado con el roster a medida que se aplican y revierten los bloques.</p></li>
+</ul>
+<p>Sin este ZIP, las implementaciones pueden divergir en la interpretación del estado del libro mayor, produciendo rosters activos incompatibles e insumos de finalidad incompatibles.</p>
+
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<p>Este ZIP DEBE (MUST) especificar lo siguiente:</p>
+<ul class="simple">
+<li><p>Una extensión de estado del libro mayor idealizada sobre el estado del libro mayor de Zcash existente, incluidos los bonos, los identificadores de Finalizer y el material criptográfico necesario para la pertenencia al roster autoautenticable.</p></li>
+<li><p>La construcción del Roster de candidatos sumando los bonos actualmente efectivos por Finalizer, y la selección del conjunto de Finalizer activos como los <span class="docutils literal">K = 100</span> con mayor peso de voto.</p></li>
+<li><p>Una interpretación de estado dual en la que el procesamiento del libro mayor distingue el estado finalizado del estado de la punta, con cada punta teniendo un ancestro final más reciente objetivamente verificable.</p></li>
+<li><p>Reglas de mutación del libro mayor para la distribución de emisión y las mutaciones de roster.</p></li>
+<li><p>Una definición de mutación en dos capas:</p>
+<ol class="arabic simple">
+<li><p>acciones PoS abstractas, y</p></li>
+<li><p>extensiones concretas de campos y semántica de transacciones de Zcash.</p></li>
+</ol>
+</li>
+</ul>
+
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<p>Lo siguiente está fuera del alcance de este ZIP:</p>
+<ul class="simple">
+<li><p>El estado del libro mayor de Zcash preexistente, excepto donde se extiende o requiere consideraciones nuevas debido a Crosslink.</p></li>
+<li><p>El mecanismo de Crosslink en sí (incluida la selección de cadena y la verificación del estado de finalidad), especificado en CCC-SL <a class="brackets" href="#zip-ccc-sl" id="footnote-reference-5" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>.</p></li>
+<li><p>El diseño interno del protocolo BFT, excepto que el conjunto de Finalizadores Activos es una entrada proporcionada por este ZIP.</p></li>
+<li><p>El comportamiento de redes fuera del formato de transacción y la semántica de transacciones.</p></li>
+<li><p>Los temas designados como ZIPs separados en la descripción general de Crosslink <a class="brackets" href="#zip-crosslink-overview" id="footnote-reference-6" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p></li>
+</ul>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="idealized-ledger-state-extension"><a class="hanchor" href="#idealized-ledger-state-extension" aria-hidden="true" tabindex="-1">#</a>Extensión del estado idealizado del libro mayor</h2>
+<p>Sea <span class="docutils literal">S_zec</span> el estado del libro mayor de Zcash existente. Este ZIP define un estado idealizado extendido <span class="docutils literal">S_xl</span> que se comporta como:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">S_xl = (S_zec, S_roster, S_finality_views, S_issuance)</span>.</p></li>
+<li><p><span class="docutils literal">S_roster</span> incluye como mínimo:</p>
+<ul>
+<li><p>registros de bonos indexados por identificador de bono,</p></li>
+<li><p>registros de identidad de Finalizadores,</p></li>
+<li><p>claves de verificación criptográfica y metadatos de estado,</p></li>
+<li><p>metadatos deterministas de activación/desactivación necesarios para el cálculo de la lista.</p></li>
+</ul>
+</li>
+<li><p><span class="docutils literal">S_finality_views</span> realiza un seguimiento de las vistas finalizadas y relativas a la punta de modo que, para cada punta aceptada, el ancestro final más reciente correspondiente sea derivable objetivamente a partir de los datos de bloque y de los compromisos finalizados.</p></li>
+<li><p><span class="docutils literal">S_issuance</span> realiza un seguimiento del estado de distribución requerido para aplicar reglas de emisión que involucran a los Finalizadores.</p></li>
+</ul>
+<p>El comportamiento de consenso DEBE (MUST) ser equivalente a transiciones sobre <span class="docutils literal">S_xl</span>, incluso cuando una implementación no materializa <span class="docutils literal">S_xl</span> como un único objeto en memoria.</p>
+
+<h2 id="candidate-roster-and-active-finalizers"><a class="hanchor" href="#candidate-roster-and-active-finalizers" aria-hidden="true" tabindex="-1">#</a>Lista de candidatos y Finalizadores activos</h2>
+<p>Para cada estado <span class="docutils literal">S_xl</span> en un punto dado de la cadena:</p>
+<ul class="simple">
+<li><p>El peso de votación candidato del Finalizador <span class="docutils literal">f</span> es la suma de todos los montos de bono actualmente vigentes dirigidos a <span class="docutils literal">f</span>.</p></li>
+<li><p>El cálculo de la Lista de Candidatos DEBE (MUST) ser determinista para cada nodo honesto dada la misma historia de cadena.</p></li>
+<li><p>El conjunto de Finalizadores Activos son los primeros <span class="docutils literal">K = 100</span> Finalizadores por peso de votación candidato.</p></li>
+<li><p>El desempate para pesos iguales DEBE (MUST) ser determinista y basarse únicamente en datos visibles para el consenso.</p></li>
+<li><p>La salida de la lista activa DEBE (MUST) ser adecuada como entrada para la selección de peso de votación de CFP-SL.</p></li>
+</ul>
+
+<h2 id="finalized-and-tip-state-relationship"><a class="hanchor" href="#finalized-and-tip-state-relationship" aria-hidden="true" tabindex="-1">#</a>Relación entre estado finalizado y estado de punta</h2>
+<p>El procesamiento del ledger DEBE (MUST) exponer ambos:</p>
+<ul class="simple">
+<li><p>una vista de estado finalizado anclada en la historia finalizada, y</p></li>
+<li><p>una vista de estado de punta para cada punta PoW aceptada.</p></li>
+</ul>
+<p>Para cada punta aceptada, los nodos DEBEN (MUST) poder derivar un ancestro finalizado más reciente objetivamente verificable a partir de datos de consenso. Las reorganizaciones DEBEN (MUST) preservar este invariante y recalcular el estado de punta dependiente de forma determinista.</p>
+
+<h2 id="ledger-mutations-abstract-action-layer"><a class="hanchor" href="#ledger-mutations-abstract-action-layer" aria-hidden="true" tabindex="-1">#</a>Mutaciones del ledger: capa de acciones abstractas</h2>
+<p>Este ZIP define acciones abstractas que mutan <span class="docutils literal">S_xl</span>:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">BondCreate</span>: crear un bono que vincula stake a un identificador de Finalizador.</p></li>
+<li><p><span class="docutils literal">BondAdjust</span>: aumentar o disminuir un bono existente según las restricciones de consenso.</p></li>
+<li><p><span class="docutils literal">BondDeactivate</span>: transicionar la participación fuera de la ponderación activa, incluyendo el comportamiento de desvinculación del bono.</p></li>
+<li><p><span class="docutils literal">FinalizerRegister</span> y <span class="docutils literal">FinalizerUpdate</span>: gestionar la identidad del Finalizador y las claves criptográficas asociadas.</p></li>
+<li><p><span class="docutils literal">FinalizerDeactivate</span>: eliminar un Finalizador de la elegibilidad futura para la lista.</p></li>
+<li><p><span class="docutils literal">Slash</span>: aplicar penalizaciones deterministas por mala conducta demostrable.</p></li>
+<li><p><span class="docutils literal">DistributeIssuance</span>: aplicar actualizaciones de distribución de emisión que afectan la asignación relacionada con el minero y el Finalizador en el estado.</p></li>
+</ul>
+<p>Cada acción DEBE (MUST) definir precondiciones, efectos de transición de estado y comportamiento de reversión bajo un retroceso de cadena.</p>
+
+<h2 id="ledger-mutations-concrete-zcash-transaction-semantics"><a class="hanchor" href="#ledger-mutations-concrete-zcash-transaction-semantics" aria-hidden="true" tabindex="-1">#</a>Mutaciones del ledger: semántica concreta de transacciones de Zcash</h2>
+<p>Las reglas de consenso de transacción se extienden de modo que patrones específicos de transacción codifican las acciones abstractas anteriores. Esta capa DEBE (MUST) definir:</p>
+<ul class="simple">
+<li><p>los campos y codificaciones concretos de transacción utilizados para acciones relacionadas con la lista,</p></li>
+<li><p>verificaciones de validez de firmas, autorización y restricciones de importe,</p></li>
+<li><p>reglas de orden e interacción cuando aparecen múltiples acciones de lista en un bloque,</p></li>
+<li><p>comportamiento de rechazo para acciones malformadas, no autorizadas o en conflicto semántico.</p></li>
+</ul>
+<p>La aplicación de un bloque válido DEBE (MUST) inducir exactamente la misma secuencia de acciones abstractas en <span class="docutils literal">S_xl</span> en todos los nodos honestos.</p>
+
+<h2 id="issuance-distribution-and-roster-interaction"><a class="hanchor" href="#issuance-distribution-and-roster-interaction" aria-hidden="true" tabindex="-1">#</a>Distribución de emisión e interacción con la lista</h2>
+<p>Las reglas de distribución de emisión cubiertas por este ZIP DEBEN (MUST) especificar:</p>
+<ul class="simple">
+<li><p>qué componentes de la emisión se ven afectados por el estado de la lista y de los finalizadores,</p></li>
+<li><p>cuándo ocurren las actualizaciones del estado de emisión en relación con las demás mutaciones por bloque, y</p></li>
+<li><p>el comportamiento contable determinista bajo progresión normal y reorganizaciones.</p></li>
+</ul>
+<p>Los valores detallados de política (por ejemplo, los porcentajes exactos de asignación) PUEDEN (MAY) establecerse mediante un proceso separado o ZIPs de financiamiento, pero este ZIP define los ganchos de transición de estado de consenso que aplican la política que se active.</p>
+
+
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<p>Separar esta especificación de CCC-SL mantiene las preocupaciones modulares:</p>
+<ul class="simple">
+<li><p>CCC-SL especifica la construcción de consenso híbrido y las propiedades de finalidad.</p></li>
+<li><p>Este ZIP especifica la máquina de estados del ledger que provee la entrada de la lista activa y aplica las mutaciones relacionadas con la lista dentro del procesamiento de consenso de Zcash.</p></li>
+</ul>
+<p>Esta separación mantiene auditable cada ZIP a la vez que preserva la integración determinista.</p>
+
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Este ZIP está destinado a activarse mediante el mecanismo de actualización de red de Zcash <a class="brackets" href="#zip-0200" id="footnote-reference-7" role="doc-noteref"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></a> junto con los demás ZIPs requeridos de Crosslink.</p>
+
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>Una implementación de prototipo está en desarrollo en los repositorios de Shielded Labs <span class="docutils literal"><span class="pre">zebra-crosslink</span></span> y <span class="docutils literal">crosslink_monolith</span>, con referencias desde el ZIP <a class="brackets" href="#zip-crosslink-overview" id="footnote-reference-8" role="doc-noteref"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></a>.</p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bcp14" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/info/bcp14">Information on BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" and "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2022.3.8 or later</a></p>
+</aside>
+<aside class="footnote brackets" id="protocol-networks" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2022.3.8. Section 3.12: Mainnet and Testnet</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0200" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-7">4</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="/upstream/zip-0200.rst">ZIP 200: Network Upgrade Mechanism</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-ccc-sl" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-4">1</a>,<a role="doc-backlink" href="#footnote-reference-5">2</a>)</span>
+<p><a class="reference external" href="/upstream/draft-shieldedlabs-crosslink-construction.rst">ZIP [Unassigned]: CCC-SL: Crosslink Consensus Construction from Shielded Labs</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-crosslink-overview" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>6<span class="fn-bracket">]</span></span>
+<span class="backrefs">(<a role="doc-backlink" href="#footnote-reference-3">1</a>,<a role="doc-backlink" href="#footnote-reference-6">2</a>,<a role="doc-backlink" href="#footnote-reference-8">3</a>)</span>
+<p><a class="reference external" href="/upstream/draft-shieldedlabs-crosslink-overview.rst">ZIP [Unassigned]: Shielded Labs Crosslink v1: Protocol Overview and Architecture</a></p>
+</aside>
+</aside>
+

@@ -1,0 +1,763 @@
+{
+ "segments": {
+  "Light Client Protocol for Payment Detection": "Protocolo de cliente ligero para la detección de pagos",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"SHOULD\", \"SHOULD NOT\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"DEBERÍA (SHOULD)\", \"NO DEBERÍA (SHOULD NOT)\" y \"PUEDE (MAY)\" en este documento se interpretan como se describe en BCP 14 <x1/> cuando, y solo cuando, aparecen en mayúsculas.",
+  "The character § is used when referring to sections of the Zcash Protocol Specification. [^protocol]": "El carácter § se usa al referirse a secciones de la Zcash Protocol Specification. [^protocol]",
+  "The terms \"Mainnet\" and \"Testnet\" are to be interpreted as described in § 3.12 ‘Mainnet and Testnet’. [^protocol-networks]": "Los términos \"Mainnet\" y \"Testnet\" se interpretan como se describe en § 3.12 «Mainnet y Testnet». [^protocol-networks]",
+  "The terms below are to be interpreted as follows:": "Los términos siguientes deben interpretarse de la siguiente manera:",
+  "Light client": "Cliente ligero",
+  "A client that is not a full participant in the network of Zcash peers. It can receive and (if it holds the required spending keys) send payments, but does not store or validate a full copy of the block chain.": "Un cliente que no es un participante completo en la red de pares de Zcash. Puede recibir y (si posee las claves de gasto necesarias) enviar pagos, pero no almacena ni valida una copia completa del block chain.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This ZIP defines a protocol for Zcash light clients that enables detection of incoming payments, identification of spent notes, and maintenance of note commitment tree witnesses and nullifier sets for Sapling <x1/> and Orchard <x2/> shielded transactions, as well as transparent input and output tracing.": "Este ZIP define un protocolo para clientes ligeros de Zcash que permite la detección de pagos entrantes, la identificación de notas gastadas y el mantenimiento de testigos de los árboles de compromiso de notas y de conjuntos de nullifiers para transacciones blindadas de Sapling <x1/> y Orchard <x2/>, así como el rastreo de entradas y salidas transparentes.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "Prior to the introduction of this protocol, a client that wished to send or receive shielded payments had to be a full node participating in the Zcash network. This required an amount of available bandwidth, space, and processing power that was unsuitable for some use cases. This light client protocol addresses that need, and is appropriate for low-power, bandwidth-conscious, or otherwise limited machines (such as mobile phones).": "Antes de la introducción de este protocolo, un cliente que deseaba enviar o recibir pagos blindados debía ser un nodo completo participante en la red de Zcash. Esto requería una cantidad de ancho de banda, espacio y capacidad de procesamiento disponibles que no era adecuada para algunos casos de uso. Este protocolo de cliente ligero atiende esa necesidad y es apropiado para máquinas de baja potencia, conscientes del ancho de banda o limitadas de otra manera (como teléfonos móviles).",
+  "<x1/>High-Level Design": "<x1/>Diseño de alto nivel",
+  "There are three logical components to a Zcash light client system:": "Un sistema de cliente ligero de Zcash tiene tres componentes lógicos:",
+  "<g1>Zcash full node</g1> that provides chain state and serves as a root of trust for the system.": "<g1>Nodo completo de Zcash</g1> que provee el estado de la cadena y sirve como raíz de confianza del sistema.",
+  "<g1>Proxy server</g1> that extracts block chain data from a Zcash full node to store and serve it in a lower-bandwidth format.": "<g1>Servidor proxy</g1> que extrae datos del block chain desde un nodo completo de Zcash para almacenarlos y servirlos en un formato de menor ancho de banda.",
+  "<g1>Light client</g1> that subscribes to the stream from a proxy server and uses that data to update its own view of the chain state. The light client MAY be attached to a wallet backend that will track particular shielded notes.": "<g1>Cliente ligero</g1> que se suscribe al flujo de un servidor proxy y usa esos datos para actualizar su propia vista del estado de la cadena. El cliente ligero PUEDE (MAY) estar conectado a un backend de billetera que rastreará notas blindadas particulares.",
+  "Outline of the light wallet architecture": "Esquema de la arquitectura de billetera ligera",
+  "<x1/>Security Model": "<x1/>Modelo de seguridad",
+  "In this model, we propose <g1>payment detection privacy</g1> as our main security goal. That is, the proxy should not learn which transactions (received from the block chain) are addressed to a given light wallet. If we further assume network privacy (via Tor or similar), the proxy should not be able to link different connections or queries as deriving from the same wallet.": "En este modelo, proponemos la <g1>privacidad de detección de pagos</g1> como nuestro principal objetivo de seguridad. Es decir, el proxy no debería aprender cuáles transacciones (recibidas del block chain) están dirigidas a una billetera ligera dada. Si además asumimos privacidad de red (mediante Tor o similar), el proxy no debería poder vincular diferentes conexiones o consultas como provenientes de la misma billetera.",
+  "In particular, the underlying Zcash node / proxy combination is assumed to be \"honest but curious\" and is trusted to provide a correct view of the current best chain state and to faithfully transmit queries and responses.": "En particular, se asume que la combinación del nodo de Zcash subyacente y el proxy es \"honesto pero curioso\", y se confía en que proporcione una vista correcta del mejor estado actual de la cadena y que transmita fielmente consultas y respuestas.",
+  "This ZIP does not address how to spend notes privately.": "Este ZIP no aborda cómo gastar notas de forma privada.",
+  "<x1/>Compact Stream Format": "<x1/>Formato de flujo compacto",
+  "A key observation in this protocol is that the ciphertext in each shielded output is several hundred bytes long, due to the inclusion of a transaction memo. The need to download the entire ciphertext imposes a substantial bandwidth cost on each light wallet, which may be a limited mobile device on a restricted-bandwidth plan. The memo field can be ignored during payment detection, as can any information that is not directly relevant to shielded transaction processing.": "Una observación clave en este protocolo es que el texto cifrado en cada salida blindada tiene una longitud de varios cientos de bytes, debido a la inclusión de un memo de transacción. La necesidad de descargar el texto cifrado completo impone un costo sustancial de ancho de banda a cada billetera ligera, que puede ser un dispositivo móvil limitado en un plan de ancho de banda restringido. El campo de memo puede ignorarse durante la detección de pagos, al igual que cualquier información que no sea directamente relevante para el procesamiento de transacciones blindadas.",
+  "A <g1>compact block</g1> is a packaging of ONLY the data from a block needed to:": "Un <g1>bloque compacto</g1> es un empaquetado de SOLO los datos de un bloque necesarios para:",
+  "Detect a payment to your shielded address (Sapling or Orchard).": "Detectar un pago a su dirección blindada (Sapling u Orchard).",
+  "Detect a spend of your shielded notes.": "Detectar un gasto de sus notas blindadas.",
+  "Update note commitment tree witnesses.": "Actualizar los testigos de los árboles de compromiso de notas.",
+  "Compact blocks and their component compact transactions are encoded on the wire using Protocol Buffers <x1/>. The normative definitions of the compact block format are specified in the <x2/> file of the Zcash Light Client Protocol <x3/>.": "Los bloques compactos y sus transacciones compactas componentes se codifican en la red mediante Protocol Buffers <x1/>. Las definiciones normativas del formato de bloque compacto se especifican en el archivo <x2/> del Zcash Light Client Protocol <x3/>.",
+  "The protocol has evolved through several major versions:": "El protocolo ha evolucionado a través de varias versiones principales:",
+  "<g1>v0.3.x</g1> (2021–2023): Added Orchard shielded protocol support via <x2/> and note commitment tree state queries (<x3/>, <x4/>) and subtree root retrieval (<x5/>) to support efficient witness construction.": "<g1>v0.3.x</g1> (2021–2023): se agregó soporte del protocolo blindado Orchard mediante <x2/> y consultas de estado del árbol de compromiso de notas (<x3/>, <x4/>) y recuperación de raíces de subárbol (<x5/>) para soportar la construcción eficiente de testigos.",
+  "<g1>v0.4.x</g1> (2025): Added transparent transaction data (<x2/>, <x3/>) to compact blocks, enabling transparent outputs to be discovered without revealing the client's addresses to the light wallet server. The update also added <x4/>-based filtering for selective retrieval by shielded protocol.": "<g1>v0.4.x</g1> (2025): se agregaron datos de transacciones transparentes (<x2/>, <x3/>) a los bloques compactos, lo que permite descubrir salidas transparentes sin revelar las direcciones del cliente al servidor de billetera ligera. La actualización también agregó filtrado basado en <x4/> para la recuperación selectiva por protocolo blindado.",
+  "The following sections describe the rationale for the compact format design.": "Las secciones siguientes describen la justificación del diseño del formato compacto.",
+  "<x1/>Output Compression": "<x1/>Compresión de salidas",
+  "In the Zcash protocol, each shielded output contains an AEAD-encrypted <g1>note plaintext</g1> <x2/>. For both Sapling and Orchard, this ciphertext (<x3/>) is 580 bytes long and includes the memo field and an authentication tag.": "En el protocolo de Zcash, cada salida blindada contiene un <g1>texto plano de nota</g1> cifrado con AEAD <x2/>. Tanto para Sapling como para Orchard, este texto cifrado (<x3/>) tiene una longitud de 580 bytes e incluye el campo de memo y una etiqueta de autenticación.",
+  "A recipient detects their transactions by trial-decrypting this ciphertext. On a full node that has the entire block chain, the primary cost is computational. For light clients however, there is an additional bandwidth cost: every ciphertext on the block chain must be received from the server (or network node) the light client is connected to.": "Un destinatario detecta sus transacciones mediante el descifrado de prueba de este texto cifrado. En un nodo completo que posee la block chain completa, el costo principal es computacional. Sin embargo, para los clientes ligeros existe un costo adicional de ancho de banda: cada texto cifrado de la block chain debe recibirse del servidor (o nodo de red) al que está conectado el cliente ligero.",
+  "However, payment detection does not require the full ciphertext. The first 52 bytes of <x1/> contain the contents and opening of the note commitment, which is sufficient to detect, verify, and spend the note. The compact representation therefore includes only these 52 bytes along with the extracted note commitment and ephemeral public key.": "Sin embargo, la detección de pagos no requiere el texto cifrado completo. Los primeros 52 bytes de <x1/> contienen el contenido y la apertura del compromiso de nota, lo cual es suficiente para detectar, verificar y gastar la nota. Por lo tanto, la representación compacta incluye solo estos 52 bytes junto con el compromiso de nota extraído y la clave pública efímera.",
+  "For <g1>Sapling</g1>, a <x2/> contains the 32-byte extracted note commitment (<x3/>), the 32-byte ephemeral public key, and the first 52 bytes of the ciphertext, for a total of 116 bytes per output. A full Sapling Output description <x4/> is 948 bytes in v4 transactions (756 bytes in v5), so the compact representation provides an 85–88% reduction in bandwidth.": "Para <g1>Sapling</g1>, un <x2/> contiene el compromiso de nota extraído de 32 bytes (<x3/>), la clave pública efímera de 32 bytes y los primeros 52 bytes del texto cifrado, para un total de 116 bytes por salida. Una descripción completa de Sapling Output <x4/> ocupa 948 bytes en las transacciones v4 (756 bytes en v5), por lo que la representación compacta proporciona una reducción del 85–88% en el ancho de banda.",
+  "For <g1>Orchard</g1>, a <x2/> contains the 32-byte nullifier, the 32-byte extracted note commitment (<x3/>), the 32-byte ephemeral public key, and the first 52 bytes of the ciphertext, for a total of 148 bytes per action. A full Orchard Action description <x4/> is 820 bytes, so the compact representation provides an 82% reduction in bandwidth. Note that the Orchard compact representation includes the nullifier because the Orchard Action structure combines a spend and an output into a single description.": "Para <g1>Orchard</g1>, un <x2/> contiene el nullifier de 32 bytes, el compromiso de nota extraído de 32 bytes (<x3/>), la clave pública efímera de 32 bytes y los primeros 52 bytes del texto cifrado, para un total de 148 bytes por acción. Una descripción completa de Orchard Action <x4/> ocupa 820 bytes, por lo que la representación compacta proporciona una reducción del 82% en el ancho de banda. Nótese que la representación compacta de Orchard incluye el nullifier porque la estructura de Orchard Action combina un gasto y una salida en una sola descripción.",
+  "Since the compact representation omits the authentication tag, the integrity of the decrypted note plaintext is instead validated by recalculating the note commitment from the decrypted plaintext and checking it against the note commitment sent outside the ciphertext, which is authenticated by the binding signature over the entire transaction.": "Dado que la representación compacta omite la etiqueta de autenticación, la integridad del texto plano de la nota descifrado se valida en su lugar recalculando el compromiso de nota a partir del texto plano descifrado y comparándolo con el compromiso de nota enviado fuera del texto cifrado, el cual está autenticado por la firma de enlace (binding) sobre la transacción completa.",
+  "<x1/>Spend Compression": "<x1/>Compresión de Spend",
+  "For <g1>Sapling</g1>, a full Spend description is 384 bytes long <x2/>. The only part necessary for spend detection is the 32-byte nullifier, which allows a light client to detect when one of its own notes has been spent. A <x3/> therefore contains only the nullifier, for a 92% reduction in bandwidth.": "Para <g1>Sapling</g1>, una descripción completa de Spend ocupa 384 bytes <x2/>. La única parte necesaria para la detección de gastos es el nullifier de 32 bytes, que permite a un cliente ligero detectar cuándo una de sus propias notas ha sido gastada. Por lo tanto, un <x3/> contiene solo el nullifier, para una reducción del 92% en el ancho de banda.",
+  "For <g1>Orchard</g1>, spend detection is handled by checking the nullifier included in each <x2/> (as described in <g3>Output Compression</g3> above), since the Orchard Action structure combines a spend and an output.": "Para <g1>Orchard</g1>, la detección de gastos se maneja verificando el nullifier incluido en cada <x2/> (como se describe en <g3>Compresión de salidas</g3> arriba), ya que la estructura de Orchard Action combina un gasto y una salida.",
+  "<x1/>Proxy operation": "<x1/>Operación del proxy",
+  "The proxy's purpose is to provide a scalable and bandwidth-efficient interface between a Zcash node and any number of light clients. It accomplishes this by parsing a blockwise stream of transactions from the node and converting them into the compact format described above.": "El propósito del proxy es proporcionar una interfaz escalable y eficiente en ancho de banda entre un nodo de Zcash y cualquier número de clientes ligeros. Lo logra analizando un flujo de transacciones bloque a bloque desde el nodo y convirtiéndolas al formato compacto descrito anteriormente.",
+  "The proxy offers a gRPC API to clients, defined by the <x1/> file of the Zcash Light Client Protocol <x2/>. The <x3/> service provides methods for retrieving compact blocks, submitting transactions, querying note commitment tree state, and querying for transparent outputs by address.": "El proxy ofrece una API de gRPC a los clientes, definida por el archivo <x1/> del Zcash Light Client Protocol <x2/>. El servicio <x3/> proporciona métodos para recuperar bloques compactos, enviar transacciones, consultar el estado del árbol de compromiso de notas y consultar salidas transparentes por dirección.",
+  "<x1/>Client operation": "<x1/>Operación del cliente",
+  "Light clients obtain compact blocks from one or more proxy servers, which they then process locally to update their view of the block chain. We consider only a single proxy server here without loss of generality.": "Los clientes ligeros obtienen bloques compactos de uno o más servidores proxy, que luego procesan localmente para actualizar su vista del block chain. Aquí consideramos solo un único servidor proxy, sin pérdida de generalidad.",
+  "<x1/>Local processing": "<x1/>Procesamiento local",
+  "Given a <x1/> at block height <x2/> received from a proxy server, a light client processes it in the following ways:": "Dado un <x1/> a la altura de bloque <x2/> recibido de un servidor proxy, un cliente ligero lo procesa de las siguientes maneras:",
+  "<x1/>Scanning for relevant transactions": "<x1/>Escaneo en busca de transacciones relevantes",
+  "For every <x1/> and <x2/> in the <x3/>, the light client attempts trial decryption against its set of incoming viewing keys. The following subsection describes the compact trial decryption procedure for Sapling and Orchard.": "Por cada <x1/> y <x2/> en el <x3/>, el cliente ligero intenta el descifrado de prueba contra su conjunto de claves de visualización de entradas. La siguiente subsección describe el procedimiento de descifrado de prueba compacto para Sapling y Orchard.",
+  "<x1/>Sapling and Orchard compact trial decryption": "<x1/>Descifrado de prueba compacto de Sapling y Orchard",
+  "For each Sapling or Orchard compact output, the light client trial-decrypts with each incoming viewing key <x1/> for that output's shielded protocol.": "Para cada salida compacta de Sapling u Orchard, el cliente ligero realiza el descifrado de prueba con cada clave de visualización de entradas <x1/> correspondiente al protocolo blindado de esa salida.",
+  "Let <x1/> be as defined in § 5.3 ‘Constants’.": "Sea <x1/> como se define en § 5.3 «Constants».",
+  "Let <x1/> be the unauthenticated decryption of ciphertext <x2/> with 256-bit key <x3/>, using the stream cipher ChaCha20 as defined in RFC 7539 <x4/> with the initial counter set to 1 (as defined for the encryption component of AEAD_CHACHA20_POLY1305, but without the authentication component). It returns a byte sequence of the same length as <x5/> and is infallible.": "Sea <x1/> el descifrado no autenticado del texto cifrado <x2/> con la clave de 256 bits <x3/>, usando el cifrador de flujo ChaCha20 tal como se define en el RFC 7539 <x4/> con el contador inicial fijado en 1 (como se define para el componente de cifrado de AEAD_CHACHA20_POLY1305, pero sin el componente de autenticación). Devuelve una secuencia de bytes de la misma longitud que <x5/> y es infalible.",
+  "The procedure to trial-decrypt a compact output takes as input <x1/> (the <x2/> or <x3/> field of the Output description or Action description respectively), <x4/>, the truncated <x5/> <x6/>, the shielded protocol (<x7/> or <x8/>), block height, and transaction version number, and an incoming viewing key <x9/>, and outputs a note for that shielded protocol.": "El procedimiento para descifrar por prueba una salida compacta toma como entrada <x1/> (el campo <x2/> o <x3/> de la descripción de Output o de la descripción de Action, respectivamente), <x4/>, el <x5/> truncado <x6/>, el protocolo blindado (<x7/> u <x8/>), la altura de bloque y el número de versión de la transacción, y una clave de visualización de entradas <x9/>, y produce como salida una nota para ese protocolo blindado.",
+  "This procedure deviates from the standard note decryption using an Incoming Viewing Key, as specified in § 4.20.2 ‘Decryption using an Incoming Viewing Key (Sapling and Orchard)’ <x1/>, only in how <x2/> is obtained:": "Este procedimiento se desvía del descifrado estándar de notas usando una Incoming Viewing Key, según lo especificado en § 4.20.2 «Decryption using an Incoming Viewing Key (Sapling and Orchard)» <x1/>, únicamente en cómo se obtiene <x2/>:",
+  "let <x1/>": "sea <x1/>",
+  "extract $mathbf{np} = (mathsf{leadByte} ;{small ⦂}; mathbb{B}^{kern-0.05emtinymathbb{Y}}, mathsf{d} ;{small ⦂}; mathbb{B}^{[ell_{mathsf{d}}]}, mathsf{v} ;{small ⦂}; { 0 .. 2^{ell_{mathsf{value}}}!-!1 }, mathsf{rseed} ;{small ⦂}; mathbb{B}^{{kern-0.05emtinymathbb{Y}}[32]})$ from <x1/>": "extraer $mathbf{np} = (mathsf{leadByte} ;{small ⦂}; mathbb{B}^{kern-0.05emtinymathbb{Y}}, mathsf{d} ;{small ⦂}; mathbb{B}^{[ell_{mathsf{d}}]}, mathsf{v} ;{small ⦂}; { 0 .. 2^{ell_{mathsf{value}}}!-!1 }, mathsf{rseed} ;{small ⦂}; mathbb{B}^{{kern-0.05emtinymathbb{Y}}[32]})$ de <x1/>",
+  "and in the fact that the last step returns only <x1/>, rather than <x2/>.": "y en el hecho de que el último paso devuelve solo <x1/>, en lugar de <x2/>.",
+  "Non-normative note: Previous versions of this ZIP reiterated the compact output decryption procedure (for Sapling) rather than specifying the differences from § 4.20.2. This led to the following unintended differences:": "Nota no normativa: versiones anteriores de este ZIP reiteraban el procedimiento de descifrado de salida compacta (para Sapling) en lugar de especificar las diferencias respecto de § 4.20.2. Esto llevó a las siguientes diferencias no intencionadas:",
+  "The procedure described in this ZIP did not support pre-ZIP-212 Sapling outputs.": "El procedimiento descrito en este ZIP no soportaba salidas de Sapling anteriores a ZIP 212.",
+  "The swapping of domain separators $[4]$ and $[5]$ in the <x1/> inputs used to derive <x2/> and <x3/> for Sapling that was fixed in <g4>version 2023.4.0 of the protocol specification</g4>, had not been fixed in this ZIP.": "El intercambio de los separadores de dominio $[4]$ y $[5]$ en las entradas de <x1/> usadas para derivar <x2/> y <x3/> para Sapling, que fue corregido en la <g4>versión 2023.4.0 de la especificación del protocolo</g4>, no había sido corregido en este ZIP.",
+  "The type error that was fixed in <g1>version 2025.6.2 of the protocol specification</g1>, had not been fixed in this ZIP.": "El error de tipo que fue corregido en la <g1>versión 2025.6.2 de la especificación del protocolo</g1>, no había sido corregido en este ZIP.",
+  "The refactoring to use <x1/> also made in version 2025.6.2 had not been applied.": "La refactorización para usar <x1/>, también realizada en la versión 2025.6.2, no había sido aplicada.",
+  "The last step incorrectly returned <x1/> rather than the note.": "El último paso devolvía incorrectamente <x1/> en lugar de la nota.",
+  "<x1/>Maintaining note commitment tree witnesses": "<x1/>Mantenimiento de testigos de los árboles de compromisos de notas",
+  "In order to spend a shielded note, the spender must produce a Merkle path (witness) from the note's commitment to an anchor (a root of the note commitment tree at some block height). <x1/> <x2/> A light client MUST therefore maintain sufficient note commitment tree state to produce witnesses for its unspent notes.": "Para gastar una nota blindada, el gastador debe producir una ruta de Merkle (testigo) desde el compromiso de la nota hasta un ancla (una raíz del árbol de compromisos de notas en cierta altura de bloque). <x1/> <x2/> Por lo tanto, un cliente ligero DEBE (MUST) mantener suficiente estado del árbol de compromisos de notas para producir testigos de sus notas no gastadas.",
+  "The note commitments in each <x1/> (the <x2/> values from <x3/> entries and the <x4/> values from <x5/> entries) are inserted into the respective Sapling or Orchard note commitment trees in the order they appear in the block.": "Los compromisos de notas en cada <x1/> (los valores de <x2/> de las entradas de <x3/> y los valores de <x4/> de las entradas de <x5/>) se insertan en los árboles de compromisos de notas de Sapling o Orchard correspondientes, en el orden en que aparecen en el bloque.",
+  "A light client that has scanned a contiguous range of blocks can construct witnesses from the note commitments it has observed. However, a light client need not have scanned the entire chain in order to construct witnesses: the <x1/> RPC method <x2/> provides roots of completed subtrees of the note commitment trees, which can be combined with locally-scanned commitments to produce valid witnesses even when portions of the chain have not been scanned.": "Un cliente ligero que ha escaneado un rango contiguo de bloques puede construir testigos a partir de los compromisos de notas que ha observado. Sin embargo, un cliente ligero no necesita haber escaneado toda la cadena para construir testigos: el método RPC <x1/> <x2/> proporciona raíces de subárboles completados de los árboles de compromisos de notas, que pueden combinarse con compromisos escaneados localmente para producir testigos válidos incluso cuando partes de la cadena no han sido escaneadas.",
+  "<x1/>Detecting spends": "<x1/>Detección de gastos",
+  "The <x1/> nullifier entries and the nullifier fields of <x2/> entries can be checked against the nullifiers of notes known to the client to determine when those notes have been spent.": "Las entradas de nullifier de <x1/> y los campos de nullifier de las entradas de <x2/> pueden verificarse contra los nullifiers de las notas conocidas por el cliente para determinar cuándo esas notas han sido gastadas.",
+  "<x1/>Block header validation": "<x1/>Validación de encabezados de bloque",
+  "<g1>This section describes a proposed enhancement that has been only partially implemented: currently only</g1> <x2/> <g3>is checked.</g3>": "<g1>Esta sección describe una mejora propuesta que solo se ha implementado parcialmente: actualmente solo se verifica</g1> <x2/><g3>.</g3>",
+  "If the <x1/> for height <x2/> contains a block header, the light client can validate it in a similar way to SPV clients <x3/> by performing the following checks:": "Si el <x1/> para la altura <x2/> contiene un encabezado de bloque, el cliente ligero puede validarlo de manera similar a los clientes SPV <x3/> realizando las siguientes comprobaciones:",
+  "<x1/> where <x2/> is the previous <x3/> received (at height <x4/>).": "<x1/>, donde <x2/> es el <x3/> anterior recibido (en la altura <x4/>).",
+  "<x1/> is equal to the root of the Sapling note commitment tree after appending every <x2/> in the <x3/> in-order.": "<x1/> es igual a la raíz del árbol de compromisos de notas de Sapling tras añadir cada <x2/> en el <x3/> en orden.",
+  "The Equihash solution is valid.": "La solución Equihash es válida.",
+  "If the last 27 <x1/> all have block headers, <x2/> is set correctly according to the difficulty adjustment algorithm.": "Si los últimos 27 <x1/> tienen todos encabezados de bloque, <x2/> está correctamente establecido según el algoritmo de ajuste de dificultad.",
+  "A <x1/> that fails any of these checks MUST be discarded. If it was received as part of a <x2/> call, the call MUST be aborted.": "Un <x1/> que falle en cualquiera de estas comprobaciones DEBE (MUST) descartarse. Si se recibió como parte de una llamada a <x2/>, la llamada DEBE (MUST) abortarse.",
+  "Block header validation provides light clients with some assurance that the compact outputs being sent to them are indeed from valid blocks that have been mined. The strongest-possible assurance is achieved when all block headers are synchronised; this comes at the cost of bandwidth and storage.": "La validación de encabezados de bloque proporciona a los clientes ligeros cierta seguridad de que las salidas compactas que se les envían provienen efectivamente de bloques válidos que han sido minados. La seguridad máxima posible se logra cuando todos los encabezados de bloque están sincronizados; esto tiene un costo en ancho de banda y almacenamiento.",
+  "By default, <x1/> only contain <x2/> for transactions that contain shielded spends or outputs. Thus they do not contain sufficient information to validate that the received transaction IDs correspond to the transaction tree root in the block header. This does not have a significant effect on light client security: light clients only directly depend on compact outputs, which can be authenticated via block header validation. If a txid is used in a <x3/> call, the returned transaction SHOULD be checked against the corresponding compact outputs, in addition to verifying the transaction signatures.": "Por defecto, <x1/> solo contienen <x2/> de transacciones que contienen gastos o salidas blindados. Por lo tanto, no contienen información suficiente para validar que los identificadores de transacción recibidos correspondan a la raíz del árbol de transacciones en el encabezado de bloque. Esto no tiene un efecto significativo en la seguridad del cliente ligero: los clientes ligeros solo dependen directamente de las salidas compactas, que pueden autenticarse mediante la validación de encabezados de bloque. Si se usa un txid en una llamada a <x3/>, la transacción devuelta DEBERÍA (SHOULD) verificarse contra las salidas compactas correspondientes, además de verificar las firmas de la transacción.",
+  "<x1/>Client-server interaction": "<x1/>Interacción cliente-servidor",
+  "A light client MUST perform the following operations as part of synchronisation:": "Un cliente ligero DEBE (MUST) realizar las siguientes operaciones como parte de la sincronización:",
+  "<g1>Trial decryption</g1>: For each <x2/> and <x3/> in the scanned <x4/>, the light client attempts trial decryption against its set of incoming viewing keys. Successfully decrypted outputs represent received notes. See <g5>Scanning for relevant transactions</g5> for details.": "<g1>Descifrado de prueba</g1>: Para cada <x2/> y <x3/> en el <x4/> escaneado, el cliente ligero intenta el descifrado de prueba contra su conjunto de claves de visualización entrantes. Las salidas descifradas con éxito representan notas recibidas. Véase <g5>Escaneo de transacciones relevantes</g5> para más detalles.",
+  "<g1>Nullifier matching</g1>: For each <x2/> nullifier and <x3/> nullifier in the scanned <x4/>, the light client checks against its set of known nullifiers for unspent notes. A match indicates that the corresponding note has been spent.": "<g1>Coincidencia de nullifiers</g1>: Para cada nullifier de <x2/> y nullifier de <x3/> en el <x4/> escaneado, el cliente ligero verifica contra su conjunto de nullifiers conocidos de notas no gastadas. Una coincidencia indica que la nota correspondiente ha sido gastada.",
+  "<g1>Note commitment tree maintenance</g1>: The light client updates its local note commitment tree state as described in <g2>Maintaining note commitment tree witnesses</g2>.": "<g1>Mantenimiento del árbol de compromisos de notas</g1>: El cliente ligero actualiza su estado local del árbol de compromisos de notas como se describe en <g2>Mantenimiento de testigos de los árboles de compromisos de notas</g2>.",
+  "<x1/>Retrieving full transactions": "<x1/>Recuperación de transacciones completas",
+  "The compact block stream provides sufficient information for payment detection and balance tracking, but does not include memo fields or other transaction details. When a light client needs to access the memo field of a received note, the outgoing ciphertexts for spend recovery, or other transaction components, it retrieves the full transaction via the <x1/> RPC method.": "El flujo de bloques compactos proporciona información suficiente para la detección de pagos y el seguimiento de saldos, pero no incluye campos de memo ni otros detalles de la transacción. Cuando un cliente ligero necesita acceder al campo de memo de una nota recibida, a los cifrados salientes para la recuperación de gastos, o a otros componentes de la transacción, recupera la transacción completa mediante el método RPC <x1/>.",
+  "Since a <x1/> request reveals to the proxy server that the light client is interested in a specific transaction, full transaction retrieval SHOULD be performed over a privacy-preserving network connection such as Tor <x2/> or the Nym mixnet <x3/>.": "Dado que una solicitud <x1/> revela al servidor proxy que el cliente ligero está interesado en una transacción específica, la recuperación de transacciones completas DEBERÍA (SHOULD) realizarse mediante una conexión de red que preserva la privacidad, como Tor <x2/> o la mixnet de Nym <x3/>.",
+  "In addition, even when using a privacy-preserving network connection for these operations, a client SHOULD NOT make transaction data requests to the proxy server in a fashion that links the client's interest in that transaction to other operations that the client may be performing in the clear. For example, if a client uses an unprotected connection for compact block download, that client SHOULD NOT retrieve full transaction data immediately upon transaction discovery, but SHOULD defer it until a later time when the download will not be identifiably related to the download of the compact block range in which the transaction was discovered.": "Además, incluso cuando se usa una conexión de red que preserva la privacidad para estas operaciones, un cliente NO DEBERÍA (SHOULD NOT) hacer solicitudes de datos de transacciones al servidor proxy de una manera que vincule el interés del cliente en esa transacción con otras operaciones que el cliente pueda estar realizando sin protección. Por ejemplo, si un cliente usa una conexión sin protección para la descarga de bloques compactos, ese cliente NO DEBERÍA (SHOULD NOT) recuperar los datos completos de la transacción inmediatamente tras su descubrimiento, sino que DEBERÍA (SHOULD) diferirlo hasta un momento posterior en que la descarga no sea identificablemente relacionada con la descarga del rango de bloques compactos en el que se descubrió la transacción.",
+  "<x1/>Importing a pre-existing key": "<x1/>Importación de una clave preexistente",
+  "The light client's scanning start height (often called the \"wallet birthday\") determines how far back the light client must scan to detect all relevant transactions. When a light client is initialized with a newly generated key, it can use the current chain tip as its wallet birthday, since no prior transactions can be relevant.": "La altura de inicio de escaneo del cliente ligero (a menudo llamada el \"cumpleaños de la billetera\") determina hasta qué punto hacia atrás debe escanear el cliente ligero para detectar todas las transacciones relevantes. Cuando un cliente ligero se inicializa con una clave recién generada, puede usar la punta actual de la cadena como cumpleaños de la billetera, ya que ninguna transacción previa puede ser relevante.",
+  "When initialized with a pre-existing key —whether a seed, a full viewing key, or an incoming viewing key— the light client MUST scan from the key's birthday height, which is the earliest block height at which the key could have been used. If the birthday height is unknown and cannot be estimated by the user, the light client SHOULD scan from the activation height of the earliest shielded protocol supported by the key (Sapling activation at block 419200 on Mainnet, or Orchard activation at block 1687104 on Mainnet).": "Cuando se inicializa con una clave preexistente —ya sea una semilla, una clave de visualización completa o una clave de visualización de entrada— el cliente ligero DEBE (MUST) escanear desde la altura de cumpleaños de la clave, que es la altura de bloque más temprana en la que la clave podría haber sido usada. Si la altura de cumpleaños es desconocida y no puede ser estimada por el usuario, el cliente ligero DEBERÍA (SHOULD) escanear desde la altura de activación del protocolo blindado más temprano soportado por la clave (activación de Sapling en el bloque 419200 de Mainnet, o activación de Orchard en el bloque 1687104 de Mainnet).",
+  "<x1/>Block privacy via bucketing": "<x1/>Privacidad de bloques mediante agrupamiento en buckets",
+  "<g1>This section describes a proposed enhancement that has not been implemented.</g1>": "<g1>Esta sección describe una mejora propuesta que no ha sido implementada.</g1>",
+  "When a light client requests a range of compact blocks via <x1/>, the start height of the request reveals to the proxy server the block height to which the light client had previously synchronised. This is an information leak under our security model (assuming network privacy). The information leakage can be reduced by \"bucketing\" the start point of each synchronisation request.": "Cuando un cliente ligero solicita un rango de bloques compactos mediante <x1/>, la altura de inicio de la solicitud revela al servidor proxy la altura de bloque hasta la cual el cliente ligero se había sincronizado previamente. Esto es una fuga de información bajo nuestro modelo de seguridad (asumiendo privacidad de red). La fuga de información puede reducirse agrupando (\"bucketing\") el punto de inicio de cada solicitud de sincronización.",
+  "Let <x1/> be the value of <x2/> rounded down to some multiple of the bucket size <x3/>. Instead of requesting blocks starting from the light client's last synchronised height <x4/>, the light client requests blocks starting from <x5/>. Blocks between <x6/> and <x7/> are checked against the light client's cached chain view for consistency and then discarded without further processing. This also helps detect chain reorganisations that occurred within the bucket window.": "Sea <x1/> el valor de <x2/> redondeado hacia abajo a algún múltiplo del tamaño del cubo <x3/>. En lugar de solicitar bloques comenzando desde la última altura sincronizada del cliente ligero <x4/>, el cliente ligero solicita bloques comenzando desde <x5/>. Los bloques entre <x6/> y <x7/> se verifican contra la vista de cadena en caché del cliente ligero para comprobar consistencia y luego se descartan sin procesamiento adicional. Esto también ayuda a detectar reorganizaciones de la cadena que ocurrieron dentro de la ventana del cubo.",
+  "<x1/>Transaction privacy": "<x1/>Privacidad de transacciones",
+  "The compact block stream gives the light client sufficient information to determine accurate address balances, show when funds were received or spent, and spend any unspent notes. Since synchronisation happens via a broadcast medium (the compact block stream), it leaks no information about which transactions the light client is interested in.": "El flujo de bloques compactos proporciona al cliente ligero información suficiente para determinar saldos exactos de las direcciones, mostrar cuándo se recibieron o gastaron fondos, y gastar cualquier nota no gastada. Dado que la sincronización ocurre mediante un medio de difusión (el flujo de bloques compactos), no filtra información sobre qué transacciones interesan al cliente ligero.",
+  "However, other API methods reveal more specific interests to the proxy server:": "Sin embargo, otros métodos de la API revelan intereses más específicos al servidor proxy:",
+  "<x1/> reveals interest in a specific transaction. See <g2>Retrieving full transactions</g2> for mitigation recommendations.": "<x1/> revela interés en una transacción específica. Véase <g2>Recuperación de transacciones completas</g2> para recomendaciones de mitigación.",
+  "<x1/> reveals that the light client is the sender of a transaction. Transaction submission SHOULD be performed over a privacy-preserving network connection such as Tor <x2/> or the Nym mixnet <x3/>.": "<x1/> revela que el cliente ligero es el emisor de una transacción. El envío de transacciones DEBERÍA (SHOULD) realizarse mediante una conexión de red que preserva la privacidad, como Tor <x2/> o la mixnet de Nym <x3/>.",
+  "Transparent address queries (<x1/>, <x2/>, <x3/>) reveal the transparent addresses held by the light client. These queries SHOULD be performed over a privacy-preserving network connection such as Tor <x4/> or the Nym mixnet <x5/>.": "Las consultas de direcciones transparentes (<x1/>, <x2/>, <x3/>) revelan las direcciones transparentes que posee el cliente ligero. Estas consultas DEBERÍAN (SHOULD) realizarse mediante una conexión de red que preserva la privacidad, como Tor <x4/> o la mixnet de Nym <x5/>.",
+  "If a client queries for transactions related to multiple transparent addresses in a single request, this will leak the fact that those addresses are controlled by the same client. If the <x1/>, <x2/> or <x3/> methods are used, even over a privacy-preserving network connect, the client SHOULD NOT request data for more than one address at a time and SHOULD make such requests in a fashion that is not temporally linkable to other operation of the wallet.": "Si un cliente consulta transacciones relacionadas con múltiples direcciones transparentes en una sola solicitud, esto filtrará el hecho de que esas direcciones están controladas por el mismo cliente. Si se usan los métodos <x1/>, <x2/> o <x3/>, incluso mediante una conexión de red que preserva la privacidad, el cliente NO DEBERÍA (SHOULD NOT) solicitar datos de más de una dirección a la vez y DEBERÍA (SHOULD) hacer tales solicitudes de una manera que no sea temporalmente vinculable a otra operación de la billetera.",
+  "<x1/> and <x2/> reveal the light client's interest in unconfirmed transactions.": "<x1/> y <x2/> revelan el interés del cliente ligero en transacciones no confirmadas.",
+  "<x1/>Reference Implementation": "<x1/>Implementación de referencia",
+  "<g1>lightwalletd</g1> (proxy server)": "<g1>lightwalletd</g1> (servidor proxy)",
+  "<g1>zcash_client_backend</g1> (light client scanning library)": "<g1>zcash_client_backend</g1> (biblioteca de escaneo del cliente ligero)",
+  "<x1/>References": "<x1/>Referencias"
+ },
+ "reviews": {
+  "Light Client Protocol for Payment Detection": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The key words \"MUST\", \"SHOULD\", \"SHOULD NOT\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <x1/> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The character § is used when referring to sections of the Zcash Protocol Specification. [^protocol]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The terms \"Mainnet\" and \"Testnet\" are to be interpreted as described in § 3.12 ‘Mainnet and Testnet’. [^protocol-networks]": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The terms below are to be interpreted as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Light client": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A client that is not a full participant in the network of Zcash peers. It can receive and (if it holds the required spending keys) send payments, but does not store or validate a full copy of the block chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP defines a protocol for Zcash light clients that enables detection of incoming payments, identification of spent notes, and maintenance of note commitment tree witnesses and nullifier sets for Sapling <x1/> and Orchard <x2/> shielded transactions, as well as transparent input and output tracing.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Prior to the introduction of this protocol, a client that wished to send or receive shielded payments had to be a full node participating in the Zcash network. This required an amount of available bandwidth, space, and processing power that was unsuitable for some use cases. This light client protocol addresses that need, and is appropriate for low-power, bandwidth-conscious, or otherwise limited machines (such as mobile phones).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>High-Level Design": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "There are three logical components to a Zcash light client system:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>Zcash full node</g1> that provides chain state and serves as a root of trust for the system.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Proxy server</g1> that extracts block chain data from a Zcash full node to store and serve it in a lower-bandwidth format.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Light client</g1> that subscribes to the stream from a proxy server and uses that data to update its own view of the chain state. The light client MAY be attached to a wallet backend that will track particular shielded notes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Outline of the light wallet architecture": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Security Model": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In this model, we propose <g1>payment detection privacy</g1> as our main security goal. That is, the proxy should not learn which transactions (received from the block chain) are addressed to a given light wallet. If we further assume network privacy (via Tor or similar), the proxy should not be able to link different connections or queries as deriving from the same wallet.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "In particular, the underlying Zcash node / proxy combination is assumed to be \"honest but curious\" and is trusted to provide a correct view of the current best chain state and to faithfully transmit queries and responses.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "This ZIP does not address how to spend notes privately.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Compact Stream Format": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A key observation in this protocol is that the ciphertext in each shielded output is several hundred bytes long, due to the inclusion of a transaction memo. The need to download the entire ciphertext imposes a substantial bandwidth cost on each light wallet, which may be a limited mobile device on a restricted-bandwidth plan. The memo field can be ignored during payment detection, as can any information that is not directly relevant to shielded transaction processing.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A <g1>compact block</g1> is a packaging of ONLY the data from a block needed to:": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"ONLY\" is not a BCP 14 key word, so the parenthetical English \"(ONLY)\" is an addition; the emphasis is conveyed by \"SOLO\" alone."
+   ],
+   "first": "Un <g1>bloque compacto</g1> es un empaquetado de SOLO (ONLY) los datos de un bloque necesarios para:"
+  },
+  "Detect a payment to your shielded address (Sapling or Orchard).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Detect a spend of your shielded notes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Update note commitment tree witnesses.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Compact blocks and their component compact transactions are encoded on the wire using Protocol Buffers <x1/>. The normative definitions of the compact block format are specified in the <x2/> file of the Zcash Light Client Protocol <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The protocol has evolved through several major versions:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>v0.3.x</g1> (2021–2023): Added Orchard shielded protocol support via <x2/> and note commitment tree state queries (<x3/>, <x4/>) and subtree root retrieval (<x5/>) to support efficient witness construction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>v0.4.x</g1> (2025): Added transparent transaction data (<x2/>, <x3/>) to compact blocks, enabling transparent outputs to be discovered without revealing the client's addresses to the light wallet server. The update also added <x4/>-based filtering for selective retrieval by shielded protocol.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The following sections describe the rationale for the compact format design.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Output Compression": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "In the Zcash protocol, each shielded output contains an AEAD-encrypted <g1>note plaintext</g1> <x2/>. For both Sapling and Orchard, this ciphertext (<x3/>) is 580 bytes long and includes the memo field and an authentication tag.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A recipient detects their transactions by trial-decrypting this ciphertext. On a full node that has the entire block chain, the primary cost is computational. For light clients however, there is an additional bandwidth cost: every ciphertext on the block chain must be received from the server (or network node) the light client is connected to.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "However, payment detection does not require the full ciphertext. The first 52 bytes of <x1/> contain the contents and opening of the note commitment, which is sufficient to detect, verify, and spend the note. The compact representation therefore includes only these 52 bytes along with the extracted note commitment and ephemeral public key.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For <g1>Sapling</g1>, a <x2/> contains the 32-byte extracted note commitment (<x3/>), the 32-byte ephemeral public key, and the first 52 bytes of the ciphertext, for a total of 116 bytes per output. A full Sapling Output description <x4/> is 948 bytes in v4 transactions (756 bytes in v5), so the compact representation provides an 85–88% reduction in bandwidth.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For <g1>Orchard</g1>, a <x2/> contains the 32-byte nullifier, the 32-byte extracted note commitment (<x3/>), the 32-byte ephemeral public key, and the first 52 bytes of the ciphertext, for a total of 148 bytes per action. A full Orchard Action description <x4/> is 820 bytes, so the compact representation provides an 82% reduction in bandwidth. Note that the Orchard compact representation includes the nullifier because the Orchard Action structure combines a spend and an output into a single description.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Since the compact representation omits the authentication tag, the integrity of the decrypted note plaintext is instead validated by recalculating the note commitment from the decrypted plaintext and checking it against the note commitment sent outside the ciphertext, which is authenticated by the binding signature over the entire transaction.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Spend Compression": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For <g1>Sapling</g1>, a full Spend description is 384 bytes long <x2/>. The only part necessary for spend detection is the 32-byte nullifier, which allows a light client to detect when one of its own notes has been spent. A <x3/> therefore contains only the nullifier, for a 92% reduction in bandwidth.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For <g1>Orchard</g1>, spend detection is handled by checking the nullifier included in each <x2/> (as described in <g3>Output Compression</g3> above), since the Orchard Action structure combines a spend and an output.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Proxy operation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The proxy's purpose is to provide a scalable and bandwidth-efficient interface between a Zcash node and any number of light clients. It accomplishes this by parsing a blockwise stream of transactions from the node and converting them into the compact format described above.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The proxy offers a gRPC API to clients, defined by the <x1/> file of the Zcash Light Client Protocol <x2/>. The <x3/> service provides methods for retrieving compact blocks, submitting transactions, querying note commitment tree state, and querying for transparent outputs by address.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Client operation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Light clients obtain compact blocks from one or more proxy servers, which they then process locally to update their view of the block chain. We consider only a single proxy server here without loss of generality.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/>Local processing": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Given a <x1/> at block height <x2/> received from a proxy server, a light client processes it in the following ways:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Scanning for relevant transactions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "For every <x1/> and <x2/> in the <x3/>, the light client attempts trial decryption against its set of incoming viewing keys. The following subsection describes the compact trial decryption procedure for Sapling and Orchard.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Sapling and Orchard compact trial decryption": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For each Sapling or Orchard compact output, the light client trial-decrypts with each incoming viewing key <x1/> for that output's shielded protocol.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Let <x1/> be as defined in § 5.3 ‘Constants’.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Let <x1/> be the unauthenticated decryption of ciphertext <x2/> with 256-bit key <x3/>, using the stream cipher ChaCha20 as defined in RFC 7539 <x4/> with the initial counter set to 1 (as defined for the encryption component of AEAD_CHACHA20_POLY1305, but without the authentication component). It returns a byte sequence of the same length as <x5/> and is infallible.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The procedure to trial-decrypt a compact output takes as input <x1/> (the <x2/> or <x3/> field of the Output description or Action description respectively), <x4/>, the truncated <x5/> <x6/>, the shielded protocol (<x7/> or <x8/>), block height, and transaction version number, and an incoming viewing key <x9/>, and outputs a note for that shielded protocol.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This procedure deviates from the standard note decryption using an Incoming Viewing Key, as specified in § 4.20.2 ‘Decryption using an Incoming Viewing Key (Sapling and Orchard)’ <x1/>, only in how <x2/> is obtained:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "let <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "extract $mathbf{np} = (mathsf{leadByte} ;{small ⦂}; mathbb{B}^{kern-0.05emtinymathbb{Y}}, mathsf{d} ;{small ⦂}; mathbb{B}^{[ell_{mathsf{d}}]}, mathsf{v} ;{small ⦂}; { 0 .. 2^{ell_{mathsf{value}}}!-!1 }, mathsf{rseed} ;{small ⦂}; mathbb{B}^{{kern-0.05emtinymathbb{Y}}[32]})$ from <x1/>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "and in the fact that the last step returns only <x1/>, rather than <x2/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Non-normative note: Previous versions of this ZIP reiterated the compact output decryption procedure (for Sapling) rather than specifying the differences from § 4.20.2. This led to the following unintended differences:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The procedure described in this ZIP did not support pre-ZIP-212 Sapling outputs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The swapping of domain separators $[4]$ and $[5]$ in the <x1/> inputs used to derive <x2/> and <x3/> for Sapling that was fixed in <g4>version 2023.4.0 of the protocol specification</g4>, had not been fixed in this ZIP.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The type error that was fixed in <g1>version 2025.6.2 of the protocol specification</g1>, had not been fixed in this ZIP.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The refactoring to use <x1/> also made in version 2025.6.2 had not been applied.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The last step incorrectly returned <x1/> rather than the note.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Maintaining note commitment tree witnesses": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "In order to spend a shielded note, the spender must produce a Merkle path (witness) from the note's commitment to an anchor (a root of the note commitment tree at some block height). <x1/> <x2/> A light client MUST therefore maintain sufficient note commitment tree state to produce witnesses for its unspent notes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The note commitments in each <x1/> (the <x2/> values from <x3/> entries and the <x4/> values from <x5/> entries) are inserted into the respective Sapling or Orchard note commitment trees in the order they appear in the block.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A light client that has scanned a contiguous range of blocks can construct witnesses from the note commitments it has observed. However, a light client need not have scanned the entire chain in order to construct witnesses: the <x1/> RPC method <x2/> provides roots of completed subtrees of the note commitment trees, which can be combined with locally-scanned commitments to produce valid witnesses even when portions of the chain have not been scanned.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Detecting spends": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The <x1/> nullifier entries and the nullifier fields of <x2/> entries can be checked against the nullifiers of notes known to the client to determine when those notes have been spent.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Block header validation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>This section describes a proposed enhancement that has been only partially implemented: currently only</g1> <x2/> <g3>is checked.</g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the <x1/> for height <x2/> contains a block header, the light client can validate it in a similar way to SPV clients <x3/> by performing the following checks:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> where <x2/> is the previous <x3/> received (at height <x4/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<x1/> is equal to the root of the Sapling note commitment tree after appending every <x2/> in the <x3/> in-order.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The Equihash solution is valid.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "If the last 27 <x1/> all have block headers, <x2/> is set correctly according to the difficulty adjustment algorithm.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A <x1/> that fails any of these checks MUST be discarded. If it was received as part of a <x2/> call, the call MUST be aborted.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "Block header validation provides light clients with some assurance that the compact outputs being sent to them are indeed from valid blocks that have been mined. The strongest-possible assurance is achieved when all block headers are synchronised; this comes at the cost of bandwidth and storage.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "By default, <x1/> only contain <x2/> for transactions that contain shielded spends or outputs. Thus they do not contain sufficient information to validate that the received transaction IDs correspond to the transaction tree root in the block header. This does not have a significant effect on light client security: light clients only directly depend on compact outputs, which can be authenticated via block header validation. If a txid is used in a <x3/> call, the returned transaction SHOULD be checked against the corresponding compact outputs, in addition to verifying the transaction signatures.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Client-server interaction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "A light client MUST perform the following operations as part of synchronisation:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Trial decryption</g1>: For each <x2/> and <x3/> in the scanned <x4/>, the light client attempts trial decryption against its set of incoming viewing keys. Successfully decrypted outputs represent received notes. See <g5>Scanning for relevant transactions</g5> for details.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"incoming viewing keys\" is left in English although it is not a glossary keep term."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>Descifrado de prueba</g1>: Para cada <x2/> y <x3/> en el <x4/> escaneado, el cliente ligero intenta el descifrado de prueba contra su conjunto de incoming viewing keys. Las salidas descifradas con éxito representan notas recibidas. Véase <g5>Escaneo de transacciones relevantes</g5> para más detalles."
+  },
+  "<g1>Nullifier matching</g1>: For each <x2/> nullifier and <x3/> nullifier in the scanned <x4/>, the light client checks against its set of known nullifiers for unspent notes. A match indicates that the corresponding note has been spent.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Note commitment tree maintenance</g1>: The light client updates its local note commitment tree state as described in <g2>Maintaining note commitment tree witnesses</g2>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Retrieving full transactions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The compact block stream provides sufficient information for payment detection and balance tracking, but does not include memo fields or other transaction details. When a light client needs to access the memo field of a received note, the outgoing ciphertexts for spend recovery, or other transaction components, it retrieves the full transaction via the <x1/> RPC method.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Since a <x1/> request reveals to the proxy server that the light client is interested in a specific transaction, full transaction retrieval SHOULD be performed over a privacy-preserving network connection such as Tor <x2/> or the Nym mixnet <x3/>.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "Grammar error: \"una conexión de red que preservar la privacidad\" is ungrammatical and should be \"que preserva la privacidad\"."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Dado que una solicitud <x1/> revela al servidor proxy que el cliente ligero está interesado en una transacción específica, la recuperación de transacciones completas DEBERÍA (SHOULD) realizarse mediante una conexión de red que preservar la privacidad, como Tor <x2/> o la mixnet de Nym <x3/>."
+  },
+  "In addition, even when using a privacy-preserving network connection for these operations, a client SHOULD NOT make transaction data requests to the proxy server in a fashion that links the client's interest in that transaction to other operations that the client may be performing in the clear. For example, if a client uses an unprotected connection for compact block download, that client SHOULD NOT retrieve full transaction data immediately upon transaction discovery, but SHOULD defer it until a later time when the download will not be identifiably related to the download of the compact block range in which the transaction was discovered.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Importing a pre-existing key": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The light client's scanning start height (often called the \"wallet birthday\") determines how far back the light client must scan to detect all relevant transactions. When a light client is initialized with a newly generated key, it can use the current chain tip as its wallet birthday, since no prior transactions can be relevant.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "When initialized with a pre-existing key —whether a seed, a full viewing key, or an incoming viewing key— the light client MUST scan from the key's birthday height, which is the earliest block height at which the key could have been used. If the birthday height is unknown and cannot be estimated by the user, the light client SHOULD scan from the activation height of the earliest shielded protocol supported by the key (Sapling activation at block 419200 on Mainnet, or Orchard activation at block 1687104 on Mainnet).": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The keep term \"Mainnet\" is written as lowercase \"mainnet\", losing its required capitalization."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Cuando se inicializa con una clave preexistente —ya sea una semilla, una clave de visualización completa o una clave de visualización de entrada— el cliente ligero DEBE (MUST) escanear desde la altura de cumpleaños de la clave, que es la altura de bloque más temprana en la que la clave podría haber sido usada. Si la altura de cumpleaños es desconocida y no puede ser estimada por el usuario, el cliente ligero DEBERÍA (SHOULD) escanear desde la altura de activación del protocolo blindado más temprano soportado por la clave (activación de Sapling en el bloque 419200 de mainnet, o activación de Orchard en el bloque 1687104 de mainnet)."
+  },
+  "<x1/>Block privacy via bucketing": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>This section describes a proposed enhancement that has not been implemented.</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "When a light client requests a range of compact blocks via <x1/>, the start height of the request reveals to the proxy server the block height to which the light client had previously synchronised. This is an information leak under our security model (assuming network privacy). The information leakage can be reduced by \"bucketing\" the start point of each synchronisation request.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The added phrase \"en bloques\" is not in the English and wrongly renders \"bucket\" as \"bloque\" (block)."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Cuando un cliente ligero solicita un rango de bloques compactos mediante <x1/>, la altura de inicio de la solicitud revela al servidor proxy la altura de bloque hasta la cual el cliente ligero se había sincronizado previamente. Esto es una fuga de información bajo nuestro modelo de seguridad (asumiendo privacidad de red). La fuga de información puede reducirse agrupando (\"bucketing\") en bloques el punto de inicio de cada solicitud de sincronización."
+  },
+  "Let <x1/> be the value of <x2/> rounded down to some multiple of the bucket size <x3/>. Instead of requesting blocks starting from the light client's last synchronised height <x4/>, the light client requests blocks starting from <x5/>. Blocks between <x6/> and <x7/> are checked against the light client's cached chain view for consistency and then discarded without further processing. This also helps detect chain reorganisations that occurred within the bucket window.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The term 'bucket' is mistranslated as 'bloque', so 'bucket size' becomes 'block size' and 'bucket window' becomes 'block window'."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Sea <x1/> el valor de <x2/> redondeado hacia abajo a algún múltiplo del tamaño de bloque <x3/>. En lugar de solicitar bloques comenzando desde la última altura sincronizada del cliente ligero <x4/>, el cliente ligero solicita bloques comenzando desde <x5/>. Los bloques entre <x6/> y <x7/> se verifican contra la vista de cadena en caché del cliente ligero para comprobar consistencia y luego se descartan sin procesamiento adicional. Esto también ayuda a detectar reorganizaciones de la cadena que ocurrieron dentro de la ventana del bloque."
+  },
+  "<x1/>Transaction privacy": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "The compact block stream gives the light client sufficient information to determine accurate address balances, show when funds were received or spent, and spend any unspent notes. Since synchronisation happens via a broadcast medium (the compact block stream), it leaks no information about which transactions the light client is interested in.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "However, other API methods reveal more specific interests to the proxy server:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> reveals interest in a specific transaction. See <g2>Retrieving full transactions</g2> for mitigation recommendations.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> reveals that the light client is the sender of a transaction. Transaction submission SHOULD be performed over a privacy-preserving network connection such as Tor <x2/> or the Nym mixnet <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Transparent address queries (<x1/>, <x2/>, <x3/>) reveal the transparent addresses held by the light client. These queries SHOULD be performed over a privacy-preserving network connection such as Tor <x4/> or the Nym mixnet <x5/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If a client queries for transactions related to multiple transparent addresses in a single request, this will leak the fact that those addresses are controlled by the same client. If the <x1/>, <x2/> or <x3/> methods are used, even over a privacy-preserving network connect, the client SHOULD NOT request data for more than one address at a time and SHOULD make such requests in a fashion that is not temporally linkable to other operation of the wallet.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> and <x2/> reveal the light client's interest in unconfirmed transactions.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Reference Implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  },
+  "<g1>lightwalletd</g1> (proxy server)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>zcash_client_backend</g1> (light client scanning library)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": []
+  }
+ }
+}

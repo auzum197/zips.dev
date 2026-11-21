@@ -1,0 +1,159 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" se interpretarán como se describe en BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparezcan en mayúsculas.</p>
+<h2 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h2>
+<p>Este ZIP define una nueva Extensión Transparente de Zcash que verifica una prueba Circle STARK <sup><a href="#user-content-fn-circle-stark-paper" id="user-content-fnref-circle-stark-paper" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> de tamaño acotado. La extensión tiene un único <code>type</code> y un único modo, y expone una interfaz compacta de precondición/testigo adecuada para verificar pruebas de validez de una solución de escalado estilo Starknet <sup><a href="#user-content-fn-sn-stack" id="user-content-fnref-sn-stack" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> sobre Zcash. Especifica:</p>
+<ul>
+<li>una codificación sin prefijo de la precondición y el testigo;</li>
+<li>un conjunto fijo de parámetros del verificador mediante un espacio de nombres <code>param_id</code>;</li>
+<li>límites estrictos de consenso sobre tamaños y parámetros del verificador para la seguridad frente a DoS; y</li>
+<li>una integración con el digest coherente con una futura versión de transacción que admita TZEs <sup><a href="#user-content-fn-zip-0245" id="user-content-fnref-zip-0245" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</li>
+</ul>
+<p>Este ZIP no modifica Sapling/Orchard; solo añade un TZE que puede usarse para hacer cumplir la transición de estado de una cadena Starknet u otras afirmaciones de validez.</p>
+<h2 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h2>
+<p>La programabilidad de Zcash está restringida por el script de Bitcoin, que carece de la expresividad suficiente e implica costos elevados que limitan el rendimiento. Una solución de escalado estilo Starknet puede abordar el problema al proporcionar un lenguaje de programación expresivo (Cairo <sup><a href="#user-content-fn-cairo-paper" id="user-content-fnref-cairo-paper" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>), una máquina virtual amigable con ZK y un sistema de demostración eficaz (Stwo <sup><a href="#user-content-fn-stwo" id="user-content-fnref-stwo" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>) que comprime cómputos de gran tamaño en una prueba sucinta, adecuada para la verificación onchain. Una extensión transparente personalizada <sup><a href="#user-content-fn-zip-0222" id="user-content-fnref-zip-0222" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup> es la forma más limpia de introducir dicho verificador y habilitar soluciones de escalado sobre Zcash.</p>
+<h2 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h2>
+<ul>
+<li>Definir un <code>type</code> de TZE para la verificación de Stwo/Circle STARK, y especificar completamente cómo se codifica, verifica e integra este tipo en el cálculo del digest de la transacción, sin permitir comportamiento definido por la implementación.</li>
+<li>Definir un espacio de nombres <code>param_id</code> que fije la especificación de la relación de prueba de Stwo, el formato del objeto de prueba, las codificaciones de campo, el conjunto de hash de transcript/Merkle y su personalización, la expansión FRI y los límites de consultas, cualquier límite de grinding y cualquier configuración de verificación por lotes.</li>
+<li>Debe proporcionarse una implementación de referencia del probador y del verificador, y vectores de prueba de referencia (válidos e inválidos) para cada uno de estos <code>param_id</code>.</li>
+<li>Los límites sobre los tamaños de prueba, etc. deben elegirse para evitar una posible denegación de servicio, y deben especificarse las actualizaciones necesarias al cálculo de comisiones del ZIP 317 <sup><a href="#user-content-fn-zip-0317" id="user-content-fnref-zip-0317" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>.</li>
+</ul>
+<h2 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h2>
+<h3 id="tze-identification"><a class="hanchor" href="#tze-identification" aria-hidden="true" tabindex="-1">#</a>Identificación del TZE</h3>
+<ul>
+<li><code>tze_id</code>: por definir (asignado por los Editores de ZIP).</li>
+<li><code>tze_mode</code>: 0 (este ZIP define un solo modo). Cualquier otro valor DEBE (MUST) ser rechazado.</li>
+</ul>
+<p>Toda la serialización siguiente está dentro del <code>tze_data_payload</code> definido por <sup><a href="#user-content-fn-zip-0222" id="user-content-fnref-zip-0222-2" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>; las longitudes son <code>compactSize</code>.</p>
+<h3 id="precondition-prefixfree"><a class="hanchor" href="#precondition-prefixfree" aria-hidden="true" tabindex="-1">#</a>Precondición (libre de prefijos)</h3>
+<pre><code>u16  param_id         // selects a pinned Stwo verifier parameter set (see below)
+u8   flags            // bit 0 = bind_ctx; all other bits MUST be 0
+vec  pub_in           // public inputs to the proved statement (len + bytes)
+if (flags &#x26; 0x01) {
+    bytes32 ctx_digest   // non-malleable transaction digest
+}
+</code></pre>
+<ul>
+<li><code>param_id</code> selecciona un conjunto de parámetros de Stwo enumerado y fijado. Los <code>param_id</code> desconocidos DEBEN (MUST) ser rechazados.</li>
+<li><code>pub_in</code> es una cadena de bytes opaca para el consenso; DEBE (MUST) ser absorbida por la transcripción del verificador exactamente como se especifica (byte por byte).</li>
+<li>Si <code>bind_ctx</code> está establecido, <code>ctx_digest</code> DEBE (MUST) ser igual al digesto no maleable de la transacción <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>. Una discrepancia DEBE (MUST) causar el rechazo.</li>
+</ul>
+<h3 id="witness-prefixfree"><a class="hanchor" href="#witness-prefixfree" aria-hidden="true" tabindex="-1">#</a>Testigo (libre de prefijos)</h3>
+<pre><code>vec  proof            // the Stwo (Circle STARK) proof object (len + bytes)
+</code></pre>
+<p>El <code>proof</code> DEBE (MUST) ajustarse al formato de objeto de prueba de Stwo fijado por <code>param_id</code>.</p>
+<h3 id="verification"><a class="hanchor" href="#verification" aria-hidden="true" tabindex="-1">#</a>Verificación</h3>
+<p><code>bool tze_verify(0, precondition, witness, context)</code>:</p>
+<ol>
+<li>Analizar <code>param_id</code>; cargar el conjunto exacto de parámetros fijado. Rechazar si es desconocido.</li>
+<li>Analizar <code>flags</code>; si hay bits reservados establecidos, rechazar.</li>
+<li>Si <code>bind_ctx</code>, calcular el <code>ctx_digest</code> requerido a partir de <code>context</code> y comparar; ante una discrepancia, rechazar. ([Zcash Zips][3])</li>
+<li>Analizar <code>pub_in</code> y <code>proof</code>. Hacer cumplir todos los límites de consenso (véase Límites).</li>
+<li>Inicializar el transcript/canal de Stwo, <strong>absorber <code>pub_in</code> exactamente</strong>, y verificar <code>proof</code> usando los parámetros fijados por <code>param_id</code>.</li>
+<li>Devolver <code>true</code> si y solo si el verificador acepta; de lo contrario, devolver <code>false</code>.</li>
+</ol>
+<h3 id="parameter-sets-param_id"><a class="hanchor" href="#parameter-sets-param_id" aria-hidden="true" tabindex="-1">#</a>Conjuntos de parámetros (<code>param_id</code>)</h3>
+<p>El espacio de nombres es de 16 bits (0x0001..0xFFFF). Este ZIP introduce:</p>
+<ul>
+<li>
+<p><code>param_id = 0x0001</code> — <code>STWO_V1_P1</code></p>
+<ul>
+<li>Upstream: <code>starkware-libs/stwo</code> <sup><a href="#user-content-fn-stwo-repo" id="user-content-fnref-stwo-repo" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> en el tag por definir, commit <code>TBD</code>.</li>
+<li>Sistema de prueba: Stwo <sup><a href="#user-content-fn-stwo" id="user-content-fnref-stwo-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> basado en Circle STARK sobre el campo Mersenne de 31 bits <sup><a href="#user-content-fn-circle-stark-paper" id="user-content-fnref-circle-stark-paper-2" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></li>
+<li>Formato de prueba:
+<ul>
+<li>Disposición de la estructura de prueba de Stwo (por definir)</li>
+<li>Códec binario y algoritmo de compresión (por definir)</li>
+</ul>
+</li>
+<li>Parámetros del probador:
+<ul>
+<li>Función hash del canal de Stwo (por definir)</li>
+<li>Configuración AIR preprocesada de Stwo (por definir)</li>
+<li>Objetivo de dificultad de PoW (por definir)</li>
+<li>Configuración de FRI (por definir)</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<blockquote>
+<p>El material de referencia normativo para <code>STWO_V1_P1</code> (codificaciones, formato de prueba, parámetros del probador) se incluye junto con este ZIP en <code>zip-XXXX/params/STWO_V1_P1.json</code> y los vectores de prueba que lo acompañan. Estos archivos se deben tratar como partes normativas de esta especificación.</p>
+</blockquote>
+<p>Future parameter sets (e.g., different hash suite or query caps) <strong>MAY</strong> be proposed under new <code>param_id</code>s in a subsequent ZIP.</p>
+<h3 id="bounds-consensus"><a class="hanchor" href="#bounds-consensus" aria-hidden="true" tabindex="-1">#</a>Límites (consenso)</h3>
+<p>Defínense las siguientes constantes de consenso para este <code>(type, mode)</code>:</p>
+<ul>
+<li><code>PUBIN_MAX_BYTES = TBD</code> (rango de discusión: ≤ 4096).</li>
+<li><code>PROOF_MAX_BYTES = TBD</code> (rango de discusión: 64–192 KiB; se finalizará a partir de mediciones sobre instancias de prueba realistas).</li>
+</ul>
+<p>Los nodos DEBEN (MUST) rechazar si se excede algún límite, y NO DEBEN (MUST NOT) permitir la denegación de servicio por agotamiento de memoria debido a la asignación de memoria antes de verificar los límites.</p>
+<h3 id="fee-model"><a class="hanchor" href="#fee-model" aria-hidden="true" tabindex="-1">#</a>Modelo de comisiones</h3>
+<p>Sigue el ZIP-317 <sup><a href="#user-content-fn-zip-0317" id="user-content-fnref-zip-0317-2" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>.</p>
+<p>TODO: introducir un modelo de comisiones adaptado con precio por byte con descuento (justificación: el gran tamaño de la prueba no refleja el costo de la verificación)</p>
+<p>TODO: introducir una política de limitación de tasa que evite desplazar a las transacciones que no son TZE</p>
+<h2 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h2>
+<ul>
+<li>TZE frente a opcodes: la superficie de extensibilidad de Zcash para nuevas verificaciones de consenso es TZE <sup><a href="#user-content-fn-zip-0222" id="user-content-fnref-zip-0222-3" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>. Esto evita enredarse con cambios en los circuitos blindados y mantiene el conjunto de cambios mínimo y auditable.</li>
+<li>Un solo sistema primero: limitarse a Stwo mantiene el ZIP enfocado y usa un verificador en Rust que se integra limpiamente con Zebra y (vía FFI) con zcashd. Se pueden considerar sistemas adicionales (o nuevos conjuntos de parámetros de Stwo) más adelante mediante nuevos <code>param_id</code> o un nuevo <code>type</code>.</li>
+<li>Vinculación de contexto opcional: permitir <code>bind_ctx</code> cubre el uso seguro común (la prueba se vincula al digest no maleable de la transacción) mientras sigue permitiendo protocolos que se vinculan a compromisos a nivel de aplicación dentro de <code>pub_in</code>.</li>
+</ul>
+<h2 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Implicaciones de privacidad</h2>
+<p>No hay cambios en Sapling/Orchard. Los protocolos construidos sobre esto DEBEN (MUST) documentar su propio modelo de privacidad (p. ej., elecciones de DA, fuga de metadatos). El verificador de este ZIP solo verifica la validez de una afirmación sobre entradas públicas; no garantiza conocimiento cero a menos que el generador use un modo de generación de pruebas ZK.</p>
+<h2 id="backward-compatibility"><a class="hanchor" href="#backward-compatibility" aria-hidden="true" tabindex="-1">#</a>Compatibilidad con versiones anteriores</h2>
+<p>Los nodos que no implementen este TZE rechazarán las transacciones que lo usen tras la activación. Debido a que TZE usa un conjunto de TZE no gastado distinto y campos separados (<code>tze_inputs</code>/<code>tze_outputs</code>), la lógica transparente y blindada existente no se ve afectada.</p>
+<h2 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h2>
+<ul>
+<li>Actualización de red: activar en una futura NU junto con <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244-2" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> y <sup><a href="#user-content-fn-zip-0245" id="user-content-fnref-zip-0245-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</li>
+<li>Condición de activación: requerir vectores de prueba publicados y una revisión externa del enlace con Stwo.</li>
+</ul>
+<h2 id="security-considerations"><a class="hanchor" href="#security-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de seguridad</h2>
+<ul>
+<li>Seguridad frente a DoS: límites estrictos de tamaño; análisis en streaming y de falla rápida; asignaciones acotadas; rechazo temprano de codificaciones mal formadas.</li>
+<li>Determinismo y no maleabilidad: las codificaciones son libres de prefijo; cualquier maleación de <code>precondition</code> DEBE (MUST) causar rechazo; <code>tze_verify</code> es determinista según <sup><a href="#user-content-fn-zip-0222" id="user-content-fnref-zip-0222-4" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>.</li>
+<li>Supuestos de hash: la seguridad se reduce principalmente a la resistencia a colisiones/preimágenes del conjunto de hash fijado más la solidez de IOP. No se asume ningún hash basado en EC; los detalles quedan fijados por <code>param_id</code>.</li>
+<li>Riesgo de implementación: tratar el verificador en Rust como código crítico para el consenso; fijar commit/tag y la configuración del compilador; incluir verificaciones cruzadas contra vectores de prueba.</li>
+</ul>
+<h2 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h2>
+<blockquote>
+<p>Por determinar</p>
+</blockquote>
+<h2 id="test-vectors"><a class="hanchor" href="#test-vectors" aria-hidden="true" tabindex="-1">#</a>Vectores de prueba</h2>
+<blockquote>
+<p>Por determinar</p>
+</blockquote>
+<h2 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h2>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Información sobre BCP 14 — «RFC 2119: Key words for use in RFCs to Indicate Requirement Levels» y «RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words»</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-circle-stark-paper">
+<p><a href="https://eprint.iacr.org/2024/278">Artículo de Circle STARKs</a> <a href="#user-content-fnref-circle-stark-paper" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-circle-stark-paper-2" data-footnote-backref="" aria-label="Back to reference 2-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-sn-stack">
+<p><a href="https://www.starknet.io/sn-stack/">Pila de Starknet</a> <a href="#user-content-fnref-sn-stack" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0245">
+<p><a href="https://zips.z.cash/zip-0245">ZIP-245: Resúmenes de identificador de transacción &#x26; validación de firmas para extensiones transparentes de Zcash</a> <a href="#user-content-fnref-zip-0245" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0245-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-cairo-paper">
+<p><a href="https://eprint.iacr.org/2021/1063.pdf">Cairo – una arquitectura de CPU Turing-completa y apta para STARK</a> <a href="#user-content-fnref-cairo-paper" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-stwo">
+<p><a href="https://starkware.co/blog/s-two-prover/">Sistema de pruebas Stwo</a> <a href="#user-content-fnref-stwo" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-stwo-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0222">
+<p><a href="https://zips.z.cash/zip-0222">ZIP‑222: Extensiones transparentes de Zcash (TZE)</a> <a href="#user-content-fnref-zip-0222" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0222-2" data-footnote-backref="" aria-label="Back to reference 7-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0222-3" data-footnote-backref="" aria-label="Back to reference 7-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-0222-4" data-footnote-backref="" aria-label="Back to reference 7-4" class="data-footnote-backref">↩<sup>4</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0317">
+<p><a href="https://zips.z.cash/zip-0317">ZIP-317: Mecanismo de comisión de transferencia proporcional</a> <a href="#user-content-fnref-zip-0317" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0317-2" data-footnote-backref="" aria-label="Back to reference 8-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0244">
+<p><a href="https://zips.z.cash/zip-0244">ZIP-244: No maleabilidad del identificador de transacción</a> <a href="#user-content-fnref-zip-0244" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0244-2" data-footnote-backref="" aria-label="Back to reference 9-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-stwo-repo">
+<p><a href="https://github.com/starkware-libs/stwo">Implementación del demostrador y verificador de Stwo</a> <a href="#user-content-fnref-stwo-repo" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

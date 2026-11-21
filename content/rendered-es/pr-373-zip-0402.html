@@ -1,0 +1,141 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)" y "PUEDE (MAY)" de este documento deben interpretarse como se describe en el RFC 2119. <a class="brackets" href="#rfc2119" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a></p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este documento propone un cambio de la base de datos que la billetera de zcashd utiliza actualmente, de BerkeleyDB a SQLite. También propone la separación de las transacciones de la billetera y otros datos recuperables en un archivo de base de datos separado.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>La razón principal del cambio de base de datos es la confiabilidad; SQLite tiene una muy buena implementación de atomicidad <a class="brackets" href="#sqliteatomic" id="footnote-reference-2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>. Las bases de datos relacionales reducen la redundancia y SQLite específicamente es la más usada del mundo para almacenamiento local; además, está bien mantenida, tiene una buena interfaz para C++, es portátil y de código abierto.</p>
+<p>La separación de la base de datos entre datos recuperables y no recuperables tiene como objetivo evitar escribir con demasiada frecuencia en el archivo donde se encuentran los datos importantes no recuperables, como las claves públicas y privadas. Aislar las transacciones y otros datos de la base de datos principal de la billetera aumentará el rendimiento y reducirá el riesgo de corrupción.</p>
+
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Después de <a class="brackets" href="#zip400" id="footnote-reference-3" role="doc-noteref"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></a> y su información detallada sobre todas las claves-valores de la base de datos y su funcionalidad, sabemos qué se necesita para cambiar la base de datos fundamental a otra cosa.</p>
+<p>Este documento propone un nuevo esquema relacional para 2 nuevas bases de datos SQLite donde todas las propiedades originales están presentes, pero solo organizadas de una manera diferente. El esquema siguiente es una aproximación y puede cambiar durante la implementación.</p>
+<p>Se propone el siguiente esquema sql para una base de datos llamada <strong>wallet.sqlite</strong> con información no recuperable:</p>
+<pre class="literal-block">CREATE TABLE accounts(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT
+    id_address        INTEGER
+    name              TEXT
+    account           BLOB);
+
+CREATE TABLE account_entries(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_account        INTEGER,
+    entry             BLOB);
+
+CREATE TABLE addresses(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    address           TEXT,
+    id_account        INTEGER,
+    name              TEXT,
+    purpose           TEXT);
+
+CREATE TABLE destdata(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_address        INTEGER,
+    key               TEXT,
+    value             TEXT);
+
+CREATE TABLE sapling(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_address        INTEGER,
+    key               BLOB,
+    ckey              BLOB,
+    meta              BLOB,
+    cmeta             BLOB,
+    ivk               BLOB,
+    extfvk            BLOB);
+
+CREATE TABLE settings(
+    chdseed           BLOB
+    hdchain           BLOB
+    hdseed            BLOB
+    minversion        TEXT
+    mkey              BLOB
+    version           TEXT
+    cscript           BLOB);
+
+CREATE TABLE sprout(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_address        INTEGER,
+    key               BLOB,
+    ckey              BLOB,
+    meta              BLOB,
+    cmeta             BLOB,
+    vkey              BLOB);
+
+CREATE TABLE transparent(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_address        INTEGER,
+    key               BLOB,
+    ckey              BLOB,
+    poolindex         INTEGER,
+    meta              BLOB,
+    cmeta             BLOB,
+    destination       TEXT,
+    is_default        BOOLEAN);</pre>
+<p>Se propone una base de datos separada llamada <strong>transactions.sqlite</strong> con información recuperable y las siguientes tablas:</p>
+<pre class="literal-block">CREATE TABLE transactions(
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash              BLOB,
+    tx                BLOB);
+
+CREATE TABLE state(
+    bestblock         BLOB,
+    orderposnext      INTEGER,
+    witnesscachesize  INTEGER);</pre>
+<p>Se agregará una nueva clase <span class="docutils literal">SQLite</span> a la colección de clases de la billetera, donde se pueden encontrar las siguientes funciones de bajo nivel:</p>
+<ul class="simple">
+<li><p><span class="docutils literal">Open(strFile)</span> - Abrir un nuevo archivo de base de datos.</p></li>
+<li><p><span class="docutils literal">Exist(strFile)</span> - Comprobar si existe una base de datos.</p></li>
+<li><p><span class="docutils literal">Schema(strSchema)</span> - Crear un nuevo esquema.</p></li>
+<li><p><span class="docutils literal">Write(strSql)</span> - Insertar o actualizar una tabla de la base de datos.</p></li>
+<li><p><span class="docutils literal">Read(strSql)</span> - Seleccionar datos de una tabla.</p></li>
+<li><p><span class="docutils literal">Erase(strSql)</span> - Eliminar filas de una tabla.</p></li>
+<li><p><span class="docutils literal">Count(strSql)</span> - Obtener la cantidad de filas de una consulta de selección. Este es un caso especial de <span class="docutils literal">Read()</span>.</p></li>
+<li><p><span class="docutils literal">GetRow(strSql)</span> - Obtener una sola fila de una tabla. Este es un caso especial de <span class="docutils literal">Read()</span>.</p></li>
+<li><p><span class="docutils literal">GetVersion(strFile)</span> - Obtener la versión de la base de datos actual.</p></li>
+</ul>
+<p><span class="docutils literal">CWalletDB</span> se renombra a <span class="docutils literal">CWalletDBD</span> para evitar ambigüedad. Se creará una nueva clase <span class="docutils literal">CWalletSQLite</span> como una copia de la misma definición. Esto significa que la nueva clase tendrá las mismas funciones miembro con los mismos argumentos y los mismos valores de retorno que la versión original; la diferencia está en la implementación de las funciones, donde las de la nueva clase escribirán/leerán en/desde SQLite usando las funciones de bajo nivel enumeradas anteriormente.</p>
+<p>Como ejemplo, en <span class="docutils literal">CWalletDB</span> actualmente tenemos <span class="docutils literal">WriteSaplingPaymentAddress</span>:</p>
+<pre class="literal-block">return Write(std::make_pair(std::string("sapzaddr"), addr), ivk, false);</pre>
+<p>Después de la implementación, esta función se ubicará en <span class="docutils literal"><span class="pre">CWalletDBD::WriteSaplingPaymentAddress()</span></span> con la misma funcionalidad.</p>
+<p>En <span class="docutils literal"><span class="pre">CWalletSQLite::WriteSaplingPaymentAddress()</span></span> una implementación posible puede ser algo similar a:</p>
+<pre class="literal-block">auto id_address = GetRow("SELECT id from addresses WHERE address=addr");
+return Write("INSERT OR REPLACE INTO sapling(id_address, ivk) VALUES(id_address, ivk)");</pre>
+<p>Todas las funciones miembro de la nueva clase <span class="docutils literal">CWalletSQLite</span> deben refactorizarse para interactuar con la nueva base de datos. Pueden existir excepciones a esta regla si el rendimiento puede aumentarse cambiando las entradas/salidas de cualquiera de las funciones miembro o combinando 2 o más funciones en 1.</p>
+<h2 id="adding-more-keys"><a class="hanchor" href="#adding-more-keys" aria-hidden="true" tabindex="-1">#</a>Adición de más claves</h2>
+<p>Es una práctica común de los desarrolladores de zcashd añadir nuevas claves y valores a la base de datos para diferentes propósitos; para hacerlo en SQLite el esquema debe cambiar. La implementación debe garantizar que añadir nuevos campos a cualquier tabla sea un cambio no disruptivo, mientras que renombrar tablas, renombrar columnas o cambiar los tipos de columna puede ser fatal si no se implementa correctamente.</p>
+<p>Para mitigar el riesgo debe implementarse un sistema de versiones, de modo que los esquemas más antiguos de la base de datos puedan actualizarse correctamente. La implementación debe crear pruebas del esquema.</p>
+
+
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<p>Se necesita Sqlite3 como dependencia de zcashd <a class="brackets" href="#sqlitegithub" id="footnote-reference-4" role="doc-noteref"><span class="fn-bracket">[</span>5<span class="fn-bracket">]</span></a>. No se necesitan dependencias adicionales.</p>
+
+<h1 id="backward-compatilibility"><a class="hanchor" href="#backward-compatilibility" aria-hidden="true" tabindex="-1">#</a>Compatibilidad con versiones anteriores</h1>
+<p>Una nueva billetera creada después de que el código esté implementado y probado se creará con SQLite. Pueden proporcionarse opciones de línea de comandos para elegir la base de datos subyacente. Una herramienta de conversión desde/hacia SQLite/BDB puede ser útil y puede proporcionarse como parte de la implementación.</p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="rfc2119" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">1</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.rfc-editor.org/rfc/rfc2119.html">Key words for use in RFCs to Indicate Requirement Levels</a></p>
+</aside>
+<aside class="footnote brackets" id="sqliteatomic" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-2">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://www.sqlite.org/atomiccommit.html">SQLite atomic implementation</a></p>
+</aside>
+<aside class="footnote brackets" id="zip400" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-3">3</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/pull/372">ZIP 400 - Wallet database format</a></p>
+</aside>
+<aside class="footnote brackets" id="zip402issue" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/issues/365">ZIP 402 Issue</a></p>
+</aside>
+<aside class="footnote brackets" id="sqlitegithub" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-4">5</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/sqlite/sqlite">SQLite Github mirror</a></p>
+</aside>
+</aside>
+

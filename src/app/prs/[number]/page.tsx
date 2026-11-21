@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { ogMetadata } from "@/lib/og";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import Link from "@/i18n/link";
 import { notFound } from "next/navigation";
 import { diffToHtml } from "@/lib/diff";
 import { dateSlice } from "@/lib/date";
-import { getMeta, getPrByNumber, getPrs, getZipByNumber, getZipBySlug, prPreviews, } from "@/lib/data";
+import { getMeta, getPrByNumber, getPrs, getZipByNumber, getZipBySlug, localPreviewTitle, prPreviews, } from "@/lib/data";
 import { type PrMeta, type PrPreview } from "@/lib/types";
 import { useLabels } from "@/i18n/labels";
 import StatusBadge from "@/components/status-badge";
@@ -62,6 +62,7 @@ function PreviewRow({ pr, pv }: {
     pv: PrPreview;
 }) {
     const tc = useTranslations("Common");
+    const locale = useLocale();
     const file = pr.files.find((f) => f.filename === pv.filename);
     const base = docBase(pv.slug);
     const isZip = /^zip-/.test(pv.slug);
@@ -70,7 +71,7 @@ function PreviewRow({ pr, pv }: {
         {isZip ? `ZIP ${Number(pv.slug.slice(4))}` : pv.slug}
       </span>
       <Link href={`/prs/${pr.number}/${pv.slug}/`} title={tc("preview")} className="min-w-0 flex-1 basis-64 leading-snug transition-colors hover:text-accent">
-        {pv.title}
+        {localPreviewTitle(pr, pv, locale)}
       </Link>
       <PreviewBadge pv={pv} base={base}/>
       <span className="shrink-0 font-mono text-xs text-faint uppercase">

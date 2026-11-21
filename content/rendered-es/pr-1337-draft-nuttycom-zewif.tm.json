@@ -1,0 +1,559 @@
+{
+ "segments": {
+  "[ZIP TBD] Define a standard Zcash wallet export format.": "[ZIP por determinar] Definición de un formato estándar de exportación de billeteras de Zcash.",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", \"SHOULD NOT\", \"MAY\", and \"RECOMMENDED\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"NO DEBE (MUST NOT)\", \"DEBERÍA (SHOULD)\", \"NO DEBERÍA (SHOULD NOT)\", \"PUEDE (MAY)\" y \"RECOMENDADO (RECOMMENDED)\" en este documento deben interpretarse como se describe en BCP 14 <g1><g2>1</g2></g1> cuando, y solo cuando, aparezcan en mayúsculas.",
+  "\"ZeWIF document\" means a byte sequence conforming to the container format defined in this specification. \"Exporter\" means software producing a ZeWIF document from wallet state; \"importer\" means software consuming one.": "\"Documento ZeWIF\" significa una secuencia de bytes conforme al formato de contenedor definido en esta especificación. \"Exportador\" significa un software que produce un documento ZeWIF a partir del estado de una billetera; \"importador\" significa un software que consume uno.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This proposal defines ZeWIF, a file format for migrating wallet data between Zcash wallet implementations. A ZeWIF document is a single-snapshot archive of the state a wallet cannot recover from the block chain alone — key material, account structure, address metadata, user annotations — together with optional chain-derived data that lets an importing wallet avoid expensive rescanning. The format is a deterministic CBOR encoding <g1><g2>2</g2></g1> under a normative CDDL schema <g3><g4>3</g4></g3>, with spending-key material segregated into a section that can be independently encrypted.": "Esta propuesta define ZeWIF, un formato de archivo para migrar datos de billeteras entre implementaciones de billeteras de Zcash. Un documento ZeWIF es un archivo de instantánea única del estado que una billetera no puede recuperar únicamente de la block chain —material de claves, estructura de cuentas, metadatos de direcciones, anotaciones del usuario— junto con datos opcionales derivados de la cadena que permiten a una billetera importadora evitar reescaneos costosos. El formato es una codificación CBOR determinista <g1><g2>2</g2></g1> bajo un esquema CDDL normativo <g3><g4>3</g4></g3>, con el material de claves de gasto segregado en una sección que puede cifrarse de forma independiente.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "Zcash wallet implementations persist their state in mutually incompatible formats. When a wallet reaches end of service (as zcashd has) or a user wishes to change wallets, the absence of an interchange format forces ad-hoc pairwise migration tools, and data that only the source wallet knows — spending keys for legacy addresses, address books, memos and annotations on transactions, address-exposure state needed for gap-limit-correct restores — is routinely lost.": "Las implementaciones de billeteras de Zcash persisten su estado en formatos mutuamente incompatibles. Cuando una billetera llega al fin de su servicio (como lo ha hecho zcashd) o un usuario desea cambiar de billetera, la ausencia de un formato de intercambio obliga a usar herramientas de migración ad hoc por pares, y los datos que solo la billetera de origen conoce —claves de gasto de direcciones heredadas, libretas de direcciones, memos y anotaciones sobre transacciones, el estado de exposición de direcciones necesario para restauraciones con límite de brecha correcto— se pierden con frecuencia.",
+  "An interchange format for this purpose has unusual durability requirements: a ZeWIF file may be written to offline storage and read decades later, possibly after its producing software has disappeared. This motivates the central design choices:": "Un formato de intercambio para este propósito tiene requisitos de durabilidad inusuales: un archivo ZeWIF puede escribirse en almacenamiento sin conexión y leerse décadas después, posiblemente después de que el software que lo produjo haya desaparecido. Esto motiva las decisiones de diseño centrales:",
+  "<g1>A widely deployed, standardized encoding.</g1> CBOR is an IETF Internet Standard (STD 94) with independent implementations in every mainstream language, and is self-describing at the data-model level: any generic CBOR tool can decode the structure of a ZeWIF file without this specification in hand. A ZeWIF document begins with the self-described-CBOR tag (RFC 8949 §3.4.6), so its leading bytes are a magic number that identifies the file as CBOR to content-sniffing tools, and it carries a registered CBOR tag that identifies it specifically as ZeWIF.": "<g1>Una codificación estandarizada y ampliamente desplegada.</g1> CBOR es un Estándar de Internet del IETF (STD 94) con implementaciones independientes en todos los lenguajes principales, y es autodescriptivo a nivel de modelo de datos: cualquier herramienta CBOR genérica puede decodificar la estructura de un archivo ZeWIF sin tener esta especificación a mano. Un documento ZeWIF comienza con la etiqueta de CBOR autodescriptivo (RFC 8949 §3.4.6), de modo que sus bytes iniciales son un número mágico que identifica el archivo como CBOR ante las herramientas de detección de contenido, y lleva una etiqueta CBOR registrada que lo identifica específicamente como ZeWIF.",
+  "<g1>A normative machine-readable schema.</g1> The CDDL schema in this document is the authoritative definition of the format; the Rust reference implementation conforms to it, not the reverse.": "<g1>Un esquema normativo legible por máquinas.</g1> El esquema CDDL de este documento es la definición autoritativa del formato; la implementación de referencia en Rust se ajusta a él, y no al revés.",
+  "<g1>Deterministic encoding.</g1> Writers emit RFC 8949 §4.2 Core Deterministic Encoding, so equal wallet states produce byte-identical documents. This makes round-trip conformance testing exact and documents stable under re-export.": "<g1>Codificación determinista.</g1> Los escritores emiten la Core Deterministic Encoding del RFC 8949 §4.2, de modo que estados iguales de billetera producen documentos idénticos a nivel de bytes. Esto hace que las pruebas de conformidad de ida y vuelta sean exactas y que los documentos sean estables ante una reexportación.",
+  "<g1>Spending/viewing separability.</g1> All secret key material lives in a single section of the document that may be stored encrypted, so a viewing-only export is obtained by omitting one node, and an at-rest export can protect its secrets without encrypting chain-public data.": "<g1>Separabilidad de gasto y visualización.</g1> Todo el material de claves secretas reside en una única sección del documento que puede almacenarse cifrada, de modo que una exportación de solo visualización se obtiene omitiendo un nodo, y una exportación en reposo puede proteger sus secretos sin cifrar los datos públicos de la cadena.",
+  "<x1/>Requirements and non-goals": "<x1/>Requisitos y no objetivos",
+  "The format MUST be able to represent the wallet state persisted by <x1/> (the librustzcash reference wallet backend) and the state recoverable from a zcashd <x2/>, without loss of any data that is not recoverable from the block chain.": "El formato DEBE (MUST) poder representar el estado de la billetera persistido por <x1/> (el backend de billetera de referencia de librustzcash) y el estado recuperable de un <x2/> de zcashd, sin pérdida de ningún dato que no sea recuperable de la block chain.",
+  "The format is a snapshot archive. It is NOT a synchronization protocol, a backup-rotation scheme, or an on-chain format. Nothing in this specification defines network behavior.": "El formato es un archivo de instantánea. NO es un protocolo de sincronización, un esquema de rotación de copias de seguridad ni un formato en cadena. Nada en esta especificación define el comportamiento de la red.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "<x1/>Container format": "<x1/>Formato de contenedor",
+  "A ZeWIF document is a single CBOR data item, a nesting of two tags around a <x1/> array:": "Un documento ZeWIF es un único elemento de datos CBOR, un anidamiento de dos etiquetas alrededor de un arreglo <x1/>:",
+  "where, from the outside in:": "donde, del exterior hacia el interior:",
+  "<g1><x2/></g1> is the \"Self-Described CBOR\" tag (RFC 8949 §3.4.6). It carries no semantics beyond marking its content; its purpose here is its encoding, the three bytes <x3/>, which are a registered magic number identifying the byte stream as CBOR to generic content-sniffing tools. Every ZeWIF document begins with these three bytes.": "<g1><x2/></g1> es la etiqueta \"Self-Described CBOR\" (RFC 8949 §3.4.6). No lleva semántica más allá de marcar su contenido; su propósito aquí es su codificación, los tres bytes <x3/>, que son un número mágico registrado que identifica el flujo de bytes como CBOR ante herramientas genéricas de detección de contenido. Todo documento ZeWIF comienza con estos tres bytes.",
+  "<g1><x2/></g1> is the ZeWIF tag, 133133 being the tag number assigned to this format in the IANA \"CBOR Tags\" registry (see <g3>Container tag</g3>). It gives a decoder that knows the tag positive identification of the item as a ZeWIF document.": "<g1><x2/></g1> es la etiqueta ZeWIF, siendo 133133 el número de etiqueta asignado a este formato en el registro \"CBOR Tags\" de la IANA (véase <g3>Etiqueta de contenedor</g3>). Le da a un decodificador que conoce la etiqueta la identificación positiva del elemento como documento ZeWIF.",
+  "<g1><x2/></g1> is a definite-length two-element array: an unsigned <x3/> (this document defines version 1) followed by the <x4/>, a single CBOR data item conforming to the <x5/> rule of the schema below.": "<g1><x2/></g1> es un arreglo de longitud definida de dos elementos: un <x3/> sin signo (este documento define la versión 1) seguido del <x4/>, un único elemento de datos CBOR que cumple la regla <x5/> del esquema siguiente.",
+  "Readers MUST reject a document not framed by these two tags in this order, and MUST NOT attempt to interpret the payload of a document whose version they do not implement. The container version selects the schema revision and every parsing rule applicable to the payload; implementations supporting multiple versions MUST dispatch on it rather than attempting to unify parsers. Because the version precedes the payload in the array, a reader determines the version before decoding the payload. Version 1 payloads are not compressed; compression, if ever introduced, will be signalled by a new container version.": "Los lectores DEBEN (MUST) rechazar un documento que no esté enmarcado por estas dos etiquetas en este orden, y NO DEBEN (MUST NOT) intentar interpretar la carga útil de un documento cuya versión no implementan. La versión del contenedor selecciona la revisión del esquema y toda regla de análisis aplicable a la carga útil; las implementaciones que admiten varias versiones DEBEN (MUST) despachar según ella en lugar de intentar unificar analizadores. Como la versión precede a la carga útil en el arreglo, un lector determina la versión antes de decodificar la carga útil. Las cargas útiles de la versión 1 no están comprimidas; la compresión, si algún día se introduce, se señalizará con una nueva versión del contenedor.",
+  "<x1/>Container tag": "<x1/>Etiqueta de contenedor",
+  "IANA has assigned the tag number <g1>133133</g1> to ZeWIF in the First Come First Served range of the \"CBOR Tags\" registry <g2><g3>4</g3></g2>. The value echoes Zcash's SLIP-0044 registered coin type (133) by repetition.": "La IANA ha asignado el número de etiqueta <g1>133133</g1> a ZeWIF en el rango First Come First Served del registro \"CBOR Tags\" <g2><g3>4</g3></g2>. El valor hace eco, por repetición, del tipo de moneda (133) registrado para Zcash en SLIP-0044.",
+  "<x1/>CBOR profile": "<x1/>Perfil de CBOR",
+  "Writers MUST emit RFC 8949 §4.2 Core Deterministic Encoding: definite lengths everywhere, integers in their shortest form, and map keys sorted in bytewise lexicographic order of their encodings. Readers SHOULD accept any well-formed CBOR that satisfies the schema.": "Los escritores DEBEN (MUST) emitir la codificación Core Deterministic Encoding de RFC 8949 §4.2: longitudes definidas en todas partes, enteros en su forma más corta y claves de mapa ordenadas por el orden lexicográfico por bytes de sus codificaciones. Los lectores DEBERÍAN (SHOULD) aceptar cualquier CBOR bien formado que satisfaga el esquema.",
+  "Optional record fields are expressed by <g1>omitting</g1> the map entry. Writers MUST NOT encode an absent optional field as CBOR <x2/>; readers SHOULD treat a <x3/> value in an optional field position as if the entry were absent. (The reader tolerance is a defense in depth: encoder libraries have been observed to disagree on the encoding of absent optional values, and a document produced by a nonconformant writer should degrade to a readable document rather than an unreadable one.)": "Los campos opcionales de los registros se expresan <g1>omitiendo</g1> la entrada del mapa. Los escritores NO DEBEN (MUST NOT) codificar un campo opcional ausente como CBOR <x2/>; los lectores DEBERÍAN (SHOULD) tratar un valor <x3/> en la posición de un campo opcional como si la entrada estuviera ausente. (La tolerancia del lector es una defensa en profundidad: se ha observado que las bibliotecas de codificación discrepan en la codificación de valores opcionales ausentes, y un documento producido por un escritor no conforme debería degradarse a un documento legible y no a uno ilegible.)",
+  "Readers MUST ignore map keys not defined in the schema version they implement. This is the format's forward-compatibility mechanism.": "Los lectores DEBEN (MUST) ignorar las claves de mapa no definidas en la versión del esquema que implementan. Este es el mecanismo de compatibilidad hacia adelante del formato.",
+  "A field index (map key), once assigned a meaning in a published revision of this schema, MUST NOT be reused or assigned a different type. New fields are added under fresh indices.": "Un índice de campo (clave de mapa), una vez asignado un significado en una revisión publicada de este esquema, NO DEBE (MUST NOT) reutilizarse ni asignársele un tipo diferente. Los campos nuevos se agregan bajo índices frescos.",
+  "A boolean field documented with a default MUST be omitted by writers when it takes the default value (so that each state has exactly one encoding).": "Un campo booleano documentado con un valor predeterminado DEBE (MUST) ser omitido por los escritores cuando toma el valor predeterminado (de modo que cada estado tenga exactamente una codificación).",
+  "<x1/>Structural conventions": "<x1/>Convenciones estructurales",
+  "The schema uses three shapes, chosen so that every logical state has exactly one encoding:": "El esquema usa tres formas, elegidas de modo que cada estado lógico tenga exactamente una codificación:",
+  "<g1>Records</g1> are CBOR maps with small unsigned-integer keys (the COSE/CWT convention <g2><g3>5</g3></g2>). The integer registry in the CDDL below maps each index to a field name.": "Los <g1>registros</g1> son mapas CBOR con claves enteras sin signo pequeñas (la convención COSE/CWT <g2><g3>5</g3></g2>). El registro de enteros del CDDL siguiente asigna cada índice a un nombre de campo.",
+  "<g1>Enumerations without payload</g1> (key scope, account purpose) are bare unsigned integers.": "Las <g1>enumeraciones sin carga útil</g1> (alcance de clave, propósito de cuenta) son enteros sin signo simples.",
+  "<g1>Tagged unions</g1> (sums-of-products) are arrays <x2/>: an unsigned variant identifier, followed for data-bearing variants by exactly one body item — a record, or, where the payload is a single canonical encoding, that encoding's byte or text string directly. Payload-free variants are the one-element array <x3/>. Variant identifiers follow the same never-reuse rule as field indices.": "Las <g1>uniones etiquetadas</g1> (sumas de productos) son arreglos <x2/>: un identificador de variante sin signo, seguido, para las variantes que llevan datos, de exactamente un elemento de cuerpo — un registro, o, donde la carga útil es una única codificación canónica, la cadena de bytes o de texto de esa codificación directamente. Las variantes sin carga útil son el arreglo de un elemento <x3/>. Los identificadores de variante siguen la misma regla de no reutilización que los índices de campo.",
+  "Byte sequences are CBOR byte strings (<x1/>); text is UTF-8 (<x2/>). Block heights are unsigned integers less than 2^32. Monetary values are unsigned integers in zatoshis, at most 2,100,000,000,000,000 (<x3/>). Timestamps are UTC integer seconds since the Unix epoch.": "Las secuencias de bytes son cadenas de bytes CBOR (<x1/>); el texto es UTF-8 (<x2/>). Las alturas de bloque son enteros sin signo menores que 2^32. Los valores monetarios son enteros sin signo en zatoshi, a lo sumo 2,100,000,000,000,000 (<x3/>). Las marcas de tiempo son segundos enteros UTC desde la época Unix.",
+  "Where a value has a canonical Zcash encoding, ZeWIF stores that encoding verbatim rather than a decomposition, so that consumers do not require protocol-library support to carry the data. Addresses and keys use their canonical <g1>string</g1> encodings — unified addresses and viewing keys per ZIP 316 <g2><g3>6</g3></g2>, Sapling extended keys per ZIP 32 <g4><g5>7</g5></g4>, Sprout keys and transparent private keys (WIF) per the Zcash protocol specification's Base58Check forms <g6><g7>8</g7></g6>, and extracted unified spending keys per the unified raw encodings draft <g8><g9>9</g9></g8> — which carry a checksum and embed type and network discrimination, so each key is independently integrity-checked; seed fingerprints likewise use their ZIP 32 Bech32m string encoding (Human-Readable Part \"zip32seedfp\"). Raw transactions use their canonical byte encodings.": "Donde un valor tiene una codificación canónica de Zcash, ZeWIF almacena esa codificación textualmente en lugar de una descomposición, de modo que los consumidores no requieran soporte de bibliotecas de protocolo para transportar los datos. Las direcciones y las claves usan sus codificaciones de <g1>cadena</g1> canónicas — direcciones unificadas y claves de visualización según ZIP 316 <g2><g3>6</g3></g2>, claves extendidas Sapling según ZIP 32 <g4><g5>7</g5></g4>, claves Sprout y claves privadas transparentes (WIF) según las formas Base58Check de la especificación del protocolo de Zcash <g6><g7>8</g7></g6>, y claves de gasto unificadas extraídas según el borrador de codificaciones unificadas en bruto <g8><g9>9</g9></g8> — las cuales llevan una suma de verificación e incorporan discriminación de tipo y de red, de modo que la integridad de cada clave se verifica de forma independiente; las huellas de semilla usan asimismo su codificación de cadena Bech32m de ZIP 32 (Parte Legible por Humanos \"zip32seedfp\"). Las transacciones en bruto usan sus codificaciones de bytes canónicas.",
+  "<x1/>Sensitive material": "<x1/>Material sensible",
+  "All secret key material in a ZeWIF document lives in the <x1/> record, referenced from the public wallet structure by public identifiers: seeds by their ZIP 32 seed fingerprint, transparent private keys by their public key, Sapling spending keys by their extended full viewing key, extracted unified spending keys by their unified full viewing key, and Sprout spending keys by their address.": "Todo el material de claves secretas de un documento ZeWIF reside en el registro <x1/>, referenciado desde la estructura pública de la billetera mediante identificadores públicos: las semillas por su huella de semilla de ZIP 32, las claves privadas transparentes por su clave pública, las claves de gasto Sapling por su clave extendida de visualización completa, las claves de gasto unificadas extraídas por su clave unificada de visualización completa, y las claves de gasto Sprout por su dirección.",
+  "The <x1/> node of the top-level record is either the secret store in plain CBOR, or an age ciphertext <g2><g3>10</g3></g2> whose plaintext is the CBOR encoding of the secret store. The choice of age recipients (passphrase-derived or X25519) is between the exporter and its user; the document carries only the ciphertext.": "El nodo <x1/> del registro de nivel superior es, o bien el almacén de secretos en CBOR plano, o bien un texto cifrado de age <g2><g3>10</g3></g2> cuyo texto plano es la codificación CBOR del almacén de secretos. La elección de los destinatarios de age (derivados de frase de contraseña o X25519) queda entre el exportador y su usuario; el documento lleva únicamente el texto cifrado.",
+  "A viewing-only export omits the <x1/> node entirely. Importers MUST treat the absence of an expected secret-store entry (e.g. for an address marked as having an imported key) as a viewing-only import of the affected item, not as an error.": "Una exportación de solo visualización omite el nodo <x1/> por completo. Los importadores DEBEN (MUST) tratar la ausencia de una entrada esperada del almacén de secretos (p. ej., para una dirección marcada como que tiene una clave importada) como una importación de solo visualización del elemento afectado, no como un error.",
+  "<x1/>Schema": "<x1/>Esquema",
+  "The following CDDL is normative. Comments give the field names used by the reference implementation.": "El CDDL siguiente es normativo. Los comentarios dan los nombres de campo usados por la implementación de referencia.",
+  "<x1/>Schema evolution": "<x1/>Evolución del esquema",
+  "A revision of this specification MAY:": "Una revisión de esta especificación PUEDE (MAY):",
+  "add new optional fields to a record under fresh indices;": "añadir campos opcionales nuevos a un registro bajo índices nuevos;",
+  "add new variants to a tagged union under fresh identifiers;": "añadir variantes nuevas a una unión etiquetada bajo identificadores nuevos;",
+  "introduce a new container version, incrementing the <x1/> element of the container array, to signal a schema revision that a version-1 reader MUST NOT attempt to parse.": "introducir una versión nueva de contenedor, incrementando el elemento <x1/> del arreglo de contenedor, para señalar una revisión del esquema que un lector de versión 1 NO DEBE (MUST NOT) intentar analizar.",
+  "A revision MUST NOT change the type or meaning of an existing index or variant identifier, and MUST NOT convert an optional field to required. Importers encountering an unknown variant identifier in a tagged union MUST NOT misinterpret it; software that re-exports a document it read SHOULD preserve unrecognized variants and extension data opaquely, and MUST report to its caller any data it drops.": "Una revisión NO DEBE (MUST NOT) cambiar el tipo o el significado de un índice o identificador de variante existente, y NO DEBE (MUST NOT) convertir un campo opcional en requerido. Los importadores que encuentren un identificador de variante desconocido en una unión etiquetada NO DEBEN (MUST NOT) interpretarlo erróneamente; el software que reexporta un documento que leyó DEBERÍA (SHOULD) preservar de forma opaca las variantes no reconocidas y los datos de extensión, y DEBE (MUST) informar a su invocador de cualquier dato que descarte.",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "<g1>Why CBOR and CDDL.</g1> The candidate encodings seriously considered were CBOR+CDDL, Protocol Buffers, and JSON+JSON-Schema. Protocol Buffers offer the strongest field-evolution discipline and are already deployed in the Zcash light-client protocol, but a protobuf document is not self-describing (the <x2/> is required to recover even the structure), serialization is explicitly non-canonical, and code generation imposes toolchain weight on every implementation. JSON maximizes ubiquity and eyeball-durability but handles the format's pervasive byte strings poorly. CBOR is an IETF Internet Standard with a defined deterministic profile and native byte strings, and a generic CBOR decoder recovers the full structure of a ZeWIF file without any schema in hand.": "<g1>Por qué CBOR y CDDL.</g1> Las codificaciones candidatas consideradas seriamente fueron CBOR+CDDL, Protocol Buffers y JSON+JSON-Schema. Protocol Buffers ofrece la disciplina de evolución de campos más robusta y ya está desplegado en el protocolo de clientes ligeros de Zcash, pero un documento protobuf no es autodescriptivo (se requiere el <x2/> para recuperar incluso la estructura), la serialización es explícitamente no canónica, y la generación de código impone un peso de cadena de herramientas sobre cada implementación. JSON maximiza la ubicuidad y la durabilidad a la vista, pero maneja mal las cadenas de bytes omnipresentes del formato. CBOR es un Estándar de Internet del IETF con un perfil determinista definido y cadenas de bytes nativas, y un decodificador CBOR genérico recupera la estructura completa de un archivo ZeWIF sin ningún esquema a mano.",
+  "<g1>Why integer map keys.</g1> Field-name strings would make documents fully self-describing, but integer keys with a published registry follow the established practice of COSE and CWT, produce materially smaller documents (wallet exports repeat record shapes thousands of times), and carry the same never-reuse evolution discipline as protobuf field numbers. The CDDL registry in this document, which is versioned and published, supplies the names.": "<g1>Por qué claves de mapa enteras.</g1> Las cadenas de nombres de campo harían los documentos totalmente autodescriptivos, pero las claves enteras con un registro publicado siguen la práctica establecida de COSE y CWT, producen documentos materialmente más pequeños (las exportaciones de billetera repiten formas de registro miles de veces) y conllevan la misma disciplina de evolución de no reutilización que los números de campo de protobuf. El registro CDDL de este documento, que tiene versión y está publicado, suministra los nombres.",
+  "<g1>Why <x2/> unions.</g1> Encoding data-bearing variants with exactly one body item gives every variant body a named schema rule, keeps the encoding of \"no payload\" (the one-element array <x3/>) distinct from any body, and — in the reference implementation — sidesteps a class of encoder disagreements about optional fields embedded directly in variant bodies. A body is a record unless the payload is a single canonical encoding, in which case that encoding's byte or text string is carried directly: a one-field record shell around such an encoding would name the same concept twice.": "<g1>Por qué uniones <x2/>.</g1> Codificar las variantes que llevan datos con exactamente un elemento de cuerpo da a cada cuerpo de variante una regla de esquema con nombre, mantiene la codificación de «sin carga útil» (el arreglo de un elemento <x3/>) distinta de cualquier cuerpo, y — en la implementación de referencia — evita una clase de desacuerdos de codificadores sobre campos opcionales incorporados directamente en cuerpos de variante. Un cuerpo es un registro salvo que la carga útil sea una única codificación canónica, en cuyo caso la cadena de bytes o de texto de esa codificación se lleva directamente: una envoltura de registro de un solo campo alrededor de tal codificación nombraría dos veces el mismo concepto.",
+  "<g1>Prior format.</g1> An earlier iteration of ZeWIF serialized to Gordian Envelope (dcbor). That design imported a large dependency stack (223 crates locked, including unrelated cryptography) for the reference implementation, had no format version marker, and relied on encoding conventions defined outside any standards process. No dcbor-based ZeWIF files are known to have been produced outside development, so this specification makes a clean break; the Envelope layer's useful property — deterministic encoding — is retained via RFC 8949 §4.2.": "<g1>Formato previo.</g1> Una iteración anterior de ZeWIF serializaba a Gordian Envelope (dcbor). Ese diseño importaba una pila de dependencias grande (223 crates bloqueados, incluida criptografía no relacionada) para la implementación de referencia, no tenía marcador de versión de formato, y dependía de convenciones de codificación definidas fuera de todo proceso de estándares. No se conoce ningún archivo ZeWIF basado en dcbor producido fuera del desarrollo, por lo que esta especificación hace un corte limpio; la propiedad útil de la capa Envelope — la codificación determinista — se conserva mediante RFC 8949 §4.2.",
+  "<g1>Why age for secret encryption.</g1> age is a small, well-specified, widely-implemented file-encryption format with both passphrase and public-key recipients, and is already the at-rest key-material encryption used by zallet (the zcashd successor wallet). Embedding an age ciphertext rather than defining a bespoke scheme keeps cryptographic agility and audit surface outside this specification.": "<g1>Por qué age para el cifrado de secretos.</g1> age es un formato de cifrado de archivos pequeño, bien especificado y ampliamente implementado, con destinatarios tanto de frase de contraseña como de clave pública, y ya es el cifrado de material de claves en reposo usado por zallet (la billetera sucesora de zcashd). Incrustar un texto cifrado de age en lugar de definir un esquema a medida mantiene la agilidad criptográfica y la superficie de auditoría fuera de esta especificación.",
+  "<g1>Enrichment fields.</g1> Data recoverable from a raw transaction plus a viewing key (output values, memos, nullifiers, change status) is optional and subordinate to the raw transaction. This lets exporters that hold raw transactions skip trial decryption, lets compact-data-only wallets export what they know, and defines conflict resolution when both are present.": "<g1>Campos de enriquecimiento.</g1> Los datos recuperables de una transacción en bruto más una clave de visualización (valores de salida, memos, nullifiers, estado de cambio) son opcionales y subordinados a la transacción en bruto. Esto permite que los exportadores que poseen transacciones en bruto omitan el descifrado de prueba, permite que las billeteras de solo datos compactos exporten lo que saben, y define la resolución de conflictos cuando ambos están presentes.",
+  "<g1>Witness policy.</g1> Note commitment tree positions plus a per-account birthday frontier are sufficient for an importer with chain access to rebuild witnesses by scanning forward from the birthday. Full incremental witnesses are carried optionally for importers without chain access. Neither is required: a rescan-based importer (like zallet's zcashd migration) may ignore both.": "<g1>Política de testigos.</g1> Las posiciones en el árbol de compromisos de notas más una frontera de cumpleaños por cuenta son suficientes para que un importador con acceso a la cadena reconstruya los testigos explorando hacia adelante desde el cumpleaños. Los testigos incrementales completos se llevan de forma opcional para importadores sin acceso a la cadena. Ninguno de los dos es requerido: un importador basado en reexploración (como la migración de zcashd de zallet) puede ignorar ambos.",
+  "<g1>No compression in version 1.</g1> Wallet exports are dominated by already-compact byte strings; a compression layer adds a decompression dependency to every future reader for marginal size benefit. External compression of the whole file remains possible without affecting the format.": "<g1>Sin compresión en la versión 1.</g1> Las exportaciones de billetera están dominadas por cadenas de bytes ya compactas; una capa de compresión añade una dependencia de descompresión a todo lector futuro por un beneficio de tamaño marginal. La compresión externa del archivo completo sigue siendo posible sin afectar el formato.",
+  "<x1/>Reference implementation": "<x1/>Implementación de referencia",
+  "The <x1/> Rust crate (<g2>https://github.com/zcash/zewif</g2>) implements this specification. Implementation notes, non-normative:": "El crate de Rust <x1/> (<g2>https://github.com/zcash/zewif</g2>) implementa esta especificación. Notas de implementación, no normativas:",
+  "The crate uses <x1/> with derived codecs; integer field indices in the schema correspond to <x2/> attributes, records use <x3/>, payload-free enumerations use <x4/>, fixed-size byte types carry generated length-checked <x5/> codecs, and canonically-text-encoded keys are transparent newtypes over <x6/>.": "El crate usa <x1/> con códecs derivados; los índices de campo enteros en el esquema corresponden a atributos <x2/>, los registros usan <x3/>, las enumeraciones sin carga útil usan <x4/>, los tipos de bytes de tamaño fijo llevan códecs <x5/> generados con verificación de longitud, y las claves codificadas canónicamente como texto son newtypes transparentes sobre <x6/>.",
+  "Deterministic map-key ordering is obtained by declaring record fields in ascending index order and using ordered collections (sorted arrays keyed by txid) rather than hash maps.": "El orden determinista de claves de mapa se obtiene declarando los campos de registro en orden de índice ascendente y usando colecciones ordenadas (arreglos ordenados con txid como clave) en lugar de mapas hash.",
+  "Conformance is tested by randomized round-trip tests plus byte-exact re-encoding checks. Conformance test vectors derived from this specification independently of the codec implementation will accompany submission for community review.": "La conformidad se prueba mediante pruebas aleatorizadas de ida y vuelta más verificaciones de recodificación exacta en bytes. Vectores de prueba de conformidad derivados de esta especificación de forma independiente de la implementación del códec acompañarán la presentación para revisión comunitaria.",
+  "The normativity of this schema, rather than of any codec library, is enforced mechanically: golden byte-exact fixture documents are committed to the repository and asserted in continuous integration, so a behavioral change in the codec dependency fails the build rather than shipping spec-divergent bytes; emitted documents are additionally validated against the CDDL with an independent tool. Codec dependency upgrades are treated as format-affecting changes, permitted only when the golden vectors continue to pass.": "La normatividad de este esquema, y no de ninguna biblioteca de códecs, se hace valer mecánicamente: documentos de prueba de bytes exactos de referencia (golden) se comprometen en el repositorio y se afirman en la integración continua, de modo que un cambio de comportamiento en la dependencia del códec hace fallar la compilación en lugar de distribuir bytes divergentes de la especificación; los documentos emitidos se validan además contra el CDDL con una herramienta independiente. Las actualizaciones de la dependencia del códec se tratan como cambios que afectan el formato, permitidas solo cuando los vectores de referencia continúan pasando.",
+  "<x1/>References": "<x1/>Referencias",
+  "<x1/>Footnotes": "<x1/>Notas al pie",
+  "BCP 14: RFC 2119 and RFC 8174, Key words for use in RFCs. <g1>↩</g1>": "BCP 14: RFC 2119 y RFC 8174, Key words for use in RFCs. <g1>↩</g1>",
+  "RFC 8949: Concise Binary Object Representation (CBOR). STD 94. <g1>↩</g1>": "RFC 8949: Concise Binary Object Representation (CBOR). STD 94. <g1>↩</g1>",
+  "RFC 8610: Concise Data Definition Language (CDDL). <g1>↩</g1>": "RFC 8610: Concise Data Definition Language (CDDL). <g1>↩</g1>",
+  "IANA \"CBOR Tags\" registry. <g1>https://www.iana.org/assignments/cbor-tags/</g1> <g2>↩</g2>": "Registro \"CBOR Tags\" de IANA. <g1>https://www.iana.org/assignments/cbor-tags/</g1> <g2>↩</g2>",
+  "RFC 9052: CBOR Object Signing and Encryption (COSE): Structures. <g1>↩</g1>": "RFC 9052: CBOR Object Signing and Encryption (COSE): Structures. <g1>↩</g1>",
+  "ZIP 316: Unified Addresses and Unified Viewing Keys. <g1>↩</g1>": "ZIP 316: Unified Addresses and Unified Viewing Keys. <g1>↩</g1>",
+  "ZIP 32: Shielded Hierarchical Deterministic Wallets. <g1>↩</g1>": "ZIP 32: Shielded Hierarchical Deterministic Wallets. <g1>↩</g1>",
+  "Zcash Protocol Specification, section \"Encodings of Addresses and Keys\". <g1>↩</g1>": "Zcash Protocol Specification, sección \"Encodings of Addresses and Keys\". <g1>↩</g1>",
+  "Unified raw encodings (draft ZIP). <g1>https://github.com/zcash/zips/pull/660</g1> <g2>↩</g2>": "Unified raw encodings (ZIP en borrador). <g1>https://github.com/zcash/zips/pull/660</g1> <g2>↩</g2>",
+  "age: a simple, modern and secure file encryption format. <g1>https://age-encryption.org/v1</g1> <g2>↩</g2>": "age: a simple, modern and secure file encryption format. <g1>https://age-encryption.org/v1</g1> <g2>↩</g2>"
+ },
+ "reviews": {
+  "[ZIP TBD] Define a standard Zcash wallet export format.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", \"SHOULD NOT\", \"MAY\", and \"RECOMMENDED\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "\"ZeWIF document\" means a byte sequence conforming to the container format defined in this specification. \"Exporter\" means software producing a ZeWIF document from wallet state; \"importer\" means software consuming one.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This proposal defines ZeWIF, a file format for migrating wallet data between Zcash wallet implementations. A ZeWIF document is a single-snapshot archive of the state a wallet cannot recover from the block chain alone — key material, account structure, address metadata, user annotations — together with optional chain-derived data that lets an importing wallet avoid expensive rescanning. The format is a deterministic CBOR encoding <g1><g2>2</g2></g1> under a normative CDDL schema <g3><g4>3</g4></g3>, with spending-key material segregated into a section that can be independently encrypted.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Zcash wallet implementations persist their state in mutually incompatible formats. When a wallet reaches end of service (as zcashd has) or a user wishes to change wallets, the absence of an interchange format forces ad-hoc pairwise migration tools, and data that only the source wallet knows — spending keys for legacy addresses, address books, memos and annotations on transactions, address-exposure state needed for gap-limit-correct restores — is routinely lost.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An interchange format for this purpose has unusual durability requirements: a ZeWIF file may be written to offline storage and read decades later, possibly after its producing software has disappeared. This motivates the central design choices:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>A widely deployed, standardized encoding.</g1> CBOR is an IETF Internet Standard (STD 94) with independent implementations in every mainstream language, and is self-describing at the data-model level: any generic CBOR tool can decode the structure of a ZeWIF file without this specification in hand. A ZeWIF document begins with the self-described-CBOR tag (RFC 8949 §3.4.6), so its leading bytes are a magic number that identifies the file as CBOR to content-sniffing tools, and it carries a registered CBOR tag that identifies it specifically as ZeWIF.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"widely deployed\" is rendered as \"ampliamente implementada\" (deployed means in use, not implemented), and \"autodescriptiva\" disagrees in gender with the masculine subject CBOR (\"un Estándar\")."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "<g1>Una codificación estandarizada y ampliamente implementada.</g1> CBOR es un Estándar de Internet del IETF (STD 94) con implementaciones independientes en todos los lenguajes principales, y es autodescriptiva a nivel de modelo de datos: cualquier herramienta CBOR genérica puede decodificar la estructura de un archivo ZeWIF sin tener esta especificación a mano. Un documento ZeWIF comienza con la etiqueta de CBOR autodescriptivo (RFC 8949 §3.4.6), de modo que sus bytes iniciales son un número mágico que identifica el archivo como CBOR ante las herramientas de detección de contenido, y lleva una etiqueta CBOR registrada que lo identifica específicamente como ZeWIF."
+  },
+  "<g1>A normative machine-readable schema.</g1> The CDDL schema in this document is the authoritative definition of the format; the Rust reference implementation conforms to it, not the reverse.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Deterministic encoding.</g1> Writers emit RFC 8949 §4.2 Core Deterministic Encoding, so equal wallet states produce byte-identical documents. This makes round-trip conformance testing exact and documents stable under re-export.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Spending/viewing separability.</g1> All secret key material lives in a single section of the document that may be stored encrypted, so a viewing-only export is obtained by omitting one node, and an at-rest export can protect its secrets without encrypting chain-public data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Requirements and non-goals": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The format MUST be able to represent the wallet state persisted by <x1/> (the librustzcash reference wallet backend) and the state recoverable from a zcashd <x2/>, without loss of any data that is not recoverable from the block chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The format is a snapshot archive. It is NOT a synchronization protocol, a backup-rotation scheme, or an on-chain format. Nothing in this specification defines network behavior.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Container format": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A ZeWIF document is a single CBOR data item, a nesting of two tags around a <x1/> array:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "where, from the outside in:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1><x2/></g1> is the \"Self-Described CBOR\" tag (RFC 8949 §3.4.6). It carries no semantics beyond marking its content; its purpose here is its encoding, the three bytes <x3/>, which are a registered magic number identifying the byte stream as CBOR to generic content-sniffing tools. Every ZeWIF document begins with these three bytes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1><x2/></g1> is the ZeWIF tag, 133133 being the tag number assigned to this format in the IANA \"CBOR Tags\" registry (see <g3>Container tag</g3>). It gives a decoder that knows the tag positive identification of the item as a ZeWIF document.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1><x2/></g1> is a definite-length two-element array: an unsigned <x3/> (this document defines version 1) followed by the <x4/>, a single CBOR data item conforming to the <x5/> rule of the schema below.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Readers MUST reject a document not framed by these two tags in this order, and MUST NOT attempt to interpret the payload of a document whose version they do not implement. The container version selects the schema revision and every parsing rule applicable to the payload; implementations supporting multiple versions MUST dispatch on it rather than attempting to unify parsers. Because the version precedes the payload in the array, a reader determines the version before decoding the payload. Version 1 payloads are not compressed; compression, if ever introduced, will be signalled by a new container version.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Container tag": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "IANA has assigned the tag number <g1>133133</g1> to ZeWIF in the First Come First Served range of the \"CBOR Tags\" registry <g2><g3>4</g3></g2>. The value echoes Zcash's SLIP-0044 registered coin type (133) by repetition.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>CBOR profile": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Writers MUST emit RFC 8949 §4.2 Core Deterministic Encoding: definite lengths everywhere, integers in their shortest form, and map keys sorted in bytewise lexicographic order of their encodings. Readers SHOULD accept any well-formed CBOR that satisfies the schema.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Optional record fields are expressed by <g1>omitting</g1> the map entry. Writers MUST NOT encode an absent optional field as CBOR <x2/>; readers SHOULD treat a <x3/> value in an optional field position as if the entry were absent. (The reader tolerance is a defense in depth: encoder libraries have been observed to disagree on the encoding of absent optional values, and a document produced by a nonconformant writer should degrade to a readable document rather than an unreadable one.)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Readers MUST ignore map keys not defined in the schema version they implement. This is the format's forward-compatibility mechanism.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A field index (map key), once assigned a meaning in a published revision of this schema, MUST NOT be reused or assigned a different type. New fields are added under fresh indices.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A boolean field documented with a default MUST be omitted by writers when it takes the default value (so that each state has exactly one encoding).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Structural conventions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The schema uses three shapes, chosen so that every logical state has exactly one encoding:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Records</g1> are CBOR maps with small unsigned-integer keys (the COSE/CWT convention <g2><g3>5</g3></g2>). The integer registry in the CDDL below maps each index to a field name.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Enumerations without payload</g1> (key scope, account purpose) are bare unsigned integers.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Tagged unions</g1> (sums-of-products) are arrays <x2/>: an unsigned variant identifier, followed for data-bearing variants by exactly one body item — a record, or, where the payload is a single canonical encoding, that encoding's byte or text string directly. Payload-free variants are the one-element array <x3/>. Variant identifiers follow the same never-reuse rule as field indices.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Byte sequences are CBOR byte strings (<x1/>); text is UTF-8 (<x2/>). Block heights are unsigned integers less than 2^32. Monetary values are unsigned integers in zatoshis, at most 2,100,000,000,000,000 (<x3/>). Timestamps are UTC integer seconds since the Unix epoch.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Where a value has a canonical Zcash encoding, ZeWIF stores that encoding verbatim rather than a decomposition, so that consumers do not require protocol-library support to carry the data. Addresses and keys use their canonical <g1>string</g1> encodings — unified addresses and viewing keys per ZIP 316 <g2><g3>6</g3></g2>, Sapling extended keys per ZIP 32 <g4><g5>7</g5></g4>, Sprout keys and transparent private keys (WIF) per the Zcash protocol specification's Base58Check forms <g6><g7>8</g7></g6>, and extracted unified spending keys per the unified raw encodings draft <g8><g9>9</g9></g8> — which carry a checksum and embed type and network discrimination, so each key is independently integrity-checked; seed fingerprints likewise use their ZIP 32 Bech32m string encoding (Human-Readable Part \"zip32seedfp\"). Raw transactions use their canonical byte encodings.": {
+   "passed": true,
+   "rounds": 3,
+   "issues": [
+    "The phrase \"se verifica de integridad\" is ungrammatical; it should say the integrity of each key is independently verified.",
+    "\"Rather than\" is rendered as \"más que\" (more than) instead of \"en lugar de\", and \"Human-Readable Part\" is left in English without reason."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Donde un valor tiene una codificación canónica de Zcash, ZeWIF almacena esa codificación textualmente más que una descomposición, de modo que los consumidores no requieran soporte de bibliotecas de protocolo para transportar los datos. Las direcciones y las claves usan sus codificaciones de <g1>cadena</g1> canónicas — direcciones unificadas y claves de visualización según ZIP 316 <g2><g3>6</g3></g2>, claves extendidas Sapling según ZIP 32 <g4><g5>7</g5></g4>, claves Sprout y claves privadas transparentes (WIF) según las formas Base58Check de la especificación del protocolo de Zcash <g6><g7>8</g7></g6>, y claves de gasto unificadas extraídas según el borrador de codificaciones unificadas en bruto <g8><g9>9</g9></g8> — las cuales llevan una suma de verificación e incorporan discriminación de tipo y de red, de modo que cada clave se verifica de integridad de forma independiente; las huellas de semilla usan asimismo su codificación de cadena Bech32m de ZIP 32 (Human-Readable Part \"zip32seedfp\"). Las transacciones en bruto usan sus codificaciones de bytes canónicas."
+  },
+  "<x1/>Sensitive material": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "All secret key material in a ZeWIF document lives in the <x1/> record, referenced from the public wallet structure by public identifiers: seeds by their ZIP 32 seed fingerprint, transparent private keys by their public key, Sapling spending keys by their extended full viewing key, extracted unified spending keys by their unified full viewing key, and Sprout spending keys by their address.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The <x1/> node of the top-level record is either the secret store in plain CBOR, or an age ciphertext <g2><g3>10</g3></g2> whose plaintext is the CBOR encoding of the secret store. The choice of age recipients (passphrase-derived or X25519) is between the exporter and its user; the document carries only the ciphertext.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A viewing-only export omits the <x1/> node entirely. Importers MUST treat the absence of an expected secret-store entry (e.g. for an address marked as having an imported key) as a viewing-only import of the affected item, not as an error.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Schema": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The following CDDL is normative. Comments give the field names used by the reference implementation.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Schema evolution": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A revision of this specification MAY:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "add new optional fields to a record under fresh indices;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "add new variants to a tagged union under fresh identifiers;": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "introduce a new container version, incrementing the <x1/> element of the container array, to signal a schema revision that a version-1 reader MUST NOT attempt to parse.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A revision MUST NOT change the type or meaning of an existing index or variant identifier, and MUST NOT convert an optional field to required. Importers encountering an unknown variant identifier in a tagged union MUST NOT misinterpret it; software that re-exports a document it read SHOULD preserve unrecognized variants and extension data opaquely, and MUST report to its caller any data it drops.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Why CBOR and CDDL.</g1> The candidate encodings seriously considered were CBOR+CDDL, Protocol Buffers, and JSON+JSON-Schema. Protocol Buffers offer the strongest field-evolution discipline and are already deployed in the Zcash light-client protocol, but a protobuf document is not self-describing (the <x2/> is required to recover even the structure), serialization is explicitly non-canonical, and code generation imposes toolchain weight on every implementation. JSON maximizes ubiquity and eyeball-durability but handles the format's pervasive byte strings poorly. CBOR is an IETF Internet Standard with a defined deterministic profile and native byte strings, and a generic CBOR decoder recovers the full structure of a ZeWIF file without any schema in hand.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Why integer map keys.</g1> Field-name strings would make documents fully self-describing, but integer keys with a published registry follow the established practice of COSE and CWT, produce materially smaller documents (wallet exports repeat record shapes thousands of times), and carry the same never-reuse evolution discipline as protobuf field numbers. The CDDL registry in this document, which is versioned and published, supplies the names.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Why <x2/> unions.</g1> Encoding data-bearing variants with exactly one body item gives every variant body a named schema rule, keeps the encoding of \"no payload\" (the one-element array <x3/>) distinct from any body, and — in the reference implementation — sidesteps a class of encoder disagreements about optional fields embedded directly in variant bodies. A body is a record unless the payload is a single canonical encoding, in which case that encoding's byte or text string is carried directly: a one-field record shell around such an encoding would name the same concept twice.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Prior format.</g1> An earlier iteration of ZeWIF serialized to Gordian Envelope (dcbor). That design imported a large dependency stack (223 crates locked, including unrelated cryptography) for the reference implementation, had no format version marker, and relied on encoding conventions defined outside any standards process. No dcbor-based ZeWIF files are known to have been produced outside development, so this specification makes a clean break; the Envelope layer's useful property — deterministic encoding — is retained via RFC 8949 §4.2.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Why age for secret encryption.</g1> age is a small, well-specified, widely-implemented file-encryption format with both passphrase and public-key recipients, and is already the at-rest key-material encryption used by zallet (the zcashd successor wallet). Embedding an age ciphertext rather than defining a bespoke scheme keeps cryptographic agility and audit surface outside this specification.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Enrichment fields.</g1> Data recoverable from a raw transaction plus a viewing key (output values, memos, nullifiers, change status) is optional and subordinate to the raw transaction. This lets exporters that hold raw transactions skip trial decryption, lets compact-data-only wallets export what they know, and defines conflict resolution when both are present.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Witness policy.</g1> Note commitment tree positions plus a per-account birthday frontier are sufficient for an importer with chain access to rebuild witnesses by scanning forward from the birthday. Full incremental witnesses are carried optionally for importers without chain access. Neither is required: a rescan-based importer (like zallet's zcashd migration) may ignore both.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>No compression in version 1.</g1> Wallet exports are dominated by already-compact byte strings; a compression layer adds a decompression dependency to every future reader for marginal size benefit. External compression of the whole file remains possible without affecting the format.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Reference implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The <x1/> Rust crate (<g2>https://github.com/zcash/zewif</g2>) implements this specification. Implementation notes, non-normative:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The crate uses <x1/> with derived codecs; integer field indices in the schema correspond to <x2/> attributes, records use <x3/>, payload-free enumerations use <x4/>, fixed-size byte types carry generated length-checked <x5/> codecs, and canonically-text-encoded keys are transparent newtypes over <x6/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Deterministic map-key ordering is obtained by declaring record fields in ascending index order and using ordered collections (sorted arrays keyed by txid) rather than hash maps.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Conformance is tested by randomized round-trip tests plus byte-exact re-encoding checks. Conformance test vectors derived from this specification independently of the codec implementation will accompany submission for community review.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The normativity of this schema, rather than of any codec library, is enforced mechanically: golden byte-exact fixture documents are committed to the repository and asserted in continuous integration, so a behavioral change in the codec dependency fails the build rather than shipping spec-divergent bytes; emitted documents are additionally validated against the CDDL with an independent tool. Codec dependency upgrades are treated as format-affecting changes, permitted only when the golden vectors continue to pass.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Footnotes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "BCP 14: RFC 2119 and RFC 8174, Key words for use in RFCs. <g1>↩</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "RFC 8949: Concise Binary Object Representation (CBOR). STD 94. <g1>↩</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "RFC 8610: Concise Data Definition Language (CDDL). <g1>↩</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "IANA \"CBOR Tags\" registry. <g1>https://www.iana.org/assignments/cbor-tags/</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "RFC 9052: CBOR Object Signing and Encryption (COSE): Structures. <g1>↩</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "ZIP 316: Unified Addresses and Unified Viewing Keys. <g1>↩</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "ZIP 32: Shielded Hierarchical Deterministic Wallets. <g1>↩</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Zcash Protocol Specification, section \"Encodings of Addresses and Keys\". <g1>↩</g1>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Unified raw encodings (draft ZIP). <g1>https://github.com/zcash/zips/pull/660</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "age: a simple, modern and secure file encryption format. <g1>https://age-encryption.org/v1</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  }
+ }
+}

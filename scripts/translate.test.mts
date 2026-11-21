@@ -13,7 +13,10 @@ import { unified } from "unified";
 import rehypeStringify from "rehype-stringify";
 import { fromHtml } from "hast-util-from-html";
 import type { Root } from "hast";
-import { addGlosses, collect, countTerm, glossaryFor, rebuild, reviewAll, setKeep, setModel, withEntities, type Glossary, type Review, type Segment } from "./translate.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { addGlosses, collect, seedMemory, countTerm, glossaryFor, rebuild, reviewAll, setKeep, setModel, withEntities, type Glossary, type Review, type Segment } from "./translate.mjs";
 
 const parse = (html: string): Root => fromHtml(html, { fragment: true });
 const toHtml = (tree: Root): string => unified().use(rehypeStringify).stringify(tree);
@@ -245,4 +248,23 @@ test("a segment that never passes stays in English", async () => {
     const r = await review("The fee is fixed.", "La comisión es fija.", [{ ok: false, issue: "still wrong", es: "La comisión es fija." }]);
     assert.equal(r.text, undefined); // removed from the memory: the page keeps the English text
     assert.deepEqual([r.review.passed, r.review.rounds, r.calls], [false, 3, 3]);
+});
+
+test("a pull request document takes the reviewed paragraphs of its ZIP", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zr-seed-"));
+    const passed = { passed: true, rounds: 1, issues: [] };
+    fs.writeFileSync(path.join(dir, "zip-0317.tm.json"), JSON.stringify({
+        segments: { "Same paragraph.": "El mismo párrafo.", "Not reviewed.": "Sin revisar.", "Removed by the PR.": "Quitado." },
+        reviews: { "Same paragraph.": passed, "Not reviewed.": { ...passed, passed: false }, "Removed by the PR.": passed },
+    }));
+    fs.writeFileSync(path.join(dir, "zip-0200.tm.json"), JSON.stringify({ segments: { "New paragraph.": "De otro documento." }, reviews: { "New paragraph.": passed } }));
+    const wanted = new Map(["Same paragraph.", "Not reviewed.", "New paragraph."].map((s) => [s, plain(s)]));
+    const memory: Record<string, string> = {};
+    const reviews: Record<string, Review> = {};
+    const taken = seedMemory({ key: "pr-1288-zip-0317", slug: "zip-0317", title: "", headings: [] }, wanted, memory, reviews, dir);
+    fs.rmSync(dir, { recursive: true });
+    // only a reviewed paragraph, of the same document, that this version still has
+    assert.equal(taken, 1);
+    assert.deepEqual(memory, { "Same paragraph.": "El mismo párrafo." });
+    assert.equal(reviews["Same paragraph."].passed, true);
 });

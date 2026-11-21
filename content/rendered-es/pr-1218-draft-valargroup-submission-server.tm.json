@@ -1,0 +1,972 @@
+{
+ "segments": {
+  "Vote Share Submission Server": "Servidor de envío de participaciones de voto",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"REQUIRED\", \"MUST NOT\", \"SHOULD\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"REQUERIDO (REQUIRED)\", \"NO DEBE (MUST NOT)\", \"DEBERÍA (SHOULD)\" y \"PUEDE (MAY)\" en este documento deben interpretarse como se describe en BCP 14 <g1><g2>1</g2></g1> cuando, y solo cuando, aparecen en mayúsculas.",
+  "The terms below are to be interpreted as follows:": "Los términos siguientes deben interpretarse así:",
+  "Submission server": "Servidor de envío",
+  "An untrusted server that receives encrypted vote shares from voters and submits the corresponding share reveal transactions to the vote chain.": "Un servidor no confiable que recibe participaciones de voto cifradas de los votantes y envía las transacciones de revelación de participaciones correspondientes a la cadena de votación.",
+  "Temporal unlinkability": "Invinculabilidad temporal",
+  "The property that an observer watching the vote chain cannot attribute multiple share reveal transactions to a single voter based on submission timing.": "La propiedad de que un observador que vigila la cadena de votación no puede atribuir múltiples transacciones de revelación de participaciones a un solo votante basándose en el momento del envío.",
+  "Share payload": "Carga útil de participación",
+  "The off-chain data a voter sends to a submission server for a single share, containing the information necessary to construct a Vote Reveal Proof. Defined in <g1><g2>2</g2></g1>.": "Los datos fuera de la cadena que un votante envía a un servidor de envío para una sola participación, que contienen la información necesaria para construir una prueba de revelación de voto (Vote Reveal Proof). Definidos en <g1><g2>2</g2></g1>.",
+  "Voter": "Votante",
+  "A holder of voting authority (a VAN) who has produced a Vote Commitment containing encrypted shares and wishes to have those shares revealed on-chain.": "Un titular de autoridad de votación (un VAN) que ha producido un compromiso de voto (Vote Commitment) que contiene participaciones cifradas y desea que esas participaciones se revelen en la cadena.",
+  "Election authority (EA)": "Autoridad electoral (EA)",
+  "The set of validators that collectively hold Shamir shares of the El Gamal secret key for a voting round.": "El conjunto de validadores que poseen colectivamente participaciones Shamir de la clave secreta El Gamal para una ronda de votación.",
+  "For definitions of <g1>Vote Commitment</g1>, <g2>Vote Commitment Tree</g2>, <g3>vote share</g3>, <g4>Vote Reveal Proof</g4>, <g5>share nullifier</g5>, and <g6>blinded share commitment</g6>, see <g7><g8>2</g8></g7>. For <g9>voting round</g9>, <g10>validator</g10>, and <g11>vote chain</g11>, see <g12><g13>3</g13></g12>.": "Para las definiciones de <g1>compromiso de voto (Vote Commitment)</g1>, <g2>árbol de compromisos de voto (Vote Commitment Tree)</g2>, <g3>participación de voto</g3>, <g4>prueba de revelación de voto (Vote Reveal Proof)</g4>, <g5>nullifier de participación</g5> y <g6>compromiso de participación cegado</g6>, véase <g7><g8>2</g8></g7>. Para <g9>ronda de votación</g9>, <g10>validador</g10> y <g11>cadena de votación</g11>, véase <g12><g13>3</g13></g12>.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This ZIP specifies the submission server, a protocol participant in the Zcash shielded voting system that receives encrypted vote shares from voters and submits them to the vote chain at client-specified times. The server constructs a Vote Reveal Proof for each share and submits the corresponding transaction at the time designated by the voter, interleaving submissions from many voters into a stream that destroys timing correlations.": "Este ZIP especifica el servidor de envío, un participante del protocolo en el sistema de votación blindado de Zcash que recibe participaciones de voto cifradas de los votantes y las envía a la cadena de votación en momentos especificados por el cliente. El servidor construye una prueba de revelación de voto para cada participación y envía la transacción correspondiente en el momento designado por el votante, intercalando los envíos de muchos votantes en un flujo que destruye las correlaciones temporales.",
+  "Without temporal mixing, a voter who submits <x1/> shares for <x2/> proposals produces <x3/> transactions in a short burst. An observer can group these by timing, and after the tally is published, cross-reference the group against low-participation proposal options to narrow the voter's balance to a small range. Client-controlled submission timing eliminates this attack surface: each share carries a <x4/> timestamp sampled uniformly from the remaining voting window, spreading shares from a single voter across time and interleaving them with shares from other voters.": "Sin mezcla temporal, un votante que envía <x1/> participaciones para <x2/> propuestas produce <x3/> transacciones en un estallido corto. Un observador puede agruparlas por tiempo y, después de publicarse el escrutinio, cruzar el grupo con las opciones de propuestas de baja participación para reducir el saldo del votante a un rango pequeño. El control del momento de envío por parte del cliente elimina esta superficie de ataque: cada participación lleva una marca de tiempo <x4/> muestreada uniformemente de la ventana de votación restante, distribuyendo en el tiempo las participaciones de un solo votante e intercalándolas con las participaciones de otros votantes.",
+  "Each share is sent to half of the available servers, balancing censorship resistance (redundancy ensures an honest server can relay) against amount privacy (limiting the servers that see each share's ciphertext).": "Cada participación se envía a la mitad de los servidores disponibles, equilibrando la resistencia a la censura (la redundancia asegura que un servidor honesto pueda retransmitir) con la privacidad del monto (limitando los servidores que ven el texto cifrado de cada participación).",
+  "Voters who cast their vote near the end of the voting window use a reduced <g1>last-moment mode</g1>: a single share carrying the full ballot count is submitted immediately, sacrificing temporal mixing in exchange for guaranteed inclusion before the deadline.": "Los votantes que emiten su voto cerca del final de la ventana de votación usan un <g1>modo de último momento</g1> reducido: una sola participación que lleva el conteo completo de la boleta se envía de inmediato, sacrificando la mezcla temporal a cambio de la inclusión garantizada antes del plazo.",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "The Shielded Voting Protocol <g1><g2>2</g2></g1> encrypts vote amounts under the election authority's public key and splits each vote into <x3/> shares. Encryption alone does not provide effective privacy when combined with observable metadata.": "El protocolo de votación blindada (Shielded Voting Protocol) <g1><g2>2</g2></g1> cifra los montos de voto bajo la clave pública de la autoridad electoral y divide cada voto en <x3/> participaciones. El cifrado por sí solo no proporciona privacidad efectiva cuando se combina con metadatos observables.",
+  "Consider a voter with a large balance voting on <x1/> proposals. If the voter submits all <x2/> shares directly to the vote chain, an observer sees a burst of transactions arriving together. After the round, the published tally reveals the aggregate total and voter count per (proposal, decision) pair. For proposal options with few voters, the observer can narrow each voter's balance to a tight range. When the timing burst is correlated across proposals, the observer can link all of the voter's choices, and social context (forum posts, public advocacy) can close the remaining gap.": "Considérese un votante con un saldo grande que vota sobre <x1/> propuestas. Si el votante envía todas las <x2/> participaciones directamente a la cadena de votación, un observador ve un estallido de transacciones que llegan juntas. Después de la ronda, el escrutinio publicado revela el total agregado y el conteo de votantes por cada par (propuesta, decisión). Para opciones de propuestas con pocos votantes, el observador puede reducir el saldo de cada votante a un rango estrecho. Cuando el estallido temporal se correlaciona entre propuestas, el observador puede vincular todas las decisiones del votante, y el contexto social (publicaciones en foros, defensa pública) puede cerrar el hueco restante.",
+  "The submission server solves this by introducing an intermediary that holds shares and submits them at client-specified times spread across the voting window. The <x1/> transactions from a single voter are interleaved into a stream of thousands of similar transactions from hundreds of voters. The timing fingerprint is destroyed.": "El servidor de envío resuelve esto introduciendo un intermediario que retiene las participaciones y las envía en momentos especificados por el cliente, distribuidos a lo largo de la ventana de votación. Las <x1/> transacciones de un solo votante se intercalan en un flujo de miles de transacciones similares de cientos de votantes. La huella temporal queda destruida.",
+  "The client samples a <x1/> timestamp for each share, drawn uniformly from the remaining voting window. The server holds the share until that time, then constructs the Vote Reveal Proof and submits the transaction. This design gives the client control over its own temporal mixing distribution while delegating proof construction and reliable delivery to the always-on server. A mobile client may be killed or lose connectivity at the scheduled submission time, but the server guarantees delivery.": "El cliente muestrea una marca de tiempo <x1/> para cada participación, extraída uniformemente de la ventana de votación restante. El servidor retiene la participación hasta ese momento, luego construye la prueba de revelación de voto y envía la transacción. Este diseño le da al cliente control sobre su propia distribución de mezcla temporal mientras delega la construcción de la prueba y la entrega confiable al servidor siempre activo. Un cliente móvil puede ser terminado o perder conectividad en el momento de envío programado, pero el servidor garantiza la entrega.",
+  "<x1/>Privacy Implications": "<x1/>Implicaciones de privacidad",
+  "<g1>Temporal mixing.</g1> The client's primary privacy mechanism is spreading share submissions across the voting window by sampling independent <x2/> timestamps. The submission server executes these schedules reliably, interleaving shares from many voters into a uniform stream. Without this mixing, an observer can group shares by submission time and, after tally publication, use low-participation proposal options to reconstruct individual balances.": "<g1>Mezcla temporal.</g1> El mecanismo primario de privacidad del cliente es distribuir los envíos de participaciones a lo largo de la ventana de votación muestreando marcas de tiempo <x2/> independientes. El servidor de envío ejecuta estos programas de manera confiable, intercalando participaciones de muchos votantes en un flujo uniforme. Sin esta mezcla, un observador puede agrupar participaciones por tiempo de envío y, tras la publicación del escrutinio, usar opciones de propuestas de baja participación para reconstruir saldos individuales.",
+  "<g1>Per-server information.</g1> Each submission server learns the encrypted share ciphertext and blind factor for the single share it reveals, the blinded share commitments for all <x2/> shares, the proposal identifier, and the vote decision. It cannot learn the plaintext share amount (encrypted under <x3/>), the ciphertexts or blind factors of shares assigned to other servers, the voter's identity, or which VCT leaf the vote commitment corresponds to.": "<g1>Información por servidor.</g1> Cada servidor de envío aprende el texto cifrado de la participación cifrada y el factor cegador de la única participación que revela, los compromisos de participación cegados de todas las <x2/> participaciones, el identificador de la propuesta y la decisión del voto. No puede aprender el monto de la participación en texto claro (cifrado bajo <x3/>), los textos cifrados o los factores cegadores de las participaciones asignadas a otros servidores, la identidad del votante, ni a qué hoja del VCT corresponde el compromiso de voto.",
+  "<g1>Redundancy vs. restriction tension.</g1> Censorship resistance requires sending each share to multiple servers (so an honest server can relay even if others censor). Amount privacy requires restricting the number of servers that see each share (to limit the set that could collude with the EA to gain an information advantage). These requirements pull in opposite directions; the resolution is specified in [Server Selection].": "<g1>Tensión entre redundancia y restricción.</g1> La resistencia a la censura requiere enviar cada participación a múltiples servidores (de modo que un servidor honesto pueda retransmitir incluso si otros censuran). La privacidad del monto requiere restringir el número de servidores que ven cada participación (para limitar el conjunto que podría coludirse con la EA para obtener una ventaja de información). Estos requisitos tiran en direcciones opuestas; la resolución se especifica en [Server Selection].",
+  "<g1>Decision and share count visibility.</g1> Vote decisions are public inputs to the Vote Reveal Proof and appear in every share reveal transaction on-chain.": "<g1>Visibilidad de la decisión y del conteo de participaciones.</g1> Las decisiones de voto son entradas públicas de la prueba de revelación de voto y aparecen en cada transacción de revelación de participación en la cadena.",
+  "Because share counts are visible, an observer who also sees the aggregate weight for each decision after tally publication can, in low-participation options, narrow individual voter balances to a range. The protocol limits this inference in two ways: encrypted amounts keep exact balances hidden, and non-uniform share decomposition strategies break the direct relationship between share count and voter balance (see [Open Design Questions]). Encrypting decisions entirely would close this channel but at substantial circuit cost (see [Why Not Encrypt Decisions]).": "Como los conteos de participaciones son visibles, un observador que además ve el peso agregado de cada decisión tras la publicación del escrutinio puede, en opciones de baja participación, reducir los saldos de votantes individuales a un rango. El protocolo limita esta inferencia de dos maneras: los montos cifrados mantienen ocultos los saldos exactos, y las estrategias de descomposición de participaciones no uniformes rompen la relación directa entre conteo de participaciones y saldo del votante (véase [Open Design Questions]). Cifrar las decisiones por completo cerraría este canal, pero a un costo sustancial de circuitos (véase [Why Not Encrypt Decisions]).",
+  "Decision visibility also means a malicious submission server could selectively delay or drop shares for a particular decision; the redundancy mechanisms in [Decision Censorship Resistance] address this.": "La visibilidad de las decisiones también significa que un servidor de envío malicioso podría retrasar o descartar selectivamente participaciones de una decisión particular; los mecanismos de redundancia en [Decision Censorship Resistance] abordan esto.",
+  "<g1>Voter identity isolation.</g1> Even a fully compromised election authority (one that reconstructs <x2/> and decrypts every share) cannot determine which voter cast a given vote. The delegation phase of the Shielded Voting Protocol <g3><g4>2</g4></g3> moves voting authority from the holder's Orchard spending key to a locally-generated, unlinkable governance hotkey. All vote commitments and share reveals reference only this hotkey. The link between on-chain identity and governance hotkey is broken by the zero-knowledge delegation proof and the alternate nullifier unlinkability property established in <g5><g6>4</g6></g5>; the EA never sees anything that connects the two.": "<g1>Aislamiento de la identidad del votante.</g1> Incluso una autoridad electoral completamente comprometida (que reconstruya <x2/> y descifre cada participación) no puede determinar qué votante emitió un voto dado. La fase de delegación del protocolo de votación blindada <g3><g4>2</g4></g3> traslada la autoridad de voto de la clave de gasto Orchard del titular a una hotkey de gobernanza generada localmente y no vinculable. Todos los compromisos de voto y revelaciones de participación hacen referencia únicamente a esta hotkey. El vínculo entre la identidad en cadena y la hotkey de gobernanza queda roto por la prueba de delegación de conocimiento cero y la propiedad de no vinculabilidad de nullifiers alternativos establecida en <g5><g6>4</g6></g5>; la EA nunca ve nada que conecte ambas.",
+  "<g1>Timing metadata.</g1> Submission servers see <x2/> timestamps but these are independently sampled per share and do not reveal the voter's identity or total ballot count. A server that logs receipt timestamps could correlate shares received in the same session, but because each share is sent to independently selected server subsets, no single server sees all of a voter's shares. Voters who distribute shares across multiple servers limit any single server's view of their submission pattern.": "<g1>Metadatos de tiempo.</g1> Los servidores de envío ven marcas de tiempo <x2/> pero estas se muestrean de forma independiente por participación y no revelan la identidad del votante ni el conteo total de la boleta. Un servidor que registre marcas de tiempo de recibo podría correlacionar participaciones recibidas en la misma sesión, pero como cada participación se envía a subconjuntos de servidores seleccionados de forma independiente, ningún servidor único ve todas las participaciones de un votante. Los votantes que distribuyen participaciones entre múltiples servidores limitan la visión que cualquier servidor único tiene de su patrón de envío.",
+  "<g1>Last-moment privacy trade-off.</g1> Voters who cast within the last-moment buffer (see [Last-Moment Voting]) submit a single share carrying their full ballot count with immediate delivery. This sacrifices temporal mixing entirely: the share's on-chain arrival time directly reflects when the voter cast. The trade-off is accepted because each share requires the server to construct a Vote Reveal Proof (a computationally expensive ZKP), and with little time remaining the server may not complete all 16 proofs before the deadline — resulting in a partially counted or entirely lost vote. A single share requires only one proof, prioritizing inclusion over mixing.": "<g1>Compensación de privacidad en el último momento.</g1> Los votantes que emiten dentro del búfer de último momento (véase [Last-Moment Voting]) envían una única participación que lleva el conteo completo de su boleta con entrega inmediata. Esto sacrifica por completo la mezcla temporal: el tiempo de llegada a la cadena de la participación refleja directamente cuándo votó el votante. Se acepta esta compensación porque cada participación requiere que el servidor construya una prueba de revelación de voto (un ZKP computacionalmente costoso), y con poco tiempo restante el servidor podría no completar las 16 pruebas antes del plazo, lo que resulta en un voto contado parcialmente o perdido por completo. Una única participación requiere solo una prueba, priorizando la inclusión sobre la mezcla.",
+  "<x1/>Requirements": "<x1/>Requisitos",
+  "An observer watching the vote chain cannot attribute multiple share reveal transactions to a single voter based on submission timing.": "Un observador que vigile la cadena de voto no puede atribuir múltiples transacciones de revelación de participación a un solo votante basándose en el momento del envío.",
+  "A single malicious submission server cannot prevent a voter's shares from reaching the chain, provided at least one server handling those shares is honest.": "Un único servidor de envío malicioso no puede impedir que las participaciones de un votante lleguen a la cadena, siempre que al menos un servidor que maneje esas participaciones sea honesto.",
+  "No single submission server learns enough information to reconstruct a voter's total ballot count or link shares across proposals.": "Ningún servidor de envío único aprende información suficiente para reconstruir el conteo total de la boleta de un votante ni para vincular participaciones entre propuestas.",
+  "The submission server can construct Vote Reveal Proofs without access to the voter's private key material.": "El servidor de envío puede construir pruebas de revelación de voto sin acceso al material de claves privadas del votante.",
+  "The protocol tolerates submission server unavailability: if a server goes offline, shares assigned to other servers are unaffected.": "El protocolo tolera la indisponibilidad de servidores de envío: si un servidor se desconecta, las participaciones asignadas a otros servidores no se ven afectadas.",
+  "<x1/>Non-requirements": "<x1/>No requisitos",
+  "The Vote Reveal Proof circuit and its public/auxiliary inputs are specified in <g1><g2>2</g2></g1>; this ZIP does not re-specify them.": "El circuito de la prueba de revelación de voto y sus entradas públicas/auxiliares se especifican en <g1><g2>2</g2></g1>; este ZIP no los reespecifica.",
+  "The share submission payload format is defined in <g1><g2>2</g2></g1>.": "El formato de la carga útil de envío de participaciones se define en <g1><g2>2</g2></g1>.",
+  "The vote chain's verification of share reveal transactions (nullifier checks, ciphertext accumulation) is specified in <g1><g2>2</g2></g1>.": "La verificación por parte de la cadena de votación de las transacciones de revelación de participaciones (verificaciones de nullifier, acumulación de textos cifrados) se especifica en <g1><g2>2</g2></g1>.",
+  "Client-side share decomposition (splitting <x1/> into <x2/> shares) is specified in <g3><g4>2</g4></g3>.": "La descomposición de participaciones en el cliente (dividir <x1/> en <x2/> participaciones) se especifica en <g3><g4>2</g4></g3>.",
+  "The consensus mechanism of the vote chain is out of scope.": "El mecanismo de consenso de la cadena de votación está fuera del alcance.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "<x1/>Server Role": "<x1/>Rol del servidor",
+  "A submission server is an always-on service that accepts share payloads from voters over an authenticated channel and submits the corresponding share reveal transactions to the vote chain. Each validator on the vote chain embeds a submission server as a helper process.": "Un servidor de envío es un servicio siempre disponible que acepta cargas útiles de participaciones de los votantes por un canal autenticado y envía las transacciones de revelación de participaciones correspondientes a la cadena de votación. Cada validador de la cadena de votación incorpora un servidor de envío como proceso auxiliar.",
+  "For each share payload received, the server MUST:": "Para cada carga útil de participación recibida, el servidor DEBE (MUST):",
+  "Validate the payload: verify that the vote commitment exists in the VCT at the claimed position, that the blinded share commitment at the claimed index is consistent with the provided ciphertext and blind factor, that the share nullifier has not already been published, and that <x1/>.": "Validar la carga útil: verificar que el compromiso de voto existe en el VCT en la posición reclamada, que el compromiso de participación cegado en el índice reclamado es consistente con el texto cifrado y el factor cegado provistos, que el nullifier de la participación no ha sido publicado ya, y que <x1/>.",
+  "Enqueue the share for submission at the client-specified <x1/> time (or immediately if <x2/>).": "Encolar la participación para su envío en el momento <x1/> especificado por el cliente (o de inmediato si <x2/>).",
+  "At the scheduled time, obtain the current VCT Merkle path for the vote commitment.": "A la hora programada, obtener la ruta Merkle actual del VCT para el compromiso del voto.",
+  "Derive the share nullifier.": "Derivar el nullifier de la participación.",
+  "Construct the Vote Reveal Proof.": "Construir la Vote Reveal Proof.",
+  "Submit the share reveal transaction to the vote chain.": "Enviar la transacción de revelación de la participación a la cadena de votación.",
+  "If the share reveal transaction is rejected (e.g., because another server already revealed the same share), the server SHOULD discard the payload without retry.": "Si la transacción de revelación de la participación es rechazada (por ejemplo, porque otro servidor ya reveló la misma participación), el servidor DEBERÍA (SHOULD) descartar la carga útil sin reintentar.",
+  "<x1/>Submission Timing": "<x1/>Momento de envío",
+  "Each share payload includes a <x1/> field: a Unix timestamp (seconds) specifying when the server SHOULD submit the corresponding share reveal transaction. The server MUST NOT submit the share before this time.": "Cada carga útil de participación incluye un campo <x1/>: una marca de tiempo Unix (en segundos) que especifica cuándo el servidor DEBERÍA (SHOULD) enviar la transacción de revelación de la participación correspondiente. El servidor NO DEBE (MUST NOT) enviar la participación antes de esa hora.",
+  "When <x1/>, the server enqueues the share and submits it at or shortly after the specified time. Small inter-share jitter (on the order of seconds) SHOULD be applied to avoid simultaneous transaction bursts when multiple shares target nearby timestamps.": "Cuando <x1/>, el servidor pone la participación en cola y la envía en el momento especificado o poco después. DEBERÍA (SHOULD) aplicarse una pequeña variación aleatoria entre participaciones (del orden de segundos) para evitar ráfagas de transacciones simultáneas cuando múltiples participaciones tienen como objetivo marcas de tiempo cercanas.",
+  "When <x1/>, the server MUST submit the share as soon as possible (last-moment mode; see [Last-Moment Voting]).": "Cuando <x1/>, el servidor DEBE (MUST) enviar la participación lo antes posible (modo de último momento; véase [Last-Moment Voting]).",
+  "The server MUST reject any payload where <x1/> with an error.": "El servidor DEBE (MUST) rechazar con un error cualquier carga útil donde <x1/>.",
+  "<x1/>Client-Side Delay Sampling": "<x1/>Muestreo de retardo del lado del cliente",
+  "The client is responsible for choosing <x1/> for each share. For normal votes (cast outside the last-moment buffer), the client MUST sample each share's submission time independently from a uniform distribution over the remaining voting window:": "El cliente es responsable de elegir <x1/> para cada participación. Para votos normales (emitidos fuera del búfer de último momento), el cliente DEBE (MUST) muestrear el momento de envío de cada participación de forma independiente a partir de una distribución uniforme sobre la ventana de votación restante:",
+  "The upper bound excludes the last-moment buffer to ensure all shares are submitted before the window in which last-moment voters begin casting. See [Last-Moment Voting] for the buffer definition.": "El límite superior excluye el búfer de último momento para asegurar que todas las participaciones se envíen antes de la ventana en la que los votantes de último momento comienzan a votar. Véase [Last-Moment Voting] para la definición del búfer.",
+  "The client MUST NOT batch shares or assign identical timestamps. Independent sampling ensures that shares from a single voter are spread across time and interleaved with shares from other voters.": "El cliente NO DEBE (MUST NOT) agrupar participaciones ni asignar marcas de tiempo idénticas. El muestreo independiente garantiza que las participaciones de un mismo votante se distribuyan en el tiempo y se intercalen con las de otros votantes.",
+  "<x1/>Last-Moment Voting": "<x1/>Votación de último momento",
+  "A voter who casts within the <g1>last-moment buffer</g1> (the final portion of the voting window) uses a reduced submission mode:": "Un votante que emite su voto dentro del <g1>búfer de último momento</g1> (la porción final de la ventana de votación) usa un modo de envío reducido:",
+  "<x1/>Last-Moment Buffer": "<x1/>Búfer de último momento",
+  "The last-moment buffer is defined as:": "El búfer de último momento se define como:",
+  "That is, 10% of the total round duration (from ceremony completion to vote end), capped at 1 hour. A voter is in last-moment mode when:": "Es decir, el 10 % de la duración total de la ronda (desde la finalización de la ceremonia hasta el fin de la votación), con un máximo de 1 hora. Un votante está en modo de último momento cuando:",
+  "<x1/>Single-Share Mode": "<x1/>Modo de participación única",
+  "In last-moment mode, the client MUST:": "En modo de último momento, el cliente DEBE (MUST):",
+  "Place the entire ballot count into a single share (share index 0). The remaining <x1/> share slots carry zero value.": "Colocar la totalidad del recuento de la boleta en una sola participación (índice de participación 0). Las restantes ranuras de participación <x1/> llevan valor cero.",
+  "Build only one share payload (for share index 0).": "Construir un solo payload de participación (para el índice de participación 0).",
+  "Set <x1/> (immediate submission).": "Establecer <x1/> (envío inmediato).",
+  "The server processes immediate shares without inter-share jitter delay.": "El servidor procesa las participaciones inmediatas sin retardo de fluctuación entre participaciones.",
+  "<x1/>Privacy Rationale": "<x1/>Justificación de privacidad",
+  "Last-moment mode sacrifices temporal mixing for guaranteed inclusion. Each share requires the server to construct a Vote Reveal Proof — a computationally expensive ZKP — before submitting the transaction. With 16 shares and little time remaining, the server may not complete all 16 proofs before the voting window closes, resulting in lost votes. A single share requires only one proof, maximizing the likelihood that the vote is included before the deadline. Getting the vote counted is more important than preserving temporal mixing when the window is nearly closed.": "El modo de último momento sacrifica la mezcla temporal para garantizar la inclusión. Cada participación requiere que el servidor construya una Vote Reveal Proof — una prueba ZKP computacionalmente costosa — antes de enviar la transacción. Con 16 participaciones y poco tiempo restante, el servidor puede no completar las 16 pruebas antes de que la ventana de votación se cierre, lo que resulta en votos perdidos. Una sola participación requiere una única prueba, lo que maximiza la probabilidad de que el voto se incluya antes del plazo. Lograr que el voto se cuente es más importante que preservar la mezcla temporal cuando la ventana está casi cerrada.",
+  "The on-chain footprint of a last-moment vote is indistinguishable from a single normal share reveal (same transaction format, same proof type). An observer cannot determine whether a share reveal near the deadline is a last-moment vote or a normally-timed share that happened to be scheduled late.": "La huella en la cadena de un voto de último momento es indistinguible de la revelación de una participación normal única (mismo formato de transacción, mismo tipo de prueba). Un observador no puede determinar si una revelación de participación cercana al plazo es un voto de último momento o una participación con horario normal que casualmente fue programada tarde.",
+  "<x1/>Server Selection": "<x1/>Selección de servidores",
+  "Each share MUST be sent to exactly <x1/> of the <x2/> available submission servers, where <x3/> is the number of active validators (since each validator embeds a submission server). See [Why Half the Servers] for the design rationale.": "Cada participación DEBE (MUST) enviarse exactamente a <x1/> de los <x2/> servidores de envío disponibles, donde <x3/> es el número de validadores activos (ya que cada validador incorpora un servidor de envío). Véase [Why Half the Servers] para la justificación del diseño.",
+  "The client MUST select the <x1/> servers uniformly at random for each share independently. Shares from the same vote commitment SHOULD be distributed across different server subsets to minimize any single server's view of the voter's activity.": "El cliente DEBE (MUST) seleccionar los <x1/> servidores de manera uniforme y aleatoria para cada participación de forma independiente. Las participaciones provenientes del mismo compromiso de voto DEBERÍAN (SHOULD) distribuirse entre diferentes subconjuntos de servidores para minimizar la visión que un solo servidor tiene de la actividad del votante.",
+  "<x1/>Per-Server Share Isolation": "<x1/>Aislamiento de participaciones por servidor",
+  "A submission server receives only the ciphertext and blind factor for the single share it is responsible for revealing. The remaining <x1/> shares are sent to other servers, each of which receives only its own share's raw data.": "Un servidor de envío recibe únicamente el texto cifrado y el factor ciego de la única participación de la que es responsable de revelar. Las restantes <x1/> participaciones se envían a otros servidores, cada uno de los cuales recibe únicamente los datos brutos de su propia participación.",
+  "To construct the Vote Reveal Proof, the server needs all <x1/> blinded share commitments (to recompute <x2/>), but these commitments are blinded with independent random factors and do not expose the ciphertexts or blind factors of other shares.": "Para construir la Vote Reveal Proof, el servidor necesita todos los <x1/> compromisos de participación cegados (para recalcular <x2/>), pero estos compromisos están cegados con factores aleatorios independientes y no exponen los textos cifrados ni los factores ciegos de otras participaciones.",
+  "This isolation ensures that a compromised server learns at most one share's encrypted amount per vote commitment. Even if the server could decrypt that share (by colluding with <x1/> validators to reconstruct <x2/>), it would learn only a fraction of the voter's total ballot count.": "Este aislamiento garantiza que un servidor comprometido conozca como máximo el monto cifrado de una participación por compromiso de voto. Incluso si el servidor pudiera descifrar esa participación (coludiéndose con <x1/> validadores para reconstruir <x2/>), conocería solo una fracción del total de votos del votante.",
+  "<x1/>Decision Censorship Resistance": "<x1/>Resistencia a la censura de decisiones",
+  "Submission servers see the vote decision for each share they handle, because the decision is a public input to the Vote Reveal Proof and appears in the share reveal transaction. A malicious server could selectively drop shares for decisions it opposes.": "Los servidores de envío ven la decisión de voto de cada participación que manejan, porque la decisión es una entrada pública de la Vote Reveal Proof y aparece en la transacción de revelación de participación. Un servidor malicioso podría descartar selectivamente participaciones de decisiones a las que se opone.",
+  "Because each share is sent to <x1/> servers, a censoring server is effective only if all servers receiving that share collude. Under the assumption that fewer than half the servers are malicious, at least one honest server will relay each share. Alternative mitigation strategies are discussed in [Why Not Encrypt Decisions] and [Why Not TEE-Based Proof Construction].": "Dado que cada participación se envía a <x1/> servidores, un servidor censor solo es efectivo si todos los servidores que reciben esa participación coluden. Bajo el supuesto de que menos de la mitad de los servidores son maliciosos, al menos un servidor honesto retransmitirá cada participación. Las estrategias de mitigación alternativas se analizan en [Why Not Encrypt Decisions] y [Why Not TEE-Based Proof Construction].",
+  "<x1/>Duplicate Share Handling": "<x1/>Manejo de participaciones duplicadas",
+  "Because each share is sent to <x1/> servers, multiple servers will attempt to reveal the same share. The vote chain's share nullifier set prevents double-counting: the first valid share reveal transaction is accepted, and subsequent attempts for the same share nullifier are rejected.": "Dado que cada participación se envía a <x1/> servidores, múltiples servidores intentarán revelar la misma participación. El conjunto de nullifiers de participaciones de la cadena de votación evita el conteo doble: se acepta la primera transacción válida de revelación de participación y se rechazan los intentos posteriores para el mismo nullifier de participación.",
+  "Servers MUST treat a share-nullifier-already-exists rejection as a success (the share was revealed by another server) and discard the payload. Servers MUST NOT retry or escalate rejected submissions.": "Los servidores DEBEN (MUST) tratar un rechazo por nullifier de participación ya existente como un éxito (la participación fue revelada por otro servidor) y descartar la carga útil. Los servidores NO DEBEN (MUST NOT) reintentar ni escalar envíos rechazados.",
+  "<x1/>Availability and Fault Tolerance": "<x1/>Disponibilidad y tolerancia a fallas",
+  "If a submission server goes offline after receiving shares but before submitting them, those shares are lost on that server. Because each share is sent to <x1/> servers, the share will still be revealed by another server unless all <x2/> recipients fail simultaneously.": "Si un servidor de envío se desconecta después de recibir participaciones pero antes de enviarlas, esas participaciones se pierden en ese servidor. Dado que cada participación se envía a <x1/> servidores, la participación aún será revelada por otro servidor, salvo que todos los <x2/> destinatarios fallen simultáneamente.",
+  "Servers SHOULD persist enqueued shares (including their <x1/> timestamps) to durable storage so that shares survive process restarts. A server that restarts during the voting window SHOULD resume submission of any persisted shares whose <x2/> times have not yet passed. For shares whose <x3/> has already elapsed, the server SHOULD submit them as soon as possible after restart.": "Los servidores DEBERÍAN (SHOULD) persistir las participaciones en cola (incluidas sus marcas de tiempo <x1/>) en almacenamiento durable para que las participaciones sobrevivan a reinicios del proceso. Un servidor que se reinicia durante la ventana de votación DEBERÍA (SHOULD) reanudar el envío de toda participación persistida cuyo momento <x2/> aún no haya pasado. Para las participaciones cuyo <x3/> ya haya transcurrido, el servidor DEBERÍA (SHOULD) enviarlas lo antes posible tras el reinicio.",
+  "Servers SHOULD NOT persist share data beyond the end of the voting round. After the round transitions to TALLYING, all share payloads, ciphertexts, blind factors, and blinded share commitments SHOULD be securely erased.": "Los servidores NO DEBERÍAN (SHOULD NOT) persistir datos de participaciones más allá del final de la ronda de votación. Una vez que la ronda pase a TALLYING, todas las cargas útiles de participaciones, los textos cifrados, los factores de cegado y los compromisos cegados de participaciones DEBERÍAN (SHOULD) borrarse de forma segura.",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "<x1/>Why a Dedicated Submission Server": "<x1/>Por qué un servidor de envío dedicado",
+  "Naively submitting votes reveals balance through metadata. Even with encrypted amounts, an observer can group transactions by timing, and after tally publication, use low-participation proposal options to narrow individual balances. The submission server solves this by providing reliable, always-on execution of client-specified submission schedules and by constructing Vote Reveal Proofs on the voter's behalf.": "Enviar votos de manera ingenua revela el saldo a través de metadatos. Incluso con montos cifrados, un observador puede agrupar transacciones por su momento y, tras la publicación del escrutinio, usar opciones de propuesta de baja participación para acotar saldos individuales. El servidor de envío resuelve esto al proporcionar una ejecución confiable y siempre disponible de los horarios de envío especificados por el cliente y al construir Vote Reveal Proofs en nombre del votante.",
+  "Fully client-side temporal mixing (where the wallet itself staggers submissions over the voting window) was considered but rejected for reliability: mobile clients may be killed, lose connectivity, or enter low-power states during the multi-hour voting window. The hybrid design — client chooses when, server guarantees delivery — preserves client autonomy over timing while ensuring reliable execution.": "Se consideró una mezcla temporal completamente del lado del cliente (donde la propia billetera escalona los envíos a lo largo de la ventana de votación), pero se rechazó por confiabilidad: los clientes móviles pueden ser terminados, perder conectividad o entrar en estados de bajo consumo durante la ventana de votación de varias horas. El diseño híbrido — el cliente elige cuándo, el servidor garantiza la entrega — preserva la autonomía del cliente sobre el momento de envío al tiempo que asegura una ejecución confiable.",
+  "<x1/>Why Half the Servers": "<x1/>Por qué la mitad de los servidores",
+  "The <x1/> parameter balances two competing concerns:": "El parámetro <x1/> equilibra dos preocupaciones opuestas:",
+  "<g1>Censorship resistance</g1> requires redundancy: if a share is sent to only one server and that server censors it, the share is lost. Sending to multiple servers ensures that an honest server can relay.": "<g1>La resistencia a la censura</g1> requiere redundancia: si una participación se envía a un solo servidor y ese servidor la censura, la participación se pierde. Enviarla a múltiples servidores garantiza que un servidor honesto pueda retransmitirla.",
+  "<g1>Amount privacy</g1> requires restriction: validators who run submission servers also hold Shamir shares of <x2/>. A validator that sees a share's ciphertext and colludes with others could gain an information advantage. Limiting the number of servers that see each share limits the collusion surface.": "<g1>La privacidad de montos</g1> requiere restricción: los validadores que operan servidores de envío también poseen participaciones Shamir de <x2/>. Un validador que ve el cifrado de una participación y colude con otros podría obtener una ventaja de información. Limitar la cantidad de servidores que ven cada participación limita la superficie de colusión.",
+  "Sending to half the servers ensures that even if up to <x1/> servers are malicious, at least one honest server receives each share. At the same time, no more than half the validator set sees any individual share's ciphertext.": "Enviar a la mitad de los servidores garantiza que, incluso si hasta <x1/> servidores son maliciosos, al menos un servidor honesto reciba cada participación. Al mismo tiempo, no más de la mitad del conjunto de validadores ve el cifrado de ninguna participación individual.",
+  "For censorship resistance, the adversary model assumes fewer than half the servers are malicious (consistent with the CometBFT assumption of fewer than one-third Byzantine validators, which is strictly stronger). Under this assumption, any subset of <x1/> randomly chosen servers contains at least one honest server.": "Para la resistencia a la censura, el modelo de adversario asume que menos de la mitad de los servidores son maliciosos (consistente con el supuesto de CometBFT de menos de un tercio de validadores bizantinos, que es estrictamente más fuerte). Bajo este supuesto, cualquier subconjunto de <x1/> servidores elegidos al azar contiene al menos un servidor honesto.",
+  "For information restriction, limiting each share to half the servers means that no more than half the validator set (who also hold Shamir shares of <x1/>) sees any individual share's ciphertext. Combined with the threshold secret sharing requirement (<x2/> validators needed to decrypt), a single server that sees a share cannot decrypt it alone.": "Para la restricción de información, limitar cada participación a la mitad de los servidores significa que no más de la mitad del conjunto de validadores (que también poseen participaciones Shamir de <x1/>) ve el cifrado de ninguna participación individual. Combinado con el requisito de umbral de secreto compartido (<x2/> validadores necesarios para descifrar), un solo servidor que ve una participación no puede descifrarla por sí solo.",
+  "Alternative parameters were considered: sending to all servers maximizes censorship resistance but gives every validator access to every share's ciphertext, undermining information restriction. Sending to a single server minimizes information exposure but provides no censorship resistance.": "Se consideraron parámetros alternativos: enviar a todos los servidores maximiza la resistencia a la censura, pero da a cada validador acceso al cifrado de cada participación, lo que socava la restricción de información. Enviar a un solo servidor minimiza la exposición de información, pero no proporciona resistencia a la censura.",
+  "<x1/>Why Servers Are Co-located with Validators": "<x1/>Por qué los servidores están coubicados con los validadores",
+  "Submission servers are embedded in validator nodes rather than operated as independent infrastructure. This follows from the protocol's existing trust model: validators already participate in the EA key ceremony and hold Shamir shares. Adding a separate server operator class would introduce a new trust assumption without clear benefit. Co-location also simplifies deployment (a single binary) and ensures that the submission server has direct access to the vote chain for transaction submission.": "Los servidores de envío están integrados en los nodos validadores en lugar de operarse como infraestructura independiente. Esto se deriva del modelo de confianza existente del protocolo: los validadores ya participan en la ceremonia de claves de EA y poseen participaciones Shamir. Añadir una clase separada de operadores de servidores introduciría un nuevo supuesto de confianza sin un beneficio claro. La coubicación también simplifica el despliegue (un único binario) y garantiza que el servidor de envío tenga acceso directo a la cadena de votación para el envío de transacciones.",
+  "The dual role creates a tension: validators need decryption capability for the tally, but the protocol does not want any single validator to decrypt shares early. Threshold secret sharing (see <g1><g2>5</g2></g1>) addresses this: <x3/> validators must collude to reconstruct <x4/>, and the server selection rule ensures each share is visible to at most half the validators.": "El doble rol crea una tensión: los validadores necesitan capacidad de descifrado para el escrutinio, pero el protocolo no quiere que ningún validador individual descifre participaciones antes de tiempo. El secreto compartido con umbral (véase <g1><g2>5</g2></g1>) aborda esto: <x3/> validadores deben coludir para reconstruir <x4/>, y la regla de selección de servidores garantiza que cada participación sea visible como máximo para la mitad de los validadores.",
+  "<x1/>Why Client-Controlled Timing": "<x1/>Por qué un control de tiempo por parte del cliente",
+  "The client samples from a uniform distribution over the remaining window (excluding the last-moment buffer) rather than, for example, exponential or Gaussian. Because each share's <x1/> is sampled independently, a single voter's shares may cluster by chance. However, uniform sampling ensures that the <g2>aggregate</g2> stream of share reveals across all voters is roughly uniform over time. An individual voter's cluster is indistinguishable from coincidental proximity of shares belonging to different voters, provided the total volume of share reveals is sufficiently large.": "El cliente muestrea de una distribución uniforme sobre la ventana restante (excluyendo el amortiguador del último momento) en lugar de, por ejemplo, una exponencial o gaussiana. Debido a que el <x1/> de cada participación se muestrea de forma independiente, las participaciones de un solo votante pueden agruparse por azar. Sin embargo, el muestreo uniforme garantiza que el flujo <g2>agregado</g2> de revelaciones de participaciones entre todos los votantes sea aproximadamente uniforme en el tiempo. El agrupamiento de un votante individual es indistinguible de la proximidad coincidental de participaciones pertenecientes a distintos votantes, siempre que el volumen total de revelaciones de participaciones sea suficientemente grande.",
+  "<x1/>Why Not Encrypt Decisions": "<x1/>Por qué no cifrar las decisiones",
+  "Because vote decisions are public, an observer who also sees the published aggregate weight can, for low-participation options, narrow the range of individual voter balances — even though exact amounts remain encrypted. Encrypting decisions would close this channel but at significant cost: a per-option ciphertext approach requires each share to carry <x1/> ciphertexts (<x2/> for the chosen option, <x3/> for the remaining <x4/>), multiplying per-share circuit cost by <x5/>. A validator-decrypted variant hides per-option counts from the public but not from validators, and making the bucketing publicly verifiable requires an additional proof system that scales with total share count.": "Dado que las decisiones de voto son públicas, un observador que además ve el peso agregado publicado puede, para opciones de baja participación, acotar el rango de los saldos individuales de los votantes, aunque los montos exactos permanezcan cifrados. Cifrar las decisiones cerraría este canal, pero a un costo significativo: un enfoque de texto cifrado por opción requiere que cada participación lleve <x1/> textos cifrados (<x2/> para la opción elegida, <x3/> para las <x4/> restantes), multiplicando por <x5/> el costo del circuito por participación. Una variante descifrada por los validadores oculta al público los conteos por opción, pero no a los validadores, y hacer que la agrupación en buckets sea verificable públicamente requiere un sistema de pruebas adicional que escala con el número total de participaciones.",
+  "The protocol instead limits share-count informativeness through non-uniform share decomposition (see [Open Design Questions]), which breaks the direct relationship between share count and individual voter balances without adding circuit complexity.": "El protocolo, en cambio, limita la informatividad del recuento de participaciones mediante una descomposición no uniforme de las participaciones (véase [Preguntas de diseño abiertas]), que rompe la relación directa entre el recuento de participaciones y los saldos de votantes individuales sin añadir complejidad al circuito.",
+  "<x1/>Why Not TEE-Based Proof Construction": "<x1/>Por qué no una construcción de pruebas basada en TEE",
+  "Running Vote Reveal Proof construction inside a Trusted Execution Environment would allow the server to handle decrypted decisions without observing them, providing censorship resistance without the circuit cost of decision encryption. However, TEEs introduce infrastructure complexity (all validators would need compatible hardware), rely on vendor-specific trust assumptions, and are subject to side-channel attacks that have been demonstrated against SGX and similar platforms. The multi-server redundancy approach achieves adequate censorship resistance under the existing honest-majority assumption without these additional dependencies.": "Ejecutar la construcción de la Vote Reveal Proof dentro de un Trusted Execution Environment permitiría al servidor manejar decisiones descifradas sin observarlas, proporcionando resistencia a la censura sin el costo de circuito del cifrado de decisiones. Sin embargo, los TEE introducen complejidad de infraestructura (todos los validadores necesitarían hardware compatible), dependen de supuestos de confianza específicos del proveedor y están sujetos a ataques de canal lateral que se han demostrado contra SGX y plataformas similares. El enfoque de redundancia multiservidor logra una resistencia a la censura adecuada bajo el supuesto existente de mayoría honesta sin estas dependencias adicionales.",
+  "<x1/>Open Design Questions": "<x1/>Preguntas de diseño abiertas",
+  "Several design questions affect the submission server's effectiveness but are not yet resolved:": "Varias preguntas de diseño afectan la eficacia del servidor de envío, pero aún no están resueltas:",
+  "<g1>Share decomposition strategy.</g1> For normal votes, the ballot count is split roughly evenly across <x2/> shares (floor division, remainder added to the last share). For last-moment votes, the full count goes into a single share (see [Last-Moment Voting]). Alternative decomposition strategies (such as powers-of-two denominations that make shares from different voters indistinguishable by amount, or base-10 decomposition with PRF-randomized remainders) could strengthen the mixing guarantee but are not yet adopted.": "<g1>Estrategia de descomposición de participaciones.</g1> Para votos normales, el recuento de la papeleta se divide aproximadamente de manera uniforme en <x2/> participaciones (división entera, el residuo se añade a la última participación). Para votos de último momento, el recuento completo va en una sola participación (véase [Votación de último momento]). Estrategias de descomposición alternativas (como denominaciones en potencias de dos que hacen que las participaciones de distintos votantes sean indistinguibles por monto, o descomposición en base 10 con residuos aleatorizados por PRF) podrían fortalecer la garantía de mezcla, pero aún no se adoptan.",
+  "<g1>Client confirmation via PIR.</g1> Voters currently have no privacy-preserving way to confirm that their shares were submitted. A PIR-based confirmation mechanism (querying the vote chain for share nullifiers without revealing which nullifiers are being checked) would close this gap. The Nullifier PIR ZIP <g2><g3>6</g3></g2> provides a foundation, but adapting it for share nullifier queries requires additional specification.": "<g1>Confirmación del cliente mediante PIR.</g1> Actualmente los votantes no tienen una forma que preserve la privacidad de confirmar que sus participaciones fueron enviadas. Un mecanismo de confirmación basado en PIR (consultar la cadena de votación por nullifiers de participaciones sin revelar qué nullifiers se están verificando) cerraría esta brecha. El ZIP de Nullifier PIR <g2><g3>6</g3></g2> proporciona una base, pero adaptarlo para consultas de nullifiers de participaciones requiere una especificación adicional.",
+  "<g1>Balance amendment.</g1> A voter who is the sole participant on an unpopular proposal option may have their exact balance revealed by the tally (the aggregate equals their individual contribution). An opt-in mechanism to amend the voting ballot — lowering, rounding, or padding the declared balance and proving the amendment in ZK — would mitigate this. This is orthogonal to the submission server but affects the end-to-end privacy guarantee.": "<g1>Enmienda del saldo.</g1> Un votante que sea el único participante en una opción impopular de una propuesta puede ver su saldo exacto revelado por el escrutinio (el agregado equivale a su contribución individual). Un mecanismo opcional de inclusión para enmendar la papeleta de votación — reduciendo, redondeando o rellenando el saldo declarado y probando la enmienda en ZK — mitigaría esto. Esto es ortogonal al servidor de envío, pero afecta la garantía de privacidad de extremo a extremo.",
+  "<g1>TEE-based proof construction.</g1> Running Vote Reveal Proof construction inside a Trusted Execution Environment would allow the server to handle decrypted decisions without observing them, providing censorship resistance without decision encryption's circuit cost. Side-channel risks and infrastructure barriers make this a longer-term option.": "<g1>Construcción de pruebas basada en TEE.</g1> Ejecutar la construcción de la Vote Reveal Proof dentro de un Trusted Execution Environment permitiría al servidor manejar decisiones descifradas sin observarlas, proporcionando resistencia a la censura sin el costo de circuito del cifrado de decisiones. Los riesgos de canal lateral y las barreras de infraestructura hacen de esta una opción a más largo plazo.",
+  "<x1/>Reference Implementation": "<x1/>Implementación de referencia",
+  "Reference implementation will be provided before this ZIP advances beyond Draft status.": "Se proporcionará una implementación de referencia antes de que este ZIP avance más allá del estado de Draft.",
+  "<x1/>References": "<x1/>Referencias",
+  "<x1/>Footnotes": "<x1/>Notas al pie",
+  "<g1>Information on BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": "<g1>Información sobre BCP 14 — «RFC 2119: Key words for use in RFCs to Indicate Requirement Levels» y «RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words»</g1> <g2>↩</g2>",
+  "<g1>Draft ZIP: Shielded Voting Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13> <g15>↩<g16>8</g16></g15>": "<g1>ZIP borrador: Shielded Voting Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13> <g15>↩<g16>8</g16></g15>",
+  "<g1>Draft ZIP: Zcash Shielded Coinholder Voting</g1> <g2>↩</g2>": "<g1>ZIP borrador: Zcash Shielded Coinholder Voting</g1> <g2>↩</g2>",
+  "<g1>Draft ZIP: Orchard Proof-of-Balance</g1> <g2>↩</g2>": "<g1>ZIP borrador: Orchard Proof-of-Balance</g1> <g2>↩</g2>",
+  "<g1>Draft ZIP: Election Authority Key Ceremony</g1> <g2>↩</g2>": "<g1>ZIP borrador: Election Authority Key Ceremony</g1> <g2>↩</g2>",
+  "<g1>Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</g1> <g2>↩</g2>": "<g1>ZIP borrador: Private Information Retrieval for Nullifier Exclusion Proofs</g1> <g2>↩</g2>"
+ },
+ "reviews": {
+  "Vote Share Submission Server": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The key words \"MUST\", \"REQUIRED\", \"MUST NOT\", \"SHOULD\", and \"MAY\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The terms below are to be interpreted as follows:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Submission server": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An untrusted server that receives encrypted vote shares from voters and submits the corresponding share reveal transactions to the vote chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Temporal unlinkability": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The property that an observer watching the vote chain cannot attribute multiple share reveal transactions to a single voter based on submission timing.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Share payload": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The off-chain data a voter sends to a submission server for a single share, containing the information necessary to construct a Vote Reveal Proof. Defined in <g1><g2>2</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Voter": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A holder of voting authority (a VAN) who has produced a Vote Commitment containing encrypted shares and wishes to have those shares revealed on-chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Election authority (EA)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The set of validators that collectively hold Shamir shares of the El Gamal secret key for a voting round.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For definitions of <g1>Vote Commitment</g1>, <g2>Vote Commitment Tree</g2>, <g3>vote share</g3>, <g4>Vote Reveal Proof</g4>, <g5>share nullifier</g5>, and <g6>blinded share commitment</g6>, see <g7><g8>2</g8></g7>. For <g9>voting round</g9>, <g10>validator</g10>, and <g11>vote chain</g11>, see <g12><g13>3</g13></g12>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP specifies the submission server, a protocol participant in the Zcash shielded voting system that receives encrypted vote shares from voters and submits them to the vote chain at client-specified times. The server constructs a Vote Reveal Proof for each share and submits the corresponding transaction at the time designated by the voter, interleaving submissions from many voters into a stream that destroys timing correlations.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Without temporal mixing, a voter who submits <x1/> shares for <x2/> proposals produces <x3/> transactions in a short burst. An observer can group these by timing, and after the tally is published, cross-reference the group against low-participation proposal options to narrow the voter's balance to a small range. Client-controlled submission timing eliminates this attack surface: each share carries a <x4/> timestamp sampled uniformly from the remaining voting window, spreading shares from a single voter across time and interleaving them with shares from other voters.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Each share is sent to half of the available servers, balancing censorship resistance (redundancy ensures an honest server can relay) against amount privacy (limiting the servers that see each share's ciphertext).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Voters who cast their vote near the end of the voting window use a reduced <g1>last-moment mode</g1>: a single share carrying the full ballot count is submitted immediately, sacrificing temporal mixing in exchange for guaranteed inclusion before the deadline.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The Shielded Voting Protocol <g1><g2>2</g2></g1> encrypts vote amounts under the election authority's public key and splits each vote into <x3/> shares. Encryption alone does not provide effective privacy when combined with observable metadata.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Consider a voter with a large balance voting on <x1/> proposals. If the voter submits all <x2/> shares directly to the vote chain, an observer sees a burst of transactions arriving together. After the round, the published tally reveals the aggregate total and voter count per (proposal, decision) pair. For proposal options with few voters, the observer can narrow each voter's balance to a tight range. When the timing burst is correlated across proposals, the observer can link all of the voter's choices, and social context (forum posts, public advocacy) can close the remaining gap.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The submission server solves this by introducing an intermediary that holds shares and submits them at client-specified times spread across the voting window. The <x1/> transactions from a single voter are interleaved into a stream of thousands of similar transactions from hundreds of voters. The timing fingerprint is destroyed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The client samples a <x1/> timestamp for each share, drawn uniformly from the remaining voting window. The server holds the share until that time, then constructs the Vote Reveal Proof and submits the transaction. This design gives the client control over its own temporal mixing distribution while delegating proof construction and reliable delivery to the always-on server. A mobile client may be killed or lose connectivity at the scheduled submission time, but the server guarantees delivery.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Privacy Implications": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Temporal mixing.</g1> The client's primary privacy mechanism is spreading share submissions across the voting window by sampling independent <x2/> timestamps. The submission server executes these schedules reliably, interleaving shares from many voters into a uniform stream. Without this mixing, an observer can group shares by submission time and, after tally publication, use low-participation proposal options to reconstruct individual balances.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Per-server information.</g1> Each submission server learns the encrypted share ciphertext and blind factor for the single share it reveals, the blinded share commitments for all <x2/> shares, the proposal identifier, and the vote decision. It cannot learn the plaintext share amount (encrypted under <x3/>), the ciphertexts or blind factors of shares assigned to other servers, the voter's identity, or which VCT leaf the vote commitment corresponds to.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Redundancy vs. restriction tension.</g1> Censorship resistance requires sending each share to multiple servers (so an honest server can relay even if others censor). Amount privacy requires restricting the number of servers that see each share (to limit the set that could collude with the EA to gain an information advantage). These requirements pull in opposite directions; the resolution is specified in [Server Selection].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Decision and share count visibility.</g1> Vote decisions are public inputs to the Vote Reveal Proof and appear in every share reveal transaction on-chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Because share counts are visible, an observer who also sees the aggregate weight for each decision after tally publication can, in low-participation options, narrow individual voter balances to a range. The protocol limits this inference in two ways: encrypted amounts keep exact balances hidden, and non-uniform share decomposition strategies break the direct relationship between share count and voter balance (see [Open Design Questions]). Encrypting decisions entirely would close this channel but at substantial circuit cost (see [Why Not Encrypt Decisions]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Decision visibility also means a malicious submission server could selectively delay or drop shares for a particular decision; the redundancy mechanisms in [Decision Censorship Resistance] address this.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Voter identity isolation.</g1> Even a fully compromised election authority (one that reconstructs <x2/> and decrypts every share) cannot determine which voter cast a given vote. The delegation phase of the Shielded Voting Protocol <g3><g4>2</g4></g3> moves voting authority from the holder's Orchard spending key to a locally-generated, unlinkable governance hotkey. All vote commitments and share reveals reference only this hotkey. The link between on-chain identity and governance hotkey is broken by the zero-knowledge delegation proof and the alternate nullifier unlinkability property established in <g5><g6>4</g6></g5>; the EA never sees anything that connects the two.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Timing metadata.</g1> Submission servers see <x2/> timestamps but these are independently sampled per share and do not reveal the voter's identity or total ballot count. A server that logs receipt timestamps could correlate shares received in the same session, but because each share is sent to independently selected server subsets, no single server sees all of a voter's shares. Voters who distribute shares across multiple servers limit any single server's view of their submission pattern.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Last-moment privacy trade-off.</g1> Voters who cast within the last-moment buffer (see [Last-Moment Voting]) submit a single share carrying their full ballot count with immediate delivery. This sacrifices temporal mixing entirely: the share's on-chain arrival time directly reflects when the voter cast. The trade-off is accepted because each share requires the server to construct a Vote Reveal Proof (a computationally expensive ZKP), and with little time remaining the server may not complete all 16 proofs before the deadline — resulting in a partially counted or entirely lost vote. A single share requires only one proof, prioritizing inclusion over mixing.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "An observer watching the vote chain cannot attribute multiple share reveal transactions to a single voter based on submission timing.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A single malicious submission server cannot prevent a voter's shares from reaching the chain, provided at least one server handling those shares is honest.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "No single submission server learns enough information to reconstruct a voter's total ballot count or link shares across proposals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The submission server can construct Vote Reveal Proofs without access to the voter's private key material.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The protocol tolerates submission server unavailability: if a server goes offline, shares assigned to other servers are unaffected.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Non-requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The Vote Reveal Proof circuit and its public/auxiliary inputs are specified in <g1><g2>2</g2></g1>; this ZIP does not re-specify them.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The share submission payload format is defined in <g1><g2>2</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The vote chain's verification of share reveal transactions (nullifier checks, ciphertext accumulation) is specified in <g1><g2>2</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Client-side share decomposition (splitting <x1/> into <x2/> shares) is specified in <g3><g4>2</g4></g3>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The consensus mechanism of the vote chain is out of scope.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Server Role": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A submission server is an always-on service that accepts share payloads from voters over an authenticated channel and submits the corresponding share reveal transactions to the vote chain. Each validator on the vote chain embeds a submission server as a helper process.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For each share payload received, the server MUST:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Validate the payload: verify that the vote commitment exists in the VCT at the claimed position, that the blinded share commitment at the claimed index is consistent with the provided ciphertext and blind factor, that the share nullifier has not already been published, and that <x1/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Enqueue the share for submission at the client-specified <x1/> time (or immediately if <x2/>).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "At the scheduled time, obtain the current VCT Merkle path for the vote commitment.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Derive the share nullifier.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Construct the Vote Reveal Proof.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Submit the share reveal transaction to the vote chain.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If the share reveal transaction is rejected (e.g., because another server already revealed the same share), the server SHOULD discard the payload without retry.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Submission Timing": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Each share payload includes a <x1/> field: a Unix timestamp (seconds) specifying when the server SHOULD submit the corresponding share reveal transaction. The server MUST NOT submit the share before this time.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "When <x1/>, the server enqueues the share and submits it at or shortly after the specified time. Small inter-share jitter (on the order of seconds) SHOULD be applied to avoid simultaneous transaction bursts when multiple shares target nearby timestamps.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "When <x1/>, the server MUST submit the share as soon as possible (last-moment mode; see [Last-Moment Voting]).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The server MUST reject any payload where <x1/> with an error.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Client-Side Delay Sampling": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The client is responsible for choosing <x1/> for each share. For normal votes (cast outside the last-moment buffer), the client MUST sample each share's submission time independently from a uniform distribution over the remaining voting window:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The upper bound excludes the last-moment buffer to ensure all shares are submitted before the window in which last-moment voters begin casting. See [Last-Moment Voting] for the buffer definition.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The client MUST NOT batch shares or assign identical timestamps. Independent sampling ensures that shares from a single voter are spread across time and interleaved with shares from other voters.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Last-Moment Voting": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A voter who casts within the <g1>last-moment buffer</g1> (the final portion of the voting window) uses a reduced submission mode:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Last-Moment Buffer": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The last-moment buffer is defined as:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "That is, 10% of the total round duration (from ceremony completion to vote end), capped at 1 hour. A voter is in last-moment mode when:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Single-Share Mode": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "In last-moment mode, the client MUST:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Place the entire ballot count into a single share (share index 0). The remaining <x1/> share slots carry zero value.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Build only one share payload (for share index 0).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Set <x1/> (immediate submission).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The server processes immediate shares without inter-share jitter delay.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Privacy Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Last-moment mode sacrifices temporal mixing for guaranteed inclusion. Each share requires the server to construct a Vote Reveal Proof — a computationally expensive ZKP — before submitting the transaction. With 16 shares and little time remaining, the server may not complete all 16 proofs before the voting window closes, resulting in lost votes. A single share requires only one proof, maximizing the likelihood that the vote is included before the deadline. Getting the vote counted is more important than preserving temporal mixing when the window is nearly closed.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The on-chain footprint of a last-moment vote is indistinguishable from a single normal share reveal (same transaction format, same proof type). An observer cannot determine whether a share reveal near the deadline is a last-moment vote or a normally-timed share that happened to be scheduled late.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Server Selection": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Each share MUST be sent to exactly <x1/> of the <x2/> available submission servers, where <x3/> is the number of active validators (since each validator embeds a submission server). See [Why Half the Servers] for the design rationale.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The client MUST select the <x1/> servers uniformly at random for each share independently. Shares from the same vote commitment SHOULD be distributed across different server subsets to minimize any single server's view of the voter's activity.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Per-Server Share Isolation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A submission server receives only the ciphertext and blind factor for the single share it is responsible for revealing. The remaining <x1/> shares are sent to other servers, each of which receives only its own share's raw data.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "To construct the Vote Reveal Proof, the server needs all <x1/> blinded share commitments (to recompute <x2/>), but these commitments are blinded with independent random factors and do not expose the ciphertexts or blind factors of other shares.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This isolation ensures that a compromised server learns at most one share's encrypted amount per vote commitment. Even if the server could decrypt that share (by colluding with <x1/> validators to reconstruct <x2/>), it would learn only a fraction of the voter's total ballot count.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"coludándose\" is a wrong conjugation of the verb \"coludirse\", which forms the gerund \"coludiéndose\"."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Este aislamiento garantiza que un servidor comprometido conozca como máximo el monto cifrado de una participación por compromiso de voto. Incluso si el servidor pudiera descifrar esa participación (coludéndose con <x1/> validadores para reconstruir <x2/>), conocería solo una fracción del total de votos del votante."
+  },
+  "<x1/>Decision Censorship Resistance": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Submission servers see the vote decision for each share they handle, because the decision is a public input to the Vote Reveal Proof and appears in the share reveal transaction. A malicious server could selectively drop shares for decisions it opposes.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Because each share is sent to <x1/> servers, a censoring server is effective only if all servers receiving that share collude. Under the assumption that fewer than half the servers are malicious, at least one honest server will relay each share. Alternative mitigation strategies are discussed in [Why Not Encrypt Decisions] and [Why Not TEE-Based Proof Construction].": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Duplicate Share Handling": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Because each share is sent to <x1/> servers, multiple servers will attempt to reveal the same share. The vote chain's share nullifier set prevents double-counting: the first valid share reveal transaction is accepted, and subsequent attempts for the same share nullifier are rejected.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Servers MUST treat a share-nullifier-already-exists rejection as a success (the share was revealed by another server) and discard the payload. Servers MUST NOT retry or escalate rejected submissions.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Availability and Fault Tolerance": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If a submission server goes offline after receiving shares but before submitting them, those shares are lost on that server. Because each share is sent to <x1/> servers, the share will still be revealed by another server unless all <x2/> recipients fail simultaneously.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The adverb 'aun' is misspelled; the English 'will still be revealed' requires the accented form 'aún'."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Si un servidor de envío se desconecta después de recibir participaciones pero antes de enviarlas, esas participaciones se pierden en ese servidor. Dado que cada participación se envía a <x1/> servidores, la participación aun será revelada por otro servidor, salvo que todos los <x2/> destinatarios fallen simultáneamente."
+  },
+  "Servers SHOULD persist enqueued shares (including their <x1/> timestamps) to durable storage so that shares survive process restarts. A server that restarts during the voting window SHOULD resume submission of any persisted shares whose <x2/> times have not yet passed. For shares whose <x3/> has already elapsed, the server SHOULD submit them as soon as possible after restart.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Servers SHOULD NOT persist share data beyond the end of the voting round. After the round transitions to TALLYING, all share payloads, ciphertexts, blind factors, and blinded share commitments SHOULD be securely erased.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The technical term 'ciphertexts' is rendered as 'los cifrados', which means encryption; the correct term is 'textos cifrados'."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Los servidores NO DEBERÍAN (SHOULD NOT) persistir datos de participaciones más allá del final de la ronda de votación. Una vez que la ronda pase a TALLYING, todas las cargas útiles de participaciones, los cifrados, los factores de cegado y los compromisos cegados de participaciones DEBERÍAN (SHOULD) borrarse de forma segura."
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why a Dedicated Submission Server": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Naively submitting votes reveals balance through metadata. Even with encrypted amounts, an observer can group transactions by timing, and after tally publication, use low-participation proposal options to narrow individual balances. The submission server solves this by providing reliable, always-on execution of client-specified submission schedules and by constructing Vote Reveal Proofs on the voter's behalf.": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "\"momentaneidad\" is not the right word for \"timing\" and misstates how the observer groups transactions."
+   ],
+   "model": "glm-5.3-flash",
+   "first": "Enviar votos de manera ingenua revela el saldo a través de metadatos. Incluso con montos cifrados, un observador puede agrupar transacciones por su momentaneidad y, tras la publicación del escrutinio, usar opciones de propuesta de baja participación para acotar saldos individuales. El servidor de envío resuelve esto al proporcionar una ejecución confiable y siempre disponible de los horarios de envío especificados por el cliente y al construir Vote Reveal Proofs en nombre del votante."
+  },
+  "Fully client-side temporal mixing (where the wallet itself staggers submissions over the voting window) was considered but rejected for reliability: mobile clients may be killed, lose connectivity, or enter low-power states during the multi-hour voting window. The hybrid design — client chooses when, server guarantees delivery — preserves client autonomy over timing while ensuring reliable execution.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why Half the Servers": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The <x1/> parameter balances two competing concerns:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Censorship resistance</g1> requires redundancy: if a share is sent to only one server and that server censors it, the share is lost. Sending to multiple servers ensures that an honest server can relay.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Amount privacy</g1> requires restriction: validators who run submission servers also hold Shamir shares of <x2/>. A validator that sees a share's ciphertext and colludes with others could gain an information advantage. Limiting the number of servers that see each share limits the collusion surface.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Sending to half the servers ensures that even if up to <x1/> servers are malicious, at least one honest server receives each share. At the same time, no more than half the validator set sees any individual share's ciphertext.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For censorship resistance, the adversary model assumes fewer than half the servers are malicious (consistent with the CometBFT assumption of fewer than one-third Byzantine validators, which is strictly stronger). Under this assumption, any subset of <x1/> randomly chosen servers contains at least one honest server.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For information restriction, limiting each share to half the servers means that no more than half the validator set (who also hold Shamir shares of <x1/>) sees any individual share's ciphertext. Combined with the threshold secret sharing requirement (<x2/> validators needed to decrypt), a single server that sees a share cannot decrypt it alone.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Alternative parameters were considered: sending to all servers maximizes censorship resistance but gives every validator access to every share's ciphertext, undermining information restriction. Sending to a single server minimizes information exposure but provides no censorship resistance.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why Servers Are Co-located with Validators": {
+   "passed": true,
+   "rounds": 2,
+   "issues": [
+    "The word \"cubicados\" is misspelled; the prefix co- gives \"coubicados\"."
+   ],
+   "model": "glm-5.3-flash"
+  },
+  "Submission servers are embedded in validator nodes rather than operated as independent infrastructure. This follows from the protocol's existing trust model: validators already participate in the EA key ceremony and hold Shamir shares. Adding a separate server operator class would introduce a new trust assumption without clear benefit. Co-location also simplifies deployment (a single binary) and ensures that the submission server has direct access to the vote chain for transaction submission.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The dual role creates a tension: validators need decryption capability for the tally, but the protocol does not want any single validator to decrypt shares early. Threshold secret sharing (see <g1><g2>5</g2></g1>) addresses this: <x3/> validators must collude to reconstruct <x4/>, and the server selection rule ensures each share is visible to at most half the validators.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why Client-Controlled Timing": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The client samples from a uniform distribution over the remaining window (excluding the last-moment buffer) rather than, for example, exponential or Gaussian. Because each share's <x1/> is sampled independently, a single voter's shares may cluster by chance. However, uniform sampling ensures that the <g2>aggregate</g2> stream of share reveals across all voters is roughly uniform over time. An individual voter's cluster is indistinguishable from coincidental proximity of shares belonging to different voters, provided the total volume of share reveals is sufficiently large.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why Not Encrypt Decisions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Because vote decisions are public, an observer who also sees the published aggregate weight can, for low-participation options, narrow the range of individual voter balances — even though exact amounts remain encrypted. Encrypting decisions would close this channel but at significant cost: a per-option ciphertext approach requires each share to carry <x1/> ciphertexts (<x2/> for the chosen option, <x3/> for the remaining <x4/>), multiplying per-share circuit cost by <x5/>. A validator-decrypted variant hides per-option counts from the public but not from validators, and making the bucketing publicly verifiable requires an additional proof system that scales with total share count.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The protocol instead limits share-count informativeness through non-uniform share decomposition (see [Open Design Questions]), which breaks the direct relationship between share count and individual voter balances without adding circuit complexity.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why Not TEE-Based Proof Construction": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Running Vote Reveal Proof construction inside a Trusted Execution Environment would allow the server to handle decrypted decisions without observing them, providing censorship resistance without the circuit cost of decision encryption. However, TEEs introduce infrastructure complexity (all validators would need compatible hardware), rely on vendor-specific trust assumptions, and are subject to side-channel attacks that have been demonstrated against SGX and similar platforms. The multi-server redundancy approach achieves adequate censorship resistance under the existing honest-majority assumption without these additional dependencies.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Open Design Questions": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Several design questions affect the submission server's effectiveness but are not yet resolved:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Share decomposition strategy.</g1> For normal votes, the ballot count is split roughly evenly across <x2/> shares (floor division, remainder added to the last share). For last-moment votes, the full count goes into a single share (see [Last-Moment Voting]). Alternative decomposition strategies (such as powers-of-two denominations that make shares from different voters indistinguishable by amount, or base-10 decomposition with PRF-randomized remainders) could strengthen the mixing guarantee but are not yet adopted.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Client confirmation via PIR.</g1> Voters currently have no privacy-preserving way to confirm that their shares were submitted. A PIR-based confirmation mechanism (querying the vote chain for share nullifiers without revealing which nullifiers are being checked) would close this gap. The Nullifier PIR ZIP <g2><g3>6</g3></g2> provides a foundation, but adapting it for share nullifier queries requires additional specification.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Balance amendment.</g1> A voter who is the sole participant on an unpopular proposal option may have their exact balance revealed by the tally (the aggregate equals their individual contribution). An opt-in mechanism to amend the voting ballot — lowering, rounding, or padding the declared balance and proving the amendment in ZK — would mitigate this. This is orthogonal to the submission server but affects the end-to-end privacy guarantee.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>TEE-based proof construction.</g1> Running Vote Reveal Proof construction inside a Trusted Execution Environment would allow the server to handle decrypted decisions without observing them, providing censorship resistance without decision encryption's circuit cost. Side-channel risks and infrastructure barriers make this a longer-term option.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Reference Implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Reference implementation will be provided before this ZIP advances beyond Draft status.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Footnotes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Information on BCP 14 — \"RFC 2119: Key words for use in RFCs to Indicate Requirement Levels\" and \"RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words\"</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Shielded Voting Protocol</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5> <g7>↩<g8>4</g8></g7> <g9>↩<g10>5</g10></g9> <g11>↩<g12>6</g12></g11> <g13>↩<g14>7</g14></g13> <g15>↩<g16>8</g16></g15>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Zcash Shielded Coinholder Voting</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Orchard Proof-of-Balance</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Election Authority Key Ceremony</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  }
+ }
+}

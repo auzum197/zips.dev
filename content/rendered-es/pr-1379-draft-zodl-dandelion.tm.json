@@ -1,0 +1,580 @@
+{
+ "segments": {
+  "Dandelion++ Transaction Propagation for Zcash P2P Nodes": "Propagación de transacciones Dandelion++ para nodos P2P de Zcash",
+  "<x1/>Terminology": "<x1/>Terminología",
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", \"SHOULD NOT\", \"MAY\", and \"RECOMMENDED\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": "Las palabras clave \"DEBE (MUST)\", \"NO DEBE (MUST NOT)\", \"DEBERÍA (SHOULD)\", \"NO DEBERÍA (SHOULD NOT)\", \"PUEDE (MAY)\" y \"RECOMENDADO (RECOMMENDED)\" en este documento se interpretarán como se describe en BCP 14 <g1><g2>1</g2></g1> cuando, y solo cuando, aparezcan en mayúsculas.",
+  "<g1>Stem phase:</g1> The unicast relay phase of the Dandelion++ protocol <g2><g3>2</g3></g2> in which a transaction is forwarded to a single randomly-selected peer per epoch before entering the fluff phase.": "<g1>Fase stem:</g1> La fase de retransmisión unidifusión del protocolo Dandelion++ <g2><g3>2</g3></g2> en la que una transacción se reenvía a un único par seleccionado aleatoriamente por época antes de entrar en la fase fluff.",
+  "<g1>Fluff phase:</g1> The standard flood-broadcast phase of transaction propagation that follows the stem phase.": "<g1>Fase fluff:</g1> La fase estándar de difusión por inundación de la propagación de transacciones que sigue a la fase stem.",
+  "<g1>Stem peer:</g1> The single P2P peer to which a Dandelion++ node relays stem-phase transactions during a given epoch.": "<g1>Par stem:</g1> El único par P2P al que un nodo Dandelion++ retransmite las transacciones en fase stem durante una época determinada.",
+  "<g1>IP-to-transaction correlation:</g1> The ability of a network observer to determine which IP address originated a given transaction by observing when and where the transaction first appeared on the P2P network.": "<g1>Correlación IP-transacción:</g1> La capacidad de un observador de la red de determinar qué dirección IP originó una transacción determinada observando cuándo y dónde apareció por primera vez la transacción en la red P2P.",
+  "<x1/>Abstract": "<x1/>Resumen",
+  "This ZIP specifies how Zcash full nodes SHOULD implement Dandelion++ <g1><g2>2</g2></g1> transaction propagation. In Dandelion++, a newly-received transaction first travels through a randomly-selected \"stem\" of peers (unicast per epoch) before entering a standard flood broadcast (\"fluff\" phase). This makes it significantly harder for network observers to determine which node originated a transaction, reducing IP-to-transaction correlation.": "Este ZIP especifica cómo los nodos completos de Zcash DEBERÍAN (SHOULD) implementar la propagación de transacciones Dandelion++ <g1><g2>2</g2></g1>. En Dandelion++, una transacción recién recibida viaja primero a través de un \"stem\" de pares seleccionado aleatoriamente (unidifusión por época) antes de entrar en una difusión por inundación estándar (fase \"fluff\"). Esto hace significativamente más difícil que los observadores de la red determinen qué nodo originó una transacción, reduciendo la correlación IP-transacción.",
+  "This ZIP covers only the <g1>full-node P2P relay behavior</g1> (sometimes called \"Component B\"). A companion mechanism for wallets to submit transactions directly to a node via P2P rather than through a compact-block server is described in draft-zodl-dandelion-wallet (PR <g2>#1380</g2>). <g3><g4>3</g4></g3>": "Este ZIP cubre únicamente el <g1>comportamiento de retransmisión P2P de nodos completos</g1> (a veces llamado \"Componente B\"). Un mecanismo complementario para que las billeteras envíen transacciones directamente a un nodo mediante P2P en lugar de a través de un servidor de bloques compactos se describe en draft-zodl-dandelion-wallet (PR <g2>#1380</g2>). <g3><g4>3</g4></g3>",
+  "<x1/>Motivation": "<x1/>Motivación",
+  "Currently, Zcash transactions are immediately flood-broadcast to all connected peers the moment they enter a node's mempool. A passive network adversary can observe the timing of transaction appearances at many vantage points to identify the originating node with high confidence, even for shielded transactions whose content is cryptographically protected.": "Actualmente, las transacciones de Zcash se difunden por inundación de inmediato a todos los pares conectados en cuanto entran en el mempool de un nodo. Un adversario pasivo de la red puede observar el momento de aparición de las transacciones desde muchos puntos de observación para identificar el nodo de origen con alta confianza, incluso en el caso de transacciones blindadas cuyo contenido está protegido criptográficamente.",
+  "Dandelion++ addresses this by introducing an intermediate \"stem\" phase during which the transaction is relayed to only one peer. The originating node is hidden in the anonymity set of all nodes along the stem path.": "Dandelion++ aborda esto introduciendo una fase intermedia \"stem\" durante la cual la transacción se retransmite a un solo par. El nodo de origen queda oculto en el conjunto de anonimato de todos los nodos a lo largo de la ruta stem.",
+  "<x1/>Requirements": "<x1/>Requisitos",
+  "Each Dandelion++ node MUST maintain an <g1>epoch</g1> with a randomly-chosen duration in the range [600, 720] seconds (10 minutes ± 120 second jitter).": "Cada nodo Dandelion++ DEBE (MUST) mantener una <g1>época</g1> con una duración elegida aleatoriamente en el rango de [600, 720] segundos (10 minutos ± 120 segundos de fluctuación).",
+  "At the start of each epoch, the node MUST select a single <g1>stem peer</g1> uniformly at random from its currently-connected outbound peers. If no outbound peers are available, the node operates in fluff mode for that epoch.": "Al comienzo de cada época, el nodo DEBE (MUST) seleccionar un único <g1>par stem</g1> de manera uniforme y aleatoria entre sus pares salientes actualmente conectados. Si no hay pares salientes disponibles, el nodo opera en modo fluff durante esa época.",
+  "For each transaction received locally (via RPC, direct P2P submission, or relayed from a peer), the node MUST:": "Para cada transacción recibida localmente (mediante RPC, envío directo por P2P o retransmitida por un par), el nodo DEBE (MUST):",
+  "a. Enter the transaction into <g1>stem phase</g1>: route it exclusively to the stem peer using a unicast P2P message. b. Record the stem-phase start time. If the transaction has not entered fluff within <g2>30 seconds</g2>, the node MUST promote it to fluff phase. c. If the stem peer disconnects or becomes unavailable before the transaction is acknowledged, the node MUST immediately promote the transaction to fluff phase rather than silently dropping it.": "a. Ingresar la transacción en la <g1>fase stem</g1>: enrutarla exclusivamente al par stem mediante un mensaje P2P de unidifusión. b. Registrar la hora de inicio de la fase stem. Si la transacción no ha entrado en fluff dentro de <g2>30 segundos</g2>, el nodo DEBE (MUST) promoverla a la fase fluff. c. Si el par stem se desconecta o deja de estar disponible antes de que la transacción sea confirmada, el nodo DEBE (MUST) promover inmediatamente la transacción a la fase fluff en lugar de descartarla silenciosamente.",
+  "During stem phase, the node MUST NOT advertise the transaction to any other peer. Specifically:": "Durante la fase stem, el nodo NO DEBE (MUST NOT) anunciar la transacción a ningún otro par. Específicamente:",
+  "a. The transaction MUST NOT be included in responses to <x1/> P2P requests from remote peers. b. The transaction MUST NOT be returned by any RPC that exposes mempool contents (e.g. <x2/>, <x3/> with <x4/> on unconfirmed transactions) until it enters fluff phase.": "a. La transacción NO DEBE (MUST NOT) incluirse en respuestas a solicitudes P2P <x1/> de pares remotos. b. La transacción NO DEBE (MUST NOT) ser devuelta por ningún RPC que exponga el contenido del mempool (p. ej. <x2/>, <x3/> con <x4/> sobre transacciones no confirmadas) hasta que entre en la fase fluff.",
+  "Once the transaction enters fluff phase, it MUST be broadcast normally using the existing <x1/>/<x2/> flood mechanism.": "Una vez que la transacción entra en la fase fluff, DEBE (MUST) difundirse normalmente mediante el mecanismo de inundación <x1/>/<x2/> existente.",
+  "<x1/>Specification": "<x1/>Especificación",
+  "<x1/>Epoch management": "<x1/>Gestión de épocas",
+  "A new <g1>epoch</g1> begins immediately when the node starts and whenever the previous epoch expires. The epoch duration is:": "Una nueva <g1>época</g1> comienza inmediatamente cuando el nodo se inicia y cada vez que expira la época anterior. La duración de la época es:",
+  "where <x1/> = 600 s and <x2/> = 120 s.": "donde <x1/> = 600 s y <x2/> = 120 s.",
+  "The stem peer for an epoch is selected uniformly at random from the addresses of currently-connected outbound peers at the moment the epoch begins. If no outbound peers are connected, the stem peer is <x1/> and the node operates in <g2>fluff mode</g2> for the entire epoch (all transactions are immediately flood-broadcast).": "El par stem para una época se selecciona de manera uniforme y aleatoria entre las direcciones de los pares salientes actualmente conectados en el momento en que comienza la época. Si no hay pares salientes conectados, el par stem es <x1/> y el nodo opera en <g2>modo fluff</g2> durante toda la época (todas las transacciones se difunden inmediatamente por inundación).",
+  "<x1/>Stem-phase forwarding": "<x1/>Reenvío en fase stem",
+  "When a node enters a new transaction into stem phase, it SHOULD send the transaction identifier to the stem peer using the standard <x1/> P2P message with type <x2/>. The stem peer is expected to request the full transaction via <x3/> and continue the stem relay using its own stem peer for the current epoch.": "Cuando un nodo ingresa una nueva transacción en la fase stem, DEBERÍA (SHOULD) enviar el identificador de la transacción al par stem mediante el mensaje P2P estándar <x1/> con tipo <x2/>. Se espera que el par stem solicite la transacción completa mediante <x3/> y continúe la retransmisión stem usando su propio par stem para la época actual.",
+  "<g1>Note:</g1> The Dandelion++ paper defines a separate \"unadvertised <x2/>\" convention (sending the raw <x3/> message to the stem peer without a prior <x4/>) as a signal that the transaction should be treated as stem-phase by the recipient. This convention is OPTIONAL under this ZIP. Nodes that do not implement it MUST fall back gracefully to standard <x5/> forwarding, which provides the same privacy property at the forwarding node. A future ZIP MAY standardize the unadvertised-<x6/> convention once implementations converge.": "<g1>Nota:</g1> El artículo de Dandelion++ define una convención separada de «<x2/> no anunciado» (enviar el mensaje <x3/> sin procesar al par stem sin un <x4/> previo) como señal de que el destinatario debe tratar la transacción como fase stem. Esta convención es OPCIONAL (OPTIONAL) bajo este ZIP. Los nodos que no la implementen DEBEN (MUST) recurrir de manera tolerante al reenvío estándar mediante <x5/>, que proporciona la misma propiedad de privacidad en el nodo que reenvía. Un ZIP futuro PUEDE (MAY) estandarizar la convención de <x6/> no anunciado cuando las implementaciones converjan.",
+  "<x1/>Stem-phase mempool filtering": "<x1/>Filtrado del mempool en fase stem",
+  "Implementations MUST ensure that stem-phase transactions are not observable by remote peers before entering fluff. This applies to:": "Las implementaciones DEBEN (MUST) garantizar que las transacciones en fase stem no sean observables por pares remotos antes de entrar en fluff. Esto aplica a:",
+  "Responses to <x1/> P2P requests — the node MUST filter stem-phase transaction IDs from the list returned to any remote peer.": "Las respuestas a solicitudes P2P <x1/>: el nodo DEBE (MUST) filtrar los identificadores de transacciones en fase stem de la lista devuelta a cualquier par remoto.",
+  "Transaction-related RPCs — the node SHOULD suppress stem-phase transactions from any RPC that returns mempool contents. Implementations MAY defer this to a subsequent release.": "Los RPC relacionados con transacciones: el nodo DEBERÍA (SHOULD) suprimir las transacciones en fase stem de cualquier RPC que devuelva el contenido del mempool. Las implementaciones PUEDEN (MAY) posponer esto para una versión posterior.",
+  "<x1/>Fail-closed routing": "<x1/>Enrutamiento con falla cerrada",
+  "If the stem peer is not reachable at the time a stem-phase transaction should be forwarded (e.g. the peer has been evicted from the ready set), the node MUST promote the transaction to fluff immediately. The node MUST NOT silently discard the transaction, and MUST NOT fall back to routing to a different peer without updating the propagation state (which would result in the transaction being advertised to a non-stem peer during what the node still records as stem phase).": "Si el par stem no es alcanzable en el momento en que una transacción en fase stem debería reenviarse (p. ej., el par fue expulsado del conjunto de pares listos), el nodo DEBE (MUST) promover inmediatamente la transacción a fluff. El nodo NO DEBE (MUST NOT) descartar silenciosamente la transacción, y NO DEBE (MUST NOT) recurrir a enrutarla a un par diferente sin actualizar el estado de propagación (lo que resultaría en que la transacción sea anunciada a un par que no es el par stem durante lo que el nodo todavía registra como fase stem).",
+  "<x1/>Fluff phase": "<x1/>Fase fluff",
+  "After the 30-second stem timeout, or when a stem-peer failure triggers early promotion, the transaction enters fluff phase and MUST be broadcast to all connected peers using the normal <x1/> + <x2/> + <x3/> mechanism.": "Después del tiempo de espera de 30 segundos de la fase stem, o cuando una falla del par stem provoca una promoción anticipada, la transacción entra en la fase fluff y DEBE (MUST) difundirse a todos los pares conectados mediante el mecanismo normal de <x1/> + <x2/> + <x3/>.",
+  "<x1/>Rationale": "<x1/>Justificación",
+  "<x1/>Why per-epoch rather than per-transaction stem peer selection?": "<x1/>¿Por qué selección de par stem por época en lugar de por transacción?",
+  "The Dandelion++ paper recommends per-transaction selection for maximum anonymity. However, per-epoch selection has an important advantage: an adversary who controls multiple peers cannot learn which peer consistently forwards a given sender's transactions by comparing which peer they saw first for each transaction. With per-epoch selection, an adversary learns only one stem identity per 10-minute window. The privacy trade-off is well-documented in <g1><g2>2</g2></g1>.": "El artículo de Dandelion++ recomienda la selección por transacción para un anonimato máximo. Sin embargo, la selección por época tiene una ventaja importante: un adversario que controla varios pares no puede determinar qué par reenvía de manera consistente las transacciones de un remitente dado comparando qué par las vio primero para cada transacción. Con la selección por época, un adversario aprende solo una identidad stem por ventana de 10 minutos. Esta compensación de privacidad está bien documentada en <g1><g2>2</g2></g1>.",
+  "<x1/>Why 30 seconds for the stem timeout?": "<x1/>¿Por qué 30 segundos para el tiempo de espera de la fase stem?",
+  "The Dandelion++ paper recommends a stem timeout in the range 30–60 seconds. The lower bound is used here to minimize transaction propagation delay under normal conditions. If a transaction is rejected by the stem peer (e.g. due to policy), the 30-second timeout ensures it is not silently dropped.": "El artículo de Dandelion++ recomienda un tiempo de espera de la fase stem en el rango de 30 a 60 segundos. Aquí se usa el límite inferior para minimizar el retraso de propagación de transacciones en condiciones normales. Si una transacción es rechazada por el par stem (p. ej., por política), el tiempo de espera de 30 segundos garantiza que no se descarte silenciosamente.",
+  "<x1/>Why not a new P2P message type?": "<x1/>¿Por qué no un nuevo tipo de mensaje P2P?",
+  "Defining a new P2P message type would require a network upgrade and coordination across all Zcash full node implementations. Using the existing <x1/> message for stem forwarding achieves the same routing behavior with no protocol-level changes, allowing incremental deployment. Nodes that do not implement this ZIP process the <x2/> normally and flood-broadcast the transaction, which is the safe fallback.": "Definir un nuevo tipo de mensaje P2P requeriría una actualización de red y coordinación entre todas las implementaciones de nodos completos de Zcash. Usar el mensaje <x1/> existente para el reenvío stem logra el mismo comportamiento de enrutamiento sin cambios a nivel de protocolo, lo que permite un despliegue incremental. Los nodos que no implementan este ZIP procesan el <x2/> con normalidad y difunden la transacción por inundación, lo cual es la alternativa segura.",
+  "<x1/>Reference Implementation": "<x1/>Implementación de referencia",
+  "<x1/>Component B — Full-node Dandelion++ relay (Zebra)": "<x1/>Componente B — Retransmisión Dandelion++ en nodo completo (Zebra)",
+  "Reference implementation proposed upstream: <g1>zcashfoundation/zebra#10928</g1>.": "Implementación de referencia propuesta en el repositorio original: <g1>zcashfoundation/zebra#10928</g1>.",
+  "Verified end-to-end on a 3-node regtest network (2026-07-09). See <x1/> in that PR for the complete test procedure, build flags, and result evidence (txid accepted, 30 s stem-retention confirmed, adversary observer saw no <x2/> during the stem window).": "Verificada de extremo a extremo en una red regtest de 3 nodos (2026-07-09). Véase <x1/> en ese PR para el procedimiento de prueba completo, las banderas de compilación y la evidencia de resultados (txid aceptado, retención stem de 30 s confirmada, un observador adversario no vio ningún <x2/> durante la ventana stem).",
+  "Implemented:": "Implementado:",
+  "Epoch management with 10 min base + up to 2 min jitter (<x1/>)": "Gestión de épocas con 10 min de base + hasta 2 min de jitter (<x1/>)",
+  "Per-transaction propagation state, 30 s stem timeout, <x1/> (<x2/>)": "Estado de propagación por transacción, tiempo de espera stem de 30 s, <x1/> (<x2/>)",
+  "Fail-closed stem unicast via <x1/> with <x2/> (<x3/>)": "Unidifusión stem en modo de falla cerrada mediante <x1/> con <x2/> (<x3/>)",
+  "Gossip task wired into <x1/> startup; <x2/> routes locally-submitted txs through stem; peer-relayed <x3/> goes directly to fluff (<x4/>, <x5/>)": "Tarea de gossip integrada en el inicio de <x1/>; <x2/> enruta las transacciones enviadas localmente a través de stem; el <x3/> retransmitido por pares va directamente a fluff (<x4/>, <x5/>)",
+  "Phase 4 — stem-phase hiding from all exposure surfaces:": "Fase 4 — ocultamiento de la fase stem en todas las superficies de exposición:",
+  "<x1/> P2P response (inbound handler)": "Respuesta P2P <x1/> (manejador de entrantes)",
+  "<x1/> P2P getdata handler (adversary cannot fetch full tx during stem)": "Manejador P2P getdata <x1/> (un adversario no puede obtener la transacción completa durante la fase stem)",
+  "<x1/> RPC (verbose and non-verbose)": "RPC <x1/> (verboso y no verboso)",
+  "<x1/> RPC": "RPC <x1/>",
+  "Zebra indexer gRPC <x1/> stream (suppresses <x2/> events; Zaino/lightwalletd only sees the tx once it enters fluff)": "Flujo gRPC <x1/> del indexador de Zebra (suprime los eventos de <x2/>; Zaino/lightwalletd solo ve la transacción cuando entra en la fase fluff)",
+  "10 unit tests (epoch, propagation state, Phase 4 filter) + 2 routing tests": "10 pruebas unitarias (época, estado de propagación, filtro de Fase 4) + 2 pruebas de enrutamiento",
+  "Remaining (optional / future coordination): unadvertised-<x1/> wire convention (requires other implementations to recognize the signal).": "Restante (opcional / coordinación futura): convención de cable unadvertised-<x1/> (requiere que otras implementaciones reconozcan la señal).",
+  "<x1/>Component A — Wallet direct P2P submission": "<x1/>Componente A — Envío directo P2P desde la billetera",
+  "Proposed upstream to the Zcash wallet SDKs:": "Propuesto upstream a los SDK de billetera de Zcash:",
+  "<g1>Android</g1>: <g2>zcash/zcash-android-wallet-sdk#2010</g2>": "<g1>Android</g1>: <g2>zcash/zcash-android-wallet-sdk#2010</g2>",
+  "<g1>iOS (Swift)</g1>: <g2>zcash/zcash-swift-wallet-sdk#1804</g2>": "<g1>iOS (Swift)</g1>: <g2>zcash/zcash-swift-wallet-sdk#1804</g2>",
+  "Both SDKs add a <x1/> opt-in (<x2/> / <x3/>) that:": "Ambos SDK agregan una opción de activación <x1/> (<x2/> / <x3/>) que:",
+  "Resolves peers via the Zcash mainnet DNS seeders (same set as Zebra defaults).": "Resuelve pares mediante los sembradores DNS del mainnet de Zcash (el mismo conjunto que los valores predeterminados de Zebra).",
+  "Opens a TCP connection directly to a full node.": "Abre una conexión TCP directamente a un nodo completo.",
+  "Performs the Zcash P2P version/verack handshake.": "Realiza el intercambio version/verack del protocolo P2P de Zcash.",
+  "Sends the raw <x1/> message <g2>without a prior <x3/></g2> (the unadvertised-tx convention described in §Stem-phase forwarding above).": "Envía el mensaje <x1/> en bruto <g2>sin un <x3/> previo</g2> (la convención de transacción no anunciada descrita en §Reenvío en fase stem más arriba).",
+  "Disconnects.": "Se desconecta.",
+  "Chain synchronisation always uses the lightwalletd endpoint regardless of this setting. A fallback to lwd submission is available when all P2P peers are unreachable.": "La sincronización de la cadena siempre usa el punto de conexión de lightwalletd, independientemente de este ajuste. Hay una alternativa de envío por lwd disponible cuando no se puede acceder a ningún par P2P.",
+  "The wallet-side specification (peer discovery, tx message format, error handling) is in the companion draft (PR <g1>#1380</g1>). <g2><g3>3</g3></g2>": "La especificación del lado de la billetera (descubrimiento de pares, formato del mensaje tx, manejo de errores) está en el borrador complementario (PR <g1>#1380</g1>). <g2><g3>3</g3></g2>",
+  "<x1/>Changelog": "<x1/>Registro de cambios",
+  "2026-07-09: Initial draft. Component B reference implementation complete (Zebra).": "2026-07-09: Borrador inicial. Implementación de referencia del Componente B completa (Zebra).",
+  "2026-07-09: Component A reference implementations added (Android + iOS SDKs). Updated Reference Implementation section to list all PRs.": "2026-07-09: Implementaciones de referencia del Componente A agregadas (SDK de Android + iOS). Se actualizó la sección Implementación de referencia para listar todos los PR.",
+  "2026-07-09: Reference implementations proposed upstream — Zebra Component B to <x1/>, and Component A to <x2/> and <x3/>.": "2026-07-09: Implementaciones de referencia propuestas upstream — Componente B de Zebra a <x1/>, y Componente A a <x2/> y <x3/>.",
+  "<x1/>References": "<x1/>Referencias",
+  "<x1/>Footnotes": "<x1/>Notas al pie",
+  "<g1>Key words for use in RFCs to Indicate Requirement Levels</g1> <g2>↩</g2>": "<g1>Key words for use in RFCs to Indicate Requirement Levels</g1> <g2>↩</g2>",
+  "Venkatakrishnan, S.B., Fanti, G., Viswanath, P. \"Dandelion++: Lightweight Cryptocurrency Networking with Formal Anonymity Guarantees.\" ACM SIGMETRICS 2018. <g1>https://arxiv.org/abs/1805.11060</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5>": "Venkatakrishnan, S.B., Fanti, G., Viswanath, P. \"Dandelion++: Lightweight Cryptocurrency Networking with Formal Anonymity Guarantees.\" ACM SIGMETRICS 2018. <g1>https://arxiv.org/abs/1805.11060</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5>",
+  "draft-zodl-dandelion-wallet: Direct Wallet Transaction Submission via Dandelion++ P2P Relay. PR: <g1>https://github.com/zcash/zips/pull/1380</g1> (In preparation — see zcash/zips#1380.) <g2>↩</g2> <g3>↩<g4>2</g4></g3>": "draft-zodl-dandelion-wallet: Direct Wallet Transaction Submission via Dandelion++ P2P Relay. PR: <g1>https://github.com/zcash/zips/pull/1380</g1> (En preparación — véase zcash/zips#1380.) <g2>↩</g2> <g3>↩<g4>2</g4></g3>"
+ },
+ "reviews": {
+  "Dandelion++ Transaction Propagation for Zcash P2P Nodes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Terminology": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The key words \"MUST\", \"MUST NOT\", \"SHOULD\", \"SHOULD NOT\", \"MAY\", and \"RECOMMENDED\" in this document are to be interpreted as described in BCP 14 <g1><g2>1</g2></g1> when, and only when, they appear in all capitals.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Stem phase:</g1> The unicast relay phase of the Dandelion++ protocol <g2><g3>2</g3></g2> in which a transaction is forwarded to a single randomly-selected peer per epoch before entering the fluff phase.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Fluff phase:</g1> The standard flood-broadcast phase of transaction propagation that follows the stem phase.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Stem peer:</g1> The single P2P peer to which a Dandelion++ node relays stem-phase transactions during a given epoch.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>IP-to-transaction correlation:</g1> The ability of a network observer to determine which IP address originated a given transaction by observing when and where the transaction first appeared on the P2P network.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Abstract": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP specifies how Zcash full nodes SHOULD implement Dandelion++ <g1><g2>2</g2></g1> transaction propagation. In Dandelion++, a newly-received transaction first travels through a randomly-selected \"stem\" of peers (unicast per epoch) before entering a standard flood broadcast (\"fluff\" phase). This makes it significantly harder for network observers to determine which node originated a transaction, reducing IP-to-transaction correlation.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "This ZIP covers only the <g1>full-node P2P relay behavior</g1> (sometimes called \"Component B\"). A companion mechanism for wallets to submit transactions directly to a node via P2P rather than through a compact-block server is described in draft-zodl-dandelion-wallet (PR <g2>#1380</g2>). <g3><g4>3</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Motivation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Currently, Zcash transactions are immediately flood-broadcast to all connected peers the moment they enter a node's mempool. A passive network adversary can observe the timing of transaction appearances at many vantage points to identify the originating node with high confidence, even for shielded transactions whose content is cryptographically protected.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Dandelion++ addresses this by introducing an intermediate \"stem\" phase during which the transaction is relayed to only one peer. The originating node is hidden in the anonymity set of all nodes along the stem path.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Requirements": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Each Dandelion++ node MUST maintain an <g1>epoch</g1> with a randomly-chosen duration in the range [600, 720] seconds (10 minutes ± 120 second jitter).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "At the start of each epoch, the node MUST select a single <g1>stem peer</g1> uniformly at random from its currently-connected outbound peers. If no outbound peers are available, the node operates in fluff mode for that epoch.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "For each transaction received locally (via RPC, direct P2P submission, or relayed from a peer), the node MUST:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a. Enter the transaction into <g1>stem phase</g1>: route it exclusively to the stem peer using a unicast P2P message. b. Record the stem-phase start time. If the transaction has not entered fluff within <g2>30 seconds</g2>, the node MUST promote it to fluff phase. c. If the stem peer disconnects or becomes unavailable before the transaction is acknowledged, the node MUST immediately promote the transaction to fluff phase rather than silently dropping it.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "During stem phase, the node MUST NOT advertise the transaction to any other peer. Specifically:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "a. The transaction MUST NOT be included in responses to <x1/> P2P requests from remote peers. b. The transaction MUST NOT be returned by any RPC that exposes mempool contents (e.g. <x2/>, <x3/> with <x4/> on unconfirmed transactions) until it enters fluff phase.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Once the transaction enters fluff phase, it MUST be broadcast normally using the existing <x1/>/<x2/> flood mechanism.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Specification": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Epoch management": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "A new <g1>epoch</g1> begins immediately when the node starts and whenever the previous epoch expires. The epoch duration is:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "where <x1/> = 600 s and <x2/> = 120 s.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The stem peer for an epoch is selected uniformly at random from the addresses of currently-connected outbound peers at the moment the epoch begins. If no outbound peers are connected, the stem peer is <x1/> and the node operates in <g2>fluff mode</g2> for the entire epoch (all transactions are immediately flood-broadcast).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Stem-phase forwarding": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "When a node enters a new transaction into stem phase, it SHOULD send the transaction identifier to the stem peer using the standard <x1/> P2P message with type <x2/>. The stem peer is expected to request the full transaction via <x3/> and continue the stem relay using its own stem peer for the current epoch.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Note:</g1> The Dandelion++ paper defines a separate \"unadvertised <x2/>\" convention (sending the raw <x3/> message to the stem peer without a prior <x4/>) as a signal that the transaction should be treated as stem-phase by the recipient. This convention is OPTIONAL under this ZIP. Nodes that do not implement it MUST fall back gracefully to standard <x5/> forwarding, which provides the same privacy property at the forwarding node. A future ZIP MAY standardize the unadvertised-<x6/> convention once implementations converge.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Stem-phase mempool filtering": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Implementations MUST ensure that stem-phase transactions are not observable by remote peers before entering fluff. This applies to:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Responses to <x1/> P2P requests — the node MUST filter stem-phase transaction IDs from the list returned to any remote peer.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Transaction-related RPCs — the node SHOULD suppress stem-phase transactions from any RPC that returns mempool contents. Implementations MAY defer this to a subsequent release.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Fail-closed routing": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "If the stem peer is not reachable at the time a stem-phase transaction should be forwarded (e.g. the peer has been evicted from the ready set), the node MUST promote the transaction to fluff immediately. The node MUST NOT silently discard the transaction, and MUST NOT fall back to routing to a different peer without updating the propagation state (which would result in the transaction being advertised to a non-stem peer during what the node still records as stem phase).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Fluff phase": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "After the 30-second stem timeout, or when a stem-peer failure triggers early promotion, the transaction enters fluff phase and MUST be broadcast to all connected peers using the normal <x1/> + <x2/> + <x3/> mechanism.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Rationale": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why per-epoch rather than per-transaction stem peer selection?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The Dandelion++ paper recommends per-transaction selection for maximum anonymity. However, per-epoch selection has an important advantage: an adversary who controls multiple peers cannot learn which peer consistently forwards a given sender's transactions by comparing which peer they saw first for each transaction. With per-epoch selection, an adversary learns only one stem identity per 10-minute window. The privacy trade-off is well-documented in <g1><g2>2</g2></g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why 30 seconds for the stem timeout?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The Dandelion++ paper recommends a stem timeout in the range 30–60 seconds. The lower bound is used here to minimize transaction propagation delay under normal conditions. If a transaction is rejected by the stem peer (e.g. due to policy), the 30-second timeout ensures it is not silently dropped.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Why not a new P2P message type?": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Defining a new P2P message type would require a network upgrade and coordination across all Zcash full node implementations. Using the existing <x1/> message for stem forwarding achieves the same routing behavior with no protocol-level changes, allowing incremental deployment. Nodes that do not implement this ZIP process the <x2/> normally and flood-broadcast the transaction, which is the safe fallback.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Reference Implementation": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Component B — Full-node Dandelion++ relay (Zebra)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Reference implementation proposed upstream: <g1>zcashfoundation/zebra#10928</g1>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Verified end-to-end on a 3-node regtest network (2026-07-09). See <x1/> in that PR for the complete test procedure, build flags, and result evidence (txid accepted, 30 s stem-retention confirmed, adversary observer saw no <x2/> during the stem window).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Implemented:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Epoch management with 10 min base + up to 2 min jitter (<x1/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Per-transaction propagation state, 30 s stem timeout, <x1/> (<x2/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Fail-closed stem unicast via <x1/> with <x2/> (<x3/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Gossip task wired into <x1/> startup; <x2/> routes locally-submitted txs through stem; peer-relayed <x3/> goes directly to fluff (<x4/>, <x5/>)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Phase 4 — stem-phase hiding from all exposure surfaces:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> P2P response (inbound handler)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> P2P getdata handler (adversary cannot fetch full tx during stem)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> RPC (verbose and non-verbose)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/> RPC": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Zebra indexer gRPC <x1/> stream (suppresses <x2/> events; Zaino/lightwalletd only sees the tx once it enters fluff)": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "10 unit tests (epoch, propagation state, Phase 4 filter) + 2 routing tests": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Remaining (optional / future coordination): unadvertised-<x1/> wire convention (requires other implementations to recognize the signal).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Component A — Wallet direct P2P submission": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Proposed upstream to the Zcash wallet SDKs:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Android</g1>: <g2>zcash/zcash-android-wallet-sdk#2010</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>iOS (Swift)</g1>: <g2>zcash/zcash-swift-wallet-sdk#1804</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Both SDKs add a <x1/> opt-in (<x2/> / <x3/>) that:": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Resolves peers via the Zcash mainnet DNS seeders (same set as Zebra defaults).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Opens a TCP connection directly to a full node.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Performs the Zcash P2P version/verack handshake.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Sends the raw <x1/> message <g2>without a prior <x3/></g2> (the unadvertised-tx convention described in §Stem-phase forwarding above).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Disconnects.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Chain synchronisation always uses the lightwalletd endpoint regardless of this setting. A fallback to lwd submission is available when all P2P peers are unreachable.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "The wallet-side specification (peer discovery, tx message format, error handling) is in the companion draft (PR <g1>#1380</g1>). <g2><g3>3</g3></g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Changelog": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "2026-07-09: Initial draft. Component B reference implementation complete (Zebra).": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "2026-07-09: Component A reference implementations added (Android + iOS SDKs). Updated Reference Implementation section to list all PRs.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "2026-07-09: Reference implementations proposed upstream — Zebra Component B to <x1/>, and Component A to <x2/> and <x3/>.": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>References": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<x1/>Footnotes": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "<g1>Key words for use in RFCs to Indicate Requirement Levels</g1> <g2>↩</g2>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "Venkatakrishnan, S.B., Fanti, G., Viswanath, P. \"Dandelion++: Lightweight Cryptocurrency Networking with Formal Anonymity Guarantees.\" ACM SIGMETRICS 2018. <g1>https://arxiv.org/abs/1805.11060</g1> <g2>↩</g2> <g3>↩<g4>2</g4></g3> <g5>↩<g6>3</g6></g5>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  },
+  "draft-zodl-dandelion-wallet: Direct Wallet Transaction Submission via Dandelion++ P2P Relay. PR: <g1>https://github.com/zcash/zips/pull/1380</g1> (In preparation — see zcash/zips#1380.) <g2>↩</g2> <g3>↩<g4>2</g4></g3>": {
+   "passed": true,
+   "rounds": 1,
+   "issues": [],
+   "model": "glm-5.3-flash"
+  }
+ }
+}

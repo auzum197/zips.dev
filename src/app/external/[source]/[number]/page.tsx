@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { ogMetadata } from "@/lib/og";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import Link from "@/i18n/link";
 import { notFound } from "next/navigation";
 import { diffToHtml } from "@/lib/diff";
 import { dateSlice } from "@/lib/date";
-import { getExternalPr, getExternalPrsForSource, getExternalSource, getExternalSources, prPreviews, } from "@/lib/data";
+import { getExternalPr, getExternalPrsForSource, getExternalSource, getExternalSources, localPreviewTitle, prPreviews, } from "@/lib/data";
 import { type PrMeta, type PrPreview } from "@/lib/types";
 import StatusBadge from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,7 @@ function PreviewRow({ pr, pv }: {
     pv: PrPreview;
 }) {
     const tc = useTranslations("Common");
+    const locale = useLocale();
     const file = pr.files.find((f) => f.filename === pv.filename);
     const isZip = /^zip-/.test(pv.slug);
     return (<li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle py-2.5">
@@ -53,7 +54,7 @@ function PreviewRow({ pr, pv }: {
         {isZip ? `ZIP ${Number(pv.slug.slice(4))}` : pv.slug}
       </span>
       <Link href={`/external/${pr.source}/${pr.number}/${pv.slug}/`} title={tc("preview")} className="min-w-0 flex-1 basis-64 leading-snug transition-colors hover:text-accent">
-        {pv.title}
+        {localPreviewTitle(pr, pv, locale)}
       </Link>
       <StatusBadge status={pv.status}/>
       <span className="shrink-0 font-mono text-xs text-faint uppercase">

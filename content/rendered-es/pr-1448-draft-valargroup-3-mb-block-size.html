@@ -1,0 +1,176 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)" y "DEBERÍA (SHOULD)" de este documento deben interpretarse como se describe en BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos "block chain", "rama de consenso" y "actualización de red" siguen el ZIP 200. <sup><a href="#user-content-fn-zip-0200" id="user-content-fnref-zip-0200" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> Las codificaciones de bloque y de transacción siguen la Zcash Protocol Specification (Especificación del Protocolo Zcash). <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>MB significa 1.000.000 de bytes. El límite de tamaño de bloque existente es 2 MB; esta propuesta lo aumenta a 3 MB.</p>
+<p>"Tasa de huérfanos" significa bloques huérfanos observados distintos divididos por la suma de bloques canónicos y bloques huérfanos observados. Aquí, un bloque huérfano es un bloque fuera de la cadena finalmente acordada. El experimento que se describe más abajo cuenta un bloque solo si al menos un nodo registró un commit exitoso. No cuenta cada bloque resuelto que un minero descartó antes de enviarlo.</p>
+<p>"Alcanzar 90%" significa el tiempo transcurrido desde el evento de solución lista del minero hasta la disponibilidad del bloque decodificado en 72 de los 80 nodos del experimento, incluido el nodo de origen en el tiempo cero.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta aumenta el límite de tamaño de bloque de 2.000.000 a 3.000.000 de bytes (3 MB) en una actualización de red posterior a NU7. Conserva los límites de acciones blindadas y el presupuesto blindado compartido del ZIP 218. <sup><a href="#user-content-fn-zip-0218" id="user-content-fnref-zip-0218" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> También conserva el tope de 2.000.000 de bytes por transacción actualmente aplicado por consenso y el límite de operaciones de firma existente.</p>
+<p>El espacio adicional aumenta principalmente la capacidad para transacciones transparentes. Prepara el presupuesto de bytes del bloque para un rendimiento blindado futuro sin elevar la carga de escaneo blindado actual mediante un aumento del límite de acciones. Una propuesta futura para aumentar los límites de acciones blindadas dependería de la adopción y la validación operativa de la recuperación de información privada (PIR), con costos medidos de ancho de banda y privacidad de la billetera.</p>
+<p>La propuesta también cambia la negociación del tamaño de los mensajes de bloque para que los pares actualizados puedan retransmitir bloques válidos de 3 MB. Deja el espaciado objetivo de bloques para propuestas separadas. Los bloques más grandes aumentan el ancho de banda, el almacenamiento y el posible trabajo de validación de los nodos completos.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>El ZIP 218 separa el presupuesto de bytes del bloque del presupuesto de acciones blindadas. El presupuesto de bytes limita los datos serializados; el presupuesto de acciones limita el trabajo blindado y el ancho de banda de sincronización compacta. Sus límites de acciones no se aplican a los componentes transparentes de las transacciones. <sup><a href="#user-content-fn-zip-0218" id="user-content-fnref-zip-0218-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>Con el próximo pool blindado Tachyon, se pretende que las billeteras usen flujos más escalables, como la comunicación fuera de banda y PIR, para descubrir transacciones entrantes. Dado eso, los limitantes del rendimiento de Zcash serán los servicios fuera de cadena y el rendimiento del propio consenso. Aumentar el rendimiento del consenso exige aumentar el tamaño de bloque, reducir el tiempo promedio de bloque, o ambos. Bajo prueba de trabajo de cadena única, es difícil reducir demasiado los tiempos de bloque debido a su alta varianza; por lo tanto, es crítico asumir la compensación de tamaños de bloque mayores.</p>
+<p>Aumentar ahora el presupuesto de bytes permite más transacciones transparentes cuando los bytes son la restricción vinculante. Aumentar el rendimiento transparente es un beneficio intermedio, no el objetivo de escalado a largo plazo de Zcash. Desplegar y medir bloques más grandes también prepara la red para un rendimiento blindado futuro, una vez que las billeteras puedan manejarlo de forma privada y eficiente.</p>
+<p>Esta propuesta separa esas decisiones. Aumenta el espacio de bloque conservando todos los límites de acciones blindadas. La adopción de PIR no activa automáticamente límites más altos; cualquier cambio requiere una propuesta de consenso separada.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ul>
+<li>Aumentar el tamaño máximo serializado del bloque a exactamente 3 MB.</li>
+<li>Conservar la validez histórica y todos los límites de acciones blindadas existentes.</li>
+<li>Conservar los límites de tamaño de transacción, de operaciones de firma y de script.</li>
+<li>Dar soporte a bloques de tamaño completo en la retransmisión, la sincronización y la minería.</li>
+<li>Acotar el uso de recursos antes de aceptar cuerpos de bloque que no son de confianza.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="activation-and-block-size"><a class="hanchor" href="#activation-and-block-size" aria-hidden="true" tabindex="-1">#</a>Activación y tamaño de bloque</h2>
+<p>Definir las siguientes constantes:</p>
+<p><math><mrow><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mi>.</mi></mrow></math></p>
+<p><math><mrow><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>3</mn><mo>×</mo><msup><mn>10</mn><mn>6</mn></msup><mo>=</mo><mn>3,000,000.</mn></mrow></math></p>
+<p>Un ZIP de despliegue asignará <math><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></math> para cada red. DEBE (MUST) ser mayor que la altura de activación de NU7 de esa red. Sea <math><mrow><mi>A</mi><mo>=</mo><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖠</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗏</mi><mi>𝖺</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖧</mi><mi>𝖾</mi><mi>𝗂</mi><mi>𝗀</mi><mi>𝗁</mi><mi>𝗍</mi></mrow></mrow></math>. Para la altura de bloque <math><mrow><mi>h</mi><mo>∈</mo><mi>ℕ</mi></mrow></math>, definir:</p>
+<p><math><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>h</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mrow><mo fence="true" form="prefix" stretchy="true">{</mo><mtable><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mn>2,000,000</mn></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mi>h</mi><mo>&#x3C;</mo><mi>A</mi><mo separator="true">,</mo></mrow></mtd></mtr><mtr><mtd class="tml-left" style="padding-left:0em;padding-right:0em;"><mn>3,000,000</mn></mtd><mtd class="tml-left" style="padding-left:1em;padding-right:0em;"><mrow><mi>h</mi><mo>≥</mo><mi>A</mi><mi>.</mi></mrow></mtd></mtr></mtable><mo fence="true" form="postfix" stretchy="true"></mo></mrow></mrow></math></p>
+<p>Reemplazar el límite fijo de tamaño de bloque de § 7.6 'Block Header Encoding and Consensus' por el requisito de que un bloque a la altura <math><mi>h</mi></math> DEBE (MUST) tener un tamaño codificado de a lo más <math><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>h</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>. <sup><a href="#user-content-fn-protocol-blockheader" id="user-content-fnref-protocol-blockheader" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup></p>
+<p>En la misma sección, calificar la comparación con el límite de tamaño de bloque de Bitcoin: el límite de 2,000,000 bytes de Zcash aplica por debajo de <math><mi>A</mi></math>; el límite de 3,000,000 bytes aplica en <math><mi>A</mi></math> o por encima.</p>
+<p>En la especificación del ZIP 218, reemplazar la afirmación de que el límite general de tamaño de bloque de 2 MB continúa aplicando por una referencia a <math><mrow><mrow><mi>𝖡</mi><mi>𝗅</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗄</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>h</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math> después de que esta propuesta se active. Los límites de acciones blindadas del ZIP 218 permanecen sin cambios. <sup><a href="#user-content-fn-zip-0218" id="user-content-fnref-zip-0218-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>El tamaño codificado incluye el encabezado del bloque, su solución Equihash, el recuento codificado de transacciones y cada transacción, incluida la coinbase. Excluye el encabezado de mensaje P2P de 24 bytes y los envoltorios de almacenamiento o RPC. Ningún campo recibe un descuento de tamaño.</p>
+<p>Los validadores DEBEN (MUST) seleccionar el límite usando la altura del bloque candidato en su cadena padre. La altura de la punta local y la altura anunciada por el par NO DEBEN (MUST NOT) determinar la validez de consenso. Los validadores DEBEN (MUST) conservar el límite antiguo por debajo de <math><mi>A</mi></math>, incluidas la sincronización inicial, la validación de cadenas laterales y las reorganizaciones a través de la activación.</p>
+<h2 id="transaction-and-computational-limits"><a class="hanchor" href="#transaction-and-computational-limits" aria-hidden="true" tabindex="-1">#</a>Límites de transacción y computacionales</h2>
+<p>Definir <math><mrow><mrow><mi>𝖳</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi><mo lspace="0.2222em" rspace="0em">:</mo><mo lspace="0em">=</mo><mn>2,000,000</mn></mrow></math> bytes. Para todo bloque en <math><mi>A</mi></math> o por encima, cada transacción, incluida la coinbase, DEBE (MUST) tener un tamaño codificado de a lo más <math><mrow><mi>𝖳</mi><mi>𝗋</mi><mi>𝖺</mi><mi>𝗇</mi><mi>𝗌</mi><mi>𝖺</mi><mi>𝖼</mi><mi>𝗍</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi><mi>𝖲</mi><mi>𝗂</mi><mi>𝗓</mi><mi>𝖾</mi><mi>𝖫</mi><mi>𝗂</mi><mi>𝗆</mi><mi>𝗂</mi><mi>𝗍</mi></mrow></math>. Las reglas de transacción previas a la activación permanecen sin cambios.</p>
+<p>El límite de transacción permanece independiente del límite de bloque. El espacio adicional admite más transacciones. zcashd ya aplica un límite explícito de 2,000,000 bytes por transacción. La especificación del protocolo establece un límite de 100,000 bytes antes de Sapling; después de Sapling, la envolvente de bloque también limita el tamaño de cualquier transacción incluida. Esta propuesta hace explícito el límite independiente de 2,000,000 bytes por transacción después de la activación, de modo que aumentar la envolvente de bloque no admite transacciones individuales más grandes. <sup><a href="#user-content-fn-zcashd-limits" id="user-content-fnref-zcashd-limits" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<p>El límite de operaciones de firma por bloque permanece en 20,000, usando las reglas de conteo existentes, incluidas las operaciones de firma P2SH. Los límites de script existentes y las cotas del formato de transacción permanecen sin cambios. <sup><a href="#user-content-fn-zcashd-limits" id="user-content-fnref-zcashd-limits-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup></p>
+<p>Esta propuesta no cambia el espaciado objetivo de bloque, pero las pruebas de rendimiento para la seguridad se hacen con un espaciado objetivo de 20 segundos en mente.</p>
+<h2 id="block-relay-and-message-framing"><a class="hanchor" href="#block-relay-and-message-framing" aria-hidden="true" tabindex="-1">#</a>Retransmisión de bloques y enmarcado de mensajes</h2>
+<p>El ZIP 204 actualmente limita cada carga útil de mensaje a 2,097,152 bytes. Ese límite no puede transportar un bloque válido de 3 MB. Modificar sus reglas de 'Maximum Message Size' de la siguiente manera. <sup><a href="#user-content-fn-zip-0204" id="user-content-fnref-zip-0204" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup></p>
+<p>Definir <math><mrow><mrow><mi>𝖳</mi><mi>𝗁</mi><mi>𝗋</mi><mi>𝖾</mi><mi>𝖾</mi><mi>𝖬</mi><mi>𝖡</mi><mi>𝖯</mi><mi>𝗋</mi><mi>𝗈</mi><mi>𝗍</mi><mi>𝗈</mi><mi>𝖼</mi><mi>𝗈</mi><mi>𝗅</mi><mi>𝖵</mi><mi>𝖾</mi><mi>𝗋</mi><mi>𝗌</mi><mi>𝗂</mi><mi>𝗈</mi><mi>𝗇</mi></mrow><mo lspace="0.2222em" rspace="0.2222em">:</mo><mi>ℕ</mi></mrow></math>, que será asignado por el ZIP de despliegue. Para una conexión cuya versión de protocolo negociada es al menos este valor, la carga útil máxima del mensaje <code>block</code> es de 3,000,000 bytes. Para versiones negociadas más antiguas, conservar el máximo de 2,097,152 bytes. Los demás comandos conservan sus límites existentes de carga útil y de recuento de elementos.</p>
+<p>Los nodos DEBEN (MUST) rechazar una longitud de carga útil declarada superior al máximo aplicable antes de asignar un búfer para esa carga útil. Un decodificador DEBE (MUST) consumir exactamente un bloque de una carga útil <code>block</code> y rechazar datos sobrantes, campos truncados y codificaciones inválidas. Las verificaciones de checksum existentes permanecen vigentes.</p>
+<p>Los nodos actualizados DEBEN (MUST) admitir la carga útil <code>block</code> más grande en conexiones actualizadas incluso cuando su punta local está por debajo de <math><mi>A</mi></math>. Estos siguen aplicando la cota de consenso dependiente de la altura al validar el bloque. Esto permite la sincronización inicial y la entrega fuera de orden a través de la activación sin aceptar bloques de tamaño excesivo previos a la activación.</p>
+<p>Los emisores NO DEBEN (MUST NOT) enviar una carga útil superior al máximo negociado de la conexión con el par. El despliegue DEBE (MUST) actualizar las versiones mínimas de los pares y aplicar las reglas de gestión de actualización de pares del ZIP 201, de modo que los nodos actualizados puedan conservar pares compatibles en la activación. <sup><a href="#user-content-fn-zip-0201" id="user-content-fnref-zip-0201" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup></p>
+<h2 id="mining-and-node-interfaces"><a class="hanchor" href="#mining-and-node-interfaces" aria-hidden="true" tabindex="-1">#</a>Interfaces de minado y de nodos</h2>
+<p><code>getblocktemplate</code> DEBE (MUST) reportar <code>sizelimit</code> para la altura candidata, normalmente una más que el padre seleccionado. La selección de plantillas DEBE (MUST) reservar espacio para el encabezado completo, el recuento de transacciones codificado y la transacción coinbase completada. Los mineros DEBEN (MUST) reevaluar el límite cuando un cambio de padre cruza la activación.</p>
+<p>Las interfaces de envío y de recuperación de bloques DEBEN (MUST) admitir todo bloque que de otra forma sea válido dentro del límite aplicable. Esto incluye la validación de propuestas, el envío por RPC, la recuperación histórica y la importación local de bloques.</p>
+<p>Los deserializadores DEBEN (MUST) distinguir el límite del sobre de bloque de los límites de transacción y de campo. Aumentar el límite de bloque NO DEBE (MUST NOT) aumentar implícitamente los límites de <code>tx</code>, de inventario, de direcciones o de mensajes de encabezado. Los nodos DEBERÍAN (SHOULD) acotar los bytes totales de bloques en cola y la memoria decodificada, en lugar de depender solo de un recuento de bloques o de conexiones.</p>
+<p>Esta propuesta no aumenta los valores predeterminados de memoria del mempool ni cambia el cálculo de comisiones del ZIP 317. El límite de costo del ZIP 401 permanece como una política de recursos del nodo, no como un derecho fijo a un número de bloques completos. <sup><a href="#user-content-fn-zip-0317" id="user-content-fnref-zip-0317" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> <sup><a href="#user-content-fn-zip-0401" id="user-content-fnref-zip-0401" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup></p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<h2 id="choice-of-block-size"><a class="hanchor" href="#choice-of-block-size" aria-hidden="true" tabindex="-1">#</a>Elección del tamaño de bloque</h2>
+<p>Los autores eligieron 3 MB porque, a ese tamaño, las implementaciones actuales de Zakura y de Zebra Andale mantienen las tasas de bloques huérfanos por debajo del promedio histórico de Ethereum del 5.4%. El experimento que sigue aporta evidencia preliminar de Zakura cerca de ese tamaño.</p>
+<h2 id="throughput-and-resource-costs"><a class="hanchor" href="#throughput-and-resource-costs" aria-hidden="true" tabindex="-1">#</a>Rendimiento y costos de recursos</h2>
+<p>El nuevo presupuesto de bytes es <math><mrow><mn>3,000,000</mn><mi>/</mi><mn>2,000,000</mn><mo>=</mo><mn>1.5</mn></mrow></math> veces el presupuesto antiguo, un aumento del 50%. El rendimiento de transacciones depende de la carga de trabajo. Las transacciones transparentes pueden usar el espacio adicional, pero las operaciones de firma, la ejecución de script y el acceso a UTXO pueden convertirse en restricciones determinantes. Las cargas de trabajo blindadas limitadas por acciones no reciben un aumento correspondiente en transacciones por bloque.</p>
+<p>Las siguientes cotas asumen que cada bloque canónico alcanza 3 MB y que los bloques llegan al espaciado objetivo indicado:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Espaciado objetivo</th><th>Tasa de carga útil de bloque en bruto</th><th>Datos de bloque en bruto por día</th><th>Capacidad relativa a 2 MB a 25 segundos</th></tr></thead><tbody><tr><td>25 segundos</td><td>120,000 bytes/segundo</td><td>10.368 GB</td><td>1.5×</td></tr><tr><td>20 segundos</td><td>150,000 bytes/segundo</td><td>12.96 GB</td><td>1.875×</td></tr></tbody></table>
+<p>Estas cifras excluyen la retransmisión repetida, los bloques huérfanos, la sobrecarga de transporte, los índices y el crecimiento del estado. Describen el tráfico de bloques llenos, no la sincronización compacta de billeteras ligeras. Los costos de disco y memoria pueden crecer de manera distinta a los bytes serializados, especialmente en el caso de bloques con muchas salidas transparentes pequeñas.</p>
+<p>Mantener el límite de 20,000 operaciones de firma acota las operaciones contabilizadas; no acota todo el trabajo de validación. Los bloques con predominio transparente requieren mediciones de la ejecución de scripts, de las lecturas y escrituras de UTXO, de la memoria y de la latencia de validación respecto de la punta de minería.</p>
+<h2 id="propagation-experiment"><a class="hanchor" href="#propagation-experiment" aria-hidden="true" tabindex="-1">#</a>Experimento de propagación</h2>
+<p>Un experimento en red privada de noviembre de 2026 utilizó 80 nodos Zakura en 12 regiones con un espaciamiento objetivo de 20 segundos. Los bloques llenaron el doble del límite normal de acciones blindadas del ZIP 218: 660 acciones Ironwood. Los bloques medidos ocuparon 3,026,379 bytes, aproximadamente 3 MB y levemente por encima del límite propuesto.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Medición</th><th>Media</th><th>Mediana</th><th>Percentil 95</th></tr></thead><tbody><tr><td>Propagación del bloque al 90% de los nodos</td><td>1.20 s</td><td>1.02 s</td><td>2.18 s</td></tr></tbody></table>
+<p>La tasa de bloques huérfanos observada fue del <strong>3.6%</strong>.</p>
+<p><strong>TODO:</strong> Reportar la propagación al 90% de los nodos utilizando una red mixta Zakura / Zebra Andale.</p>
+<h2 id="computation-and-io-benchmarks"><a class="hanchor" href="#computation-and-io-benchmarks" aria-hidden="true" tabindex="-1">#</a>Pruebas de referencia de cómputo y E/S</h2>
+<p>El aumento original del tamaño de bloque de Zcash motivó un análisis de los costos de verificación para distintas mezclas de entradas y salidas. <sup><a href="#user-content-fn-zcashd-worst-case" id="user-content-fnref-zcashd-worst-case" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup> Un límite fijo de operaciones de firma no captura todos los costos de validación.</p>
+<p>Antes del despliegue, se deben medir las siguientes cargas de trabajo en el límite propuesto:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Carga de trabajo</th><th>Costos a examinar</th></tr></thead><tbody><tr><td>Muchas transacciones transparentes pequeñas</td><td>Sobrecarga por transacción y búsquedas en el UTXO</td></tr><tr><td>Transacciones transparentes con muchas salidas</td><td>Crecimiento del UTXO y escrituras en la base de datos</td></tr><tr><td>Transacciones transparentes con muchas firmas</td><td>Verificación de firmas y ejecución de scripts</td></tr><tr><td>Transacciones mixtas transparentes y blindadas</td><td>Trabajo combinado de UTXO y verificación de pruebas bajo límites de acciones sin cambios</td></tr></tbody></table>
+<p>Para cada carga de trabajo, se debe informar el tiempo de validación hasta la punta de minería, las lecturas y escrituras del UTXO y la memoria máxima. Se debe registrar la versión del cliente, el hardware y las condiciones de la caché para que otros puedan reproducir los resultados.</p>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Desplegar mediante una actualización de red posterior a NU7. Un ZIP de despliegue asignará las alturas de activación, los identificadores de rama de consenso y la nueva versión del protocolo. Esta propuesta puede activarse junto con un cambio de espaciamiento especificado por separado, pero no requiere un objetivo de 20 segundos.</p>
+<p>Antes de avanzar al estado Propuesto, se deben publicar los insumos reproducibles de los experimentos y resolver las asignaciones de despliegue. Se deben validar los límites de bytes y de cómputo en clientes independientes. Se deben ejecutar cargas de trabajo emparejadas de 3 MB, transparentes y mixtas, en el espaciamiento seleccionado, incluyendo ancho de banda restringido, colas de propagación, bloques huérfanos, crecimiento del UTXO y adopción por la punta de minería.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Información sobre BCP 14</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0200">
+<p><a href="https://zips.z.cash/zip-0200">ZIP 200: Network Upgrade Mechanism</a> <a href="#user-content-fnref-zip-0200" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0218">
+<p><a href="https://zips.z.cash/zip-0218">ZIP 218: 25-second Block Target Spacing</a> <a href="#user-content-fnref-zip-0218" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0218-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0218-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-blockheader">
+<p><a href="/upstream/protocol/protocol.pdf#blockheader">Zcash Protocol Specification, § 7.6: Block Header Encoding and Consensus</a> <a href="#user-content-fnref-protocol-blockheader" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcashd-limits">
+<p><a href="https://github.com/zcash/zcash/blob/master/src/consensus/consensus.h">zcashd: consensus limits</a> <a href="#user-content-fnref-zcashd-limits" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zcashd-limits-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0204">
+<p><a href="https://zips.z.cash/zip-0204">ZIP 204: Zcash P2P Network Protocol</a> <a href="#user-content-fnref-zip-0204" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0201">
+<p><a href="https://zips.z.cash/zip-0201">ZIP 201: Network Peer Management for Overwinter</a> <a href="#user-content-fnref-zip-0201" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0317">
+<p><a href="https://zips.z.cash/zip-0317">ZIP 317: Proportional Transfer Fee Mechanism</a> <a href="#user-content-fnref-zip-0317" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0401">
+<p><a href="https://zips.z.cash/zip-0401">ZIP 401: Addressing Mempool Denial-of-Service</a> <a href="#user-content-fnref-zip-0401" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcashd-worst-case">
+<p><a href="https://github.com/zcash/zcash/issues/1077">zcashd issue #1077: Worst-case block verification costs</a> <a href="#user-content-fnref-zcashd-worst-case" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

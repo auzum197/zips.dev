@@ -1,0 +1,282 @@
+<p>ZIP: ??? Título: Protocolo de Atestación Estructurada para Eventos de Ciclo de Vida en la Capa de Aplicación (ZAP1) Propietarios: Frontier Compute <a href="mailto:ops@frontiercompute.io">ops@frontiercompute.io</a> Créditos: Zk-nd3r Estado: Borrador Categoría: Standards Track Creado: 2026-03-28 Licencia: MIT Discussions-To: <a href="https://github.com/zcash/zips/pull/1243">https://github.com/zcash/zips/pull/1243</a> Pull-Request: <a href="https://github.com/zcash/zips/pull/1243">https://github.com/zcash/zips/pull/1243</a></p>
+<h2 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h2>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "REQUERIDO (REQUIRED)", "DEBERÁ (SHALL)", "NO DEBERÁ (SHALL NOT)", "DEBERÍA (SHOULD)", "NO DEBERÍA (SHOULD NOT)", "RECOMENDADO (RECOMMENDED)", "NO RECOMENDADO (NOT RECOMMENDED)", "PUEDE (MAY)" y "OPCIONAL (OPTIONAL)" en este documento deben interpretarse según lo descrito en el BCP 14 cuando, y solo cuando, aparecen en mayúsculas, como se muestra aquí.</p>
+<h2 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h2>
+<p>Este ZIP especifica un formato de atestación de capa de aplicación para eventos de ciclo de vida comprometidos en transacciones blindadas de Zcash. Define el tipado de eventos, las reglas de construcción del hash BLAKE2b, la agregación en árbol Merkle y un procedimiento de verificación para compromisos en cadena que mantienen fuera de la cadena los datos que identifican a los participantes.</p>
+<p>Este borrador se basa en el protocolo de atestación <code>ZAP1</code> desplegado (anteriormente <code>NSM1</code>). En el despliegue de referencia, las cargas útiles de los eventos se procesan con hash BLAKE2b-256 usando la cadena de personalización <code>NordicShield_</code>, se insertan en un árbol Merkle de solo adición y se anclan periódicamente a Zcash mediante una transacción con byte de tipo <code>0x09</code>.</p>
+<h2 id="relationship-to-zip-302"><a class="hanchor" href="#relationship-to-zip-302" aria-hidden="true" tabindex="-1">#</a>Relación con el ZIP 302</h2>
+<p>Este ZIP define la semántica de atestación de la capa de aplicación. El formato portador se especifica por separado en el ZIP 302 <sup><a href="#user-content-fn-zip-0302" id="user-content-fnref-zip-0302" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> (Structured Memos, PR #638). Cuando el ZIP 302 se despliegue, las cargas útiles de atestación de ZAP1 DEBERÍAN (SHOULD) codificarse como un tipo de parte del ZIP 302. Hasta entonces, la disposición binaria que sigue sirve como codificación transitoria dentro del campo de memo blindado sin procesar de 512 bytes.</p>
+<p>Las partes de este ZIP que son independientes del contenedor son: el registro de tipos de evento, las reglas de construcción del hash, la agregación en árbol Merkle y el procedimiento de verificación.</p>
+<h2 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h2>
+<p>Los memos blindados de Zcash pueden transportar compromisos de aplicación estructurados, pero el ecosistema carece de una convención para eventos de ciclo de vida tipados que los verificadores externos puedan recalcular de forma independiente.</p>
+<p>Exponer el estado y las acciones de Zcash a agentes es sencillo. Un endpoint REST o GraphQL puede envolverse como un servidor MCP con una cantidad pequeña de código, y las implementaciones MCP de la capa de billetera pueden exponer saldos, flujos de firma, estado de sincronización y construcción de transacciones. Estas superficies comparten una propiedad: el consumidor debe confiar en la respuesta del servidor. Si el backend es incorrecto, está comprometido o deja de estar disponible, el agente no tiene un recibo independiente que pueda entregar a un tercero para su verificación.</p>
+<p>ZAP1 cierra esa brecha. No expone saldos ni mueve valor. Produce un recibo: un evento tipado comprometido en un árbol Merkle BLAKE2b, con la raíz anclada en datos de memo de Zcash, verificable a partir del esquema público, el material de prueba y el ancla de la cadena, sin confiar en el servidor del emisor.</p>
+<p>La distinción es categórica. Los servidores de herramientas responden "¿qué dice este backend ahora mismo?" ZAP1 responde "¿qué ocurrió, demostrable luego ante otro verificador?" El protocolo existe para el artefacto de prueba, no para la exposición de herramientas.</p>
+<p>Las aplicaciones que rastrean eventos de propiedad, despliegue, facturación, transferencia y salida necesitan:</p>
+<ul>
+<li>construcción determinista del hash</li>
+<li>tipado de eventos estable</li>
+<li>un formato de carga útil que pueda analizarse sin heurísticas específicas de la aplicación</li>
+<li>una manera de comprometer historiales de eventos grandes sin escribir registros completos en texto plano en la cadena</li>
+</ul>
+<p>Este ZIP estandariza las reglas de compromiso de eventos utilizadas por uno de esos despliegues, de modo que otros constructores puedan implementar herramientas, verificación y extensiones futuras compatibles.</p>
+<h2 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h2>
+<p>Una implementación de este ZIP:</p>
+<ul>
+<li>DEBE (MUST) tratar la carga útil de la atestación como una estructura binaria antes de cualquier codificación de memo blindado específica de la billetera.</li>
+<li>DEBE (MUST) codificar los enteros en orden de bytes big-endian.</li>
+<li>NO DEBE (MUST NOT) colocar datos personales identificables de los participantes directamente en la carga útil de la atestación.</li>
+<li>DEBE (MUST) derivar los hashes de las cargas útiles de eventos de manera determinista a partir de los campos subyacentes del evento.</li>
+<li>DEBE (MUST) preservar el orden de inserción de los eventos al derivar las raíces de Merkle.</li>
+<li>DEBE (MUST) permitir que los verificadores recalculen tanto el hash de la hoja del evento como la raíz anclada a partir de artefactos públicos más los datos de testigo proporcionados por la aplicación.</li>
+</ul>
+<h2 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h2>
+<h3 id="binary-payload-layout"><a class="hanchor" href="#binary-payload-layout" aria-hidden="true" tabindex="-1">#</a>Disposición de la carga útil binaria</h3>
+<p>Antes de la codificación del memo blindado (o de la codificación de partes de ZIP 302), la carga útil binaria de la atestación es:</p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span>byte 0      : version            = 0x01</span></span>
+<span class="line"><span>byte 1      : type               = 0x01..0x0f</span></span>
+<span class="line"><span>bytes 2..5  : cohort_id          = u32 big-endian</span></span>
+<span class="line"><span>bytes 6..37 : payload_hash       = 32 bytes</span></span>
+<span class="line"><span>bytes 38..45: timestamp          = u64 big-endian unix seconds</span></span>
+<span class="line"><span>bytes 46..77: serial_hash        = 32 bytes, or 32 zero bytes when unused</span></span>
+<span class="line"><span>bytes 78..n : label              = UTF-8 human-readable label, optional</span></span></code></pre>
+<p>Para un transporte legible por humanos, la carga útil DEBERÍA (SHOULD) representarse como:</p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span>ZAP1:{type}:{payload}</span></span></code></pre>
+<p>donde:</p>
+<ul>
+<li><code>ZAP1</code> es el marcador de protocolo</li>
+<li><code>{type}</code> es el tipo de evento en hexadecimal de dos dígitos en minúsculas</li>
+<li><code>{payload}</code> es la codificación hexadecimal de la disposición binaria completa anterior</li>
+</ul>
+<h3 id="event-types"><a class="hanchor" href="#event-types" aria-hidden="true" tabindex="-1">#</a>Tipos de eventos</h3>
+<p>Este borrador define las siguientes asignaciones de tipos de eventos:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Tipo</th><th>Nombre</th><th>Definición de carga útil</th><th>Estado</th></tr></thead><tbody><tr><td><code>0x01</code></td><td><code>PROGRAM_ENTRY</code></td><td><code>BLAKE2b_32(wallet_hash)</code></td><td>Desplegado</td></tr><tr><td><code>0x02</code></td><td><code>OWNERSHIP_ATTEST</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x03</code></td><td><code>CONTRACT_ANCHOR</code></td><td>`BLAKE2b_32(serial_number</td><td></td></tr><tr><td><code>0x04</code></td><td><code>DEPLOYMENT</code></td><td>`BLAKE2b_32(serial_number</td><td></td></tr><tr><td><code>0x05</code></td><td><code>HOSTING_PAYMENT</code></td><td>`BLAKE2b_32(serial_number</td><td></td></tr><tr><td><code>0x06</code></td><td><code>SHIELD_RENEWAL</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x07</code></td><td><code>TRANSFER</code></td><td>`BLAKE2b_32(old_wallet</td><td></td></tr><tr><td><code>0x08</code></td><td><code>EXIT</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x09</code></td><td><code>MERKLE_ROOT</code></td><td>raíz Merkle cruda de 32 bytes</td><td>Desplegado</td></tr><tr><td><code>0x0A</code></td><td><code>STAKING_DEPOSIT</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0B</code></td><td><code>STAKING_WITHDRAW</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0C</code></td><td><code>STAKING_REWARD</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0D</code></td><td><code>GOVERNANCE_PROPOSAL</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0E</code></td><td><code>GOVERNANCE_VOTE</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr><tr><td><code>0x0F</code></td><td><code>GOVERNANCE_RESULT</code></td><td>`BLAKE2b_32(wallet_hash</td><td></td></tr></tbody></table>
+<p>Las implementaciones del flujo <code>ZAP1</code> desplegado usan actualmente los primeros nueve tipos de eventos en producción. Los tipos de eventos de staking y gobernanza están reservados y NO DEBEN (MUST NOT) asumirse estables hasta que se activen por separado.</p>
+<h3 id="hash-construction"><a class="hanchor" href="#hash-construction" aria-hidden="true" tabindex="-1">#</a>Construcción del hash</h3>
+<p>Tamaños de los campos para las entradas de los hash:</p>
+<ul>
+<li><code>wallet_hash</code>: 32 bytes (identificador derivado de la aplicación)</li>
+<li><code>serial_number</code>: 32 bytes</li>
+<li><code>contract_sha256</code>: 32 bytes</li>
+<li><code>facility_id</code>: 32 bytes (rellenado con ceros si es más corto)</li>
+<li><code>timestamp_be</code>: u64 big-endian (8 bytes)</li>
+<li><code>month_be</code>: u16 big-endian (2 bytes)</li>
+<li><code>year_be</code>: u16 big-endian (2 bytes)</li>
+<li><code>amount_zat_be</code>: u64 big-endian (8 bytes)</li>
+<li><code>epoch_be</code>: u32 big-endian (4 bytes)</li>
+<li><code>validator_id</code>: 32 bytes</li>
+<li><code>proposal_id</code>: 32 bytes</li>
+<li><code>proposal_hash</code>, <code>vote_commitment</code>, <code>result_hash</code>: 32 bytes cada uno</li>
+<li><code>old_wallet</code>, <code>new_wallet</code>: 32 bytes cada uno</li>
+</ul>
+<p>Salvo que se especifique lo contrario, los hash de las cargas útiles de eventos usan BLAKE2b con:</p>
+<ul>
+<li>longitud del resumen: 32 bytes</li>
+<li>personalización: <code>NordicShield_</code> (13 bytes, rellenados con ceros hasta 16 bytes según la especificación de BLAKE2b)</li>
+</ul>
+<p>La entrada del hash para cada tipo de evento se define en la tabla anterior. El evento <code>MERKLE_ROOT</code> es un caso especial cuyo hash de carga útil es la propia raíz Merkle de 32 bytes, sin un paso adicional de compresión BLAKE2b.</p>
+<p>Para los tipos de evento que llevan un número de serie, el campo de carga útil <code>serial_hash</code> DEBE (MUST) ser:</p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span>BLAKE2b_32(serial_number)</span></span></code></pre>
+<p>con la misma cadena de personalización <code>NordicShield_</code>.</p>
+<p>Si no se aplica ningún número de serie, <code>serial_hash</code> DEBE (MUST) ser 32 bytes en cero.</p>
+<h3 id="merkle-tree-commitments"><a class="hanchor" href="#merkle-tree-commitments" aria-hidden="true" tabindex="-1">#</a>Compromisos de árbol Merkle</h3>
+<p>Las aplicaciones que usan este protocolo de atestación DEBERÍAN (SHOULD) agregar los hash de las cargas útiles de eventos en un árbol Merkle binario de solo adición. Para el protocolo <code>ZAP1</code> desplegado:</p>
+<ul>
+<li>cada evento produce una hoja</li>
+<li>las hojas se ordenan por secuencia de inserción</li>
+<li>los nodos padre son <code>BLAKE2b_32(left || right)</code></li>
+<li>la personalización de nodo Merkle es <code>NordicShield_MRK</code></li>
+<li>si un nivel tiene cardinalidad impar, el nodo final se duplica</li>
+</ul>
+<p>Una prueba de inclusión consiste en:</p>
+<ul>
+<li>hash de la hoja</li>
+<li>hash de los hermanos</li>
+<li>posiciones de los hermanos</li>
+<li>raíz Merkle derivada</li>
+<li>identificador de la transacción de anclaje</li>
+<li>altura de bloque de anclaje</li>
+</ul>
+<h3 id="on-chain-anchoring"><a class="hanchor" href="#on-chain-anchoring" aria-hidden="true" tabindex="-1">#</a>Anclaje en cadena</h3>
+<p>Al anclar una raíz Merkle en Zcash:</p>
+<ul>
+<li>el tipo de evento DEBE (MUST) ser <code>0x09</code></li>
+<li>el hash de la carga útil DEBE (MUST) ser la raíz Merkle actual sin procesar</li>
+<li>el campo memo blindado DEBERÍA (SHOULD) codificarse como <code>ZAP1:09:{payload}</code></li>
+</ul>
+<p>La implementación <code>ZAP1</code> desplegada difunde compromisos de memo blindados mediante <code>zingo-cli</code>. El despliegue actual ancla cada 10 eventos o cada 24 horas, lo que ocurra primero.</p>
+<h3 id="verification-procedure"><a class="hanchor" href="#verification-procedure" aria-hidden="true" tabindex="-1">#</a>Procedimiento de verificación</h3>
+<p>Para verificar un evento con compromiso, un verificador:</p>
+<ol>
+<li>recalcula el hash del payload del evento a partir de los campos de la aplicación</li>
+<li>reconstruye el payload de la atestación y el hash de la hoja del evento</li>
+<li>recorre la ruta de la prueba Merkle para derivar la raíz</li>
+<li>recupera la transacción de anclaje referenciada</li>
+<li>confirma que el campo memo blindado contiene el mismo compromiso de raíz <code>0x09</code></li>
+<li>confirma que la transacción está minada en la cadena prevista</li>
+</ol>
+<h2 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h2>
+<p>Este diseño separa la semántica del protocolo del transporte de la billetera.</p>
+<p>El diseño binario es de ancho fijo para todos los campos críticos, de modo que los analizadores puedan extraer el tipo de evento, el identificador de cohorte y el material relevante para la prueba sin necesidad de comprender ningún texto de etiqueta de formato libre. BLAKE2b-256 se usa por compacidad y rendimiento. Las cadenas de personalización proporcionan separación de dominio entre el hash de la carga útil del evento y el hash de los nodos internos del árbol Merkle.</p>
+<p>Anclar raíces Merkle en lugar de registros completos de eventos minimiza la carga de la cadena y preserva la verificabilidad independiente. El campo memo blindado se mantiene corto y de tamaño constante para el caso del compromiso de raíz, incluso a medida que crece el historial de eventos subyacente.</p>
+<h2 id="privacy-considerations"><a class="hanchor" href="#privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de privacidad</h2>
+<p>Este protocolo evita escribir en cadena datos en texto plano que identifiquen a participantes. Las implementaciones DEBEN (MUST) garantizar que <code>wallet_hash</code>, <code>serial_hash</code>, los resúmenes de contratos y otras entradas de la carga útil sean valores derivados y no registros de clientes que identifiquen directamente.</p>
+<p>El campo opcional <code>label</code> puede filtrar metadatos de la aplicación si se usa incorrectamente. Los protocolos que usan este ZIP DEBERÍAN (SHOULD) omitir el campo <code>label</code> o limitarlo a cadenas operativas que no identifiquen a participantes.</p>
+<h2 id="security-considerations"><a class="hanchor" href="#security-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de seguridad</h2>
+<p>Este protocolo proporciona integridad y auditabilidad, no confidencialidad de la base de datos subyacente de la aplicación. La seguridad depende de:</p>
+<ul>
+<li>la construcción correcta de los hash de eventos</li>
+<li>el orden de inserción correcto en el árbol Merkle</li>
+<li>la asociación correcta entre los paquetes de prueba y la raíz anclada que los cubre</li>
+<li>la recuperación correcta, por parte de la billetera, de la transacción minada que contiene el memo blindado</li>
+</ul>
+<p>Este ZIP no aborda:</p>
+<ul>
+<li>el ingreso fraudulento de datos fuera de cadena antes del hash</li>
+<li>el robo de la clave usada para autorizar transacciones de anclaje</li>
+<li>la autorización a nivel de aplicación de transferencias o salidas</li>
+</ul>
+<p>La pila <code>ZAP1</code> desplegada actualmente usa la firma de anclaje de un solo operador, con un diseño de migración a FROST separado en desarrollo para la autorización de umbral de futuras anclas de raíz.</p>
+<h2 id="backwards-compatibility"><a class="hanchor" href="#backwards-compatibility" aria-hidden="true" tabindex="-1">#</a>Compatibilidad con versiones anteriores</h2>
+<p>Este ZIP codifica el formato <code>ZAP1</code> versión <code>0x01</code> desplegado. Los paquetes de prueba existentes siguen siendo válidos siempre que los verificadores preserven la construcción original del hash de eventos, las reglas de hash Merkle y las referencias a transacciones de anclaje.</p>
+<p>Los diseños de payload incompatibles futuros DEBEN (MUST) usar un nuevo byte de versión y DEBERÍAN (SHOULD) usar un marcador de protocolo legible por humanos distinto.</p>
+<h2 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h2>
+<p>Las implementaciones de referencia están disponibles en:</p>
+<ul>
+<li><a href="https://github.com/Frontier-Compute/zap1">Frontier-Compute/zap1</a>, que implementa el protocolo de atestación <code>ZAP1</code> desplegado, el mantenimiento del árbol Merkle, la generación de paquetes de prueba y el flujo de anclaje de raíz.</li>
+<li><a href="https://github.com/Frontier-Compute/zap1-verify">Frontier-Compute/zap1-verify</a> <sup><a href="#user-content-fn-zap1-verify" id="user-content-fnref-zap1-verify" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>, que proporciona un verificador independiente en Rust y WASM para hash de hoja y pruebas Merkle de ZAP1.</li>
+</ul>
+<p>En la implementación <code>zap1</code> desplegada:</p>
+<ul>
+<li>los hash de payload de evento se calculan con BLAKE2b-256 y la personalización <code>NordicShield_</code></li>
+<li>los nodos internos del árbol Merkle usan la personalización <code>NordicShield_MRK</code></li>
+<li>los anclajes de raíz se transmiten como <code>ZAP1:09:{root}</code></li>
+</ul>
+<h2 id="test-vectors"><a class="hanchor" href="#test-vectors" aria-hidden="true" tabindex="-1">#</a>Vectores de prueba</h2>
+<p>Un paquete de vectores de prueba complementario DEBERÍA (SHOULD) proporcionar:</p>
+<ul>
+<li>un vector de hash de evento para cada tipo de evento desplegado desde <code>0x01</code> hasta <code>0x09</code></li>
+<li>los campos de entrada exactos usados para derivar el hash de la carga útil</li>
+<li>el <code>leaf_hash</code> esperado</li>
+<li>las cadenas de personalización del hash usadas</li>
+</ul>
+<p>La implementación <code>ZAP1</code> desplegada <sup><a href="#user-content-fn-zap1" id="user-content-fnref-zap1" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> publica esos vectores por separado como:</p>
+<ul>
+<li><a href="https://github.com/Frontier-Compute/zap1/blob/main/TEST_VECTORS.md">Frontier-Compute/zap1/TEST_VECTORS.md</a></li>
+<li><a href="https://github.com/Frontier-Compute/zap1/blob/main/TEST_VECTORS.md">TEST_VECTORS.md</a></li>
+</ul>
+<h2 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h2>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-zip-0302">
+<p><a href="https://zips.z.cash/zip-0302">ZIP 302: Formato estandarizado del campo memo</a> <a href="#user-content-fnref-zip-0302" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zap1-verify">
+<p><a href="https://github.com/Frontier-Compute/zap1-verify">Frontier-Compute/zap1-verify: verificador independiente en Rust y WASM para pruebas de ZAP1</a> <a href="#user-content-fnref-zap1-verify" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zap1">
+<p><a href="https://github.com/Frontier-Compute/zap1">Frontier-Compute/zap1: implementación de referencia del protocolo de atestación ZAP1</a> <a href="#user-content-fnref-zap1" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

@@ -1,0 +1,324 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "REQUERIDO (REQUIRED)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" en este documento deben interpretarse como se describe en BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>El término "validador completo" en este documento debe interpretarse como se define en la especificación del protocolo de Zcash [^protocol-blockchain].</p>
+<p>El término "actualización de red" en este documento debe interpretarse como se describe en el ZIP 200. [^zip-0200]</p>
+<p>El carácter § se utiliza para referirse a secciones de la Zcash Protocol Specification (Especificación del Protocolo Zcash). <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup></p>
+<p>Los términos "Mainnet" y "Testnet" deben interpretarse como se describe en § 3.12 «Mainnet and Testnet». [^protocol-networks]</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP describe un mecanismo que permite a los usuarios rotar sus claves de firma.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Existen dos facilidades propuestas para añadirse en la actualización de red NU7 que definen claves de autorización en el consenso:</p>
+<ul>
+<li>El Fondo Controlado por los Tenedores de Monedas introducido por el ZIP del Modelo de Financiación por la Comunidad y los Tenedores de Monedas [^zip-1016] tiene una clave de autorización de desembolso en poder de las Key-Holder Organizations (Organizaciones Titulares de Claves). Esta clave estará inicialmente codificada de forma fija en las reglas de consenso, y necesita algún mecanismo basado en transacciones para rotarla.</li>
+<li>Cada emisor de ZSA tiene una clave de autorización de emisión [^zip-0227-issuance-keys] que utiliza para autorizar la emisión de activos. La clave de validación correspondiente se establece inicialmente mediante el primer paquete de emisión que contiene esa clave.</li>
+</ul>
+<p>Sería beneficioso que este mecanismo admita la rotación de ambos tipos de claves, y de cualquier tipo de clave similar definido por mecanismos futuros del protocolo de consenso de Zcash.</p>
+<h2 id="use-cases"><a class="hanchor" href="#use-cases" aria-hidden="true" tabindex="-1">#</a>Casos de uso</h2>
+<h3 id="small-scale-single-issuer-eg-toy-usage"><a class="hanchor" href="#small-scale-single-issuer-eg-toy-usage" aria-hidden="true" tabindex="-1">#</a>Emisor único a pequeña escala (p. ej., uso de prueba)</h3>
+<ul>
+<li>Cada activo emitido usa <code>ik</code> tanto como clave de emisión como clave de rotación (por defecto)</li>
+<li>La copia de seguridad del usuario incluye <code>isk</code> (o su raíz de derivación)</li>
+<li>Si tanto el consenso como la billetera se actualizan para preferir ML-DSA, entonces la billetera puede migrar los activos del usuario a ML-DSA derivando <code>ik_ML-DSA</code> (o generándola y respaldándola), y luego creando un único paquete de rotación de claves que:
+<ul>
+<li>Rota la clave de emisión del emisor <code>ik</code> de <code>ik</code> a <code>ik_ML-DSA</code></li>
+<li>Rota la clave de rotación del emisor <code>ik</code> de <code>ik</code> a <code>ik_ML-DSA</code></li>
+</ul>
+</li>
+</ul>
+<h3 id="zsa-asset-bridges"><a class="hanchor" href="#zsa-asset-bridges" aria-hidden="true" tabindex="-1">#</a>Puentes de activos ZSA</h3>
+<ul>
+<li><code>ik</code> es una clave FROST compartida entre los validadores del puente</li>
+<li>La clave de rotación está en poder del operador del puente (o de varios operadores mediante FROST)</li>
+<li>El operador del puente puede cambiar el conjunto de validadores del puente rotando <code>ik</code></li>
+<li>Dos operadores de puentes pueden elegir usar el mismo conjunto de validadores <code>ik_C</code>:
+<ul>
+<li>El operador del puente A usa <code>rotation_key_A</code> para rotar su emisor <code>ik_A</code> a <code>ik_C</code> (con el consentimiento de <code>ik_C</code>)</li>
+<li>El operador del puente B usa <code>rotation_key_B</code> para rotar su emisor <code>ik_B</code> a <code>ik_C</code> (con el consentimiento de <code>ik_C</code>)</li>
+<li>Si el operador de puente A decide desfusionarse, utiliza <code>rotation_key_A</code> para rotar su emisor <code>ik_A</code> a <code>ik_A'</code> (o de vuelta a <code>ik_A</code>, supongo que también funcionaría), con el consentimiento de <code>ik_A'</code> pero no de <code>rotation_key_B</code> ni de <code>ik_C</code></li>
+</ul>
+</li>
+</ul>
+<h3 id="issuer-merging"><a class="hanchor" href="#issuer-merging" aria-hidden="true" tabindex="-1">#</a>Fusión de emisores</h3>
+<p>Un emisor puede elegir transferir todos sus activos controlados a otro emisor, creando un único paquete de rotación de claves que:</p>
+<ul>
+<li>Rota la clave de emisión del emisor <code>ik_A</code> de <code>ik_A</code> a <code>ik_B</code>, autorizada por <code>rotation_key_A</code> y <code>ik_B</code></li>
+<li>Rota la clave de rotación del emisor <code>ik_A</code> de <code>rotation_key_A</code> a <code>rotation_key_B</code>, autorizada por <code>rotation_key_A</code> y <code>rotation_key_B</code></li>
+<li>El emisor B ahora puede emitir todos los activos del emisor <code>ik_A</code>, sin conocimiento de <code>ik_A</code> (pero debe seguir usando <code>ik_A</code> como identificador de esos activos debido a cómo está definido <code>assetDigest</code>)</li>
+</ul>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Implicaciones para la privacidad</h1>
+<p>Los mecanismos definidos en este ZIP solo son adecuados para la rotación de claves que son visibles públicamente en el estado del protocolo de consenso.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ul>
+<li>El mecanismo debe admitir tanto claves que están inicialmente codificadas de forma fija en las reglas de consenso como claves de "registro en primer uso".</li>
+<li>El mecanismo de rotación de claves no debe imponer requisitos adicionales a los del esquema de firmas para la clave pública que se usa para verificar que la rotación está autorizada.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<ul>
+<li>Este ZIP no aborda la rotación de claves de gasto asociadas con direcciones de usuarios. Si los usuarios necesitan rotar claves de gasto (por ejemplo, si se compromete una semilla de billetera), SE RECOMIENDA (RECOMMENDED) transferir todos los fondos de la billetera a una nueva billetera e informar a las contrapartes que las direcciones antiguas ya no deberían usarse.</li>
+<li>Si se usa un esquema de firmas de umbral, el umbral no tiene por qué ser visible para el consenso.</li>
+</ul>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="tracked-signing-keys"><a class="hanchor" href="#tracked-signing-keys" aria-hidden="true" tabindex="-1">#</a>Claves de firmado rastreadas</h2>
+<p>Una clave de firma rastreada es una clave de firma que los validadores completos rastrean y que ellos proporcionan como parte de la verificación de cambios en el estado global de la cadena realizados por cualquier transacción relevante.</p>
+<p>Estas se distinguen de las claves de firma no rastreadas (normales), que son proporcionadas por las propias transacciones y solo se utilizan dentro del contexto de la validación de esa única transacción.</p>
+<p>Cada clave de firma rastreada tiene un <code>protocol_type</code> asociado, que identifica el protocolo de firma para el que es la clave. Las claves de firma rastreadas DEBEN (MUST) usar un tipo de protocolo definido en este ZIP.</p>
+<p>Los siguientes tipos de protocolo son actualmente válidos en el consenso:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Código de tipo de protocolo</th><th>Descripción</th></tr></thead><tbody><tr><td>0</td><td><code>RedPallas</code></td></tr><tr><td>1</td><td><code>BIP340</code></td></tr></tbody></table>
+<p>PUEDEN (MAY) añadirse tipos de protocolo adicionales a este ZIP mediante modificaciones especificadas en otros ZIP.</p>
+<h2 id="rotation-keys"><a class="hanchor" href="#rotation-keys" aria-hidden="true" tabindex="-1">#</a>Claves de rotación</h2>
+<p>Toda clave de firma rastreada tiene, en un estado de cadena dado, una "clave de rotación" correspondiente que autoriza las operaciones de rotación de claves que cambian la clave de firma rastreada.</p>
+<p>Las claves de rotación son en sí mismas claves de firma rastreadas y, por lo tanto, también pueden rotarse. En la revisión actual de este ZIP, una clave de rotación siempre es su propia clave de rotación; no existen claves de rotación de "profundidad 2".</p>
+<p>Las claves de rotación PUEDEN (MAY) ser de cualquier tipo de protocolo válido.</p>
+<h2 id="key-usage"><a class="hanchor" href="#key-usage" aria-hidden="true" tabindex="-1">#</a>Uso de claves</h2>
+<p>Cada clave de firma rastreada tiene un "uso" asociado, que especifica dentro de qué subprotocolo (del protocolo general de Zcash) se utiliza.</p>
+<p>El conjunto de usos de clave definidos para claves de firmado rastreadas es el siguiente:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Código de tipo de uso</th><th>Descripción</th></tr></thead><tbody><tr><td>1</td><td>ZIP pendiente: desembolsos de lockbox</td></tr><tr><td>2</td><td>ZIP 227: emisión de ZSA</td></tr></tbody></table>
+<p>PUEDEN (MAY) añadirse usos de claves adicionales a este ZIP mediante modificaciones especificadas en otros ZIP.</p>
+<p>Los usos de claves particulares PUEDEN (MAY) requerir un subconjunto estricto de los tipos de protocolo definidos.</p>
+<p>Nótese que no se define ningún tipo de uso de rotación.</p>
+<h2 id="key-identifiers"><a class="hanchor" href="#key-identifiers" aria-hidden="true" tabindex="-1">#</a>Identificadores de claves</h2>
+<p>Cada clave de firma rastreada tiene un "identificador de clave" <code>key_id</code> correspondiente que la representa en el estado global de la cadena.</p>
+<p><code>key_id</code> se trata como una cadena de bytes opaca en el contexto de este ZIP. El formato de cualquier <code>key_id</code> en particular lo define el uso de clave correspondiente en su ZIP pertinente.</p>
+<p>Regla de consenso: <code>(key_usage, key_id)</code> DEBE (MUST) ser globalmente único.</p>
+<h2 id="key-rotation-bundle"><a class="hanchor" href="#key-rotation-bundle" aria-hidden="true" tabindex="-1">#</a>Paquete de rotación de claves</h2>
+<p>El formato de transacción para la versión 6 de transacción se modifica para contener una sección adicional:</p>
+<p>+-------------------------+---------------------+-----------------+--------------------------------------------------------------+ | variable | <code>nKeyRotations</code> | <code>compactSize</code> | La cantidad de entradas de KeyRotationAction en <code>vKeyRotations</code> | +-------------------------+---------------------+-----------------+--------------------------------------------------------------+ | ??? * <code>nKeyRotations</code> | <code>vKeyRotations</code> | ??? | Una secuencia de descripciones de acciones de rotación de claves | +-------------------------+---------------------+-----------------+--------------------------------------------------------------+</p>
+<h2 id="global-state"><a class="hanchor" href="#global-state" aria-hidden="true" tabindex="-1">#</a>Estado global</h2>
+<p>Un <code>key_pointer</code> es la tupla <code>(key_usage, key_id)</code>. - <code>key_usage</code> se define más arriba - <code>key_id</code> es una cadena de bytes definida en el registro de la clave o por consenso</p>
+<p>El estado global de la cadena rastrea:</p>
+<ul>
+<li>un mapeo de claves actuales <code>key_pointer -> (application_key, rotation_key)</code> donde:
+<ul>
+<li><code>application_key</code> es la clave pública que se utiliza para autorizar operaciones de subprotocolo, como la emisión de ZSA o el desembolso de lockbox.</li>
+<li><code>rotation_key</code> es la clave pública usada para autorizar rotaciones tanto de <code>application_key</code> como de <code>rotation_key</code>.</li>
+</ul>
+</li>
+</ul>
+<h2 id="key-registration"><a class="hanchor" href="#key-registration" aria-hidden="true" tabindex="-1">#</a>Registro de claves</h2>
+<p>Al registrar una nueva clave, la clave de rotación inicial PUEDE (MAY) ser la misma que la clave de firma. Este será el caso para las claves de emisión de ZSA.</p>
+<h2 id="key-rotation"><a class="hanchor" href="#key-rotation" aria-hidden="true" tabindex="-1">#</a>Rotación de claves</h2>
+<p>Una operación de rotación de claves modifica el estado global, reemplazando la clave actual de un puntero de clave dado por una clave nueva.</p>
+<ul>
+<li><code>key_pointer</code>: un puntero a la clave que se va a rotar.
+<ul>
+<li>La clave original que provocó la creación de la entrada del mapeo:
+<ul>
+<li>tipo de protocolo (p. ej., <code>RedPallas</code>, <code>BIP340</code>)</li>
+<li><code>pubkey</code></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><code>new_key</code>: la clave nueva con la que reemplazarla:
+<ul>
+<li>tipo de protocolo (p. ej., <code>RedPallas</code>, <code>BIP340</code>) que es soportado en consenso por <code>key_usage</code></li>
+<li><code>pubkey</code></li>
+</ul>
+</li>
+<li><code>rotation_auth_sig</code>
+<ul>
+<li>Usando el protocolo de la clave <code>rotation_key</code> existente que autoriza la rotación de <code>prev_key</code>
+<ul>
+<li>en el caso de <code>key_usage = rotation_key</code> sería precisamente <code>prev_key</code>)</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><code>evidence_sig</code>
+<ul>
+<li>Una firma realizada con <code>new_key</code> para evitar dejar la clave inutilizable por accidente (o travesuras por rotar a una clave en poder de otra persona). Esto debería requerirse al menos si <code>key_usage == rotation_key</code>. La clave nueva "consiente" en ser rotada firmando el txid.</li>
+</ul>
+</li>
+</ul>
+<p>Una operación de rotación de claves procede de la siguiente manera:</p>
+<ul>
+<li>Resolver <code>key_pointer</code> para obtener la clave existente <code>prev_key</code> y su <code>rotation_key</code> actual.</li>
+<li>Verificar <code>rotation_auth_sig</code> con <code>rotation_key</code>.</li>
+<li>Verificar <code>evidence_sig</code> con <code>new_key</code>.</li>
+<li>Actualizar el estado global en <code>key_pointer</code> para reemplazar <code>prev_key</code> por <code>new_key</code>.</li>
+</ul>
+<p>Codificación alternativa en progreso:</p>
+<ul>
+<li><code>key_pointer</code>: un puntero a la entrada del mapeo global que actualmente usa la clave existente <code>prev_key</code> en el estado global:
+<ul>
+<li><code>key_usage: lockbox_sig | zsa_issuance</code></li>
+<li><code>key_depth</code></li>
+<li><code>key_id</code>: la clave original que provocó la creación de la entrada del mapeo:
+<ul>
+<li>tipo de protocolo (p. ej., <code>RedPallas</code>, <code>BIP340</code>)</li>
+<li><code>pubkey</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="key-rotation-actions"><a class="hanchor" href="#key-rotation-actions" aria-hidden="true" tabindex="-1">#</a>Acciones de rotación de claves</h3>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span style="--shiki-light:#A0111F;--shiki-dark:#FF9492">struct</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757"> KeyRotation</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6"> {</span></span>
+<span class="line"><span style="--shiki-light:#66707B;--shiki-dark:#BDC4CC">  /// The purpose of the key that is being rotated. Key purpose cannot change.</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  key_purpose</span><span style="--shiki-light:#A0111F;--shiki-dark:#FF9492">:</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757"> KeyPurpose</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#66707B;--shiki-dark:#BDC4CC">  /// The original key in the chain of keys that we're rotating. This implies the current rotation key.</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  orig_key_pubkey</span><span style="--shiki-light:#A0111F;--shiki-dark:#FF9492">:</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757"> Vec</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">&#x3C;</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757">u8</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">>,</span></span>
+<span class="line"><span style="--shiki-light:#66707B;--shiki-dark:#BDC4CC">  /// The protocol type of the new key being registered. Allowed changes to the protocol type are controlled by consensus;</span></span>
+<span class="line"><span style="--shiki-light:#66707B;--shiki-dark:#BDC4CC">  /// at present, this must always correspond to the protocol type for the existing key being rotated.</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  new_key_protocol</span><span style="--shiki-light:#A0111F;--shiki-dark:#FF9492">:</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757"> KeyProtocol</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#66707B;--shiki-dark:#BDC4CC">  /// The pubkey that will replace the current key for the given purpose in the chain descending from `orig_key_pubkey`.</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  new_key_pubkey</span><span style="--shiki-light:#A0111F;--shiki-dark:#FF9492">:</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757"> Vec</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">&#x3C;</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757">u8</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">>,</span></span>
+<span class="line"><span style="--shiki-light:#66707B;--shiki-dark:#BDC4CC">  /// The signature that validates against the rotation key for the key being replaced. This should sign the txid.</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  rotation_auth_sig</span><span style="--shiki-light:#A0111F;--shiki-dark:#FF9492">:</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757"> Vec</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">&#x3C;</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757">u8</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">>,</span></span>
+<span class="line"><span style="--shiki-light:#66707B;--shiki-dark:#BDC4CC">  /// A signature that proves control over the signing keys for `new_key_pubkey`. This should also sign the txid.</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  evidence_sig</span><span style="--shiki-light:#A0111F;--shiki-dark:#FF9492">:</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757"> Vec</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">&#x3C;</span><span style="--shiki-light:#702C00;--shiki-dark:#FFB757">u8</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">>,</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">}</span></span></code></pre>
+<p>+-------------------------------+---------------------+-----------------+--------------------------------------------------------------+
++-------------------------------+---------------------+-----------------+--------------------------------------------------------------+
++-------------------------------+---------------------+-----------------+---------------------------------------------------------------------+
++-------------------------------+---------------------+-----------------+---------------------------------------------------------------------+
++-------------------------------+---------------------+-----------------+---------------------------------------------------------------------+</p>
+<p>Un nuevo paquete de rotación de claves</p>
+<ul>
+<li>Vector de operaciones de rotación, aplicadas al consenso en orden (para coincidir, por ejemplo, con el orden en que se aplican las transacciones dentro de los bloques):
+<ul>
+<li>Puntero a la entrada del mapeo global que actualmente usa la clave existente <code>prev_key</code> en el estado global:
+<ul>
+<li><code>key_usage: key_rotation | lockbox_sig | zsa_issuance</code></li>
+<li>La clave original que provocó la creación de la entrada del mapeo:
+<ul>
+<li>tipo de protocolo (p. ej., <code>RedPallas</code>, <code>BIP340</code>)</li>
+<li><code>pubkey</code></li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Nueva clave <code>new_key</code> con la que reemplazarla:
+<ul>
+<li>tipo de protocolo (p. ej., <code>RedPallas</code>, <code>BIP340</code>) que es soportado en consenso por <code>key_usage</code></li>
+<li><code>pubkey</code></li>
+</ul>
+</li>
+<li><code>rotation_auth_sig</code>
+<ul>
+<li>Usando el protocolo de la clave <code>key_rotation</code> existente que autoriza la rotación de <code>prev_key</code>
+<ul>
+<li>en el caso de <code>key_usage = key_rotation</code> sería precisamente <code>prev_key</code>)</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><code>evidence_sig</code>
+<ul>
+<li>Una firma realizada con <code>new_key</code> para evitar dejar la clave inutilizable por accidente (o travesuras por rotar a una clave en poder de otra persona). Esto debería requerirse al menos si <code>key_usage == key_rotation</code>. La clave nueva "consiente" en ser rotada firmando el txid.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h2 id="consensus-keys--rotation-keys"><a class="hanchor" href="#consensus-keys--rotation-keys" aria-hidden="true" tabindex="-1">#</a>Claves de consenso y claves de rotación</h2>
+<h3 id="rotation-keys-1"><a class="hanchor" href="#rotation-keys-1" aria-hidden="true" tabindex="-1">#</a>Claves de rotación</h3>
+<p>Una clave de rotación otorga al titular de la clave la capacidad de crear una firma válida que autorice los efectos de un paquete de rotación de claves.</p>
+<h1 id="notes--open-questions"><a class="hanchor" href="#notes--open-questions" aria-hidden="true" tabindex="-1">#</a>Notas / Preguntas abiertas</h1>
+<ul>
+<li>Al rotar claves de rotación de ZSA, se puede añadir o modificar una entrada para mapear el o los ik más recientes al ik original
+<ul>
+<li>La creación de la primera clave de emisión de ZSA puede necesitar un puntero a la clave de rotación o al ik existente u original, sin reemplazarlo</li>
+</ul>
+</li>
+<li>¿Debería la codificación de AssetBurn incluir un asset_desc_hash en lugar de un asset_base?</li>
+<li>¿Podríamos diferir las partes de esto que están fuera de la codificación de transacciones de orchard a NU7.1 o NU8? Necesitará otro cambio de formato, pero al menos será uno simple, y aunque este es un cambio pequeño por sí solo, el alcance de NU7 ha crecido un poco más de lo que sería ideal. Por otro lado, ya diferimos esto de NU6.1 a NU7. Gastar desde entradas de lockbox parece casi trivial; ¿quizás podríamos permitir el gasto desde entradas de lockbox en NU7 y hacer la rotación de claves en el siguiente NU?
+<ul>
+<li>El ZIP de Desembolso del Lockbox Diferido del Fondo de Desarrollo que fue sometido a votación requiere rotación de claves debido a que su sección de Requisitos contiene estos dos requisitos:
+<ul>
+<li>Los fondos se mantienen en un multisig resistente a la compromisión de algunas de las claves de las partes, hasta un umbral dado.</li>
+<li>Que la no cooperación de una sola de las partes, o la pérdida de claves de una sola de ellas, no pueda causar que algún financiamiento del ecosistema definido por el protocolo quede bloqueado de forma irrecuperable.</li>
+</ul>
+</li>
+<li>La combinación de estos dos requisitos nos obliga a especificar e implementar la rotación de claves como parte de Lockbox Disbursement.</li>
+</ul>
+</li>
+<li>Tener una clave de rotación separada, independiente de la clave de firma.
+<ul>
+<li>La clave de rotación puede rotar tanto a sí misma como a la clave de firma.</li>
+<li>La clave de firma puede autorizar transacciones (emisión de ZSA o desembolso de lockbox).</li>
+<li>Para las ZSA, la clave de rotación inicial es la misma que la clave de firma.</li>
+</ul>
+</li>
+</ul>
+<h2 id="previously-considered-global-state-alternative-wip"><a class="hanchor" href="#previously-considered-global-state-alternative-wip" aria-hidden="true" tabindex="-1">#</a>Alternativa de estado global considerada previamente (en progreso)</h2>
+<p>El estado global de la cadena realiza un seguimiento de los mapas de:</p>
+<ul>
+<li><code>current_key -> Vec&#x3C;original_key></code>, y</li>
+<li><code>original_key -> key_state</code> donde</li>
+<li><code>original_key</code> es la clave original que se añadió al estado global como clave de firma rastreada</li>
+<li><code>current_key</code> es una clave de firma rastreada que se debe esperar en lugar de <code>original_key</code></li>
+<li><code>key_state = (current_key, Vec&#x3C;parent_original_key>, Vec&#x3C;child_original_key>)</code>
+<ul>
+<li><code>current_key</code> es la clave requerida para autenticar el control del espacio de claves</li>
+<li><code>parent_original_key</code> es un <code>original_key</code> de un <code>current_key</code> que puede autorizar mutaciones al <code>current_key</code> y <code>child_original_key</code> de este <code>key_state</code></li>
+<li><code>child_original_key</code> es un <code>original_key</code> para un <code>key_state</code> cuyas mutaciones pueden ser autorizadas por el <code>current_key</code> de este <code>key_state</code></li>
+</ul>
+</li>
+</ul>
+<p>Si el <code>key_state</code> de un <code>original_key</code> no tiene <code>parent_original_key</code>, puede mutarse a sí mismo.</p>
+<h2 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h2>
+<ul>
+<li>
+<p>Usos separados de las claves: permite la rotación independiente (por ejemplo, si una organización titular de una clave usa accidentalmente su clave de desembolso de lockbox para emitir un activo, puede recuperarse de ese error)</p>
+</li>
+<li>
+<p>Un vector de operaciones de rotación que rotan cada una una sola clave:</p>
+<ul>
+<li>Es equivalente a una estructura que contiene campos opcionales (habría que definir la opcionalidad de esos campos, y cualquiera de las dos representaciones requiere definir un orden)</li>
+<li>Permite extender el concepto de clave de rotación en el futuro para admitir múltiples claves de rotación, sin requerir un cambio en el formato de transacción.</li>
+</ul>
+</li>
+</ul>
+<h1 id="deployment"><a class="hanchor" href="#deployment" aria-hidden="true" tabindex="-1">#</a>Despliegue</h1>
+<p>Se propone que este ZIP se active con la actualización de red NU7. <sup><a href="#user-content-fn-draft-arya-deploy-nu7" id="user-content-fnref-draft-arya-deploy-nu7" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup></p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>TBD</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Información sobre BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" y "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, versión 2025.6.1 [NU6.1] o posterior</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-draft-arya-deploy-nu7">
+<p><a href="/upstream/draft-arya-deploy-nu7.md">draft-arya-deploy-nu7: Deployment of the NU7 Network Upgrade</a> <a href="#user-content-fnref-draft-arya-deploy-nu7" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

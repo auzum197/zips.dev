@@ -1,0 +1,943 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" en este documento deben interpretarse como se describe en BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p>Los términos a continuación deben interpretarse de la siguiente manera:</p>
+<dl><dt>Ronda de votación</dt><dd>Una sesión de votación acotada en el tiempo que define un conjunto de propuestas, una altura de instantánea de Zcash y una fecha límite. Los clientes de billetera interactúan con exactamente una ronda de votación a la vez.</dd><dt>Delegación</dt><dd>El acto de demostrar la propiedad de notas Orchard no gastadas en la altura de instantánea y registrar una nota de autoridad de voto en el árbol de compromisos de voto. Véase <sup><a href="#user-content-fn-orchard-balance-proof" id="user-content-fnref-orchard-balance-proof" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</dd><dt>Nota de autoridad de voto (VAN)</dt><dd>Una nota que se añade al árbol de compromisos de voto durante la delegación. La VAN lleva el peso de voto delegado y se consume (se anula) cuando el titular emite un voto.</dd><dt>Árbol de compromisos de voto</dt><dd>Un árbol Merkle de solo adición que registra las notas de autoridad de voto y los compromisos de voto. La raíz del árbol en una altura de bloque dada sirve como entrada pública para la verificación de pruebas de conocimiento cero.</dd><dt>Cuota</dt><dd>Un fragmento del peso de voto delegado del titular, cifrado y enviado a servidores auxiliares en lugar de directamente a la cadena para evitar la vinculación basada en tiempos.</dd></dl>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP especifica los endpoints de la API REST, los formatos de transmisión y el mecanismo de descubrimiento que usan los clientes de billetera para participar en rondas de votación blindadas en la cadena. Cubre el descubrimiento de rondas de votación mediante un documento de configuración por votación, los endpoints de consulta de datos para leer el estado de la cadena, los endpoints de envío de transacciones para la delegación y la emisión de votos, y las convenciones de codificación para todos los datos intercambiados.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>El protocolo de votación blindada comprende varios ZIP que especifican los circuitos criptográficos <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>, la recuperación de nullifiers <sup><a href="#user-content-fn-nullifier-pir" id="user-content-fnref-nullifier-pir" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, la prueba de saldo <sup><a href="#user-content-fn-orchard-balance-proof" id="user-content-fnref-orchard-balance-proof-2" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>, el envío de cuotas <sup><a href="#user-content-fn-submission-server" id="user-content-fnref-submission-server" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> y la ceremonia de claves de la autoridad electoral <sup><a href="#user-content-fn-ea-ceremony" id="user-content-fnref-ea-ceremony" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>. Actualmente, un integrador de billeteras debe leer varias de estas especificaciones para entender qué endpoints llamar, qué formatos de transmisión usar y cómo descubrir una votación activa.</p>
+<p>Este ZIP consolida la superficie de la API orientada a la billetera en un solo documento, especificando los endpoints REST, los formatos de transmisión JSON, las convenciones de codificación y el mecanismo de descubrimiento necesarios para participar en una votación.</p>
+<p>Los campos de versionamiento en la configuración de la votación permiten que el protocolo evolucione (nuevos esquemas PIR, versiones de circuitos, métodos de escrutinio) manteniendo compatibilidad hacia atrás con las billeteras desplegadas.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ul>
+<li>Una billetera puede descubrir y unirse a una ronda de votación activa mediante un documento de configuración publicado.</li>
+<li>Una billetera puede enviar transacciones de delegación y de compromiso de voto usando los formatos de transmisión de esta especificación. La construcción de pruebas se especifica en ZIP complementarios.</li>
+<li>Una billetera puede enviar cuotas de voto cifradas a servidores auxiliares y confirmar su inclusión on-chain.</li>
+<li>Cada componente del protocolo (servidor de votación, protocolo de votación, método de escrutinio, PIR) puede versionarse y actualizarse de forma independiente. Un cambio en un componente no tiene impacto en otros componentes ni en el esquema de configuración.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<ul>
+<li>La incorporación de validadores, el registro de claves y la ceremonia de claves de la EA.</li>
+<li>Las reglas de consenso de la cadena y la producción de bloques.</li>
+<li>La creación de rondas y las operaciones de la autoridad de gobernanza.</li>
+<li>La implementación interna de los servidores auxiliares (especificada en <sup><a href="#user-content-fn-submission-server" id="user-content-fnref-submission-server-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>).</li>
+</ul>
+<h1 id="high-level-summary"><a class="hanchor" href="#high-level-summary" aria-hidden="true" tabindex="-1">#</a>Resumen de alto nivel</h1>
+<p>Esta sección no es normativa.</p>
+<p>Esta sección proporciona una descripción general informativa de la secuencia de extremo a extremo que sigue una billetera para participar en una ronda de votación blindada. Cada paso referencia la sección normativa que especifica sus detalles. Todos los requisitos usan el lenguaje definido en esas secciones.</p>
+<p>La configuración de la votación en sí está versionada por <code>config_version</code>, que sigue el esquema del documento de configuración. También incluye cuatro componentes del protocolo versionados de forma independiente:</p>
+<ul>
+<li><strong><code>vote_protocol</code></strong> — los circuitos ZKP (ZKP1, ZKP2, ZKP3) y la estructura del árbol de compromisos. Los circuitos están diseñados para ser actualizables: una nueva versión de circuito incrementa <code>vote_protocol</code> sin afectar a los demás componentes.</li>
+<li><strong><code>tally</code></strong> — el descifrado por umbral y la agregación de resultados.</li>
+<li><strong><code>pir</code></strong> — el esquema de recuperación PIR de nullifiers.</li>
+<li><strong><code>vote_server</code></strong> — la API del servidor auxiliar a la que se envían las cuotas de voto.</li>
+</ul>
+<p>Véase [Gestión de versiones] para las reglas normativas.</p>
+<h2 id="discovery-and-validation"><a class="hanchor" href="#discovery-and-validation" aria-hidden="true" tabindex="-1">#</a>Descubrimiento y validación</h2>
+<ol>
+<li>
+<p><strong>Obtener la configuración de la votación.</strong> Recuperar o recibir el documento JSON de configuración de la votación para la ronda. Véase [Vote Configuration Format].</p>
+</li>
+<li>
+<p><strong>Validar la configuración.</strong> Comprobar todos los campos contra las reglas de [Validation Rules] y verificar la compatibilidad de versiones según [Compatibility Rules]. Rechazar la configuración y detenerse si alguna comprobación falla.</p>
+</li>
+<li>
+<p><strong>Obtener la ronda activa de la cadena.</strong> Consultar <code>GET /shielded-vote/v1/rounds/active</code> para confirmar que la ronda está ACTIVE y recuperar los parámetros en cadena: <code>ea_pk</code>, <code>nullifier_imt_root</code>, <code>nc_root</code> y <code>proposals_hash</code>. Véase [Active Round].</p>
+</li>
+<li>
+<p><strong>Verificar el hash de las propuestas.</strong> Calcular el hash de las propuestas a partir del arreglo <code>proposals</code> de la configuración y compararlo con <code>proposals_hash</code> de la respuesta de la cadena. Véase [Proposals Hash].</p>
+</li>
+</ol>
+<h2 id="delegation"><a class="hanchor" href="#delegation" aria-hidden="true" tabindex="-1">#</a>Delegación</h2>
+<ol start="5">
+<li>
+<p><strong>Recuperar las pruebas de exclusión de nullifiers.</strong> Conectarse a un servidor <code>pir_endpoints</code> y recuperar pruebas de no pertenencia Merkle para los nullifiers de las notas Orchard de la billetera en <code>snapshot_height</code>. Véanse [Nullifier Retrieval] y <sup><a href="#user-content-fn-nullifier-pir" id="user-content-fnref-nullifier-pir-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</p>
+</li>
+<li>
+<p><strong>Construir y enviar la transacción de delegación.</strong> Construir la prueba ZKP1 (que demuestra la propiedad de las notas Orchard en la altura de la instantánea) y enviarla mediante <code>POST /shielded-vote/v1/delegate-vote</code>. Véanse [Delegation Transaction] y <sup><a href="#user-content-fn-orchard-balance-proof" id="user-content-fnref-orchard-balance-proof-3" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>.</p>
+</li>
+<li>
+<p><strong>Sondear la confirmación de la delegación.</strong> Sondear <code>GET /shielded-vote/v1/tx/{hash}</code> usando el <code>tx_hash</code> de la respuesta de envío hasta que la respuesta incluya un <code>height</code> no vacío y <code>code</code> = 0. Véase [Confirmation Polling].</p>
+</li>
+<li>
+<p><strong>Sincronizar el árbol de compromisos y localizar el VAN.</strong> Consultar el endpoint [Commitment Tree Leaves] para sincronizar incrementalmente el árbol local. Identificar la nota de autoridad de voto de la billetera por su compromiso <code>van_cmx</code>, calculado durante el paso 6.</p>
+</li>
+</ol>
+<h2 id="voting-repeat-for-each-proposal"><a class="hanchor" href="#voting-repeat-for-each-proposal" aria-hidden="true" tabindex="-1">#</a>Votación (repetir para cada propuesta)</h2>
+<ol start="9">
+<li>
+<p><strong>Construir y enviar el compromiso de voto.</strong> Construir la prueba ZKP2 (que consume el VAN actual y produce un nuevo VAN) y enviarla mediante <code>POST /shielded-vote/v1/cast-vote</code>. La raíz del árbol en la altura del ancla es una entrada pública de esta prueba. Véanse [Vote Commitment Transaction] y <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+</li>
+<li>
+<p><strong>Sondear la confirmación del compromiso de voto.</strong> Sondear <code>GET /shielded-vote/v1/tx/{hash}</code> hasta que se confirme.</p>
+</li>
+<li>
+<p><strong>Sincronizar el árbol de compromisos.</strong> Consultar de nuevo [Commitment Tree Leaves] para localizar el nuevo VAN (necesario como entrada para la siguiente propuesta) y la hoja del compromiso de voto (necesaria para la construcción de las cuotas).</p>
+</li>
+<li>
+<p><strong>Construir y enviar las cuotas.</strong> Construir 16 cargas útiles cifradas de cuotas y enviar cada una a un servidor auxiliar mediante <code>POST /shielded-vote/v1/shares</code>. Cada cuota hace referencia al <code>tree_position</code> de la hoja del compromiso de voto del paso 11. Véanse [Share Delegation] y <sup><a href="#user-content-fn-submission-server" id="user-content-fnref-submission-server-3" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>.</p>
+</li>
+<li>
+<p><strong>Sondear los estados de las cuotas.</strong> Para cada cuota enviada, sondear <code>GET /shielded-vote/v1/share-status/{roundId}/{nullifier}</code> hasta que todas devuelvan <code>"confirmed"</code>. Véase [Share Status].</p>
+</li>
+</ol>
+<p>Los pasos 9 a 13 se repiten secuencialmente para cada propuesta de la ronda. Cada iteración consume el VAN actual y produce uno nuevo, por lo que las propuestas no pueden votarse en paralelo.</p>
+<h2 id="results-optional"><a class="hanchor" href="#results-optional" aria-hidden="true" tabindex="-1">#</a>Resultados (opcional)</h2>
+<ol start="14">
+<li><strong>Ver los resultados del escrutinio.</strong> Después de que la ronda alcance el estado FINALIZED, consultar <code>GET /shielded-vote/v1/tally-results/{round_id}</code> para obtener los escrutinios descifrados por propuesta. Véase [Tally Results].</li>
+</ol>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<h2 id="vote-discovery"><a class="hanchor" href="#vote-discovery" aria-hidden="true" tabindex="-1">#</a>Descubrimiento de votaciones</h2>
+<p>Una configuración de votación es un documento JSON publicado para cada ronda de votación. Contiene todos los parámetros que una billetera necesita para localizar los servicios y participar en la ronda.</p>
+<h3 id="vote-configuration-format"><a class="hanchor" href="#vote-configuration-format" aria-hidden="true" tabindex="-1">#</a>Formato de la configuración de votación</h3>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">{</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "config_version"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#023B95;--shiki-dark:#91CBFF">1</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "vote_round_id"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"&#x3C;hex, 64 characters>"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "vote_servers"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: [</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">    {</span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"url"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"https://vote1.example.com"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">, </span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"label"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"validator-1"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">}</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  ],</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "pir_endpoints"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: [</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">    {</span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"url"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"https://pir1.example.com"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">, </span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"label"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"pir-1"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">}</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  ],</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "snapshot_height"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#023B95;--shiki-dark:#91CBFF">2800000</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "vote_end_time"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#023B95;--shiki-dark:#91CBFF">1735689600</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "proposals"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: [</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">    {</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">      "id"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#023B95;--shiki-dark:#91CBFF">1</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">      "title"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"Approve protocol upgrade"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">      "description"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"Approve or oppose the proposed protocol upgrade."</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">      "options"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: [</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">        {</span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"index"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#023B95;--shiki-dark:#91CBFF">0</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">, </span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"label"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"Support"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">},</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">        {</span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"index"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#023B95;--shiki-dark:#91CBFF">1</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">, </span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"label"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"Oppose"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">}</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">      ]</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">    }</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  ],</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "supported_versions"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: {</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">    "pir"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: [</span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"v0"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">, </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"v1"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">],</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">    "vote_protocol"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"v0"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">    "tally"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"v0"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">    "vote_server"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"v1"</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">  }</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">}</span></span></code></pre>
+<h3 id="field-definitions"><a class="hanchor" href="#field-definitions" aria-hidden="true" tabindex="-1">#</a>Definiciones de campos</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>config_version</code></td><td>entero</td><td>Versión del esquema de este documento de configuración. Actualmente 1.</td></tr><tr><td><code>vote_round_id</code></td><td>cadena</td><td>Identificador de ronda de votación de 32 bytes codificado en hexadecimal (64 caracteres, minúsculas).</td></tr><tr><td><code>vote_servers</code></td><td>arreglo</td><td>Una o más URL base de servidores de votación que sirven tanto los endpoints de la cadena como los auxiliares. Cada entrada tiene <code>url</code> (cadena) y <code>label</code> (cadena).</td></tr><tr><td><code>pir_endpoints</code></td><td>arreglo</td><td>Una o más URL base de servidores PIR de nullifiers. Cada entrada tiene <code>url</code> y <code>label</code>.</td></tr><tr><td><code>snapshot_height</code></td><td>entero</td><td>Altura de bloque de Zcash en la que se tomó la instantánea del pool de Orchard.</td></tr><tr><td><code>vote_end_time</code></td><td>entero</td><td>Marca de tiempo Unix (segundos) después de la cual ya no se aceptan votos.</td></tr><tr><td><code>proposals</code></td><td>arreglo</td><td>Lista ordenada de propuestas. Cada una tiene <code>id</code> (entero, indexado desde 1), <code>title</code> (cadena), <code>description</code> (cadena) y <code>options</code> (arreglo de <code>{index, label}</code>).</td></tr><tr><td><code>supported_versions.pir</code></td><td>arreglo de cadenas</td><td>Versiones del esquema de recuperación PIR compatibles con los servidores (p. ej., <code>["v0", "v1"]</code>).</td></tr><tr><td><code>supported_versions.vote_protocol</code></td><td>cadena</td><td>Versión del protocolo de votación que cubre los circuitos ZKP y la estructura del árbol de compromisos (p. ej., <code>"v0"</code>).</td></tr><tr><td><code>supported_versions.tally</code></td><td>cadena</td><td>Versión del método de escrutinio que cubre el descifrado por umbral y la agregación de resultados (p. ej., <code>"v0"</code>).</td></tr><tr><td><code>supported_versions.vote_server</code></td><td>cadena</td><td>Versión del servidor de votación que cubre la API REST (p. ej., <code>"v1"</code>).</td></tr></tbody></table>
+<h3 id="validation-rules"><a class="hanchor" href="#validation-rules" aria-hidden="true" tabindex="-1">#</a>Reglas de validación</h3>
+<p>Una billetera DEBE (MUST) validar la configuración antes de usarla:</p>
+<ul>
+<li><code>config_version</code> DEBE (MUST) ser una versión que la billetera reconozca. Esta especificación define la versión 1.</li>
+<li><code>vote_round_id</code> DEBE (MUST) consistir exactamente de 64 caracteres hexadecimales en minúsculas.</li>
+<li><code>vote_servers</code> DEBE (MUST) contener al menos una entrada.</li>
+<li><code>pir_endpoints</code> DEBE (MUST) contener al menos una entrada.</li>
+<li><code>snapshot_height</code> DEBE (MUST) ser mayor que 0.</li>
+<li><code>proposals</code> DEBE (MUST) contener entre 1 y 15 entradas.</li>
+<li>Cada propuesta DEBE (MUST) tener entre 2 y 8 opciones.</li>
+<li>Los valores de <code>id</code> de las propuestas DEBEN (MUST) ser únicos y estar en el rango de 1 a 15.</li>
+<li>Los valores de <code>index</code> de las opciones dentro de una propuesta DEBEN (MUST) ser únicos e indexados desde 0.</li>
+<li>La billetera DEBE (MUST) verificar la compatibilidad de versiones según lo especificado en [Version Handling]. En resumen: <code>supported_versions.vote_server</code>, <code>supported_versions.vote_protocol</code> y <code>supported_versions.tally</code> DEBEN (MUST) ser versiones reconocidas; <code>supported_versions.pir</code> DEBE (MUST) contener al menos una versión que la billetera admita.</li>
+</ul>
+<h3 id="distribution"><a class="hanchor" href="#distribution" aria-hidden="true" tabindex="-1">#</a>Distribución</h3>
+<p>La configuración de votación se publica fuera de banda para cada ronda de votación. Los mecanismos de distribución incluyen:</p>
+<ul>
+<li>Una solicitud de extracción fusionada por un desarrollador en un repositorio conocido que enlace al archivo de configuración.</li>
+<li>Un CDN o un endpoint de API que sirva la configuración.</li>
+<li>La inclusión de la configuración dentro de una versión de la billetera.</li>
+</ul>
+<p>La elección del mecanismo de distribución está fuera del alcance de esta especificación. Independientemente del mecanismo, la billetera DEBE (MUST) validar la configuración como se describió anteriormente antes de usarla.</p>
+<h2 id="data-query-endpoints"><a class="hanchor" href="#data-query-endpoints" aria-hidden="true" tabindex="-1">#</a>Endpoints de consulta de datos</h2>
+<p>Todos los endpoints de consulta se sirven en relación con una URL base <code>vote_servers</code> de la configuración de votación. Las respuestas son mensajes protobuf serializados en JSON; los campos de bytes están codificados en base64.</p>
+<h3 id="active-round"><a class="hanchor" href="#active-round" aria-hidden="true" tabindex="-1">#</a>Ronda activa</h3>
+<pre><code>GET /shielded-vote/v1/rounds/active
+</code></pre>
+<p>Devuelve la ronda de votación activa, si la hay.</p>
+<p><strong>Cuerpo de la respuesta:</strong> Un objeto JSON que contiene un campo <code>round</code> con la estructura <code>VoteRound</code>:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>vote_round_id</code></td><td>base64 (32 bytes)</td><td>Identificador de la ronda.</td></tr><tr><td><code>snapshot_height</code></td><td>uint64</td><td>Altura de bloque de la instantánea de Zcash.</td></tr><tr><td><code>snapshot_blockhash</code></td><td>base64 (32 bytes)</td><td>Hash del bloque de Zcash en la instantánea.</td></tr><tr><td><code>proposals_hash</code></td><td>base64 (32 bytes)</td><td>Hash SHA-256 del arreglo de propuestas (véase [Proposals Hash]).</td></tr><tr><td><code>vote_end_time</code></td><td>uint64</td><td>Marca de tiempo Unix (segundos).</td></tr><tr><td><code>nullifier_imt_root</code></td><td>base64 (32 bytes)</td><td>Raíz del árbol de no membresía de nullifiers.</td></tr><tr><td><code>nc_root</code></td><td>base64 (32 bytes)</td><td>Raíz del árbol de compromisos de notas de Orchard.</td></tr><tr><td><code>status</code></td><td>uint32</td><td>Enumeración del estado de la sesión (4=PENDING, 1=ACTIVE, 2=TALLYING, 3=FINALIZED).</td></tr><tr><td><code>ea_pk</code></td><td>base64 (32 bytes)</td><td>Clave pública de la autoridad electoral (punto comprimido de Pallas).</td></tr><tr><td><code>proposals</code></td><td>arreglo</td><td>Propuestas con <code>id</code> (uint32), <code>title</code>, <code>description</code> y <code>options</code>.</td></tr><tr><td><code>description</code></td><td>cadena</td><td>Descripción de la ronda legible por humanos.</td></tr><tr><td><code>title</code></td><td>cadena</td><td>Título corto de la ronda legible por humanos.</td></tr><tr><td><code>creator</code></td><td>cadena</td><td>Dirección de la cuenta que creó la sesión.</td></tr><tr><td><code>created_at_height</code></td><td>uint64</td><td>Altura de bloque de la cadena de votación en la que se creó la ronda.</td></tr></tbody></table>
+<p>La respuesta puede contener campos adicionales relacionados con la ceremonia de claves de la EA y el descifrado por umbral (p. ej., estado de la ceremonia, claves de validadores, cargas útiles ECIES). Estos campos existen para la coordinación de los validadores y no afectan a las operaciones de la billetera, por lo que no se documentan aquí. Véase <sup><a href="#user-content-fn-ea-ceremony" id="user-content-fnref-ea-ceremony-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> para más detalles.</p>
+<p>El campo <code>proposals</code> de la respuesta VoteRound contiene las mismas propuestas que el documento de configuración de votación. El campo <code>proposals_hash</code> puede usarse para verificar la consistencia entre ambas fuentes.</p>
+<h3 id="proposals-hash"><a class="hanchor" href="#proposals-hash" aria-hidden="true" tabindex="-1">#</a>Hash de propuestas</h3>
+<p>El <code>proposals_hash</code> es el SHA-256 de la serialización JSON canónica del arreglo <code>proposals</code>, lo que permite a las billeteras verificar que las propuestas mostradas al usuario coincidan con las de la cadena de votación.</p>
+<p>Para calcularlo: construya un arreglo JSON de objetos de propuesta que contengan <code>id</code>, <code>title</code>, <code>description</code> y <code>options</code> (cada uno con <code>index</code>, <code>label</code>), ordenados primero por <code>id</code> y luego por <code>index</code> de forma ascendente, con las claves de objeto en el orden indicado. Serialice sin espacios en blanco y aplique SHA-256 al resultado UTF-8. La serialización JSON NO DEBE (MUST NOT) escapar el carácter de barra diagonal (<code>/</code>); los caracteres no ASCII se emiten como bytes UTF-8, no como escapes <code>\uXXXX</code>. Los caracteres de control (U+0000 hasta U+001F) se escapan según el RFC 8259 (<code>\b</code>, <code>\f</code>, <code>\n</code>, <code>\r</code>, <code>\t</code> o <code>\u00XX</code>).</p>
+<p>Ejemplo de preimagen (tomada de [Vote Configuration Format]):</p>
+<pre><code>[{"id":1,"title":"Approve protocol upgrade","description":"Approve or oppose the proposed protocol upgrade.","options":[{"index":0,"label":"Support"},{"index":1,"label":"Oppose"}]}]
+</code></pre>
+<p>SHA-256 de la preimagen anterior: <code>3f9a361d43c4ddb77ad138a091374e2e2958718e64937f33df99a09bd567e63d</code>.</p>
+<p>Las billeteras DEBERÍAN (SHOULD) verificar <code>proposals_hash</code> contra la configuración de votación antes de continuar.</p>
+<p>Si no existe ninguna ronda activa, la respuesta contiene un campo <code>round</code> con un valor nulo o vacío.</p>
+<h3 id="round-details"><a class="hanchor" href="#round-details" aria-hidden="true" tabindex="-1">#</a>Detalles de la ronda</h3>
+<pre><code>GET /shielded-vote/v1/round/{round_id}
+</code></pre>
+<p>Devuelve los detalles de una ronda de votación específica.</p>
+<p><strong>Parámetros de ruta:</strong></p>
+<ul>
+<li><code>round_id</code>: Identificador hexadecimal de 32 bytes de la ronda de votación (64 caracteres).</li>
+</ul>
+<p><strong>Cuerpo de la respuesta:</strong> La misma estructura <code>VoteRound</code> que en [Active Round].</p>
+<h3 id="list-rounds"><a class="hanchor" href="#list-rounds" aria-hidden="true" tabindex="-1">#</a>Listar rondas</h3>
+<pre><code>GET /shielded-vote/v1/rounds
+</code></pre>
+<p>Devuelve todas las rondas de votación almacenadas.</p>
+<p><strong>Cuerpo de la respuesta:</strong> Un objeto JSON que contiene un arreglo <code>rounds</code> de estructuras <code>VoteRound</code>.</p>
+<h3 id="commitment-tree-latest"><a class="hanchor" href="#commitment-tree-latest" aria-hidden="true" tabindex="-1">#</a>Árbol de compromisos (más reciente)</h3>
+<pre><code>GET /shielded-vote/v1/commitment-tree/{round_id}/latest
+</code></pre>
+<p>Devuelve el estado más reciente del árbol de compromisos de una ronda.</p>
+<p><strong>Parámetros de ruta:</strong></p>
+<ul>
+<li><code>round_id</code>: Identificador hexadecimal de 32 bytes de la ronda de votación.</li>
+</ul>
+<p><strong>Cuerpo de la respuesta:</strong> Un objeto JSON que contiene un campo <code>tree</code>:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>next_index</code></td><td>uint64</td><td>Índice de la próxima hoja que se escribirá.</td></tr><tr><td><code>root</code></td><td>base64 (32 bytes)</td><td>Raíz de Merkle actual.</td></tr><tr><td><code>height</code></td><td>uint64</td><td>Altura de bloque en la que se calculó esta raíz.</td></tr><tr><td><code>next_index_at_root</code></td><td>uint64</td><td><code>next_index</code> en el momento en que se almacenó la raíz.</td></tr></tbody></table>
+<h3 id="commitment-tree-at-height"><a class="hanchor" href="#commitment-tree-at-height" aria-hidden="true" tabindex="-1">#</a>Árbol de compromisos en una altura</h3>
+<pre><code>GET /shielded-vote/v1/commitment-tree/{round_id}/{height}
+</code></pre>
+<p>Devuelve el estado del árbol de compromisos en una altura de bloque específica.</p>
+<p><strong>Parámetros de ruta:</strong></p>
+<ul>
+<li><code>round_id</code>: Identificador hexadecimal de 32 bytes de la ronda de votación.</li>
+<li><code>height</code>: Altura de bloque (entero decimal).</li>
+</ul>
+<p><strong>Cuerpo de la respuesta:</strong> La misma estructura <code>CommitmentTreeState</code> que en [Commitment Tree (Latest)].</p>
+<h3 id="commitment-tree-leaves"><a class="hanchor" href="#commitment-tree-leaves" aria-hidden="true" tabindex="-1">#</a>Hojas del árbol de compromisos</h3>
+<pre><code>GET /shielded-vote/v1/commitment-tree/{round_id}/leaves?from_height=X&#x26;to_height=Y
+</code></pre>
+<p>Devuelve las hojas del árbol de compromisos añadidas en los bloques dentro del rango de alturas especificado. Lo usan los clientes de billetera para sincronizar de forma incremental la copia local del árbol de compromisos de votación.</p>
+<p><strong>Parámetros de ruta:</strong></p>
+<ul>
+<li><code>round_id</code>: Identificador hexadecimal de 32 bytes de la ronda de votación.</li>
+</ul>
+<p><strong>Parámetros de consulta:</strong></p>
+<ul>
+<li><code>from_height</code>: Altura de bloque inicial (inclusive).</li>
+<li><code>to_height</code>: Altura de bloque final (inclusive).</li>
+</ul>
+<p><strong>Cuerpo de la respuesta:</strong> Un objeto JSON que contiene un arreglo <code>blocks</code>. Cada entrada representa un bloque:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>height</code></td><td>uint64</td><td>Altura de bloque.</td></tr><tr><td><code>start_index</code></td><td>uint64</td><td>Índice de la primera hoja añadida en este bloque.</td></tr><tr><td><code>leaves</code></td><td>arreglo de base64 (32 bytes)</td><td>Hojas de compromiso (elementos del cuerpo base de Pallas, cada uno en little-endian).</td></tr></tbody></table>
+<h3 id="tally-results"><a class="hanchor" href="#tally-results" aria-hidden="true" tabindex="-1">#</a>Resultados del escrutinio</h3>
+<pre><code>GET /shielded-vote/v1/tally-results/{round_id}
+</code></pre>
+<p>Devuelve los resultados finales (descifrados) del escrutinio para una ronda de votación. Solo está disponible después de que la ronda alcance el estado FINALIZED.</p>
+<p><strong>Parámetros de ruta:</strong></p>
+<ul>
+<li><code>round_id</code>: Identificador hexadecimal de 32 bytes de la ronda de votación.</li>
+</ul>
+<p><strong>Cuerpo de la respuesta:</strong> Un objeto JSON que contiene un arreglo <code>results</code>:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>vote_round_id</code></td><td>base64 (32 bytes)</td><td>Identificador de la ronda.</td></tr><tr><td><code>proposal_id</code></td><td>uint32</td><td>Identificador de la propuesta.</td></tr><tr><td><code>vote_decision</code></td><td>uint32</td><td>Índice de la opción de voto.</td></tr><tr><td><code>total_value</code></td><td>uint64</td><td>Valor agregado descifrado (zatoshi).</td></tr></tbody></table>
+<h3 id="transaction-status"><a class="hanchor" href="#transaction-status" aria-hidden="true" tabindex="-1">#</a>Estado de la transacción</h3>
+<pre><code>GET /shielded-vote/v1/tx/{hash}
+</code></pre>
+<p>Devuelve el estado de confirmación de una transacción enviada previamente.</p>
+<p><strong>Parámetros de ruta:</strong></p>
+<ul>
+<li><code>hash</code>: Hash de la transacción codificado en hexadecimal.</li>
+</ul>
+<p><strong>Cuerpo de la respuesta:</strong></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>height</code></td><td>cadena</td><td>Altura de bloque en la que la transacción fue incluida (vacío si está pendiente).</td></tr><tr><td><code>code</code></td><td>uint32</td><td>Código de resultado (0 = éxito).</td></tr><tr><td><code>log</code></td><td>cadena</td><td>Mensaje de error si <code>code</code> es distinto de cero.</td></tr><tr><td><code>events</code></td><td>arreglo</td><td>Eventos ABCI emitidos por la transacción.</td></tr></tbody></table>
+<h2 id="delegation-transaction"><a class="hanchor" href="#delegation-transaction" aria-hidden="true" tabindex="-1">#</a>Transacción de delegación</h2>
+<p>La transacción de delegación registra el peso de voto de un titular en el árbol de compromiso de votación. Corresponde a ZKP1 (el circuito de delegación) según lo especificado en <sup><a href="#user-content-fn-orchard-balance-proof" id="user-content-fnref-orchard-balance-proof-4" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> y <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-3" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+<h3 id="endpoint"><a class="hanchor" href="#endpoint" aria-hidden="true" tabindex="-1">#</a>Punto de conexión</h3>
+<pre><code>POST /shielded-vote/v1/delegate-vote
+</code></pre>
+<h3 id="request-body"><a class="hanchor" href="#request-body" aria-hidden="true" tabindex="-1">#</a>Cuerpo de la solicitud</h3>
+<p>Un objeto JSON con los siguientes campos:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>rk</code></td><td>base64 (32 bytes)</td><td>Clave de verificación de autorización de gasto aleatorizada (punto de Pallas comprimido).</td></tr><tr><td><code>spend_auth_sig</code></td><td>base64 (64 bytes)</td><td>Firma de autorización de gasto con RedPallas.</td></tr><tr><td><code>signed_note_nullifier</code></td><td>base64 (32 bytes)</td><td>Nullifier de la nota firmada simulada.</td></tr><tr><td><code>cmx_new</code></td><td>base64 (32 bytes)</td><td>Compromiso de la nota de salida (coordenada x extraída).</td></tr><tr><td><code>van_cmx</code></td><td>base64 (32 bytes)</td><td>Compromiso de la nota de autoridad de voto (coordenada x extraída).</td></tr><tr><td><code>gov_nullifiers</code></td><td>arreglo de base64 (32 bytes cada uno)</td><td>Nullifiers de gobernanza (hasta 5). Uno por nota reclamada.</td></tr><tr><td><code>proof</code></td><td>base64 (variable)</td><td>Prueba ZKP1 de Halo 2.</td></tr><tr><td><code>vote_round_id</code></td><td>base64 (32 bytes)</td><td>Identificador de la ronda de votación.</td></tr><tr><td><code>sighash</code></td><td>base64 (32 bytes)</td><td>Sighash calculado por el cliente para la verificación de la firma.</td></tr></tbody></table>
+<h3 id="sighash"><a class="hanchor" href="#sighash" aria-hidden="true" tabindex="-1">#</a>Sighash</h3>
+<p>El campo <code>sighash</code> es el sighash blindado de 32 bytes de ZIP 244 <sup><a href="#user-content-fn-zip-244" id="user-content-fnref-zip-244" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup> extraído del PCZT firmado después del flujo de firma de la billetera de hardware. La cadena verifica el <code>spend_auth_sig</code> contra este sighash proporcionado por el cliente; no lo recalcula. Consulte <sup><a href="#user-content-fn-orchard-balance-proof" id="user-content-fnref-orchard-balance-proof-5" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> para la construcción del PCZT y el flujo de firma que produce el sighash.</p>
+<h3 id="response"><a class="hanchor" href="#response" aria-hidden="true" tabindex="-1">#</a>Respuesta</h3>
+<p>Todos los puntos de conexión de envío de transacciones devuelven el mismo formato de respuesta:</p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">{</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "tx_hash"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"&#x3C;hex-encoded transaction hash>"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "code"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#023B95;--shiki-dark:#91CBFF">0</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">,</span></span>
+<span class="line"><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">  "log"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">""</span></span>
+<span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">}</span></span></code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>tx_hash</code></td><td>cadena (hex)</td><td>Hash de la transacción para la consulta de estado.</td></tr><tr><td><code>code</code></td><td>uint32</td><td>Código de resultado. 0 indica que la transacción fue aceptada en el mempool.</td></tr><tr><td><code>log</code></td><td>cadena</td><td>Descripción del error cuando <code>code</code> es distinto de cero. Se omite en caso de éxito.</td></tr></tbody></table>
+<h2 id="vote-commitment-transaction"><a class="hanchor" href="#vote-commitment-transaction" aria-hidden="true" tabindex="-1">#</a>Transacción de compromiso de votación</h2>
+<p>La transacción de compromiso de votación emite un voto sobre una propuesta específica. Corresponde a ZKP2 (el circuito de compromiso de votación) según lo especificado en <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-4" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+<h3 id="endpoint-1"><a class="hanchor" href="#endpoint-1" aria-hidden="true" tabindex="-1">#</a>Punto de conexión</h3>
+<pre><code>POST /shielded-vote/v1/cast-vote
+</code></pre>
+<h3 id="request-body-1"><a class="hanchor" href="#request-body-1" aria-hidden="true" tabindex="-1">#</a>Cuerpo de la solicitud</h3>
+<p>Un objeto JSON con los siguientes campos:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>van_nullifier</code></td><td>base64 (32 bytes)</td><td>Nullifier de la nota de autoridad de voto que se consume.</td></tr><tr><td><code>vote_authority_note_new</code></td><td>base64 (32 bytes)</td><td>Compromiso de la nueva nota de autoridad de voto.</td></tr><tr><td><code>vote_commitment</code></td><td>base64 (32 bytes)</td><td>Compromiso de votación (hash Poseidon que vincula el voto).</td></tr><tr><td><code>proposal_id</code></td><td>uint32</td><td>Identificador de la propuesta (1 a 15).</td></tr><tr><td><code>proof</code></td><td>base64 (variable)</td><td>Prueba ZKP2 de Halo 2.</td></tr><tr><td><code>vote_round_id</code></td><td>base64 (32 bytes)</td><td>Identificador de la ronda de votación.</td></tr><tr><td><code>vote_comm_tree_anchor_height</code></td><td>uint64</td><td>Altura de bloque de la raíz del árbol de compromisos de votación utilizada como ancla.</td></tr><tr><td><code>vote_auth_sig</code></td><td>base64 (64 bytes)</td><td>Firma RedPallas bajo la clave de votación aleatorizada.</td></tr><tr><td><code>r_vpk</code></td><td>base64 (32 bytes)</td><td>Clave pública de votación aleatorizada (punto Pallas comprimido).</td></tr></tbody></table>
+<h3 id="response-1"><a class="hanchor" href="#response-1" aria-hidden="true" tabindex="-1">#</a>Respuesta</h3>
+<p>El mismo formato de respuesta que en [Transacción de delegación].</p>
+<h2 id="share-delegation"><a class="hanchor" href="#share-delegation" aria-hidden="true" tabindex="-1">#</a>Delegación de participaciones</h2>
+<p>Después de emitir un compromiso de votación, la billetera construye cargas útiles de participaciones cifradas y las envía a servidores auxiliares. El servidor auxiliar pone en cola cada participación y la envía a la cadena en el momento especificado por el cliente. Véase <sup><a href="#user-content-fn-submission-server" id="user-content-fnref-submission-server-4" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> para el flujo de procesamiento del lado del servidor y <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-5" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> para la construcción de participaciones.</p>
+<p>Los siguientes endpoints se sirven desde las mismas URL base <code>vote_servers</code> que los endpoints de consulta de la cadena.</p>
+<h3 id="submit-share"><a class="hanchor" href="#submit-share" aria-hidden="true" tabindex="-1">#</a>Enviar participación</h3>
+<pre><code>POST /shielded-vote/v1/shares
+</code></pre>
+<p>Envía una sola participación de voto cifrada a un servidor auxiliar.</p>
+<p><strong>Cuerpo de la solicitud:</strong> Un objeto JSON con los siguientes campos:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>shares_hash</code></td><td>base64 (32 bytes)</td><td>Hash Poseidon que compromete todas las participaciones de esta votación.</td></tr><tr><td><code>proposal_id</code></td><td>uint32</td><td>Identificador de la propuesta (indexado desde 1).</td></tr><tr><td><code>vote_decision</code></td><td>uint32</td><td>Índice de la opción de voto (indexado desde 0).</td></tr><tr><td><code>enc_share</code></td><td>objeto</td><td>Participación cifrada (véase más abajo).</td></tr><tr><td><code>tree_position</code></td><td>uint64</td><td>Índice de hoja del árbol de compromisos de voto.</td></tr><tr><td><code>vote_round_id</code></td><td>cadena (hexadecimal, 64 caracteres)</td><td>Identificador de ronda de votación codificado en hexadecimal.</td></tr><tr><td><code>share_comms</code></td><td>arreglo de base64 (32 bytes cada uno)</td><td>16 compromisos Poseidon, uno por participación.</td></tr><tr><td><code>primary_blind</code></td><td>base64 (32 bytes)</td><td>Factor de cegamiento de la participación revelada.</td></tr><tr><td><code>submit_at</code></td><td>uint64</td><td>Marca de tiempo Unix (segundos) en la que el auxiliar debe enviar esta participación a la cadena. 0 significa enviarla en el último momento posible antes de <code>vote_end_time</code>.</td></tr></tbody></table>
+<p>El objeto <code>enc_share</code> contiene:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>c1</code></td><td>base64 (32 bytes)</td><td>Componente <code>C1</code> del cifrado ElGamal (punto Pallas comprimido).</td></tr><tr><td><code>c2</code></td><td>base64 (32 bytes)</td><td>Componente <code>C2</code> del cifrado ElGamal (punto Pallas comprimido).</td></tr><tr><td><code>share_index</code></td><td>uint32</td><td>Índice de la participación (de 0 a 15).</td></tr></tbody></table>
+<p><strong>Cuerpo de la respuesta:</strong></p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">{</span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"status"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"queued"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">}</span></span></code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>status</code></td><td>cadena</td><td><code>"queued"</code> si se acepta, <code>"duplicate"</code> si ya se recibió.</td></tr><tr><td><code>error</code></td><td>cadena</td><td>Descripción del error (presente solo en caso de fallo).</td></tr></tbody></table>
+<h3 id="share-nullifier"><a class="hanchor" href="#share-nullifier" aria-hidden="true" tabindex="-1">#</a>Nullifier de participación</h3>
+<p>Cada participación enviada tiene un nullifier determinista derivado de los campos del compromiso de voto y del factor de cegamiento de la participación. La billetera calcula este nullifier localmente y lo codifica en hexadecimal (minúsculas, 64 caracteres) para usarlo en la ruta del endpoint [Estado de la participación]. La derivación se especifica en <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-6" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</p>
+<h3 id="share-status"><a class="hanchor" href="#share-status" aria-hidden="true" tabindex="-1">#</a>Estado de la participación</h3>
+<pre><code>GET /shielded-vote/v1/share-status/{roundId}/{nullifier}
+</code></pre>
+<p>Consulta si una participación enviada ha sido incluida en la cadena.</p>
+<p><strong>Parámetros de ruta:</strong></p>
+<ul>
+<li><code>roundId</code>: Identificador hexadecimal de 32 bytes de la ronda de votación (64 caracteres).</li>
+<li><code>nullifier</code>: Nullifier de participación de 32 bytes codificado en hexadecimal (64 caracteres), calculado como se especifica en [Nullifier de participación].</li>
+</ul>
+<p><strong>Cuerpo de la respuesta:</strong></p>
+<pre class="shiki shiki-themes github-light-high-contrast github-dark-high-contrast" style="--shiki-light:#0e1116;--shiki-dark:#f0f3f6;--shiki-light-bg:#ffffff;--shiki-dark-bg:#0a0c10" tabindex="0"><code><span class="line"><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">{</span><span style="--shiki-light:#024C1A;--shiki-dark:#72F088">"status"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">: </span><span style="--shiki-light:#032563;--shiki-dark:#ADDCFF">"pending"</span><span style="--shiki-light:#0E1116;--shiki-dark:#F0F3F6">}</span></span></code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody><tr><td><code>status</code></td><td>cadena</td><td><code>"pending"</code> si aún no está en la cadena, <code>"confirmed"</code> si el nullifier de la participación ha sido registrado en la cadena.</td></tr></tbody></table>
+<h2 id="vote-commitment-tree"><a class="hanchor" href="#vote-commitment-tree" aria-hidden="true" tabindex="-1">#</a>Árbol de compromisos de voto</h2>
+<p>El árbol de compromisos de voto es un árbol Merkle de solo adición que registra las notas de autoridad de voto y los compromisos de voto.</p>
+<p>La estructura del árbol de compromisos de voto, su función de hash y la codificación de las hojas se especifican en <sup><a href="#user-content-fn-voting-protocol" id="user-content-fnref-voting-protocol-7" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>. Los clientes de billetera interactúan con el árbol mediante los endpoints de consulta definidos en [Commitment Tree (Latest)], [Commitment Tree at Height] y [Commitment Tree Leaves].</p>
+<h2 id="private-information-retrieval-nullifier-exclusion-proofs"><a class="hanchor" href="#private-information-retrieval-nullifier-exclusion-proofs" aria-hidden="true" tabindex="-1">#</a>Pruebas de exclusión de nullifier mediante recuperación de información privada</h2>
+<p>Las pruebas de exclusión de nullifier se obtienen mediante el protocolo PIR especificado en <sup><a href="#user-content-fn-nullifier-pir" id="user-content-fnref-nullifier-pir-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. La billetera se conecta a uno de los <code>pir_endpoints</code> de la configuración de la votación; la selección de la versión sigue las reglas de [Version Handling].</p>
+<h2 id="version-handling"><a class="hanchor" href="#version-handling" aria-hidden="true" tabindex="-1">#</a>Manejo de versiones</h2>
+<p>Todas las cadenas de versión en <code>supported_versions</code> usan la forma <code>"v" MAJOR</code> (p. ej., <code>"v0"</code>, <code>"v1"</code>). Un incremento de la versión mayor indica un cambio incompatible; dentro de la misma versión mayor, las implementaciones permanecen compatibles.</p>
+<p>Una billetera DEBE (MUST) rechazar la configuración si no admite la versión de <code>vote_server</code>, <code>vote_protocol</code> o <code>tally</code> anunciada, o si <code>pir</code> no contiene ninguna versión que admita. Si alguna verificación falla, la billetera NO DEBE (MUST NOT) continuar y DEBERÍA (SHOULD) solicitar al usuario que actualice.</p>
+<h3 id="url-path-prefix"><a class="hanchor" href="#url-path-prefix" aria-hidden="true" tabindex="-1">#</a>Prefijo de ruta URL</h3>
+<p>Las rutas de los endpoints REST incluyen un prefijo de versión (p. ej., <code>/shielded-vote/v1/</code>). La versión de la ruta corresponde a la versión mayor declarada en <code>supported_versions.vote_server</code>. Un valor de <code>vote_server</code> igual a <code>"v1"</code> usa el prefijo <code>/shielded-vote/v1/</code>.</p>
+<h3 id="relationship-to-config_version"><a class="hanchor" href="#relationship-to-config_version" aria-hidden="true" tabindex="-1">#</a>Relación con <code>config_version</code></h3>
+<p><code>config_version</code> define la versión de la estructura del documento JSON de configuración de la votación en sí (nombres de campos, tipos, anidamiento). Las versiones de los componentes (<code>vote_server</code>, <code>vote_protocol</code>, <code>tally</code>, <code>pir</code>) definen la versión del comportamiento del protocolo. Todas pueden evolucionar de forma independiente: un cambio estructural en el esquema de configuración (p. ej., agregar un nuevo campo obligatorio de nivel superior) incrementa <code>config_version</code>, mientras que un cambio en el comportamiento de los endpoints incrementa <code>vote_server</code>, un cambio en los circuitos o en la estructura del árbol incrementa <code>vote_protocol</code>, y un cambio en el descifrado o la agregación incrementa <code>tally</code>.</p>
+<h2 id="transaction-lifecycle"><a class="hanchor" href="#transaction-lifecycle" aria-hidden="true" tabindex="-1">#</a>Ciclo de vida de la transacción</h2>
+<h3 id="broadcast-semantics"><a class="hanchor" href="#broadcast-semantics" aria-hidden="true" tabindex="-1">#</a>Semántica de difusión</h3>
+<p>Los endpoints de envío de transacciones (<code>/delegate-vote</code>, <code>/cast-vote</code>) responden de forma síncrona tras la validación inicial. Una respuesta exitosa (HTTP 200, <code>code</code> = 0) indica que la transacción pasó la validación y entró en el mempool. No garantiza su inclusión en un bloque.</p>
+<h3 id="confirmation-polling"><a class="hanchor" href="#confirmation-polling" aria-hidden="true" tabindex="-1">#</a>Sondeo de confirmación</h3>
+<p>Después de recibir una respuesta de difusión exitosa, la billetera DEBERÍA (SHOULD) sondear el endpoint [Transaction Status] usando el <code>tx_hash</code> de la respuesta. La transacción está confirmada cuando la respuesta incluye un <code>height</code> no vacío y <code>code</code> = 0.</p>
+<h3 id="timeouts"><a class="hanchor" href="#timeouts" aria-hidden="true" tabindex="-1">#</a>Tiempos de espera</h3>
+<p>La validación de transacciones incluye la verificación de pruebas de conocimiento cero, lo cual puede tardar de 30 a 60 segundos. Los clientes HTTP de la billetera DEBERÍAN (SHOULD) usar un tiempo de espera de al menos 120 segundos para las solicitudes de envío de transacciones.</p>
+<h2 id="encoding-conventions"><a class="hanchor" href="#encoding-conventions" aria-hidden="true" tabindex="-1">#</a>Convenciones de codificación</h2>
+<p>Todos los datos intercambiados entre los clientes de billetera y los servidores usan las codificaciones descritas en esta sección.</p>
+<h3 id="cryptographic-types"><a class="hanchor" href="#cryptographic-types" aria-hidden="true" tabindex="-1">#</a>Tipos criptográficos</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Tipo</th><th>Tamaño</th><th>Codificación</th></tr></thead><tbody><tr><td>Elemento del cuerpo base de Pallas</td><td>32 bytes</td><td>Representación canónica little-endian. Las implementaciones DEBEN (MUST) rechazar valores >= el módulo del cuerpo base de Pallas.</td></tr><tr><td>Punto de Pallas comprimido</td><td>32 bytes</td><td>Compresión de puntos de Pallas estándar. <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup></td></tr><tr><td>Texto cifrado ElGamal</td><td>64 bytes</td><td><code>C1</code> (32 bytes) seguido de <code>C2</code> (32 bytes), cada uno un punto de Pallas comprimido.</td></tr><tr><td>Prueba de Halo 2</td><td>variable</td><td>Secuencia de bytes opaca.</td></tr><tr><td>Firma de RedPallas</td><td>64 bytes</td><td><code>R</code> (32 bytes) seguido de <code>s</code> (32 bytes).</td></tr></tbody></table>
+<h3 id="json-encoding"><a class="hanchor" href="#json-encoding" aria-hidden="true" tabindex="-1">#</a>Codificación JSON</h3>
+<p>Todos los endpoints REST aceptan y devuelven <code>application/json</code>.</p>
+<ul>
+<li><strong>Arreglos de bytes</strong>: Codificación base64 estándar con relleno (RFC 4648 Sección 4 <sup><a href="#user-content-fn-rfc4648" id="user-content-fnref-rfc4648" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>).</li>
+<li><strong><code>vote_round_id</code></strong>: La codificación de <code>vote_round_id</code> varía según el contexto. La siguiente tabla enumera cada aparición y su codificación:</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Contexto</th><th>Codificación</th></tr></thead><tbody><tr><td>JSON de configuración de voto (campo <code>vote_round_id</code>)</td><td>Hexadecimal (64 caracteres en minúscula)</td></tr><tr><td>Parámetros de ruta URL (<code>{round_id}</code>, <code>{roundId}</code>)</td><td>Hexadecimal (64 caracteres en minúscula)</td></tr><tr><td>Cuerpo de la solicitud de delegación (<code>vote_round_id</code>)</td><td>Base64 (32 bytes)</td></tr><tr><td>Cuerpo de la solicitud de compromiso de voto (<code>vote_round_id</code>)</td><td>Base64 (32 bytes)</td></tr><tr><td>Cuerpo de la solicitud de envío de participación (<code>vote_round_id</code>)</td><td>Hexadecimal (64 caracteres en minúscula)</td></tr><tr><td>Cuerpos de respuesta de consulta de cadena (<code>vote_round_id</code>)</td><td>Base64 (32 bytes)</td></tr></tbody></table>
+<ul>
+<li><strong>Enteros</strong>: Números JSON. Los campos tipados <code>uint32</code> o <code>uint64</code> en la definición del protocolo se codifican como números JSON.</li>
+<li><strong>Enumeraciones</strong>: Números JSON correspondientes al valor del enum de protobuf (p. ej., <code>SESSION_STATUS_ACTIVE</code> = 1).</li>
+</ul>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<h2 id="unified-vote-servers"><a class="hanchor" href="#unified-vote-servers" aria-hidden="true" tabindex="-1">#</a>Servidores de voto unificados</h2>
+<p>Todos los endpoints — consultas de cadena, envío de transacciones y envío de participaciones — se sirven bajo el prefijo de ruta <code>/shielded-vote/v1/</code> desde las mismas URLs base <code>vote_servers</code>. En la arquitectura actual, un único proceso <code>svoted</code> aloja todos los endpoints en el mismo puerto, por lo que una URL auxiliar separada es innecesaria.</p>
+<h2 id="independent-component-versions"><a class="hanchor" href="#independent-component-versions" aria-hidden="true" tabindex="-1">#</a>Versiones independientes de componentes</h2>
+<p>Cada campo <code>supported_versions</code> hace seguimiento de un componente que puede cambiar con su propio calendario: <code>vote_server</code> cubre la superficie de la API REST, <code>vote_protocol</code> cubre los circuitos ZKP y la estructura del árbol de compromisos, <code>tally</code> cubre el descifrado de umbral y la agregación de resultados, y <code>pir</code> cubre la obtención de nullifiers. Separarlos evita forzar una actualización de la billetera cuando solo cambia un componente — por ejemplo, un nuevo método de escrutinio no requiere que las billeteras actualicen su código de generación de pruebas.</p>
+<h2 id="json-over-protobuf"><a class="hanchor" href="#json-over-protobuf" aria-hidden="true" tabindex="-1">#</a>JSON sobre Protobuf</h2>
+<p>La API REST usa codificación JSON en lugar de serialización protobuf binaria. JSON tiene amplio soporte en las plataformas de desarrollo de billeteras (Swift, Kotlin, TypeScript, Rust) y no requiere generación de código protobuf. La contrapartida en el tamaño de los mensajes es aceptable para los volúmenes de solicitudes y respuestas involucrados.</p>
+<h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Cuestiones abiertas</h1>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>Una implementación de referencia de la API REST de la cadena de votos y del servidor auxiliar está disponible en <a href="https://github.com/valargroup/vote-sdk">valargroup/vote-sdk</a>.</p>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Información sobre BCP 14 -- "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" y "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-orchard-balance-proof">
+<p><a href="/upstream/draft-valargroup-orchard-balance-proof.md">Draft ZIP: Orchard Proof-of-Balance</a> <a href="#user-content-fnref-orchard-balance-proof" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-orchard-balance-proof-2" data-footnote-backref="" aria-label="Back to reference 2-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-orchard-balance-proof-3" data-footnote-backref="" aria-label="Back to reference 2-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-orchard-balance-proof-4" data-footnote-backref="" aria-label="Back to reference 2-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-orchard-balance-proof-5" data-footnote-backref="" aria-label="Back to reference 2-5" class="data-footnote-backref">↩<sup>5</sup></a></p>
+</li>
+<li id="user-content-fn-voting-protocol">
+<p><a href="/upstream/draft-valargroup-shielded-voting.md">Draft ZIP: Shielded Voting Protocol</a> <a href="#user-content-fnref-voting-protocol" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-voting-protocol-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-voting-protocol-3" data-footnote-backref="" aria-label="Back to reference 3-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-voting-protocol-4" data-footnote-backref="" aria-label="Back to reference 3-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-voting-protocol-5" data-footnote-backref="" aria-label="Back to reference 3-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-voting-protocol-6" data-footnote-backref="" aria-label="Back to reference 3-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-voting-protocol-7" data-footnote-backref="" aria-label="Back to reference 3-7" class="data-footnote-backref">↩<sup>7</sup></a></p>
+</li>
+<li id="user-content-fn-nullifier-pir">
+<p><a href="/upstream/draft-valargroup-nullifier-pir.md">Draft ZIP: Private Information Retrieval for Nullifier Exclusion Proofs</a> <a href="#user-content-fnref-nullifier-pir" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-nullifier-pir-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-nullifier-pir-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-submission-server">
+<p><a href="/upstream/draft-valargroup-submission-server.md">Draft ZIP: Shielded Voting Submission Server</a> <a href="#user-content-fnref-submission-server" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-submission-server-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-submission-server-3" data-footnote-backref="" aria-label="Back to reference 5-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-submission-server-4" data-footnote-backref="" aria-label="Back to reference 5-4" class="data-footnote-backref">↩<sup>4</sup></a></p>
+</li>
+<li id="user-content-fn-ea-ceremony">
+<p><a href="/upstream/draft-valargroup-ea-key-ceremony.md">Draft ZIP: Election Authority Key Ceremony</a> <a href="#user-content-fnref-ea-ceremony" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-ea-ceremony-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-244">
+<p><a href="/upstream/zip-0244.rst">ZIP 244: No maleabilidad del identificador de transacción</a> <a href="#user-content-fnref-zip-244" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification (Especificación del Protocolo Zcash), versión 2025.6.3 [NU6.1] o posterior</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-rfc4648">
+<p><a href="https://www.rfc-editor.org/rfc/rfc4648">RFC 4648: Codificaciones de datos Base16, Base32 y Base64</a> <a href="#user-content-fnref-rfc4648" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>

@@ -1,0 +1,1068 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)" y "NO DEBE (MUST NOT)" en este documento deben interpretarse como se describe en RFC 2119. <a class="brackets" href="#rfc2119" id="footnote-reference-1" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a></p>
+
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Esta propuesta especifica tres enfoques posibles para integrar el protocolo zk-Channels <a href="#system-message-2"><span class="problematic" id="footnote-reference-2">[#zk-Channels-paper]_</span></a> en Zcash.</p>
+
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>Los protocolos de capa 2 como Lightning permiten pagos escalables para Bitcoin, pero carecen de los mecanismos para ofrecer garantías de privacidad sólidas en la red de pagos. Zcash ofrece transacciones privadas, pero actualmente carece de características que permitirían un canal de pago al estilo de Lightning. Esta propuesta especifica una integración del protocolo de canales de pago que preserva la privacidad zkChannel sobre Zcash <a href="#system-message-3"><span class="problematic" id="footnote-reference-3">[#zk-Channels-paper]_</span></a>.</p>
+
+<h1 id="zk-channels-high-level-overview"><a class="hanchor" href="#zk-channels-high-level-overview" aria-hidden="true" tabindex="-1">#</a>Vista general de zk-Channels a alto nivel</h1>
+<p>zk-Channels permite que dos partes, un cliente y un comerciante, abran un canal de pago anónimo y asimétrico donde solo el cliente puede iniciar la apertura del canal y los pagos. Si bien la apertura y el cierre del canal se transmiten en la cadena, lo que hace que los participantes del canal sean a lo sumo seudónimos, los pagos se realizan directamente entre el cliente y el comerciante fuera de la cadena de forma anónima e inenlazable.</p>
+<p>La apertura del canal puede dividirse en tres fases: inicialización, activación y desvinculación:</p>
+<ol class="arabic simple">
+<li><p>en la fase de inicialización, el cliente y el comerciante configuran el canal acordando los saldos iniciales y la información auxiliar.</p></li>
+<li><p>en la fase de activación, el comerciante se asegura de que el canal haya sido financiado correctamente y envía al cliente un token de pago para permitirle transferir fondos.</p></li>
+<li><p>el objetivo de la fase de desvinculación es desvincular la apertura del canal de pagos posteriores realizando un primer pago no vinculable de monto nulo.</p></li>
+</ol>
+<p>Los pagos fuera de la cadena también se dividen en tres fases: configuración, actualización de estado y revelación.</p>
+<ol class="arabic simple">
+<li><p>en la fase de configuración, el cliente genera de forma privada un nuevo estado del canal y envía una solicitud de pago al cliente. El comerciante verifica que no sea un doble gasto y, en caso afirmativo, acepta o rechaza el nuevo pago.</p></li>
+<li><p>en la fase de actualización de estado, el cliente y el comerciante participan en un zk-protocolo donde el comerciante acuerda el nuevo pago firmando a ciegas el nuevo estado del canal, al mismo tiempo que revoca el estado actual.</p></li>
+<li><p>en la fase de revelación, el cliente y el comerciante obtienen el token de pago y de revocación para cerrar el zk-channel en la cadena.</p></li>
+</ol>
+<p>El canal puede cerrarse de tres maneras diferentes:</p>
+<ul class="simple">
+<li><p>unilateralmente por el comerciante. En ese caso, el comerciante usa la información de cierre intercambiada en la inicialización del canal para transmitir en la cadena una transacción de expiración; el monto total queda bloqueado temporalmente.</p>
+<ol class="loweralpha simple">
+<li><p>durante el bloqueo temporal, el cliente puede transmitir un cierre de cliente que anula la transacción de expiración;</p></li>
+<li><p>después del bloqueo temporal, el comerciante puede reclamar los fondos.</p></li>
+</ol>
+</li>
+<li><p>unilateralmente por el cliente. En ese caso, el cliente usa el mensaje de autorización de cierre recibido en una fase de actualización de estado para transmitir en la cadena una transacción de cierre de cliente; el saldo del comerciante se envía directamente al comerciante, mientras que el saldo del cliente queda bloqueado temporalmente.</p>
+<ol class="loweralpha simple">
+<li><p>durante el bloqueo temporal, el saldo del cliente puede ser disputado por el comerciante, en caso de que el cliente haya cerrado sobre un estado desactualizado, mediante la revelación del secreto de revocación. En ese caso, todos los fondos van al comerciante;</p></li>
+<li><p>después del bloqueo temporal, el cliente puede reclamar los fondos.</p></li>
+</ol>
+</li>
+<li><p>mutuamente. En ese caso, el cliente y el comerciante intercambian información para generar una transacción multisig que cierra el canal.</p></li>
+</ul>
+<h2 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>1. Requisitos</h2>
+
+<h2 id="general-requirements-for-zk-channels-protocol"><a class="hanchor" href="#general-requirements-for-zk-channels-protocol" aria-hidden="true" tabindex="-1">#</a>1.1 Requisitos generales del protocolo zk-Channels</h2>
+<p>Los canales de pago privados zk-Channels requieren las siguientes capacidades para proporcionar propiedades de anonimato a los usuarios en una red de pagos:</p>
+<ol class="arabic simple">
+<li><p>Capacidad de crear una transacción de depósito en garantía de modo que las entradas de la transacción sean anónimas.</p></li>
+<li><p>Capacidad de depositar fondos en garantía hacia una dirección de tipo multifirma mediante transacciones no maleables.</p></li>
+<li><p>Capacidad de especificar bloqueos temporales relativos para las transacciones de compromiso, a fin de admitir el cierre unilateral del canal.</p></li>
+<li><p>Capacidad de validar transacciones de apertura y de cierre específicas de zk-Channels:</p></li>
+</ol>
+<blockquote>
+<ol class="arabic simple">
+<li><p>verificar la validez de la firma aleatorizada/a ciegas sobre el estado del canal en el token de cierre;</p></li>
+<li><p>verificar la validez del bloqueo de revocación en caso de una disputa del canal por parte del comerciante.</p></li>
+</ol>
+</blockquote>
+<ol class="arabic simple" start="5">
+<li><p>Capacidad de hacer cumplir un flujo de transacciones gracias a las Transparent ZCash Extensions [#zip-0222]</p></li>
+<li><p>Capacidad de verificar las salidas de las transacciones mediante TZE de modo que:</p></li>
+</ol>
+<blockquote>
+<ol class="arabic simple">
+<li><p>si el cierre es iniciado por el cliente, una salida paga al cliente con un bloqueo temporal (para permitir que el comerciante dispute el saldo del cliente) y una salida paga al comerciante de inmediato;</p></li>
+<li><p>si el cierre es iniciado por el comerciante, una única salida paga al comerciante el saldo total del canal con un bloqueo temporal que permite la disputa del cliente.</p></li>
+</ol>
+</blockquote>
+<dl class="simple">
+<dt><strong>Supuestos de operación del canal.</strong></dt>
+<dd><ul class="simple">
+<li><p>Se admiten tanto los canales financiados únicamente por el cliente como los canales con financiación dual.</p></li>
+<li><p>Tanto el cliente como el comerciante pueden iniciar el cierre del canal.</p></li>
+<li><p>Si el cliente inicia el cierre, el comerciante puede disputar la transacción de cierre si no está de acuerdo con el token de cierre incluido en la transacción de cierre.</p></li>
+<li><p>Si el comerciante inicia el cierre, este publica una transacción que reclama para sí todos los fondos del canal con un bloqueo temporal. Esto le da al cliente la oportunidad de publicar su propia transacción de cierre válida con los saldos actuales del canal. Si el cliente publica su propia transacción de cierre, el comerciante tiene una oportunidad adicional de disputarla si es necesario.</p></li>
+</ul>
+</dd>
+</dl>
+
+<h2 id="tzes-requirement-for-zk-channels-protocol"><a class="hanchor" href="#tzes-requirement-for-zk-channels-protocol" aria-hidden="true" tabindex="-1">#</a>1.2 Requisitos de TZE para el protocolo zk-Channels</h2>
+<ol class="arabic simple">
+<li><p>Capacidad de verificar el remitente de la transacción actual;</p></li>
+<li><p>Capacidad de verificar el propietario de una dirección;</p></li>
+<li><p>Capacidad de verificar el monto de una dirección;</p></li>
+<li><p>Capacidad de verificar la altura de bloque actual;</p></li>
+<li><p>Capacidad de verificar información sobre una transacción de una dirección TZE de entrada;</p></li>
+<li><p>Capacidad de verificar firmas Pointcheval-Sanders sobre mensajes específicos;</p></li>
+<li><p>Capacidad de afirmar el resultado de un hash lock;</p></li>
+</ol>
+
+<h2 id="algorithms-and-variables"><a class="hanchor" href="#algorithms-and-variables" aria-hidden="true" tabindex="-1">#</a>2 Algoritmos y variables</h2>
+
+<h2 id="customer-and-merchant-signing-keys"><a class="hanchor" href="#customer-and-merchant-signing-keys" aria-hidden="true" tabindex="-1">#</a>2.1 Claves de firma del cliente y del comerciante</h2>
+<p>El cliente y el comerciante tienen ambos pares de claves de un esquema de firma adecuado para enviar y recibir transacciones, p. ej., pares de claves de firma ECDSA o RedDSA. Estos se denotan como: <span class="docutils literal"><span class="pre">&#x3C;cust-pk></span></span>, <span class="docutils literal"><span class="pre">&#x3C;cust-sk></span></span> y <span class="docutils literal"><span class="pre">&#x3C;merch-pk></span></span>, <span class="docutils literal"><span class="pre">&#x3C;merch-sk></span></span>, respectivamente, donde <span class="docutils literal">pk</span> significa "clave pública" y <span class="docutils literal">sk</span> significa la "clave secreta" correspondiente.</p>
+<p>El comerciante debe poder emitir firmas ciegas, por ejemplo firmas ciegas Pointcheval-Sanders (PS), por lo que tiene un par de claves adicional; este par de claves se denota como: <span class="docutils literal"><span class="pre">&#x3C;merch-ps-pk></span></span>, <span class="docutils literal"><span class="pre">&#x3C;merch-ps-sk></span></span>. Para verificar una firma PS, se utilizará la siguiente función: <span class="docutils literal"><span class="pre">PS_sig.Verify(merch-ps-pk,</span> message, signature)</span>.</p>
+<p>El par de claves del cliente es específico del canal y no debe reutilizarse. El par de claves del comerciante es de largo plazo y debería usarse para todos los canales de clientes.</p>
+
+<h2 id="channel-states"><a class="hanchor" href="#channel-states" aria-hidden="true" tabindex="-1">#</a>2.2 Estados del canal</h2>
+<p>zk-Channels se basa en el concepto de <em>estados</em>. Cuando el cliente inicia un pago, consulta al comerciante para que acepte un nuevo estado mientras revoca el actual.</p>
+<p>Los únicos invariantes de un zk-channel son el identificador del canal <span class="docutils literal">&#x3C;cid></span> y las claves públicas de sus participantes. Un estado del canal consiste en:</p>
+<ul class="simple">
+<li><p>el identificador del canal: <span class="docutils literal">&#x3C;cid></span>;</p></li>
+<li><p>las claves públicas del comerciante: <span class="docutils literal"><span class="pre">&#x3C;merch-pk>,</span> <span class="pre">&#x3C;merch-ps-pk></span></span> (definidas en 1.1);</p></li>
+<li><p>las claves públicas del cliente: <span class="docutils literal"><span class="pre">&#x3C;cust-pk></span></span> (definidas en 1.1);</p></li>
+<li><p>el saldo del cliente: <span class="docutils literal"><span class="pre">&#x3C;cust-balance></span></span>;</p></li>
+<li><p>el saldo del comerciante: <span class="docutils literal"><span class="pre">&#x3C;merch-balance></span></span>;</p></li>
+<li><p>el candado de revocación: <span class="docutils literal"><span class="pre">&#x3C;rev-lock></span></span>, que se instancia como un candado de hash, <span class="docutils literal"><span class="pre">&#x3C;rev-lock></span> = <span class="pre">SHA256(&#x3C;rev-secret>)</span></span>, donde <span class="docutils literal"><span class="pre">&#x3C;rev-secret></span></span> es el secreto de revocación.</p></li>
+</ul>
+<p>El comerciante necesita el candado de revocación para disputar un cierre del cliente sobre un estado desactualizado.</p>
+
+<h2 id="opening-a-channel"><a class="hanchor" href="#opening-a-channel" aria-hidden="true" tabindex="-1">#</a>3 Apertura de un canal</h2>
+<p>Para abrir un canal, el cliente y el comerciante intercambian información de claves y establecen el identificador del canal <span class="docutils literal">&#x3C;cid></span>.</p>
+<p>Acuerdan sus saldos iniciales respectivos <span class="docutils literal"><span class="pre">&#x3C;cust-balance></span></span> y <span class="docutils literal"><span class="pre">&#x3C;merch-balance></span></span>.</p>
+<p>El cliente elige un candado de revocación inicial <span class="docutils literal"><span class="pre">&#x3C;rev-lock></span></span>.</p>
+<p>El cliente y el comerciante depositan en custodia los fondos necesarios en una transacción de financiación, denotada <span class="docutils literal"><span class="pre">escrow-tx</span></span>.</p>
+<p>Como tal, la transacción de custodia presenta:</p>
+<ul class="simple">
+<li><p>un estado del canal de apertura <span class="docutils literal">&#x3C;state> = &#x3C;cid>, <span class="pre">&#x3C;merch-pk>,</span> <span class="pre">&#x3C;merch-ps-pk>,</span> <span class="pre">&#x3C;cust-pk>,</span> <span class="pre">&#x3C;merch-balance>,</span> <span class="pre">&#x3C;cust-balance>,</span> <span class="pre">&#x3C;rev-lock></span></span>;</p></li>
+<li><p>potencialmente información adicional, como un retardo &#x3C;delay>.</p></li>
+</ul>
+
+<h2 id="closing-a-channel"><a class="hanchor" href="#closing-a-channel" aria-hidden="true" tabindex="-1">#</a>4 Cierre de un canal</h2>
+<p>Un cliente debería poder cerrar el canal de forma unilateral publicando una transacción <span class="docutils literal"><span class="pre">close-tx</span></span>. Esta transacción presenta:</p>
+<ul class="simple">
+<li><p>un estado del canal de cierre <span class="docutils literal">&#x3C;state> = &#x3C;cid>, <span class="pre">&#x3C;merch-pk>,</span> <span class="pre">&#x3C;merch-ps-pk>,</span> <span class="pre">&#x3C;cust-pk>,</span> <span class="pre">&#x3C;cust-balance>,</span> <span class="pre">&#x3C;merch-balance>,</span> <span class="pre">&#x3C;rev-lock></span></span>;</p></li>
+<li><p>una firma no ciega del comerciante sobre el estado del canal: <span class="docutils literal"><span class="pre">&#x3C;merch-sig></span></span>, tal que <span class="docutils literal"><span class="pre">PS_sig.Verify(&#x3C;merch-ps-pk>,</span> &#x3C;state>, <span class="pre">&#x3C;merch-sig>)</span> = 1</span>.</p></li>
+</ul>
+<p>Si la transacción se valida y se mina, &#x3C;merch-balance> se envía al comerciante y &#x3C;cust-balance> queda bloqueado durante un retardo &#x3C;delay>, en el cual el comerciante puede disputar el cierre del canal mediante una transacción <span class="docutils literal"><span class="pre">dispute-tx</span></span>, y después del cual el cliente puede reclamarlo mediante una transacción <span class="docutils literal"><span class="pre">cust-claim-tx</span></span>.</p>
+<p>El comerciante puede disputar un cierre del cliente publicando una transacción <span class="docutils literal"><span class="pre">dispute-tx</span></span>. Esta transacción presenta:</p>
+<ul class="simple">
+<li><p>un secreto de revocación <span class="docutils literal"><span class="pre">&#x3C;rev-secret></span></span> tal que para el candado de revocación <span class="docutils literal"><span class="pre">&#x3C;rev-lock></span></span> publicado en <span class="docutils literal"><span class="pre">close-tx</span></span> se cumple <span class="docutils literal"><span class="pre">&#x3C;rev-lock></span> = <span class="pre">SHA256(&#x3C;rev-secret>)</span></span>.</p></li>
+</ul>
+<p>Si la transacción se valida y se mina, el saldo total (&#x3C;cust-balance> + &#x3C;merch-balance>) se envía al comerciante.</p>
+<p>Un comerciante debería poder cerrar el canal de forma unilateral publicando una transacción de cierre <span class="docutils literal"><span class="pre">expiry-tx</span></span>.</p>
+<p>Si la transacción se valida y se mina, el saldo total queda bloqueado durante un retardo &#x3C;delay>, en el cual el cliente puede sobrescribir el gasto mediante una transacción <span class="docutils literal"><span class="pre">close-tx</span></span>, y después del cual el comerciante puede reclamarlo mediante una transacción <span class="docutils literal"><span class="pre">merch-claim-tx</span></span>.</p>
+<p>El cliente y el comerciante también pueden negociar fuera de la cadena para formar una <em>transacción de cierre mutuo</em>, <span class="docutils literal"><span class="pre">mutual-close-tx</span></span>. Esta transacción presenta:</p>
+<ul class="simple">
+<li><p>un estado del canal de cierre truncado <span class="docutils literal">&#x3C;state></span> sin el candado de revocación ni la clave pública de firma ciega del comerciante;</p></li>
+<li><p>dos firmas, una del cliente <span class="docutils literal"><span class="pre">&#x3C;cust-sig></span></span> y otra del comerciante <span class="docutils literal"><span class="pre">&#x3C;merch-sig></span></span>, sobre este estado truncado, tales que <span class="docutils literal"><span class="pre">Verify(&#x3C;cust-pk>,</span> &#x3C;state>, <span class="pre">&#x3C;cust-sig>)</span> = 1</span> y <span class="docutils literal"><span class="pre">Verify(&#x3C;merch-ps-pk>,</span> &#x3C;state>, <span class="pre">&#x3C;merch-sig>)</span> = 1</span>.</p></li>
+</ul>
+<p>Si la transacción se valida y se mina, el saldo &#x3C;cust-balance> se envía al cliente y el saldo &#x3C;merch-balance> se envía al comerciante.</p>
+
+
+<h1 id="zk-channels-tze-transactions"><a class="hanchor" href="#zk-channels-tze-transactions" aria-hidden="true" tabindex="-1">#</a>Transacciones TZE de zk-Channels</h1>
+<p>En esta sección presentamos las transacciones individuales para abrir y cerrar un zk-Channel, así como para disputar y reclamar fondos de un zkChannel.</p>
+<p>Por simplicidad, describimos la información mínima necesaria para entender el flujo de trabajo; es decir, mostramos solo la parte pertinente de las funciones verify_tze y no detallamos más de lo necesario la estructura de la transacción.</p>
+<h2 id="escrow-transaction"><a class="hanchor" href="#escrow-transaction" aria-hidden="true" tabindex="-1">#</a>1 Transacción de custodia</h2>
+<p>Presentamos aquí la transacción de custodia <span class="docutils literal"><span class="pre">escrow-tx</span></span>:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Campo</p></th>
+<th class="head"><p>Valor</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>...</p></td>
+<td><p>...</p></td>
+</tr>
+<tr><td><p>tx_in_count</p></td>
+<td><p>2</p></td>
+</tr>
+<tr><td><p>tx_in</p></td>
+<td><p>[&#x3C;cust-input>, &#x3C;merch-input>]</p></td>
+</tr>
+<tr><td><p>tx_out_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tx_out</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>tze_in_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tze_in</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>tze_out_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tze_out</p></td>
+<td><p>[&#x3C;escrow-out>]</p></td>
+</tr>
+<tr><td><p>lock_time</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td colspan="2"><p>...           ...</p></td>
+</tr>
+</tbody>
+</table>
+<p>Con</p>
+<ul class="simple">
+<li><p>&#x3C;cust-input> siendo una dirección transparente que comprende un monto inicial de &#x3C;cust-balance>.</p></li>
+<li><p>&#x3C;merch-input> siendo una dirección transparente que comprende un monto inicial de &#x3C;merch-balance>.</p></li>
+<li><p>con &#x3C;escrow-out> siendo una entrada tze:</p>
+<ul>
+<li><p>amount = &#x3C;merch-balance> + &#x3C;cust-balance></p></li>
+<li><p>precondition =</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zk-Channels</em></p></li>
+<li><p>tze_mode = 0 // <em>modo de custodia</em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;cid> || &#x3C;merch-pk> || &#x3C;merch-ps-pk> || &#x3C;cust-pk></p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>Una transacción de custodia puede gastarse mediante un cierre mutuo, un vencimiento del comerciante o una transacción de cierre del cliente.</p>
+
+<h2 id="mutual-close"><a class="hanchor" href="#mutual-close" aria-hidden="true" tabindex="-1">#</a>2 Cierre mutuo</h2>
+<p>Presentamos aquí la transacción de cierre mutuo <span class="docutils literal"><span class="pre">mutual-close-tx</span></span>:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Campo</p></th>
+<th class="head"><p>Valor</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>...</p></td>
+<td><p>...</p></td>
+</tr>
+<tr><td><p>tx_in_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tx_in</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>tx_out_count</p></td>
+<td><p>2</p></td>
+</tr>
+<tr><td><p>tx_out</p></td>
+<td><p>[&#x3C;merch-output>, &#x3C;cust-output>]</p></td>
+</tr>
+<tr><td><p>tze_in_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tze_in</p></td>
+<td><p>[&#x3C;escrow-in>]</p></td>
+</tr>
+<tr><td><p>tze_out_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tze_out</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>lock_time</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td colspan="2"><p>...           ...</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="simple">
+<dt>Con</dt>
+<dd><ul class="simple">
+<li><p>&#x3C;escrow-in>:</p>
+<ul>
+<li><p>prevout_hash = &#x3C;escrow-tx></p></li>
+<li><p>prevout_in = 0</p></li>
+<li><p>witness :</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zkChannels</em></p></li>
+<li><p>tze_mode = 0 // <em>modo de custodia></em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;merch-sig> || &#x3C;cust-sig></p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>siendo &#x3C;merch-output> una dirección transparente que comprende un monto de &#x3C;merch-balance>;</p></li>
+<li><p>siendo &#x3C;cust-output> una dirección transparente que comprende un monto de &#x3C;cust-balance>.</p></li>
+</ul>
+</dd>
+</dl>
+<p>La función tze_verify funciona de la siguiente manera:</p>
+<p><strong>tze_verify(mode, precondition, witness):</strong></p>
+<ul class="simple">
+<li><p>...</p></li>
+<li><p>if mode == 0 AND context.tx.tx_out_counts == 2:</p>
+<ul>
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_in_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:</p>
+<ul>
+<li><p>Return false</p></li>
+</ul>
+</li>
+<li><p>// <em>Definir las variables</em></p></li>
+<li><p>cid || merch-pk || merch-ps-pk || cust-pk = precondition</p></li>
+<li><p>merch-sig || cust-sig = witness</p></li>
+<li><p>msg = TODO // <em>hash de la transacción sin testigos</em></p></li>
+<li><p>// <em>Verificar las firmas de la transacción</em></p></li>
+<li><p>if Verify(merch-pk, msg, merch-sig) != 1</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if Verify(cust-pk, msg, cust-sig) != 1</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>Return True</p></li>
+</ul>
+</li>
+<li><p>...</p></li>
+</ul>
+
+<h2 id="expiry"><a class="hanchor" href="#expiry" aria-hidden="true" tabindex="-1">#</a>3 Expiración</h2>
+
+<h2 id="expiry-1"><a class="hanchor" href="#expiry-1" aria-hidden="true" tabindex="-1">#</a>3.1 Expiración</h2>
+<p>Presentamos aquí la transacción de cierre unilateral del comerciante, también llamada expiración, <span class="docutils literal"><span class="pre">expiry-tx</span></span>:</p>
+<table>
+<thead>
+<tr><th class="head"><p>Campo</p></th>
+<th class="head"><p>Valor</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>...</p></td>
+<td><p>...</p></td>
+</tr>
+<tr><td><p>tx_in_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tx_in</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>tx_out_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tx_out</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>tze_in_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tze_in</p></td>
+<td><p>[&#x3C;escrow-in>]</p></td>
+</tr>
+<tr><td><p>tze_out_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tze_out</p></td>
+<td><p>[&#x3C;expiry-out>]</p></td>
+</tr>
+<tr><td><p>lock_time</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td colspan="2"><p>...           ...</p></td>
+</tr>
+</tbody>
+</table>
+<p>Con</p>
+<ul class="simple">
+<li><p>&#x3C;escrow-in>:</p>
+<ul>
+<li><p>prevout_hash = &#x3C;escrow-tx></p></li>
+<li><p>prevout_in = 0</p></li>
+<li><p>witness:</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zkChannels</em></p></li>
+<li><p>tze_mode = 0 // <em>modo de custodia</em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;merch-sig></p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>&#x3C;expiry-out>:</p>
+<ul>
+<li><p>amount = &#x3C;merch-balance> + &#x3C;cust-balance></p></li>
+<li><p>precondition:</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zkChannels</em></p></li>
+<li><p>tze_mode = 2 // <em>modo de expiración</em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;cid> || &#x3C;merch-pk> || &#x3C;merch-ps-pk> || &#x3C;cust-pk></p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>Las funciones tze_verify funcionan de la siguiente manera:</p>
+<p><strong>tze_verify(mode, precondition, witness):</strong></p>
+<ul>
+<li><p>...</p></li>
+<li><p>if mode == 0 AND context.tx.tze_out_count == 1 AND context.tx.tx_out[0].precondition.mode == EXPIRY:</p>
+<ul class="simple">
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_in_count != 0 OR context.tx.tx_out_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShildedOutput != 0 OR context.tx.nJoinsplit != 0:</p></li>
+</ul>
+<blockquote>
+<ul class="simple">
+<li><p>Return false</p></li>
+</ul>
+</blockquote>
+<ul class="simple">
+<li><p>// <em>Definir las variables</em></p></li>
+<li><p>init-cid || init-merch-pk || init-merch-ps-pk || init-cust-pk = precondition</p></li>
+<li><p>merch-sig = witness</p></li>
+<li><p>cid || merch-pk || merch-ps-pk || cust-pk = context.tx.tze_out[0].precondition.tze_data_payload</p></li>
+<li><p>msg = TODO // <em>hash de la transacción sin testigos</em></p></li>
+<li><p>// <em>Verificar la consistencia de las variables</em></p></li>
+<li><p>if init-cid != cid:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if init-merch-pk != merch-pk:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if init-merch-ps-pk != merch-ps-pk:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if init-cust-pk != cust-pk:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>// <em>Verificar la firma de la transacción</em></p></li>
+<li><p>if Verify(merch-pk, msg, merch-sig) = 0</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>Return True</p></li>
+</ul>
+</li>
+<li><p>...</p></li>
+</ul>
+
+<h2 id="merchant-claim"><a class="hanchor" href="#merchant-claim" aria-hidden="true" tabindex="-1">#</a>3.2 Reclamo del comerciante</h2>
+<p>Presentamos aquí la transacción de reclamo del comerciante <span class="docutils literal"><span class="pre">merch-claim-tx</span></span> que sigue a una transacción <span class="docutils literal"><span class="pre">expiry-tx</span></span>.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Campo</p></th>
+<th class="head"><p>Valor</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>...</p></td>
+<td><p>...</p></td>
+</tr>
+<tr><td><p>tx_in_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tx_in</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>tx_out_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tx_out</p></td>
+<td><p>[&#x3C;merch-claim]</p></td>
+</tr>
+<tr><td><p>tze_in_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tze_in</p></td>
+<td><p>[&#x3C;expiry-in>]</p></td>
+</tr>
+<tr><td><p>tze_out_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tze_out</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>lock_time</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td colspan="2"><p>...           ...</p></td>
+</tr>
+</tbody>
+</table>
+<p>Con</p>
+<ul class="simple">
+<li><p>&#x3C;expiry-in>:</p>
+<ul>
+<li><p>prevout_hash = &#x3C;expiry-tx></p></li>
+<li><p>prevout_in = 0</p></li>
+<li><p>witness:</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zkChannels</em></p></li>
+<li><p>tze_mode = 2 // <em>modo de expiración</em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;merch-sig></p></li>
+</ul>
+</li>
+<li><p>&#x3C;merch-claim> siendo una dirección transparente que comprende un monto de &#x3C;cust-balance> + &#x3C;merch-balance>.</p></li>
+</ul>
+</li>
+</ul>
+<p>La función tze_verify funciona de la siguiente manera:</p>
+<p><strong>tze_verify(type, mode, precondition, witness)</strong></p>
+<ul class="simple">
+<li><p>...</p></li>
+<li><p>if mode == 2:</p>
+<ul>
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_in_count != 0 OR context.tx.tx_in_count != 1 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0: - Devolver false</p></li>
+<li><p>// <em>Definir las variables</em></p></li>
+<li><p>cid || merch-pk || merch-ps-pk || cust-pk = precondition</p></li>
+<li><p>sig = witness</p></li>
+<li><p>msg = TODO // <em>hash de la transacción sin testigos</em></p></li>
+<li><p>// <em>Verificar la firma de la transacción</em></p></li>
+<li><p>if Verify(merch-pk, msg, sig) == 1:</p>
+<ul>
+<li><p>// <em>Verificar el retraso</em></p></li>
+<li><p>expiry-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO</p></li>
+<li><p>if context.block-height &#x3C; expiry-height + DELAY:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>...</p></li>
+</ul>
+
+<h2 id="customer-close"><a class="hanchor" href="#customer-close" aria-hidden="true" tabindex="-1">#</a>4 Cierre del cliente</h2>
+
+<h2 id="customer-close-1"><a class="hanchor" href="#customer-close-1" aria-hidden="true" tabindex="-1">#</a>4.1 Cierre del cliente</h2>
+<p>Presentamos aquí la transacción de cierre del cliente <span class="docutils literal"><span class="pre">close-tx</span></span> que sigue a una transacción <span class="docutils literal"><span class="pre">expiry-tx</span></span> o <span class="docutils literal"><span class="pre">escrow-tx</span></span>.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Campo</p></th>
+<th class="head"><p>Valor</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>...</p></td>
+<td><p>...</p></td>
+</tr>
+<tr><td><p>tx_in_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tx_in</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>tx_out_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tx_out</p></td>
+<td><p>[&#x3C;merch-output]</p></td>
+</tr>
+<tr><td><p>tze_in_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tze_in</p></td>
+<td><p>[&#x3C;expiry-in> OR &#x3C;escrow-in>]</p></td>
+</tr>
+<tr><td><p>tze_out_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tze_out</p></td>
+<td><p>[&#x3C;close-out]</p></td>
+</tr>
+<tr><td><p>lock_time</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td colspan="2"><p>...           ...</p></td>
+</tr>
+</tbody>
+</table>
+<p>Con</p>
+<ul class="simple">
+<li><p>&#x3C;escrow-in>:</p>
+<ul>
+<li><p>prevout_hash = &#x3C;escrow-tx></p></li>
+<li><p>prevout_in = 0</p></li>
+<li><p>witness:</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zkChannels</em></p></li>
+<li><p>tze_mode = 0 // <em>modo de custodia</em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;merch-ps-sig> || &#x3C;cust-sig></p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>&#x3C;expiry-in>:</p>
+<ul>
+<li><p>prevout_hash = &#x3C;escrow-tx></p></li>
+<li><p>prevout_in = 0</p></li>
+<li><p>witness :</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zkChannels</em></p></li>
+<li><p>tze_mode = 2 // <em>modo de expiración</em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;merch-ps-sig> || &#x3C;cust-sig></p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>&#x3C;merch-output> siendo una dirección transparente que comprende un monto de &#x3C;merch-balance>;</p></li>
+<li><p>&#x3C;close-out>:</p>
+<ul>
+<li><p>amount = &#x3C;cust-balance></p></li>
+<li><p>precondition:</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zkChannels</em></p></li>
+<li><p>tze_mode = 1 // <em>modo de cierre</em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;cid> || &#x3C;merch-pk> || &#x3C;cust-pk> || &#x3C;rev-lock></p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>La función tze_verify funciona de la siguiente manera:</p>
+<p><strong>tze_verify(mode, precondition, witness)</strong></p>
+<ul class="simple">
+<li><p>...</p></li>
+<li><p>if (mode == 0 OR mode == 2) AND context.tx.tze_out_count == 1 AND context.tx.tze_out[0].precondition.mode = CLOSE:</p>
+<ul>
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_in_count != 0 OR context.tx.tx_out_count != 1 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShildedOutput != 0 OR context.tx.nJoinsplit != 0: - Return false</p></li>
+<li><p>// <em>Definir las variables</em></p></li>
+<li><p>init-cid || init-merch-pk || init-merch-ps-pk || init-cust-pk = precondition</p></li>
+<li><p>merch-ps-sig || cust-sig = witness</p></li>
+<li><p>cid || merch-pk || cust-pk || rev-lock = context.tx.tze_out[0].precondition.tze_data_payload</p></li>
+<li><p>merch-balance = context.tx.tx_out[0].value</p></li>
+<li><p>cust-balance = context.tx.tze_out[0].amount</p></li>
+<li><p>state = cid || cust-pk || rev-lock || cust-balance || merch-balance</p></li>
+<li><p>msg = TODO // <em>hash de la transacción sin testigos</em></p></li>
+<li><p>// <em>Comprobar la consistencia de las variables</em></p></li>
+<li><p>if init-cid != cid:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if init-cust-pk != cust-pk:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if init-merch-pk != merch-pk:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>// <em>Verificar la firma PS</em></p></li>
+<li><p>if PS_sig.Verify(merch-ps-pk, state, merch-ps-sig) != 1:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>// <em>Verificar la firma de la transacción</em></p></li>
+<li><p>if Verify(cust-pk, msg, cust-sig) != 1:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>// <em>Comprobar que merch-balance se envía al comerciante</em></p></li>
+<li><p>if context.tx.tx_out[0] != merch-balance || &#x3C;ZCash P2PKH version bytes (0x1C || 0xB8 for mainnet)> || Hash_160(merch-pk)</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>Return True</p></li>
+</ul>
+</li>
+<li><p>...</p></li>
+</ul>
+
+<h2 id="customer-claim"><a class="hanchor" href="#customer-claim" aria-hidden="true" tabindex="-1">#</a>4.2 Reclamación del cliente</h2>
+<p>Presentamos aquí la transacción de reclamación del cliente <span class="docutils literal"><span class="pre">cust-claim-tx</span></span> que sigue a una transacción <span class="docutils literal"><span class="pre">close-tx</span></span>.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Campo</p></th>
+<th class="head"><p>Valor</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>...</p></td>
+<td><p>...</p></td>
+</tr>
+<tr><td><p>tx_in_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tx_in</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>tx_out_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tx_out</p></td>
+<td><p>[&#x3C;cust-claim]</p></td>
+</tr>
+<tr><td><p>tze_in_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tze_in</p></td>
+<td><p>[&#x3C;close-in>]</p></td>
+</tr>
+<tr><td><p>tze_out_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tze_out</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>lock_time</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td colspan="2"><p>...           ...</p></td>
+</tr>
+</tbody>
+</table>
+<p>Con</p>
+<ul class="simple">
+<li><p>&#x3C;close-in>:</p>
+<ul>
+<li><p>prevout_hash = &#x3C;close-tx></p></li>
+<li><p>prevout_in = 0</p></li>
+<li><p>witness:</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zkChannels</em></p></li>
+<li><p>tze_mode = 1 // <em>modo de cierre</em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;cust-sig></p></li>
+</ul>
+</li>
+<li><p>siendo &#x3C;cust-claim> una dirección transparente que comprende un monto de &#x3C;cust-balance>.</p></li>
+</ul>
+</li>
+</ul>
+<p>La función tze_verify funciona de la siguiente manera:</p>
+<p><strong>tze_verify(type, mode, precondition, witness)</strong></p>
+<ul class="simple">
+<li><p>...</p></li>
+<li><p>if mode == 1:</p>
+<ul>
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_in_count != 0 OR context.tx.tx_out_count == 1 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:</p>
+<ul>
+<li><p>Return false</p></li>
+</ul>
+</li>
+<li><p>// <em>Definir las variables</em></p></li>
+<li><p>cid, merch-pk, cust-pk, rev-lock = precondition</p></li>
+<li><p>sig = witness</p></li>
+<li><p>msg = TODO // <em>hash de la transacción sin testigos</em></p></li>
+<li><p>// <em>Verificar la firma de la transacción</em></p></li>
+<li><p>if Verify(cust-pk, msg, sig) == 1:</p>
+<ul>
+<li><p>// <em>Verificar el retraso</em></p></li>
+<li><p>close-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO</p></li>
+<li><p>if context.block-height &#x3C; close-height + DELAY:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>...</p></li>
+</ul>
+
+<h2 id="dispute"><a class="hanchor" href="#dispute" aria-hidden="true" tabindex="-1">#</a>4.3 Disputa</h2>
+<p>Presentamos aquí cómo el comerciante disputa la transacción <span class="docutils literal"><span class="pre">close-tx</span></span> con una transacción <span class="docutils literal"><span class="pre">dispute-tx</span></span>.</p>
+<table>
+<thead>
+<tr><th class="head"><p>Campo</p></th>
+<th class="head"><p>Valor</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>...</p></td>
+<td><p>...</p></td>
+</tr>
+<tr><td><p>tx_in_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tx_in</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>tx_out_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tx_out</p></td>
+<td><p>[&#x3C;merch-disp]</p></td>
+</tr>
+<tr><td><p>tze_in_count</p></td>
+<td><p>1</p></td>
+</tr>
+<tr><td><p>tze_in</p></td>
+<td><p>[&#x3C;close-in>]</p></td>
+</tr>
+<tr><td><p>tze_out_count</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td><p>tze_out</p></td>
+<td><p>[]</p></td>
+</tr>
+<tr><td><p>lock_time</p></td>
+<td><p>0</p></td>
+</tr>
+<tr><td colspan="2"><p>...           ...</p></td>
+</tr>
+</tbody>
+</table>
+<p>Con</p>
+<ul class="simple">
+<li><p>&#x3C;close-in>:</p>
+<ul>
+<li><p>prevout_hash = &#x3C;close-tx></p></li>
+<li><p>prevout_in = 0</p></li>
+<li><p>witness:</p>
+<ul>
+<li><p>tze_id = 0 // <em>tipo TZE de zkChannels</em></p></li>
+<li><p>tze_mode = 1 // <em>modo de cierre</em></p></li>
+<li><p>tze_data_payload_len =</p></li>
+<li><p>tze_data_payload = &#x3C;merch-sig> || &#x3C;rev-secret></p></li>
+</ul>
+</li>
+<li><p>siendo &#x3C;merch-disp> una dirección transparente que comprende un monto de &#x3C;cust-balance>.</p></li>
+</ul>
+</li>
+</ul>
+<p>La tze_function funciona de la siguiente manera:</p>
+<p><strong>tze_verify(zkChannels-type, close-mode, precondition, witness)</strong></p>
+<ul class="simple">
+<li><p>...</p></li>
+<li><p>if mode == 1:</p>
+<ul>
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_in_count != 0 OR context.tx.tx_out_count == 1 OR context.tx.tze_in_count != 1 OR context.tx.tze_out_count != 0 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:</p>
+<ul>
+<li><p>Return false</p></li>
+</ul>
+</li>
+<li><p>// <em>Definir las variables</em></p></li>
+<li><p>cid, merch-pk, cust-pk, rev-lock = precondition</p></li>
+<li><p>sig = witness</p></li>
+<li><p>msg = TODO // hash de la transacción sin testigos</p></li>
+<li><p>// <em>Verificar la firma de la transacción</em></p></li>
+<li><p>if Verify(merch-pk, msg, sig) == 1:</p>
+<ul>
+<li><p>// <em>Verificar el bloqueo de hash</em></p></li>
+<li><p>if rev-lock != SHA256(rev-secret):</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>...</p></li>
+</ul>
+
+
+<h1 id="tze-verify-function"><a class="hanchor" href="#tze-verify-function" aria-hidden="true" tabindex="-1">#</a>Función TZE_VERIFY</h1>
+<p><strong>tze_verify(mode, precondition, witness):</strong></p>
+<ul class="simple">
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_in_count != 0 OR context.tx.tze_in_count != 1 OR context.tx.nShieldedSpend !=0 OR context.tx.nShieldedOutput != 0 OR context.tx.nJoinsplit != 0:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>msg = TODO // hash de la transacción sin testigos</p></li>
+<li><p>if mode == 0: // <em>modo de depósito en garantía</em></p>
+<ul>
+<li><p>init-cid || init-merch-pk || init-merch-ps-pk || init-cust-pk = precondition</p></li>
+<li><p>if context.tx.tze_out_count == 1:</p>
+<ul>
+<li><p>if context.tx.tze_out[0].precondition.tze_mode == 1: // <em>Esta es una transacción de cierre</em></p>
+<ul>
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_out_count != 1:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>merch-ps-sig || cust-sig = witness</p></li>
+<li><p>cid || merch-pk || cust-pk || rev-lock = context.tx.tze_out[0].precondition.tze_data_payload</p></li>
+<li><p>merch-balance = context.tx.tx_out[0].value</p></li>
+<li><p>cust-balance = context.tx.tze_out[0].amount</p></li>
+<li><p>state = cid || cust-pk || rev-lock || cust-balance || merch-balance</p></li>
+<li><p>if init-cid != cid OR init-merch-pk != merch-pk OR init-cust-pk != cust-pk:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if Verify(cust-pk, msg, cust-sig) != 1 OR PS_sig.Verify(merch-ps-pk, state, merch-ps-sig) != 1:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if context.tx.tx_out[0] == merch-balance || &#x3C;ZCash P2PKH version bytes (0x1C || 0xB8 for mainnet)> || Hash_160(merch-pk)</p>
+<ul>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>if context.tx.tze_out[0].precondition.tze_mode == 2: // <em>Esta es una transacción de vencimiento</em></p>
+<ul>
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_out_count != 0:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>merch-sig = witness</p></li>
+<li><p>cid || merch-pk || merch-ps-pk || cust-pk = context.tx.tze_out[0].precondition.tze_data_payload</p></li>
+<li><p>if init-cid != cid OR init-merch-pk != merch-pk OR init-merch-ps-pk != merch-ps-pk OR init-cust-pk != cust-pk:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if Verify(merch-pk, msg, merch-sig) == 1:</p>
+<ul>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>if context.tx.tze_out_count == 0 AND if context.tx.tx_out_count == 2: // <em>Esta es una transacción de cierre mutuo</em></p>
+<ul>
+<li><p>merch-sig || cust-sig = witness</p></li>
+<li><p>if Verify(init-merch-pk, msg, merch-sig) == 1 AND Verify(init-cust-pk, msg, cust-sig) == 1:</p>
+<ul>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>else if mode == 1: // <em>modo de cierre</em></p>
+<ul>
+<li><p>cid, merch-pk, cust-pk, rev-lock = precondition</p></li>
+<li><p>sig, (rev-secret) = witness</p></li>
+<li><p>if context.tx.tx_out.count == 1:</p>
+<ul>
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tze_out_count != 0:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if Verify(cust-pk, msg, sig) == 1: // <em>Esta es una transacción de reclamo del cliente</em></p>
+<ul>
+<li><p>expiry-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO</p></li>
+<li><p>if context.block-height >= expiry-height + DELAY:</p>
+<ul>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>if Verify(merch-pk, msg, sig) == 1:// <em>Esta es una transacción de disputa</em></p>
+<ul>
+<li><p>if rev-lock == SHA256(rev-secret):</p>
+<ul>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>else if mode == 2: // <em>modo de vencimiento</em></p>
+<ul>
+<li><p>init-cid || init-merch-pk || init-merch-ps-pk || init-cust-pk = precondition</p></li>
+<li><p>if context.tx.tze_out_count == 1: // <em>Esta es una transacción de cierre</em></p>
+<ul>
+<li><p>// <em>Verificar la estructura de la transacción</em></p></li>
+<li><p>if context.tx.tx_out_count != 1:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>merch-ps-sig || cust-sig = witness</p></li>
+<li><p>cid || merch-pk || cust-pk || rev-lock = context.tx.tze_out[0].precondition.tze_data_payload</p></li>
+<li><p>merch-balance = context.tx.tx_out[0].value</p></li>
+<li><p>cust-balance = context.tx.tze_out[0].amount</p></li>
+<li><p>state = cid || cust-pk || rev-lock || cust-balance || merch-balance</p></li>
+<li><p>if init-cid != cid OR init-merch-pk != merch-pk OR init-cust-pk != cust-pk:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if Verify(cust-pk, msg, cust-sig) != 1 OR PS_sig.Verify(merch-ps-pk, state, merch-ps-sig) != 1:</p>
+<ul>
+<li><p>Return False</p></li>
+</ul>
+</li>
+<li><p>if context.tx.tx_out[0] == merch-balance || &#x3C;ZCash P2PKH version bytes (0x1C || 0xB8 for mainnet)> || Hash_160(merch-pk)</p>
+<ul>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>else if context.tx.tx_out_count == 1: // <em>Esta es una transacción de reclamo del comerciante</em></p>
+<ul>
+<li><p>sig = witness</p></li>
+<li><p>if Verify(merch-pk, msg, sig) == 1:</p>
+<ul>
+<li><p>expiry-height = find_block_height(context.tx.tze_input[0].prevout_hash) // TODO</p></li>
+<li><p>if context.block-height >= expiry-height + DELAY:</p>
+<ul>
+<li><p>Return True</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>Return False</p></li>
+</ul>
+
+<h1 id="transaction-malleability"><a class="hanchor" href="#transaction-malleability" aria-hidden="true" tabindex="-1">#</a>Maleabilidad de las transacciones</h1>
+<p>Como el id de la transacción no se construye a partir de los testigos TZE, cualquier cambio en la firma de la transacción no modifica su id.</p>
+<p>Las precondiciones no son maleables porque están firmadas con una firma no maleable.</p>
+<p>Para evitar la maleabilidad del testigo, pretendemos fijar el tamaño del contenido del testigo en tze_verify de modo que la adición o eliminación de cualquier bit resulte en una falla de verificación. Cualquier cambio en los bits debería resultar, ya sea en una falla de verificación, cuando el secreto de revocación o una firma están corruptos, o en una aprobación, cuando la firma PS está aleatorizada.</p>
+
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="bolttze" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></span>
+<p><span class="target" id="bolt-tze-implementation-for-zcash-https-github-com-boltlabs-inc-librustzcash">Bolt TZE implementation for Zcash &#x3C;https://github.com/boltlabs-inc/librustzcash></span></p>
+</aside>
+<aside class="footnote brackets" id="rfc2119" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#footnote-reference-1">2</a><span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://tools.ietf.org/html/rfc2119">Key words for use in RFCs to Indicate Requirement Levels</a></p>
+</aside>
+<aside class="footnote brackets" id="bolt-paper" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>3<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://eprint.iacr.org/2016/701">Bolt: Anonymous Payment Channels for Decentralized Currencies</a></p>
+</aside>
+<aside class="footnote brackets" id="zip-0222" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span>4<span class="fn-bracket">]</span></span>
+<p><a class="reference external" href="https://github.com/zcash/zips/pull/248">ZIP 222: Transparent Zcash Extensions (Draft)</a></p>
+</aside>
+</aside>
+
+<section class="system-messages">
+<h1>Mensajes del sistema de Docutils</h1>
+<aside class="system-message" id="system-message-1">
+<p class="system-message-title">Mensaje del sistema: ERROR/3 (<span class="docutils literal">&#x3C;string></span>, línea 9)</p>
+<p>Demasiadas referencias a notas al pie con numeración automática: solo hay 0 notas al pie correspondientes disponibles.</p>
+</aside>
+<aside class="system-message" id="system-message-2">
+<p class="system-message-title">Mensaje del sistema: ERROR/3 (<span class="docutils literal">&#x3C;string></span>, línea 9); <em><a href="#footnote-reference-2">retroenlace</a></em></p>
+<p>Nombre de destino desconocido: "zk-channels-paper".</p>
+</aside>
+<aside class="system-message" id="system-message-3">
+<p class="system-message-title">Mensaje del sistema: ERROR/3 (<span class="docutils literal">&#x3C;string></span>, línea 14); <em><a href="#footnote-reference-3">retroenlace</a></em></p>
+<p>Nombre de destino desconocido: "zk-channels-paper".</p>
+</aside>
+</section>
