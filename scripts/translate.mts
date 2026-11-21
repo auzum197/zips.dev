@@ -232,8 +232,12 @@ const NUMBER_WORDS = ["", "primer[oa]?", "dos|segund[oa]", "tres|tercer[oa]?", "
 const bareNumbers = (t: string): string => t.replace(/<\/?[gx]\d+\/?>/g, " ").replace(/(\d)k\b/gi, (_, d: string) => `${d}000`);
 const digitsOf = (t: string): string => (bareNumbers(t).match(/\d/g) ?? []).sort().join("");
 
-/** True when the translation has the numbers of the source. A number of one
- *  digit can be a Spanish word ("3rd" as "tercer"), and "500k" can be "500 000". */
+const ENGLISH_NUMBER_WORDS = ["", "first", "two|second|twice|both", "three|third", "four|fourth", "five|fifth", "six|sixth", "seven|seventh", "eight|eighth", "nine|ninth"];
+
+/** True when the translation has the numbers of the source. "500k" can be
+ *  "500 000". A number of one digit can be a Spanish number word ("3rd" as
+ *  "tercer"), but only a word that no English number word of the source
+ *  accounts for: "the 3rd halving, third revision" needs two such words. */
 export function sameNumbers(source: string, text: string): boolean {
     const src = bareNumbers(source);
     const count = (t: string, re: RegExp): number => (t.match(re) ?? []).length;
@@ -244,7 +248,7 @@ export function sameNumbers(source: string, text: string): boolean {
         if (missing < 0 || d === 0)
             return false;
         const alone = count(src, new RegExp(`(?<![\\d.,])${d}(?![.,]?\\d)`, "g"));
-        const words = count(text, new RegExp(`(?<!\\p{L})(?:${NUMBER_WORDS[d]})(?!\\p{L})`, "giu"));
+        const words = count(text, new RegExp(`(?<!\\p{L})(?:${NUMBER_WORDS[d]})(?!\\p{L})`, "giu")) - count(source, new RegExp(`\\b(?:${ENGLISH_NUMBER_WORDS[d]})\\b`, "gi"));
         if (alone < missing || words < missing)
             return false;
     }
@@ -765,19 +769,21 @@ export function seedMemory(entry: Entry, wanted: Map<string, Segment>, memory: R
     return taken;
 }
 
-export type Freshness = "current" | "changed" | "missing";
+export type Freshness = "current" | "changed" | "missing" | "partial";
 
 export function freshness(entry: Pick<Entry, "key" | "title">, rendered: string = RENDERED, dir: string = OUT): Freshness {
     const metaPath = path.join(dir, `${entry.key}.json`);
     if (!fs.existsSync(metaPath) || !fs.existsSync(path.join(dir, `${entry.key}.html`)))
         return "missing";
     const html = fs.readFileSync(path.join(rendered, `${entry.key}.html`), "utf8");
-    const record = JSON.parse(fs.readFileSync(metaPath, "utf8")) as { sourceSha?: string };
-    return record.sourceSha === sha(`${html}\n${entry.title}`) ? "current" : "changed";
+    const record = JSON.parse(fs.readFileSync(metaPath, "utf8")) as { sourceSha?: string; stats?: { fallback?: number } };
+    if (record.sourceSha !== sha(`${html}\n${entry.title}`))
+        return "changed";
+    return record.stats?.fallback ? "partial" : "current";
 }
 
 export function staleReport(entries: Iterable<Pick<Entry, "key" | "title">>, rendered: string = RENDERED, dir: string = OUT): { stale: number; text: string } {
-    const reasons = { changed: "English text changed", missing: "not translated" };
+    const reasons = { changed: "English text changed", missing: "not translated", partial: "paragraphs left in English" };
     const lines: string[] = [];
     let total = 0;
     for (const entry of entries) {
@@ -787,8 +793,8 @@ export function staleReport(entries: Iterable<Pick<Entry, "key" | "title">>, ren
             lines.push(`- \`${entry.key}\`: ${reasons[state]}`);
     }
     const head = lines.length === 0
-        ? `All ${total} documents have a current Spanish translation.`
-        : `${lines.length} of ${total} documents have no current Spanish translation.`;
+        ? `All ${total} documents have a current and complete Spanish translation.`
+        : `${lines.length} of ${total} documents have no current and complete Spanish translation.`;
     return { stale: lines.length, text: ["### Spanish translation", "", head, "", ...lines].join("\n").trimEnd() + "\n" };
 }
 

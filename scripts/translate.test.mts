@@ -103,6 +103,9 @@ test("a number of one digit can be a Spanish word, and 500k can be 500 000", () 
     assert.throws(() => rebuild(plain("Revision 2 has 12 rules."), "La Revisión dos tiene 13 reglas."), /numbers differ/);
     assert.throws(() => rebuild(plain("It needs 12 blocks."), "Necesita dos bloques y el primer bloque."), /numbers differ/);
     assert.throws(() => rebuild(plain("The 3rd halving."), "El segundo halving."), /numbers differ/);
+    assert.throws(() => rebuild(plain("The 3rd halving of the third revision."), "El halving de la tercera revisión."), /numbers differ/);
+    assert.doesNotThrow(() => rebuild(plain("The 3rd halving of the third revision."), "El tercer halving de la tercera revisión."));
+    assert.throws(() => rebuild(plain("Both use the 2-way peg."), "Los dos usan el anclaje."), /numbers differ/);
 });
 
 test("the full run: three checks that rejected correct text", () => {
@@ -283,20 +286,22 @@ test("the report lists the documents whose page shows English", () => {
     const rendered = fs.mkdtempSync(path.join(os.tmpdir(), "zr-src-"));
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zr-es-"));
     const sha = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
-    const docs = [{ key: "zip-0001", title: "One" }, { key: "zip-0002", title: "Two" }, { key: "zip-0003", title: "Three" }, { key: "zip-0004", title: "Four, new title" }];
+    const docs = [{ key: "zip-0001", title: "One" }, { key: "zip-0002", title: "Two" }, { key: "zip-0003", title: "Three" }, { key: "zip-0004", title: "Four, new title" }, { key: "zip-0005", title: "Five" }];
     for (const d of docs)
         fs.writeFileSync(path.join(rendered, `${d.key}.html`), `<p>${d.key}</p>`);
-    const translate = (key: string, html: string, title: string) => {
+    const translate = (key: string, html: string, title: string, fallback = 0) => {
         fs.writeFileSync(path.join(dir, `${key}.html`), "<p>es</p>");
-        fs.writeFileSync(path.join(dir, `${key}.json`), JSON.stringify({ sourceSha: sha(`${html}\n${title}`) }));
+        fs.writeFileSync(path.join(dir, `${key}.json`), JSON.stringify({ sourceSha: sha(`${html}\n${title}`), stats: { fallback } }));
     };
     translate("zip-0001", "<p>zip-0001</p>", "One");
     translate("zip-0002", "<p>older text</p>", "Two");
     translate("zip-0004", "<p>zip-0004</p>", "Four");
-    assert.deepEqual(docs.map((d) => freshness(d, rendered, dir)), ["current", "changed", "missing", "changed"]);
+    translate("zip-0005", "<p>zip-0005</p>", "Five", 1);
+    assert.deepEqual(docs.map((d) => freshness(d, rendered, dir)), ["current", "changed", "missing", "changed", "partial"]);
     const report = staleReport(docs, rendered, dir);
-    assert.equal(report.stale, 3);
-    assert.match(report.text, /3 of 4 documents have no current Spanish translation/);
+    assert.equal(report.stale, 4);
+    assert.match(report.text, /4 of 5 documents have no current and complete Spanish translation/);
+    assert.match(report.text, /- `zip-0005`: paragraphs left in English/);
     assert.match(report.text, /- `zip-0003`: not translated/);
     assert.equal(staleReport(docs.slice(0, 1), rendered, dir).stale, 0);
 });
