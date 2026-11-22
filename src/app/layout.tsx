@@ -6,6 +6,8 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 import "@fontsource/ibm-plex-serif/600.css";
+import "@fontsource/jacques-francois/latin-400.css";
+import "@fontsource/jacquard-12/latin-400.css";
 import "./globals.css";
 import SiteNav from "@/components/site-nav";
 import CommandPalette from "@/components/command-palette";

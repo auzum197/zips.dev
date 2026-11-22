@@ -1,10 +1,11 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "@/i18n/link";
 import { useTranslations } from "next-intl";
 import { useLabels } from "@/i18n/labels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import StatusBadge from "@/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, } from "@/components/ui/table";
 import type { ZipStatusGroup } from "@/lib/types";
@@ -66,7 +67,17 @@ export default function IndexFilters({ rows }: {
         });
     }, [rows, query, status, category, upgrade]);
     const active = query.trim() !== "" || status !== null || category !== "all" || upgrade !== "all";
+    /* A filter set with the pointer replaces the rows: they fade in, with no
+       movement. Text in the search box does not call this: the rows follow
+       the keys with no delay. */
+    const body = useRef<HTMLTableSectionElement>(null);
+    const fade = useRef<Animation | null>(null);
+    function settle() {
+        fade.current?.cancel();
+        fade.current = body.current?.animate({ opacity: [0, 1] }, { duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" }) ?? null;
+    }
     function reset() {
+        settle();
         setQuery("");
         setStatus(null);
         setCategory("all");
@@ -75,25 +86,25 @@ export default function IndexFilters({ rows }: {
     return (<div className="mb-8">
       <div className="mb-3 flex flex-wrap gap-2">
         <Input type="search" placeholder={t("filterPlaceholder")} aria-label={t("filterLabel")} className="min-w-0 max-w-sm flex-1 basis-64" value={query} onChange={(e) => setQuery(e.target.value)}/>
-        <select aria-label={t("byCategory")} className="h-9 max-w-56 rounded-md border border-input bg-transparent px-3 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
+        <Select aria-label={t("byCategory")} className="max-sm:max-w-none max-sm:grow" placeholder={category === "all"} value={category} onChange={(e) => { settle(); setCategory(e.target.value); }}>
           <option value="all">{t("allCategories")}</option>
           {categories.map((c) => (<option key={c} value={c}>
               {label.category(c)}
             </option>))}
-        </select>
-        <select aria-label={t("byUpgrade")} className="h-9 max-w-56 rounded-md border border-input bg-transparent px-3 text-sm" value={upgrade} onChange={(e) => setUpgrade(e.target.value)}>
+        </Select>
+        <Select aria-label={t("byUpgrade")} className="max-sm:max-w-none max-sm:grow" placeholder={upgrade === "all"} value={upgrade} onChange={(e) => { settle(); setUpgrade(e.target.value); }}>
           <option value="all">{t("allUpgrades")}</option>
           {upgrades.map((u) => (<option key={u} value={u}>
               {u}
             </option>))}
-        </select>
+        </Select>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-1.5">
-        {groups.map((g) => (<Button key={g} type="button" variant={status === g ? "default" : "outline"} size="sm" className="rounded-full font-mono" aria-pressed={status === g} onClick={() => setStatus(status === g ? null : g)}>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {groups.map((g) => (<Button key={g} type="button" variant={status === g ? "default" : "outline"} size="sm" className={`rounded-full border font-mono ${status === g ? "border-accent" : "border-border/60 bg-muted text-muted-foreground hover:bg-border-subtle"}`} aria-pressed={status === g} onClick={() => { settle(); setStatus(status === g ? null : g); }}>
             {t(`group.${g}`)}
           </Button>))}
-        {active && (<Button type="button" variant="ghost" size="sm" className="text-destructive underline underline-offset-2" onClick={reset}>
+        {active && (<Button type="button" variant="ghost" size="sm" className="rounded-full text-destructive underline underline-offset-2 transition-[color,background-color,border-color,scale,opacity] starting:opacity-0" onClick={reset}>
             {t("reset")}
           </Button>)}
         <span className="ml-auto font-mono text-xs text-faint">
@@ -112,7 +123,7 @@ export default function IndexFilters({ rows }: {
             <TableHead scope="col">{th("upgrades")}</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
+        <TableBody ref={body}>
           {filtered.map((r) => (<TableRow key={r.number}>
               <TableCell className="whitespace-nowrap font-mono text-muted-foreground">
                 <Link href={`/zip/${r.number}/`}>{r.number}</Link>
