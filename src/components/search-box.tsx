@@ -2,58 +2,10 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
-export type PagefindResultData = {
-    url: string;
-    excerpt: string;
-    meta?: {
-        title?: string;
-        display_name?: string;
-    };
-};
-type Pagefind = {
-    search: (query: string) => Promise<{
-        results: {
-            data: () => Promise<PagefindResultData>;
-        }[];
-    }>;
-};
-declare global {
-    interface Window {
-        pagefind?: Pagefind;
-    }
-}
-const INDEX_URL = "/pagefind/pagefind.js";
+import { searchPagefind, type PagefindResultData } from "@/lib/pagefind";
+export type { PagefindResultData };
 const DEBOUNCE_MS = 150;
 const MAX_RESULTS = 25;
-let indexMissing = false;
-let pagefindPromise: Promise<Pagefind> | null = null;
-
-// pagefind.js is an ES module — load it with a native dynamic import
-// (webpackIgnore keeps Next from trying to bundle a runtime URL).
-function loadPagefind(): Promise<Pagefind> {
-    if (indexMissing)
-        return Promise.reject(new Error("pagefind index missing"));
-    if (window.pagefind)
-        return Promise.resolve(window.pagefind);
-    pagefindPromise ??= (async () => {
-        try {
-            const url = INDEX_URL;
-            const mod = (await import(/* webpackIgnore: true */ url)) as Partial<Pagefind> & {
-                default?: Pagefind;
-            };
-            const pf = (mod.search ? mod : mod?.default) as Pagefind | undefined;
-            if (!pf?.search)
-                throw new Error("pagefind loaded but no search function found");
-            return pf;
-        }
-        catch (e) {
-            pagefindPromise = null;
-            indexMissing = true;
-            throw e instanceof Error ? e : new Error(`failed to load ${INDEX_URL}`);
-        }
-    })();
-    return pagefindPromise;
-}
 export default function SearchBox() {
     const t = useTranslations("Search");
     const [query, setQuery] = useState("");
@@ -71,9 +23,7 @@ export default function SearchBox() {
         const id = ++reqId.current;
         setLoading(true);
         try {
-            const pagefind = await loadPagefind();
-            const res = await pagefind.search(q);
-            const data = await Promise.all(res.results.slice(0, MAX_RESULTS).map((r) => r.data()));
+            const data = await searchPagefind(q, MAX_RESULTS);
             if (id !== reqId.current)
                 return;
             setResults(data);

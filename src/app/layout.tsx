@@ -8,6 +8,7 @@ import "@fontsource/ibm-plex-mono/600.css";
 import "@fontsource/ibm-plex-serif/600.css";
 import "./globals.css";
 import SiteNav from "@/components/site-nav";
+import CommandPalette from "@/components/command-palette";
 import SiteFooter from "@/components/site-footer";
 import ScrollReset from "@/components/scroll-reset";
 import HeaderAutohide from "@/components/header-autohide";
@@ -62,6 +63,7 @@ export default function RootLayout({ children }: {
             <main className="mx-auto w-full max-w-[88rem] px-5 pb-12">{children}</main>
             <SiteFooter meta={getMeta()}/>
           </div>
+          <CommandPalette />
         </I18nProvider>
       </body>
     </html>);

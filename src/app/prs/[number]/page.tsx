@@ -118,7 +118,7 @@ export default async function PrOverviewPage({ params, }: {
     const newRefs = refs.filter((r) => r.href === null);
     const sep = <span className="mr-2">·</span>;
     return (<div className="relative mx-auto max-w-[88rem] pt-6">
-      <div className="mx-auto max-w-[84ch] [--prose-measure:84ch]">
+      <div className="mx-auto max-w-[84ch] [--prose-measure:84ch]" data-pagefind-body>
         <header className="mb-8 border-b border-border-subtle pb-4">
           <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-muted-foreground">
             <Badge variant="accent">PR #{pr.number}</Badge>
@@ -174,7 +174,7 @@ export default async function PrOverviewPage({ params, }: {
           </ul>
         </section>
 
-        {(diffableFiles.length > 0 || pr.files.length > 0) && (<section className="mt-12 border-t border-border-subtle pt-6">
+        {(diffableFiles.length > 0 || pr.files.length > 0) && (<section className="mt-12 border-t border-border-subtle pt-6" data-pagefind-ignore>
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {t("changes")}
             </h2>
