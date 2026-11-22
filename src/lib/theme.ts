@@ -11,8 +11,13 @@ export function currentTheme(): Theme {
 export function toggleTheme(): Theme {
     const next: Theme = currentTheme() === "dark" ? "light" : "dark";
     const c = document.documentElement.classList;
+    // All colours change in the same frame. Without this, the elements that
+    // have a colour transition go to the new theme later than the page.
+    c.add("theme-switch");
     c.toggle("dark", next === "dark");
     c.toggle("light", next === "light");
+    void getComputedStyle(document.documentElement).opacity;
+    requestAnimationFrame(() => requestAnimationFrame(() => c.remove("theme-switch")));
     try {
         localStorage.setItem("zd-theme", next);
     }

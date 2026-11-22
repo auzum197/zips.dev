@@ -12,7 +12,7 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
     return (<tbody className={cn("[&_tr:last-child]:border-0", className)} {...props}/>);
 }
 function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
-    return (<tr className={cn("border-b border-border-subtle transition-colors hover:bg-muted", className)} {...props}/>);
+    return (<tr className={cn("border-b border-border-subtle hover:bg-muted", className)} {...props}/>);
 }
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     return (<th className={cn("h-9 px-3 text-left align-middle text-xs font-semibold uppercase tracking-wider text-faint", className)} {...props}/>);
