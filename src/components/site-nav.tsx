@@ -1,6 +1,7 @@
 "use client";
 import { useTranslations } from "next-intl";
 import Link from "@/i18n/link";
+import { CommandPaletteTrigger } from "./command-palette";
 import LangSwitch from "./lang-switch";
 import ThemeToggle from "./theme-toggle";
 import ZenToggle from "./zen-toggle";
@@ -14,7 +15,6 @@ const links = [
     // page at /matrix/ still exists for links that are already published.
     { href: "/matrix/", key: "matrix", disabled: true },
     { href: "/upgrades/", key: "upgrades" },
-    { href: "/search/", key: "search" },
 ] as const;
 export default function SiteNav() {
     const t = useTranslations("Nav");
@@ -31,6 +31,9 @@ export default function SiteNav() {
             </Link>))}
         </nav>
         <div className="ml-auto flex items-center">
+          <div className="zen-dim mr-2 flex">
+            <CommandPaletteTrigger />
+          </div>
           <div className="zen-dim mr-1.5 flex">
             <LangSwitch />
           </div>
