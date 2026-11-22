@@ -17,7 +17,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { addGlosses, collect, freshness, seedMemory, staleReport, countTerm, glossaryFor, rebuild, reviewAll, setKeep, setModel, withEntities, type Glossary, type Review, type Segment } from "./translate.mjs";
+import { addGlosses, catalog, collect, freshness, seedMemory, staleReport, translationIndex, countTerm, glossaryFor, rebuild, reviewAll, setKeep, setModel, withEntities, type Glossary, type Review, type Segment } from "./translate.mjs";
 
 const parse = (html: string): Root => fromHtml(html, { fragment: true });
 const toHtml = (tree: Root): string => unified().use(rehypeStringify).stringify(tree);
@@ -274,7 +274,7 @@ test("a pull request document takes the reviewed paragraphs of its ZIP", () => {
     const wanted = new Map(["Same paragraph.", "Not reviewed.", "New paragraph."].map((s) => [s, plain(s)]));
     const memory: Record<string, string> = {};
     const reviews: Record<string, Review> = {};
-    const taken = seedMemory({ key: "pr-1288-zip-0317", slug: "zip-0317", title: "", headings: [] }, wanted, memory, reviews, dir);
+    const taken = seedMemory({ key: "pr-1288-zip-0317", slug: "zip-0317" }, wanted, memory, reviews, dir);
     fs.rmSync(dir, { recursive: true });
     // only a reviewed paragraph, of the same document, that this version still has
     assert.equal(taken, 1);
@@ -304,4 +304,37 @@ test("the report lists the documents whose page shows English", () => {
     assert.match(report.text, /- `zip-0005`: paragraphs left in English/);
     assert.match(report.text, /- `zip-0003`: not translated/);
     assert.equal(staleReport(docs.slice(0, 1), rendered, dir).stale, 0);
+});
+
+test("the index gives each document its Spanish page, and the Spanish title when the page shows Spanish", () => {
+    const content = fs.mkdtempSync(path.join(os.tmpdir(), "zr-content-"));
+    const rendered = path.join(content, "rendered");
+    const dir = path.join(content, "rendered-es");
+    fs.mkdirSync(rendered);
+    fs.mkdirSync(dir);
+    const zip = { slug: "zip-0032", title: "Wallets", headings: [], kind: "zip", number: 32 };
+    const draft = { slug: "draft-x", title: "Draft", headings: [], kind: "draft", number: null };
+    const preview = (slug: string, title: string) => ({ filename: `zips/${slug}.md`, slug, title, headings: [] });
+    fs.writeFileSync(path.join(content, "zips.json"), JSON.stringify({ zips: [zip, draft] }));
+    fs.writeFileSync(path.join(content, "prs.json"), JSON.stringify({ prs: [{ source: null, number: 7, previews: [preview("zip-0032", "Wallets, changed"), preview("zip-0099", "Not rendered")] }] }));
+    fs.writeFileSync(path.join(content, "external.json"), JSON.stringify({ prs: [{ source: "tachyon", number: 5, previews: [preview("draft-y", "Bundle")] }] }));
+    const sha = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
+    for (const key of ["zip-0032", "draft-x", "pr-7-zip-0032", "pr-tachyon-5-draft-y"])
+        fs.writeFileSync(path.join(rendered, `${key}.html`), `<p>${key}</p>`);
+    const translate = (key: string, html: string, english: string, spanish: string) => {
+        fs.writeFileSync(path.join(dir, `${key}.html`), "<p>es</p>");
+        fs.writeFileSync(path.join(dir, `${key}.json`), JSON.stringify({ sourceSha: sha(`${html}\n${english}`), title: spanish }));
+    };
+    translate("zip-0032", "<p>zip-0032</p>", "Wallets", "Billeteras");
+    translate("draft-x", "<p>older text</p>", "Draft", "Borrador");
+    translate("pr-tachyon-5-draft-y", "<p>pr-tachyon-5-draft-y</p>", "Bundle", "Paquete");
+    const index = translationIndex(catalog(content).values(), rendered, dir);
+    fs.rmSync(content, { recursive: true });
+    assert.deepEqual(index.map((d) => [d.key, d.kind, d.translated, d.title, d.page]), [
+        ["zip-0032", "zip", true, "Billeteras", "/es/zip/32/"],
+        ["draft-x", "draft", false, "Draft", "/es/drafts/draft-x/"],
+        ["pr-7-zip-0032", "pr", false, "Wallets, changed", "/es/prs/7/zip-0032/"],
+        ["pr-tachyon-5-draft-y", "external", true, "Paquete", "/es/external/tachyon/5/draft-y/"],
+    ]);
+    assert.deepEqual(index.map((d) => [d.number, d.pr, d.source]), [[32, null, null], [null, null, null], [null, 7, null], [null, 5, "tachyon"]]);
 });

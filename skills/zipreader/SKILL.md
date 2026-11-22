@@ -16,6 +16,7 @@ JSON snapshots of the zcash/zips repository at `https://zipreader.org`. Every pa
 | `/api/prs.json` | `prs[]`: open PRs to zcash/zips, and `error` |
 | `/api/external.json` | `sources[]` and `prs[]`: watched third-party PRs, same PR shape |
 | `/api/upgrades.json` | `upgrades[]`: network upgrades and their ZIPs |
+| `/api/es.json` | `documents[]`: Spanish title and page of every ZIP, draft and PR document |
 
 ## Recipes
 
@@ -45,6 +46,22 @@ curl -s $B/api/prs.json | jq -r --argjson n 1429 '.prs[] | select(.number==$n) |
 # Headings of a merged ZIP: read the anchors on its page
 curl -s $B/zip/32/ | grep -oE '<h[1-4][^>]*id="[^"]+"' | sed -E 's/<h([1-4])[^>]*id="([^"]+)"/h\1 \2/'
 ```
+
+## Spanish
+
+Every page has a Spanish version at the same path under `/es/`. The other endpoints are English only; `/api/es.json` gives, for each document, `title` and `page` as the Spanish site shows them. Join it to the other endpoints on `number` (ZIP), `slug` (draft), or `pr` + `slug` (+ `source` for a third-party PR).
+
+```sh
+# Spanish title and link of one ZIP
+curl -s $B/api/es.json | jq -c '.documents[] | select(.number==32) | {title,page,translated}'
+
+# Documents of one PR in Spanish
+curl -s $B/api/es.json | jq -c '.documents[] | select(.pr==1429 and .source==null) | {slug,title,page,translated}'
+```
+
+- `translated: false` means the Spanish page shows the English text for now, and `title` is the English title.
+- The translation is made by a model. The English text is authoritative: check normative statements (MUST, SHOULD) against it.
+- When the user writes in Spanish, link the `/es/` pages.
 
 ## Gotchas
 

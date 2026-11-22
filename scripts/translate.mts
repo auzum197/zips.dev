@@ -5,6 +5,7 @@
  *   pnpm translate --all                    every document that is missing or out of date
  *   pnpm translate --force zip-0200         ignore the cache
  *   pnpm translate --check                  list the documents with no current translation; no model call
+ *   pnpm translate --index                  write public/api/es.json: the Spanish title and page of each document
  *
  * Reads  content/rendered/<slug>.html
  *        data/glossary-es.yaml                 terminology
@@ -710,18 +711,24 @@ export interface Entry {
     slug: string;
     title: string;
     headings: { level: number; id: string; text: string }[];
+    kind: "zip" | "draft" | "pr" | "external";
+    number: number | null;
+    pr: number | null;
+    source: string | null;
+    page: string;
 }
 /** Every document of the site: ZIPs and drafts of zcash/zips, and the
  *  documents inside pull requests, of zcash/zips and of the watched
  *  repositories. A pull request document is "pr-<number>-<slug>", or
  *  "pr-<source>-<number>-<slug>" for a watched repository. */
-export function catalog(): Map<string, Entry> {
+export function catalog(content: string = CONTENT): Map<string, Entry> {
+    const rendered = path.join(content, "rendered");
     function read<T>(file: string): T {
-        return JSON.parse(fs.readFileSync(path.join(CONTENT, file), "utf8")) as T;
+        return JSON.parse(fs.readFileSync(path.join(content, file), "utf8")) as T;
     }
     const out = new Map<string, Entry>();
-    for (const z of read<{ zips: Omit<Entry, "key">[] }>("zips.json").zips)
-        out.set(z.slug, { key: z.slug, slug: z.slug, title: z.title, headings: z.headings });
+    for (const z of read<{ zips: (Pick<Entry, "slug" | "title" | "headings" | "number"> & { kind: "zip" | "draft" })[] }>("zips.json").zips)
+        out.set(z.slug, { key: z.slug, slug: z.slug, title: z.title, headings: z.headings, kind: z.kind, number: z.number, pr: null, source: null, page: z.number !== null ? `/zip/${z.number}/` : `/drafts/${z.slug}/` });
     interface Preview {
         filename: string;
         slug?: string;
@@ -739,8 +746,8 @@ export function catalog(): Map<string, Entry> {
         for (const pv of previews) {
             const slug = pv.slug ?? pv.filename.replace(/^.*\//, "").replace(/\.(md|rst)$/i, "");
             const key = `pr-${pr.source ? `${pr.source}-${pr.number}` : pr.number}-${slug}`;
-            if (fs.existsSync(path.join(RENDERED, `${key}.html`)))
-                out.set(key, { key, slug, title: pv.title, headings: pv.headings ?? [] });
+            if (fs.existsSync(path.join(rendered, `${key}.html`)))
+                out.set(key, { key, slug, title: pv.title, headings: pv.headings ?? [], kind: pr.source ? "external" : "pr", number: null, pr: pr.number, source: pr.source, page: `${pr.source ? `/external/${pr.source}` : "/prs"}/${pr.number}/${slug}/` });
         }
     }
     return out;
@@ -750,7 +757,7 @@ export function catalog(): Map<string, Entry> {
  *  document. A pull request changes a few paragraphs of a ZIP; the others
  *  are already translated and reviewed in the ZIP itself, or in another pull
  *  request that touches it. Returns the number of paragraphs taken. */
-export function seedMemory(entry: Entry, wanted: Map<string, Segment>, memory: Record<string, string>, reviews: Record<string, Review>, dir: string = OUT): number {
+export function seedMemory(entry: Pick<Entry, "key" | "slug">, wanted: Map<string, Segment>, memory: Record<string, string>, reviews: Record<string, Review>, dir: string = OUT): number {
     if (!fs.existsSync(dir))
         return 0;
     const own = `${entry.key}.tm.json`;
@@ -796,6 +803,19 @@ export function staleReport(entries: Iterable<Pick<Entry, "key" | "title">>, ren
         ? `All ${total} documents have a current and complete Spanish translation.`
         : `${lines.length} of ${total} documents have no current and complete Spanish translation.`;
     return { stale: lines.length, text: ["### Spanish translation", "", head, "", ...lines].join("\n").trimEnd() + "\n" };
+}
+
+export interface IndexEntry extends Pick<Entry, "key" | "kind" | "slug" | "number" | "pr" | "source" | "title" | "page"> {
+    translated: boolean;
+}
+
+export function translationIndex(entries: Iterable<Entry>, rendered: string = RENDERED, dir: string = OUT): IndexEntry[] {
+    return [...entries].map((entry) => {
+        const state = freshness(entry, rendered, dir);
+        const translated = state === "current" || state === "partial";
+        const title = translated ? (JSON.parse(fs.readFileSync(path.join(dir, `${entry.key}.json`), "utf8")) as { title: string }).title : entry.title;
+        return { key: entry.key, kind: entry.kind, slug: entry.slug, number: entry.number, pr: entry.pr, source: entry.source, translated, title, page: `/es${entry.page}` };
+    });
 }
 
 async function translateDoc(entry: Entry, glossary: Glossary, system: string, reviewSystem: string, promptSha: string, force: boolean): Promise<void> {
@@ -908,9 +928,16 @@ async function main(): Promise<void> {
         process.stdout.write(staleReport(all.values()).text);
         return;
     }
+    if (args.includes("--index")) {
+        const meta = JSON.parse(fs.readFileSync(path.join(CONTENT, "meta.json"), "utf8")) as Record<string, string>;
+        const documents = translationIndex(all.values());
+        fs.writeFileSync(path.join(ROOT, "public", "api", "es.json"), JSON.stringify({ ...meta, language: "es", documents }));
+        console.log(`translate: wrote public/api/es.json, ${documents.filter((d) => d.translated).length} of ${documents.length} documents in Spanish`);
+        return;
+    }
     const slugs = args.includes("--all") ? [...all.keys()] : args.filter((a) => !a.startsWith("--"));
     if (slugs.length === 0) {
-        console.error("usage: pnpm translate --check | [--force] --all | <document> [<document> …]   e.g. pnpm translate zip-0200 pr-1437-zip-0223");
+        console.error("usage: pnpm translate --check | --index | [--force] --all | <document> [<document> …]   e.g. pnpm translate zip-0200 pr-1437-zip-0223");
         process.exit(1);
     }
     if (!process.env.GLM_KEY) {
