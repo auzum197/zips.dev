@@ -33,7 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      # The page URL comes from the attempt that succeeded.
+      url: ${{ steps.deploy.outputs.page_url || steps.deployment.outputs.page_url }}
     outputs:
       stale: ${{ steps.stale.outputs.count }}
     steps:
@@ -132,12 +133,29 @@ jobs:
         with:
           path: out
 
-      # actions/deploy-pages v5.0.1
-      - id: deployment
+      # actions/deploy-pages v5.0.1. It looks up its artifact once, with no
+      # retry, and the lookup can come back empty for an upload that was
+      # finalized a moment earlier (actions/deploy-pages#451). A first attempt
+      # that fails does not fail the job: the next steps wait and try again.
+      # A retry that fails fails the job.
+      - name: Deploy to GitHub Pages
+        id: deploy
+        continue-on-error: true
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
         with:
           # Pages propagation for this site has taken ~5 min on good days and
           # exceeded the action's 10 min default once; give it 20 min.
+          timeout: 1200000
+
+      - name: Wait before deploying again
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy to GitHub Pages (retry)
+        id: deployment
+        if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
+        with:
           timeout: 1200000
 
   translate:
@@ -146,7 +164,8 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      # The page URL comes from the attempt that succeeded.
+      url: ${{ steps.deploy.outputs.page_url || steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -220,8 +239,22 @@ jobs:
         with:
           path: out
 
-      - id: deployment
+      # The same retry as in the sync job.
+      - name: Deploy to GitHub Pages
+        id: deploy
         if: steps.publish.outputs.deploy == 'true'
+        continue-on-error: true
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
+        with:
+          timeout: 1200000
+
+      - name: Wait before deploying again
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy to GitHub Pages (retry)
+        id: deployment
+        if: steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
         with:
           timeout: 1200000
