@@ -1,5 +1,8 @@
 "use client";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
+import { stripLocale } from "@/i18n/config";
 import Link from "@/i18n/link";
 import { CommandPaletteTrigger } from "./command-palette";
 import LangSwitch from "./lang-switch";
@@ -16,17 +19,41 @@ const links = [
     { href: "/matrix/", key: "matrix", disabled: true },
     { href: "/upgrades/", key: "upgrades" },
 ] as const;
+/** The link of the section that a path is in. A ZIP document is in the
+ *  ZIP index; the search page is in no section. */
+function currentHref(pathname: string): string | undefined {
+    const section = stripLocale(pathname).split("/")[1];
+    if (section === "" || section === "zip")
+        return "/";
+    return links.find((l) => l.href === `/${section}/`)?.href;
+}
 export default function SiteNav() {
     const t = useTranslations("Nav");
+    const current = currentHref(usePathname());
+    const nav = useRef<HTMLElement>(null);
+    useEffect(() => {
+        const el = nav.current;
+        const link = el?.querySelector<HTMLElement>("[aria-current]");
+        if (!el || !link)
+            return;
+        const pad = 16;
+        const left = link.offsetLeft - pad;
+        const right = link.offsetLeft + link.offsetWidth + pad;
+        if (left < el.scrollLeft)
+            el.scrollLeft = left;
+        else if (right > el.scrollLeft + el.clientWidth)
+            el.scrollLeft = right - el.clientWidth;
+    }, [current]);
     return (<header id="site-header" className="z-40 shrink-0 border-b border-border-subtle bg-background zen:border-transparent zen:bg-transparent zen:pointer-events-none">
       <div className="mx-auto flex max-w-[88rem] flex-wrap items-center gap-x-2 gap-y-1 px-5 py-2 min-[48rem]:h-[3.25rem] min-[48rem]:flex-nowrap min-[48rem]:gap-y-0 min-[48rem]:py-0">
         <Link href="/" className="zen-dim font-mono text-base font-semibold tracking-tight hover:text-accent hover:no-underline">
           zip<span className="text-accent">reader</span>
         </Link>
-        <nav aria-label={t("main")} className="zen-dim order-last -mx-2.5 flex w-[calc(100%+1.25rem)] gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[48rem]:order-none min-[48rem]:mx-0 min-[48rem]:ml-2 min-[48rem]:w-auto">
-          {links.map((l) => "disabled" in l && l.disabled ? (<span key={l.href} aria-disabled="true" className="cursor-not-allowed rounded-md px-2.5 py-1.5 text-sm text-faint/70 whitespace-nowrap min-[48rem]:py-1">
+        <nav ref={nav} aria-label={t("main")} className="site-nav zen-dim order-last -mx-2.5 flex w-[calc(100%+1.25rem)] gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[48rem]:order-none min-[48rem]:mx-0 min-[48rem]:ml-2 min-[48rem]:w-auto">
+          {current && <span className="site-nav-marker" aria-hidden/>}
+          {links.map((l) => "disabled" in l && l.disabled ? (<span key={l.href} aria-disabled="true" aria-current={l.href === current ? "page" : undefined} className="site-nav-link cursor-not-allowed rounded-md px-2.5 py-1.5 text-sm text-faint/70 whitespace-nowrap min-[48rem]:py-1">
               {t(l.key)}
-            </span>) : (<Link key={l.href} href={l.href} className="rounded-md px-2.5 py-1.5 text-sm text-muted-foreground whitespace-nowrap min-[48rem]:py-1 hover:bg-muted hover:text-foreground hover:no-underline">
+            </span>) : (<Link key={l.href} href={l.href} aria-current={l.href === current ? "page" : undefined} className="site-nav-link rounded-md px-2.5 py-1.5 text-sm text-muted-foreground whitespace-nowrap min-[48rem]:py-1 hover:no-underline">
               {t(l.key)}
             </Link>))}
         </nav>
