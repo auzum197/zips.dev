@@ -13,7 +13,7 @@ export default function ScrollReset() {
         }
         if (window.location.hash)
             return;
-        // a language switch keeps the reader on the same paragraph (lang-switch.tsx)
+        // a language switch keeps the reader on the same paragraph (lib/language.ts)
         if ("langSwitch" in document.documentElement.dataset)
             return;
         document.getElementById("scroll-root")?.scrollTo({ top: 0, behavior: "instant" });
