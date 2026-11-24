@@ -1,81 +1,355 @@
 <h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
-<p>Este documento usa la terminología de la Zcash Protocol Specification (Especificación del Protocolo Zcash) y del ZIP 32 <sup><a href="#user-content-fn-zip32" id="user-content-fnref-zip32" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup>. En particular:</p>
-<p><code>account index</code>: el índice de cuenta del ZIP 32 que se usa para derivar claves de gasto a nivel de cuenta.</p>
-<p><code>diversifier</code> / <code>diversified address</code>: un cambio en la codificación del receptor que permite generar muchas direcciones a partir de la misma clave de gasto de Sapling (en lugar de generar claves nuevas).</p>
-<p><code>legacy derivation</code>: cualquier comportamiento histórico de generación/derivación de claves de una billetera que difiere de las mejores prácticas actuales (p. ej., frases semilla BIP 39 <sup><a href="#user-content-fn-bip-0039" id="user-content-fnref-bip-0039" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup> + derivación HD del ZIP 32, y direcciones diversificadas).</p>
+<p>Este documento usa la terminología de la Zcash Protocol Specification (Especificación del Protocolo Zcash) <sup><a href="#user-content-fn-protocol" id="user-content-fnref-protocol" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup>, BIP 32 <sup><a href="#user-content-fn-bip-0032" id="user-content-fnref-bip-0032" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>, BIP 39 <sup><a href="#user-content-fn-bip-0039" id="user-content-fnref-bip-0039" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>, BIP 44 <sup><a href="#user-content-fn-bip-0044" id="user-content-fnref-bip-0044" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, ZIP 32 <sup><a href="#user-content-fn-zip-0032" id="user-content-fnref-zip-0032" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> y ZIP 316 <sup><a href="#user-content-fn-zip-0316" id="user-content-fnref-zip-0316" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>.</p>
+<p>Los términos «Mainnet» y «Testnet» en este documento deben interpretarse como se definen en la Zcash Protocol Specification <sup><a href="#user-content-fn-protocol-networks" id="user-content-fnref-protocol-networks" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>.</p>
+<p>Los términos siguientes deben interpretarse así:</p>
+<dl><dt>Índice de cuenta</dt><dd>El índice en el nivel <code>account</code> de una ruta de derivación de ZIP 32 o BIP 44.</dd><dt>Tipo de moneda</dt><dd>El valor en el nivel <code>coin_type</code> de una ruta de derivación de ZIP 32 o BIP 44, según está registrado en SLIP 44 <sup><a href="#user-content-fn-slip-0044" id="user-content-fnref-slip-0044" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>. Es 133 para Mainnet y 1 para Testnet.</dd><dt>Dirección diversificada</dt><dd>Una de las muchas direcciones que una billetera deriva de una sola clave de visualización completa de Sapling u Orchard, cada una con su propio diversificador. Una clave de visualización de entrada encuentra los fondos de todas las direcciones diversificadas de esa clave.</dd><dt>Frase mnemónica</dt><dd>Una secuencia de palabras que codifica entropía, según se especifica en BIP 39 <sup><a href="#user-content-fn-bip-0039" id="user-content-fnref-bip-0039-2" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup>.</dd><dt>Semilla BIP 39</dt><dd>El valor de 64 bytes que la función de derivación de semilla de BIP 39 (PBKDF2) calcula a partir de una frase mnemónica y una frase de contraseña.</dd><dt>Entropía de la frase</dt><dd>Los bytes que codifica una frase mnemónica. Una billetera los obtiene al decodificar las palabras de la frase.</dd><dt>Semilla HD heredada</dt><dd>La semilla de 32 bytes que <code>zcashd</code> generaba a partir de la aleatoriedad del sistema y usaba para la derivación de claves de Sapling, desde v2.0.1 hasta la actualización a v4.7.0.</dd><dt>Semilla mnemónica</dt><dd>El nombre que <code>zcashd</code> v4.7.0 y posteriores usan para la semilla BIP 39 de la frase de recuperación de emergencia de la billetera.</dd><dt>Cuenta heredada</dt><dd>La cuenta con índice <code>0x7FFFFFFF</code> bajo la semilla mnemónica de una billetera <code>zcashd</code>. Contiene las direcciones que los métodos RPC <code>getnewaddress</code> y <code>z_getnewaddress</code> devuelven.</dd><dt>Derivación heredada</dt><dd>Un comportamiento de generación o derivación de claves de una billetera anterior que una herramienta de recuperación tiene que implementar para encontrar los fondos de esa billetera.</dd><dt>Límite de brecha</dt><dd>El número de índices consecutivos no utilizados tras el cual una herramienta de recuperación detiene una secuencia de derivación.</dd></dl>
+<p>La notación <code>m_Sapling</code> y <code>m_Orchard</code> se usa como en el ZIP 32 <sup><a href="#user-content-fn-zip-0032" id="user-content-fnref-zip-0032-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> para las claves maestras de Sapling y Orchard. La notación <code>m</code> es la clave maestra BIP 32. Un apóstrofo después de un índice identifica una derivación reforzada.</p>
 <h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
-<p>A lo largo de la historia de Zcash, las billeteras han usado múltiples estrategias para generar y derivar claves. Este ZIP documenta comportamientos heredados seleccionados que son relevantes para la recuperación de fondos y la interoperabilidad de billeteras, con un enfoque inicial en los comportamientos usados por zcashd y Zecwallet Lite.</p>
+<p>Las billeteras de Zcash han usado muchas estrategias para generar y derivar claves. Una herramienta de recuperación encuentra los fondos de una billetera antigua solo si implementa la estrategia que esa billetera usaba.</p>
+<p>Este ZIP describe los comportamientos heredados que son importantes para la recuperación de fondos. Especifica, para cada billetera, el material de semilla, las rutas de derivación, las reglas que seleccionan el siguiente índice y el procedimiento para recuperar fondos. La primera versión incluye <code>zcashd</code>, Zecwallet Lite y las billeteras que se basan en los crates <code>zcash_client_backend</code> y <code>zcash_client_sqlite</code>.</p>
+<p>Las reglas de consenso no cambian. Las implicaciones de privacidad se aplican a las herramientas de recuperación: la recuperación usa muchas claves de visualización y muchas direcciones para un mismo usuario, lo que puede revelar a un observador que estas direcciones tienen un mismo dueño.</p>
 <h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
-<p>Los usuarios pueden poseer material semilla, archivos de billetera o respaldos parciales producidos por billeteras antiguas. Si las herramientas modernas de recuperación asumen las convenciones actuales (mnemónico BIP 39 → semilla → derivación del ZIP 32, más direcciones diversificadas), pueden no detectar fondos creados bajo esquemas antiguos.</p>
-<p>Documentar los comportamientos heredados ayuda a los implementadores a:</p>
+<p>Los usuarios pueden tener material de semilla, archivos de billetera o copias de seguridad parciales que hicieron billeteras anteriores. La mayoría de las herramientas de recuperación implementan un solo esquema: una frase mnemónica BIP 39, una semilla BIP 39, derivación ZIP 32 y direcciones diversificadas. Los fondos que creó un esquema anterior son invisibles para tal herramienta. El usuario concluye entonces que los fondos están perdidos.</p>
+<p>Dos ejemplos:</p>
 <ul>
-<li>Identificar qué estrategias de recuperación intentar según la procedencia de una billetera.</li>
-<li>Evitar repetir errores del pasado (p. ej., generar cuentas nuevas cuando deberían usarse direcciones diversificadas).</li>
-<li>Construir herramientas interoperables que puedan recuperar fondos sin requerir el software de billetera original.</li>
+<li>Una billetera <code>zcashd</code> anterior a v4.7.0 recibe una frase mnemónica de recuperación de emergencia al actualizarse. Otra billetera que importa esta frase encuentra solo los fondos de las cuentas unificadas. Los fondos de Sapling anteriores a la actualización están en otras rutas, al igual que los fondos en direcciones <code>getnewaddress</code> y <code>z_getnewaddress</code>.</li>
+<li>Zecwallet Lite creaba una nueva autoridad de gasto cada vez que el usuario pedía una nueva dirección de Sapling. Una billetera que examina la cuenta 0 encuentra solo los fondos de la primera dirección.</li>
+</ul>
+<p><code>zcashd</code> está obsoleto y Zecwallet Lite no recibe mantenimiento. El software original se vuelve más difícil de ejecutar cada año. Una especificación de estos comportamientos permite a los implementadores:</p>
+<ul>
+<li>identificar las estrategias de recuperación que se aplican a una billetera dada;</li>
+<li>escribir herramientas que recuperan fondos de manera independiente del software de billetera original;</li>
+<li>reconocer estos patrones cuando diseñan una nueva billetera.</li>
+</ul>
+<h1 id="privacy-implications"><a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>Implicaciones de privacidad</h1>
+<p>Las implicaciones que siguen se aplican al software que implementa los procedimientos de recuperación de este documento.</p>
+<ul>
+<li>La recuperación puede usar muchas claves de visualización y muchas direcciones transparentes para un mismo usuario. Un servidor que las recibe (por ejemplo, un servidor de billetera ligera que responde consultas de direcciones transparentes) aprende que las direcciones tienen un mismo dueño. Las herramientas de recuperación necesitan mantener tales consultas al mínimo.</li>
+<li>Al completarse la recuperación, el usuario con frecuencia mueve todos los fondos encontrados a una nueva billetera. Esta transacción conecta las direcciones transparentes en la cadena. También revela el valor que se mueve entre pools.</li>
+<li>El material de semilla recuperado, la entropía de la frase y las claves derivadas son tan sensibles como la billetera original. La semilla HD heredada de una billetera <code>zcashd</code> tiene la misma entropía que su frase de recuperación de emergencia: una persona que obtiene una de ellas también tiene la otra.</li>
+<li>Una clave de visualización para una dirección Sapling de Zecwallet Lite revela los fondos de esa dirección solamente. La recuperación usa una clave de visualización por cada dirección.</li>
+</ul>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<ul>
+<li>Un implementador puede derivar, a partir del material de semilla y de este documento solamente, cada clave que la billetera documentada derivó.</li>
+<li>El documento identifica los fondos que existen solamente en un archivo de billetera, y la copia de seguridad que es necesaria para esos fondos.</li>
+<li>El documento identifica las versiones y productos de billetera a los que se aplica cada comportamiento.</li>
+<li>Un implementador puede realizar cada procedimiento con software independiente.</li>
+</ul>
+<h1 id="non-requirements"><a class="hanchor" href="#non-requirements" aria-hidden="true" tabindex="-1">#</a>No requisitos</h1>
+<ul>
+<li>Los formatos de archivo de billetera (por ejemplo <code>wallet.dat</code> y el archivo de billetera de Zecwallet Lite) están fuera del alcance. Las implementaciones de referencia analizan estos formatos.</li>
+<li>El método que una herramienta de recuperación usa para mover los fondos recuperados está fuera del alcance.</li>
+<li>Las nuevas billeteras están fuera del alcance. Los comportamientos de este ZIP son solo para recuperación.</li>
 </ul>
 <h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
-<p>Este ZIP es informativo: no cambia las reglas de consenso. Registra comportamientos históricos de billeteras e implicaciones relevantes para la recuperación.</p>
-<h1 id="wallet-behaviors"><a class="hanchor" href="#wallet-behaviors" aria-hidden="true" tabindex="-1">#</a>Comportamientos de billeteras</h1>
+<p>Este ZIP es informativo. Cada subsección describe lo que hacía una billetera, y luego lo que una herramienta de recuperación necesita hacer.</p>
+<p>En todas las rutas de derivación, <code>coin_type</code> es el tipo de moneda de la red de la billetera.</p>
 <h2 id="zcashd"><a class="hanchor" href="#zcashd" aria-hidden="true" tabindex="-1">#</a><code>zcashd</code></h2>
-<h3 id="summary"><a class="hanchor" href="#summary" aria-hidden="true" tabindex="-1">#</a>Resumen</h3>
-<p>Históricamente, <code>zcashd</code> generaba claves a partir de la aleatoriedad del sistema.</p>
-<p>A partir de <code>zcashd</code> v4.7.0, la billetera introdujo una «frase de recuperación de emergencia» y comenzó a derivar todas las direcciones nuevas a partir de la semilla HD derivada de esa frase, usando la funcionalidad de billetera HD descrita en el ZIP 32 y el ZIP 316.</p>
-<h3 id="seed-material"><a class="hanchor" href="#seed-material" aria-hidden="true" tabindex="-1">#</a>Material de semilla</h3>
-<p>Para Sapling, <code>zcashd</code> implementó la derivación HD según el ZIP 32, pero usó una semilla generada directamente a partir de la aleatoriedad del sistema, en lugar de material de semilla derivado de una frase mnemónica BIP 39.</p>
-<p>En <code>zcashd</code> v4.7.0, la billetera añadió soporte para derivar la semilla HD de la billetera a partir de una frase mnemónica (BIP 39) y se refirió a la semilla HD derivada de la frase de recuperación de emergencia como la «semilla mnemónica» de la billetera.</p>
-<h3 id="derivation--address-generation"><a class="hanchor" href="#derivation--address-generation" aria-hidden="true" tabindex="-1">#</a>Derivación / generación de direcciones</h3>
-<p>Las claves de Sapling se derivan usando el ZIP 32.</p>
-<p>Después de v4.7.0, las direcciones nuevas se derivan de la semilla mnemónica usando el ZIP 32 y el ZIP 316.</p>
-<p>Para el comportamiento heredado de RPC como <code>z_getnewaddress</code>, <code>zcashd</code> deriva direcciones de Sapling bajo un índice de cuenta alto <code>account = 0x7FFFFFFF</code> para evitar colisiones con direcciones de Sapling de la cuenta 0.</p>
-<h3 id="recovery-implications"><a class="hanchor" href="#recovery-implications" aria-hidden="true" tabindex="-1">#</a>Implicaciones para la recuperación</h3>
-<p>Las herramientas de recuperación pueden necesitar soportar la derivación HD de Sapling a partir de material de semilla interno de la billetera que no es reproducible desde una mnemónica BIP 39.</p>
-<p>Además, las herramientas de recuperación que importan la frase de recuperación de emergencia de zcashd a otras billeteras pueden no descubrir fondos recibidos en direcciones de Sapling generadas mediante <code>z_getnewaddress</code>, a menos que también escaneen la cuenta heredada 0x7FFFFFFF.</p>
-<h3 id="notes--todos"><a class="hanchor" href="#notes--todos" aria-hidden="true" tabindex="-1">#</a>Notas / TODOs</h3>
+<h3 id="summary-of-zcashd-behavior"><a class="hanchor" href="#summary-of-zcashd-behavior" aria-hidden="true" tabindex="-1">#</a>Resumen del comportamiento de <code>zcashd</code></h3>
+<p>La generación de claves de la billetera <code>zcashd</code> tiene tres periodos. La tabla indica la fuente de las claves nuevas en cada periodo.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Tipo de clave</th><th>Antes de v2.0.1</th><th>v2.0.1 hasta v4.7.0</th><th>v4.7.0 y posteriores</th></tr></thead><tbody><tr><td>Transparente</td><td>Aleatoria</td><td>Aleatoria</td><td>Semilla mnemónica</td></tr><tr><td>Sprout</td><td>Aleatoria</td><td>Aleatoria</td><td>Aleatoria</td></tr><tr><td>Sapling</td><td>Aleatoria</td><td>Semilla HD heredada</td><td>Semilla mnemónica</td></tr><tr><td>Orchard</td><td>Ninguna</td><td>Ninguna</td><td>Semilla mnemónica</td></tr></tbody></table>
+<p>"Aleatoria" significa que la billetera generó cada clave de manera independiente a partir de la aleatoriedad del sistema. Una clave de este tipo existe solo en el archivo de la billetera.</p>
 <ul>
-<li>Añadir referencias.</li>
-<li>Documentar con más detalle el flujo de migración de v4.7.0+ (cómo y cuándo se genera la frase de recuperación de emergencia, el requisito de confirmación, el mecanismo de exportación mediante <code>z_exportwallet</code>, el comportamiento de <code>zcashd-wallet-tool</code>).</li>
-<li>Especificar la estructura exacta de la ruta de derivación usada para la cuenta heredada y cualquier expectativa de límite de brecha para la recuperación.</li>
+<li>Las claves transparentes fueron aleatorias hasta v4.7.0. La billetera las generaba por adelantado y las mantenía en un keypool.</li>
+<li>Las claves de gasto de Sprout fueron aleatorias en todas las versiones.</li>
+<li>Las claves de Sapling desde v2.0.0 fueron aleatorias. La versión 2.0.0 tenía Sapling como una función experimental de Testnet.</li>
+<li>Desde v2.0.1, la billetera derivaba las claves de Sapling con ZIP 32 a partir de la semilla HD heredada <sup><a href="#user-content-fn-zcashd-2.0.1" id="user-content-fnref-zcashd-2.0.1" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>. La billetera generaba esta semilla directamente a partir de la aleatoriedad del sistema.</li>
+<li>Desde v4.7.0, la billetera tiene una frase de recuperación de emergencia. Deriva todas las claves nuevas transparentes, de Sapling y de Orchard a partir de la semilla mnemónica <sup><a href="#user-content-fn-zcashd-4.7.0" id="user-content-fnref-zcashd-4.7.0" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>.</li>
+</ul>
+<p>Una billetera que el usuario creó antes de v4.7.0 conserva todas sus claves antiguas a través de cada actualización. Un archivo <code>wallet.dat</code> puede contener claves de los tres periodos.</p>
+<h3 id="seed-material-of-zcashd"><a class="hanchor" href="#seed-material-of-zcashd" aria-hidden="true" tabindex="-1">#</a>Material de semilla de <code>zcashd</code></h3>
+<h4 id="legacy-hd-seed"><a class="hanchor" href="#legacy-hd-seed" aria-hidden="true" tabindex="-1">#</a>Semilla HD heredada</h4>
+<p>Desde v2.0.1, <code>zcashd</code> generaba una semilla HD para cada billetera que no tenía ninguna. Esto ocurría cuando <code>zcashd</code> cargaba la billetera o, en el caso de una billetera cifrada, cuando el usuario la desbloqueaba por primera vez. La semilla consta de 32 bytes del generador de números aleatorios del sistema. <code>zcashd</code> entregaba estos bytes, sin modificar, a la generación de la clave maestra de Sapling de ZIP 32.</p>
+<p>Antes de v4.7.0, la copia de seguridad de esta semilla era el archivo <code>wallet.dat</code> o el archivo <code>z_exportwallet</code>.</p>
+<h4 id="emergency-recovery-phrase-and-mnemonic-seed"><a class="hanchor" href="#emergency-recovery-phrase-and-mnemonic-seed" aria-hidden="true" tabindex="-1">#</a>Frase de recuperación de emergencia y semilla mnemónica</h4>
+<p><code>zcashd</code> v4.7.0 genera la frase de recuperación de emergencia para cada billetera que no tiene ninguna. Esto ocurre cuando <code>zcashd</code> carga la billetera o, en el caso de una billetera cifrada, cuando el usuario la desbloquea por primera vez. La frase es una frase mnemónica BIP 39 en inglés de 24 palabras, que codifica 32 bytes de entropía de la frase.</p>
+<p>La fuente de la entropía de la frase depende de la billetera:</p>
+<ul>
+<li>Para una billetera con una semilla HD heredada, la entropía de la frase son los 32 bytes de la semilla HD heredada. La frase es una codificación de esa semilla.</li>
+<li>Para todas las demás billeteras, la entropía de la frase son 32 bytes del generador de números aleatorios del sistema.</li>
+</ul>
+<p><code>zcashd</code> luego calcula la semilla mnemónica, que es la semilla BIP 39 de la frase con la frase de contraseña vacía. <code>zcashd</code> acepta la frase solo si la semilla mnemónica da una clave de gasto unificada válida para la cuenta 0 y claves transparentes válidas para la cuenta heredada. Ante una frase rechazada:</p>
+<ul>
+<li>en el caso aleatorio, <code>zcashd</code> genera nueva entropía e intenta de nuevo;</li>
+<li>en el caso de la semilla HD heredada, <code>zcashd</code> suma 1 (módulo 256) al primer byte de la entropía e intenta de nuevo, un máximo de 256 veces.</li>
+</ul>
+<p>La probabilidad de una frase rechazada es despreciable. Para casi todas las billeteras con una semilla HD heredada, la entropía de la frase es igual a esa semilla.</p>
+<p>Dicha billetera tiene dos semillas que provienen de una sola frase:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Semilla</th><th>Cómo obtenerla a partir de la frase</th><th>Claves</th></tr></thead><tbody><tr><td>Semilla HD heredada</td><td>Decodificar las palabras a los 32 bytes de entropía de la frase</td><td>Claves de Sapling derivadas antes de la actualización</td></tr><tr><td>Semilla mnemónica</td><td>Derivación de la semilla BIP 39, frase de contraseña vacía (64 bytes)</td><td>Todas las claves derivadas después de la actualización</td></tr></tbody></table>
+<div class="warning"></div>
+<p>La semilla HD heredada es la entropía de la frase, que está fuera de la derivación de la semilla BIP 39. Una herramienta que calcula solo la semilla BIP 39 de la frase encuentra únicamente las claves posteriores a la actualización a v4.7.0.</p>
+<p>Después de la actualización, <code>zcashd</code> genera nuevas direcciones solo cuando el usuario ha confirmado la copia de seguridad de la frase. El usuario obtiene la frase del archivo <code>z_exportwallet</code> y la confirma con <code>zcashd-wallet-tool</code>. La opción <code>-walletrequirebackup=false</code> desactiva este requisito.</p>
+<h3 id="derivation-and-address-generation-in-zcashd"><a class="hanchor" href="#derivation-and-address-generation-in-zcashd" aria-hidden="true" tabindex="-1">#</a>Derivación y generación de direcciones en <code>zcashd</code></h3>
+<h4 id="sapling-keys-from-the-legacy-hd-seed-v201-until-v470"><a class="hanchor" href="#sapling-keys-from-the-legacy-hd-seed-v201-until-v470" aria-hidden="true" tabindex="-1">#</a>Claves de Sapling a partir de la semilla HD heredada (v2.0.1 hasta v4.7.0)</h4>
+<p>Cada vez que el usuario ejecutaba <code>z_getnewaddress</code> para obtener una dirección de Sapling, la billetera derivaba una nueva clave de gasto extendida a partir de la semilla HD heredada, en esta ruta:</p>
+<pre><code>m_Sapling / 32' / coin_type' / k'
+</code></pre>
+<p>El índice <code>k</code> proviene de un contador en el archivo de la billetera (<code>saplingAccountCounter</code>). El primer valor es 0 y cada derivación suma 1. La billetera omitía un índice cuya clave ya tenía.</p>
+<p>El método RPC devolvía la dirección diversificada predeterminada de esa clave. Esta era la única dirección de la clave que la billetera daba al usuario. Cada dirección de Sapling tiene su propia autoridad de gasto, en su propio índice de cuenta de ZIP 32.</p>
+<h4 id="unified-accounts-from-the-mnemonic-seed-v470-and-later"><a class="hanchor" href="#unified-accounts-from-the-mnemonic-seed-v470-and-later" aria-hidden="true" tabindex="-1">#</a>Cuentas unificadas a partir de la semilla mnemotécnica (v4.7.0 y posteriores)</h4>
+<p><code>z_getnewaccount</code> crea cuentas a partir de la semilla mnemotécnica con índices 0, 1, 2 y superiores. La derivación sigue el ZIP 32 <sup><a href="#user-content-fn-zip-0032" id="user-content-fnref-zip-0032-3" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> y el ZIP 316 <sup><a href="#user-content-fn-zip-0316" id="user-content-fnref-zip-0316-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>. <code>z_getaddressforaccount</code> devuelve direcciones unificadas diversificadas para una cuenta. El receptor transparente de una dirección unificada tiene un índice de dirección BIP 44 que es igual al índice de diversificador de la dirección unificada.</p>
+<h4 id="sapling-addresses-in-the-legacy-account-v470-and-later"><a class="hanchor" href="#sapling-addresses-in-the-legacy-account-v470-and-later" aria-hidden="true" tabindex="-1">#</a>Direcciones de Sapling en la cuenta heredada (v4.7.0 y posteriores)</h4>
+<p>Cada vez que el usuario ejecuta <code>z_getnewaddress</code> para obtener una dirección de Sapling, la billetera deriva una nueva clave de gasto extendida a partir de la semilla mnemotécnica, en esta ruta:</p>
+<pre><code>m_Sapling / 32' / coin_type' / 0x7FFFFFFF' / i'
+</code></pre>
+<p>El último nivel es el nivel <code>address_index</code> que el ZIP 32 permite por debajo del nivel de cuenta <sup><a href="#user-content-fn-zip-0032-sapling-key-path" id="user-content-fnref-zip-0032-sapling-key-path" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>. <code>zcashd</code> usa derivación endurecida para él.</p>
+<p>El índice <code>i</code> proviene de un contador en el archivo de la billetera. El primer valor es 0 y cada derivación suma 1. La billetera omite un índice cuya clave ya tiene. El método RPC devuelve la dirección diversificada predeterminada de la clave. Cada una de estas direcciones tiene su propia autoridad de gasto.</p>
+<p>Las cuentas unificadas tienen índices que comienzan en 0. El índice de cuenta <code>0x7FFFFFFF</code> mantiene las claves heredadas separadas de ellas.</p>
+<h4 id="transparent-addresses-in-the-legacy-account-v470-and-later"><a class="hanchor" href="#transparent-addresses-in-the-legacy-account-v470-and-later" aria-hidden="true" tabindex="-1">#</a>Direcciones transparentes en la cuenta heredada (v4.7.0 y posteriores)</h4>
+<p>Desde v4.7.0, <code>getnewaddress</code> deriva la clave a partir de la semilla mnemotécnica con BIP 44, en la cadena externa de la cuenta heredada:</p>
+<pre><code>m / 44' / coin_type' / 0x7FFFFFFF' / 0 / i
+</code></pre>
+<p>La cadena interna de la cuenta heredada proporciona las direcciones transparentes de cambio y las claves del keypool:</p>
+<pre><code>m / 44' / coin_type' / 0x7FFFFFFF' / 1 / i
+</code></pre>
+<p><code>zcashd</code> toma del keypool las direcciones para las recompensas del minero.</p>
+<p>El archivo de la billetera tiene un contador por cada cadena. El primer valor es 0 y cada derivación suma 1. La billetera omite un índice para el cual la derivación BIP 32 falla.</p>
+<p>Cuando v4.7.0 genera la semilla mnemotécnica, reemplaza las claves aleatorias no utilizadas del keypool por claves de la cadena interna. Las claves aleatorias que la billetera ya había dado al usuario permanecen en la billetera.</p>
+<h4 id="semantics-of-the-legacy-transparent-pool"><a class="hanchor" href="#semantics-of-the-legacy-transparent-pool" aria-hidden="true" tabindex="-1">#</a>Semántica del grupo transparente heredado</h4>
+<p><code>zcashd</code> trata todos los fondos transparentes fuera de las cuentas unificadas como un solo grupo. Este grupo contiene los fondos en:</p>
+<ul>
+<li>claves aleatorias anteriores a v4.7.0;</li>
+<li>claves transparentes importadas;</li>
+<li>claves de la cuenta heredada, en la cadena externa y la interna.</li>
+</ul>
+<p>Un método RPC que gasta desde este grupo (por ejemplo <code>sendtoaddress</code> o <code>sendmany</code>) puede seleccionar entradas de cualquiera de estas direcciones. Envía el cambio a una nueva dirección de la cadena interna. Fondos que llegaron a una dirección pueden estar después en una dirección distinta. Una herramienta de recuperación necesita examinar todas las claves del grupo.</p>
+<p>TODO: confirmar la lista exacta de métodos RPC y el comportamiento de <code>z_sendmany</code> con <code>ANY_TADDR</code> contra el código fuente de <code>zcashd</code>.</p>
+<h3 id="recovery-of-zcashd-funds"><a class="hanchor" href="#recovery-of-zcashd-funds" aria-hidden="true" tabindex="-1">#</a>Recuperación de fondos <code>zcashd</code></h3>
+<h4 id="recovery-from-the-emergency-recovery-phrase"><a class="hanchor" href="#recovery-from-the-emergency-recovery-phrase" aria-hidden="true" tabindex="-1">#</a>Recuperación desde la frase de recuperación de emergencia</h4>
+<p>Una herramienta de recuperación que tiene la frase de recuperación de emergencia necesita realizar todos los pasos siguientes. Los contadores existen solo en <code>wallet.dat</code>. Por esta razón, la herramienta selecciona un límite de intervalo para cada paso.</p>
+<ol>
+<li>Calcular la semilla mnemónica: la semilla BIP 39 de la frase, con la frase de contraseña vacía.</li>
+<li>Cuentas unificadas: para los índices de cuenta 0, 1, 2 y superiores, derivar la clave de visualización completa unificada desde la semilla mnemónica. Examinar en busca de fondos Sapling, Orchard y transparentes.</li>
+<li>Cuenta heredada, Sapling: para <code>i</code> = 0, 1, 2 y superiores, derivar la clave en <code>m_Sapling / 32' / coin_type' / 0x7FFFFFFF' / i'</code> desde la semilla mnemónica. Examinar con su clave de visualización.</li>
+<li>Cuenta heredada, transparente: para <code>i</code> = 0, 1, 2 y superiores, derivar las claves en <code>m / 44' / coin_type' / 0x7FFFFFFF' / 0 / i</code> y <code>m / 44' / coin_type' / 0x7FFFFFFF' / 1 / i</code> desde la semilla mnemónica. Buscar las salidas no gastadas en sus direcciones.</li>
+<li>Claves Sapling anteriores a la actualización: decodificar la frase a sus 32 bytes de entropía de frase. Usar estos bytes como la semilla HD heredada. Para <code>k</code> = 0, 1, 2 y superiores, derivar la clave en <code>m_Sapling / 32' / coin_type' / k'</code> desde la semilla HD heredada. Examinar con su clave de visualización.</li>
+</ol>
+<p>El paso 5 encuentra fondos solo para una billetera que tenía una semilla HD heredada, es decir, una billetera de v2.0.1 o posterior que el usuario actualizó a v4.7.0.</p>
+<p>En el paso 5, el primer byte de la entropía de frase puede ser diferente del primer byte de la semilla HD heredada, como especifica «Emergency recovery phrase and mnemonic seed». El método RPC <code>getwalletinfo</code> da la huella digital de la semilla HD heredada (<code>legacy_seedfp</code>). Una herramienta que tiene esta huella digital resta 1 (módulo 256) al primer byte, un máximo de 255 veces, hasta que la huella digital de la semilla candidata sea igual a ella.</p>
+<h4 id="funds-that-need-the-wallet-file"><a class="hanchor" href="#funds-that-need-the-wallet-file" aria-hidden="true" tabindex="-1">#</a>Fondos que necesitan el archivo de la billetera</h4>
+<p>Estas claves existen solo en el archivo de la billetera:</p>
+<ul>
+<li>todas las claves Sprout;</li>
+<li>claves transparentes que la billetera generó antes de v4.7.0;</li>
+<li>claves Sapling que v2.0.0 generó en Testnet;</li>
+<li>claves que el usuario importó (por ejemplo con <code>importprivkey</code> o <code>z_importkey</code>).</li>
+</ul>
+<p>La recuperación de estos fondos necesita el archivo <code>wallet.dat</code>, o las claves en un archivo <code>z_exportwallet</code> o <code>dumpwallet</code>. Las notas de la versión v4.7.0 recomiendan que los usuarios muevan fondos de direcciones antiguas a direcciones recién generadas, para que la frase sea suficiente para todos los fondos <sup><a href="#user-content-fn-zcashd-4.7.0" id="user-content-fnref-zcashd-4.7.0-2" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>.</p>
+<h4 id="recovery-from-a-walletdat-file"><a class="hanchor" href="#recovery-from-a-walletdat-file" aria-hidden="true" tabindex="-1">#</a>Recuperación desde un archivo <code>wallet.dat</code></h4>
+<p>Una herramienta que tiene el archivo <code>wallet.dat</code> lee todas las claves directamente, con sus rutas de clave HD y huellas digitales de semilla. Este método recupera todos los fondos de la billetera, incluidas las claves aleatorias. La implementación de referencia usa este método.</p>
+<h3 id="open-questions-for-zcashd"><a class="hanchor" href="#open-questions-for-zcashd" aria-hidden="true" tabindex="-1">#</a>Preguntas abiertas para <code>zcashd</code></h3>
+<ul>
+<li>ZIP 32 da v4.6.0 como la primera versión con direcciones Sapling en la cuenta heredada <sup><a href="#user-content-fn-zip-0032-sapling-key-path" id="user-content-fnref-zip-0032-sapling-key-path-2" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup>. Las notas de la versión y el código fuente dan v4.7.0. Uno de los dos documentos necesita una corrección.</li>
+<li>Recomendar límites de brecha para los pasos 2 a 5.</li>
+<li>Describir con más detalle las billeteras que estaban cifradas en el momento de cada actualización.</li>
 </ul>
 <h2 id="zecwallet-lite"><a class="hanchor" href="#zecwallet-lite" aria-hidden="true" tabindex="-1">#</a>Zecwallet Lite</h2>
-<h3 id="summary-1"><a class="hanchor" href="#summary-1" aria-hidden="true" tabindex="-1">#</a>Resumen</h3>
-<p>Zecwallet Lite generaba incorrectamente «direcciones de Sapling nuevas» derivando cuentas frescas (incrementando el índice de cuenta del ZIP 32) cuando debería haber generado direcciones diversificadas a partir de la misma clave de gasto de Sapling.</p>
-<h3 id="seed-material-1"><a class="hanchor" href="#seed-material-1" aria-hidden="true" tabindex="-1">#</a>Material de semilla</h3>
-<p>(TODO: documentar si la mnemónica/semilla se origina en BIP 39 y cómo se almacenaba/codificaba.)</p>
-<h3 id="derivation--address-generation-1"><a class="hanchor" href="#derivation--address-generation-1" aria-hidden="true" tabindex="-1">#</a>Derivación / generación de direcciones</h3>
-<p>Comportamiento observado:</p>
-<p><strong>Esperado</strong>: misma clave de gasto de la cuenta → muchas direcciones diversificadas</p>
-<p><strong>Real</strong>: nuevo índice de cuenta → nueva clave de gasto → dirección</p>
-<h3 id="recovery-implications-1"><a class="hanchor" href="#recovery-implications-1" aria-hidden="true" tabindex="-1">#</a>Implicaciones para la recuperación</h3>
-<p>Pueden existir fondos en direcciones derivadas de múltiples índices de cuenta secuenciales. Las herramientas de recuperación pueden necesitar escanear un rango de índices de cuenta (una política de «límite de hueco») incluso cuando un usuario cree que usó «una cuenta».</p>
-<h3 id="notes--todos-1"><a class="hanchor" href="#notes--todos-1" aria-hidden="true" tabindex="-1">#</a>Notas / TODOs</h3>
+<h3 id="scope-of-the-zecwallet-lite-behavior"><a class="hanchor" href="#scope-of-the-zecwallet-lite-behavior" aria-hidden="true" tabindex="-1">#</a>Alcance del comportamiento de Zecwallet Lite</h3>
+<p>Esta sección se aplica a los productos que usaron la biblioteca de cliente ligero <code>zecwalletlitelib</code> <sup><a href="#user-content-fn-zecwallet-light-cli" id="user-content-fnref-zecwallet-light-cli" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>:</p>
 <ul>
-<li>Identificar las versiones/commits afectados.</li>
-<li>Especificar la regla exacta: ¿cuándo incrementa ZWL el índice de cuenta y en cuánto?</li>
-<li>Aclarar la relación entre los índices transparentes y blindados (si aplica).</li>
+<li>Zecwallet Lite para escritorio;</li>
+<li>Zecwallet Lite para Android e iOS (<code>zecwallet-mobile</code>);</li>
+<li>el cliente de línea de comandos <code>zecwallet-light-cli</code>;</li>
+<li>forks de esa biblioteca, por ejemplo <code>zwl-lib</code> <sup><a href="#user-content-fn-zwl-lib" id="user-content-fnref-zwl-lib" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup>.</li>
 </ul>
-<h2 id="zcash_client_sqlite"><a class="hanchor" href="#zcash_client_sqlite" aria-hidden="true" tabindex="-1">#</a><code>zcash_client_sqlite</code></h2>
-<p>Por determinar</p>
-<h1 id="security-and-privacy-considerations"><a class="hanchor" href="#security-and-privacy-considerations" aria-hidden="true" tabindex="-1">#</a>Consideraciones de seguridad y privacidad</h1>
-<p>Este ZIP documenta comportamientos que pueden ampliar el espacio de búsqueda requerido para la recuperación (p. ej., escanear múltiples índices de cuenta). Las implementaciones deberían:</p>
+<p>Zecwallet FullNode era una interfaz de usuario para la interfaz RPC de <code>zcashd</code>. Sus claves siguen la sección <code>zcashd</code> anterior.</p>
+<h3 id="summary-of-zecwallet-lite-behavior"><a class="hanchor" href="#summary-of-zecwallet-lite-behavior" aria-hidden="true" tabindex="-1">#</a>Resumen del comportamiento de Zecwallet Lite</h3>
+<p>Cada vez que el usuario pedía una nueva dirección Sapling, Zecwallet Lite derivaba una nueva clave de gasto en el siguiente índice de cuenta de ZIP 32. Una billetera con <math><mi>N</mi></math> direcciones Sapling tiene <math><mi>N</mi></math> autoridades de gasto Sapling independientes, en los índices de cuenta 0 a <math><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow></math>.</p>
+<h3 id="seed-material-of-zecwallet-lite"><a class="hanchor" href="#seed-material-of-zecwallet-lite" aria-hidden="true" tabindex="-1">#</a>Material de semilla de Zecwallet Lite</h3>
+<p>Zecwallet Lite sigue BIP 39:</p>
 <ul>
-<li>Evitar filtrar direcciones derivadas innecesariamente (p. ej., mediante consultas de red).</li>
-<li>Proporcionar controles visibles para el usuario de los límites de escaneo (p. ej., índice máximo de cuenta / límite de hueco).</li>
-<li>Tratar el material de semilla recuperado y las claves derivadas como altamente sensibles.</li>
+<li>Una billetera nueva obtiene 32 bytes de entropía del generador de números aleatorios del sistema.</li>
+<li>El archivo de la billetera contiene estos 32 bytes de entropía.</li>
+<li>La frase semilla que el usuario ve es la frase mnemónica BIP 39 en inglés de 24 palabras para esta entropía.</li>
+<li>La semilla para la derivación de claves es la semilla BIP 39 (64 bytes) de esa frase, con la frase de contraseña vacía.</li>
 </ul>
+<p>La frase es suficiente para derivar todas las claves que la billetera derivó.</p>
+<h3 id="derivation-and-address-generation-in-zecwallet-lite"><a class="hanchor" href="#derivation-and-address-generation-in-zecwallet-lite" aria-hidden="true" tabindex="-1">#</a>Derivación y generación de direcciones en Zecwallet Lite</h3>
+<p>Todas las rutas siguientes comienzan en la semilla BIP 39. En cada regla, <code>n</code> es 0 para la primera clave de un tipo. Para cada clave subsiguiente, <code>n</code> es el índice existente más alto de ese tipo más 1.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Tipo de clave</th><th>Ruta</th><th>Dirección</th></tr></thead><tbody><tr><td>Sapling</td><td><code>m_Sapling / 32' / coin_type' / n'</code></td><td>Dirección diversificada predeterminada de la clave</td></tr><tr><td>Transparente</td><td><code>m / 44' / coin_type' / 0' / 0 / n</code></td><td>Dirección P2PKH de la clave</td></tr><tr><td>Orchard</td><td><code>m_Orchard / 32' / coin_type' / n'</code></td><td>Receptor Orchard de una dirección unificada</td></tr></tbody></table>
+<ul>
+<li>La regla Sapling es el comportamiento heredado. La ruta es una ruta de cuenta válida de ZIP 32, en la que la billetera usaba el nivel de cuenta como contador de direcciones.</li>
+<li>La regla transparente es la cadena externa de la cuenta 0 de BIP 44.</li>
+<li>La regla Orchard se aplica a las versiones de la biblioteca que tienen Orchard. El nivel de cuenta también es aquí un contador de direcciones.</li>
+</ul>
+<p>TODO: identificar la primera versión de cada producto que tiene Orchard.</p>
+<p>Cada tipo de clave tiene su propio contador.</p>
+<p>La billetera tiene una regla de intervalo (<code>GAP_RULE_UNUSED_ADDRESSES</code>) para direcciones Sapling y transparentes. Su valor es 5 en escritorio y 0 en Android e iOS. En escritorio, cuando la billetera ve que una de las últimas 5 direcciones derivadas de un tipo fue usada, deriva más direcciones de ese tipo hasta que 5 direcciones sin usar sigan a la última dirección usada. En Android e iOS, la billetera deriva una dirección nueva solo cuando el usuario la pide.</p>
+<p>La billetera también puede contener claves importadas, que son independientes de la semilla.</p>
+<h3 id="affected-versions-of-zecwallet-lite"><a class="hanchor" href="#affected-versions-of-zecwallet-lite" aria-hidden="true" tabindex="-1">#</a>Versiones afectadas de Zecwallet Lite</h3>
+<p>El comportamiento Sapling está en la última versión publicada de <code>zecwallet-light-cli</code> <sup><a href="#user-content-fn-zecwallet-light-cli" id="user-content-fnref-zecwallet-light-cli-2" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup>. Está en el fork <code>zwl-lib</code> desde v1.7.12 o anterior <sup><a href="#user-content-fn-zwl-lib" id="user-content-fnref-zwl-lib-2" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup>, y en <code>zecwallet-mobile</code> hasta la versión 1.8.8 o posterior <sup><a href="#user-content-fn-zingolib-2060" id="user-content-fnref-zingolib-2060" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup>. Todas las versiones examinadas de la biblioteca tienen este comportamiento. Las herramientas de recuperación deben tratar como afectada toda versión que ofrezca más de una dirección Sapling.</p>
+<p>TODO: identificar la primera versión afectada de cada producto.</p>
+<h3 id="recovery-of-zecwallet-lite-funds"><a class="hanchor" href="#recovery-of-zecwallet-lite-funds" aria-hidden="true" tabindex="-1">#</a>Recuperación de fondos de Zecwallet Lite</h3>
+<p>Una herramienta de recuperación que tiene la frase semilla debe hacer estos pasos:</p>
+<ol>
+<li>Calcular la semilla BIP 39 de la frase, con la frase de contraseña vacía.</li>
+<li>Sapling: para <code>i</code> = 0, 1, 2 y superiores, derivar la clave de gasto extendida en <code>m_Sapling / 32' / coin_type' / i'</code>. Escanear con su clave de visualización.</li>
+<li>Transparente: para <code>i</code> = 0, 1, 2 y superiores, derivar la clave en <code>m / 44' / coin_type' / 0' / 0 / i</code>. Buscar las salidas no gastadas en su dirección.</li>
+<li>Orchard: para <code>i</code> = 0, 1, 2 y superiores, derivar la clave de gasto Orchard en <code>m_Orchard / 32' / coin_type' / i'</code>. Escanear con su clave de visualización.</li>
+</ol>
+<p>La herramienta detiene una secuencia en el límite de brecha. Un usuario puede crear una dirección y dejarla sin usar, lo que hace necesario un límite de brecha de 1 o más. La regla de brecha de escritorio hace que 5 sea el mínimo para las billeteras de escritorio. Los usuarios móviles creaban direcciones con un botón, en cualquier cantidad. La herramienta debe permitir que el usuario seleccione un límite mayor.</p>
+<p>El paso 2 requiere el descifrado de prueba de la cadena completa para cada índice. Una herramienta puede usar muchas claves de visualización en una sola pasada sobre la cadena.</p>
+<div class="note"></div>
+<p>Cuando la aplicación móvil restaura una billetera desde la frase semilla, deriva solo las primeras direcciones, porque la regla de brecha es 0 en Android e iOS. Los fondos en direcciones Sapling con un índice mayor están ausentes del saldo. Estos fondos siguen siendo gastables, y el procedimiento anterior los encuentra.</p>
+<p>Los fondos en claves importadas necesitan el archivo de billetera o las claves importadas.</p>
+<p>Una billetera actual que importe la frase y escanee la cuenta 0 encuentra los fondos del índice Sapling 0, el índice transparente 0 y el índice Orchard 0. Para encontrar todos los fondos, la billetera necesita importar cada índice <code>i</code> como una cuenta ZIP 32 separada.</p>
+<h2 id="zcash_client_backend-and-zcash_client_sqlite"><a class="hanchor" href="#zcash_client_backend-and-zcash_client_sqlite" aria-hidden="true" tabindex="-1">#</a><code>zcash_client_backend</code> y <code>zcash_client_sqlite</code></h2>
+<p>Las billeteras que se basan en los crates <code>zcash_client_backend</code> y <code>zcash_client_sqlite</code> <sup><a href="#user-content-fn-librustzcash" id="user-content-fnref-librustzcash" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup> han usado frases mnemónicas BIP 39 para la derivación de claves en todas las versiones. Las cuentas siguen ZIP 32, y las direcciones siguen ZIP 316.</p>
+<p>Las direcciones transparentes de estas billeteras obtienen sus índices de tres reglas:</p>
+<ul>
+<li>La dirección transparente predeterminada de una cuenta está en el índice hijo 0 de la cadena externa BIP 44: <code>m / 44' / coin_type' / account' / 0 / 0</code>.</li>
+<li>La derivación secuencial BIP 44 da más receptores transparentes, cada uno en el siguiente índice de dirección.</li>
+<li>La derivación de direcciones unificadas, como especifica ZIP 316, también da receptores transparentes. Cada uno tiene un índice de dirección BIP 44 igual al índice de diversificador de la dirección unificada.</li>
+</ul>
+<p>Los índices de diversificador pueden tener brechas grandes entre sí. Una herramienta de recuperación necesita un límite de brecha transparente que permita esto.</p>
+<p>TODO: esta sección proviene de comentarios de revisión sobre el pull request. Verificarla contra el código fuente. Agregar las versiones de los crates para cada comportamiento, la cadena de direcciones efímeras (ZIP 320) y los límites de brecha que usan los crates.</p>
 <h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
-<p>Ninguna.</p>
-<h1 id="backwards-compatibility"><a class="hanchor" href="#backwards-compatibility" aria-hidden="true" tabindex="-1">#</a>Compatibilidad con versiones anteriores</h1>
-<p>No aplica (informativo).</p>
+<ul>
+<li>zexcavator <sup><a href="#user-content-fn-zexcavator" id="user-content-fnref-zexcavator" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup> es una herramienta de recuperación de billetera. Implementará los procedimientos de recuperación de este ZIP.</li>
+<li>El analizador en <code>zecwallet-utils</code> <sup><a href="#user-content-fn-zecwallet-utils" id="user-content-fnref-zecwallet-utils" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup> lee archivos de billetera de Zecwallet Lite. Obtiene la entropía y las claves derivadas con sus índices.</li>
+</ul>
+<h1 id="open-issues"><a class="hanchor" href="#open-issues" aria-hidden="true" tabindex="-1">#</a>Cuestiones abiertas</h1>
+<ul>
+<li>El issue #1175 propone que este ZIP describa todos los esquemas de generación de claves históricos y actuales, y que reemplace al issue #503. Faltan secciones para más billeteras (por ejemplo las billeteras del SDK móvil, YWallet y las billeteras de hardware).</li>
+<li>Las preguntas abiertas y los elementos pendientes (TODO) en cada sección de billetera.</li>
+<li>Decidir si los procedimientos de recuperación usan palabras clave de conformidad con el BCP 14.</li>
+</ul>
 <h1 id="acknowledgements"><a class="hanchor" href="#acknowledgements" aria-hidden="true" tabindex="-1">#</a>Agradecimientos</h1>
-<p>Este ZIP fue motivado por el asunto #1175 abierto por Kris Nuttycombe.</p>
+<p>Kris Nuttycombe abrió el issue #1175, que es la motivación de este ZIP. Kris también proporcionó los detalles de la actualización de <code>zcashd</code> v4.7.0 y del comportamiento de <code>zcash_client_sqlite</code>. Oscar Pepper y el equipo de Zingo Labs analizaron la derivación de Zecwallet Lite <sup><a href="#user-content-fn-zingolib-2060" id="user-content-fnref-zingolib-2060-2" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup>. Evan Branigan rastreó la derivación y la regla de brecha en <code>zwl-lib</code>.</p>
 <h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
 <section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
 <ol>
-<li id="user-content-fn-zip32">
-<p><a href="/upstream/zip-0032.rst">ZIP-32: Shielded Hierarchical Deterministic Wallets</a> <a href="#user-content-fnref-zip32" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+<li id="user-content-fn-protocol">
+<p><a href="/upstream/protocol/protocol.pdf">Zcash Protocol Specification, Version 2025.6.3 [NU6.1] or later</a> <a href="#user-content-fnref-protocol" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0032">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki">BIP 32: Hierarchical Deterministic Wallets</a> <a href="#user-content-fnref-bip-0032" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
 </li>
 <li id="user-content-fn-bip-0039">
-<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki">BIP 39: Mnemonic code for generating deterministic keys</a> <a href="#user-content-fnref-bip-0039" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki">BIP 39: Mnemonic code for generating deterministic keys</a> <a href="#user-content-fnref-bip-0039" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-bip-0039-2" data-footnote-backref="" aria-label="Back to reference 3-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-bip-0044">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki">BIP 44: Multi-Account Hierarchy for Deterministic Wallets</a> <a href="#user-content-fnref-bip-0044" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0032">
+<p><a href="/upstream/zip-0032.rst">ZIP 32: Shielded Hierarchical Deterministic Wallets</a> <a href="#user-content-fnref-zip-0032" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0032-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0032-3" data-footnote-backref="" aria-label="Back to reference 5-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0316">
+<p><a href="/upstream/zip-0316.rst">ZIP 316: Unified Addresses and Unified Viewing Keys</a> <a href="#user-content-fnref-zip-0316" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0316-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-networks">
+<p><a href="/upstream/protocol/protocol.pdf#networks">Zcash Protocol Specification, Version 2025.6.3 [NU6.1]. Section 3.12: Mainnet and Testnet</a> <a href="#user-content-fnref-protocol-networks" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-slip-0044">
+<p><a href="https://github.com/satoshilabs/slips/blob/master/slip-0044.md">SLIP 44: Registered coin types for BIP-0044</a> <a href="#user-content-fnref-slip-0044" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcashd-2.0.1">
+<p><a href="https://github.com/zcash/zcash/blob/master/doc/release-notes/release-notes-2.0.1.md">zcashd v2.0.1 release notes: "Hierarchical Deterministic Key Generation for Sapling"</a> <a href="#user-content-fnref-zcashd-2.0.1" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zcashd-4.7.0">
+<p><a href="https://github.com/zcash/zcash/blob/master/doc/release-notes/release-notes-4.7.0.md">zcashd v4.7.0 release notes: "Emergency Recovery Phrases"</a> <a href="#user-content-fnref-zcashd-4.7.0" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zcashd-4.7.0-2" data-footnote-backref="" aria-label="Back to reference 10-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0032-sapling-key-path">
+<p><a href="/upstream/zip-0032.rst#sapling-key-path">ZIP 32: Shielded Hierarchical Deterministic Wallets. Section "Sapling key path"</a> <a href="#user-content-fnref-zip-0032-sapling-key-path" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0032-sapling-key-path-2" data-footnote-backref="" aria-label="Back to reference 11-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zecwallet-light-cli">
+<p><a href="https://github.com/adityapk00/zecwallet-light-cli">zecwallet-light-cli: Zecwallet light client library and command-line interface</a> <a href="#user-content-fnref-zecwallet-light-cli" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zecwallet-light-cli-2" data-footnote-backref="" aria-label="Back to reference 12-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zwl-lib">
+<p><a href="https://github.com/zingolabs/zwl-lib">zwl-lib: fork of the Zecwallet light client library</a> <a href="#user-content-fnref-zwl-lib" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zwl-lib-2" data-footnote-backref="" aria-label="Back to reference 13-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zingolib-2060">
+<p><a href="https://github.com/zingolabs/zingolib/issues/2060">zingolib issue 2060: address_index level (legacy) sapling key derivation</a> <a href="#user-content-fnref-zingolib-2060" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zingolib-2060-2" data-footnote-backref="" aria-label="Back to reference 14-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-librustzcash">
+<p><a href="https://github.com/zcash/librustzcash">librustzcash: Rust crates for Zcash, which include zcash_client_backend and zcash_client_sqlite</a> <a href="#user-content-fnref-librustzcash" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zexcavator">
+<p><a href="https://github.com/zingolabs/zexcavator">zexcavator: herramienta de recuperación de billeteras de Zcash</a> <a href="#user-content-fnref-zexcavator" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zecwallet-utils">
+<p><a href="https://github.com/zingolabs/zecwallet-utils/tree/main/crates/parser">zecwallet-utils: analizador de archivos de billetera de Zecwallet Lite</a> <a href="#user-content-fnref-zecwallet-utils" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a></p>
 </li>
 </ol>
 </section>
