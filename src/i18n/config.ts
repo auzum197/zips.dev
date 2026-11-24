@@ -26,6 +26,11 @@ export function stripLocale(pathname: string): string {
     const locale = localeOfPath(pathname);
     return locale === DEFAULT_LOCALE ? pathname : pathname.slice(locale.length + 1) || "/";
 }
+/** The name of a language in another language: ("es", "en") → "Spanish",
+ *  ("en", "es") → "inglés". A language names itself in `name` above. */
+export function languageName(id: Locale, inLocale: Locale): string {
+    return new Intl.DisplayNames([inLocale], { type: "language" }).of(id) ?? id;
+}
 /** Paths that exist once, for all languages. */
 const SHARED = /^\/(api|og|pagefind|upstream|_next)\//;
 /** Site path in a language: ("/zip/200/", "es") → "/es/zip/200/". External
