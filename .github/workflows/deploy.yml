@@ -58,40 +58,9 @@ jobs:
 
       - name: Wait for the artifact
         continue-on-error: true
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        env:
-          ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
+        uses: ./.github/actions/wait-for-artifact
         with:
-          script: |
-            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-            try {
-              const token = process.env.ACTIONS_RUNTIME_TOKEN;
-              const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
-              const [, run, job] = claims.scp.split(" ").find((s) => s.startsWith("Actions.Results:")).split(":");
-              const url = `${new URL(process.env.ACTIONS_RESULTS_URL).origin}/twirp/github.actions.results.api.v1.ArtifactService/ListArtifacts`;
-              for (let i = 1; i <= 24; i++) {
-                const res = await fetch(url, {
-                  method: "POST",
-                  headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-                  body: JSON.stringify({ workflow_run_backend_id: run, workflow_job_run_backend_id: job }),
-                });
-                if (!res.ok)
-                  throw new Error(`ListArtifacts HTTP ${res.status}`);
-                const named = ((await res.json()).artifacts ?? []).filter((a) => a.name === "github-pages");
-                const id = named[0]?.database_id ?? named[0]?.databaseId;
-                if (named.length === 1 && (id === undefined || !process.env.ARTIFACT_ID || String(id) === process.env.ARTIFACT_ID)) {
-                  core.info(`the artifact is in the list (check ${i})`);
-                  return;
-                }
-                core.info(`check ${i}: ${named.length} artifact(s) named "github-pages"; waiting 5 s`);
-                await sleep(5000);
-              }
-              core.warning("the artifact is not in the list after 2 min; deploying anyway");
-            }
-            catch (err) {
-              core.warning(`could not read the artifact list (${err.message}); waiting 30 s`);
-              await sleep(30000);
-            }
+          artifact_id: ${{ steps.upload.outputs.artifact_id }}
 
       - name: Deploy to GitHub Pages
         id: deploy
