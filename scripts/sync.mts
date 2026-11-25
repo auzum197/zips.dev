@@ -24,6 +24,7 @@ import type {
     RootContent as MdastContent,
 } from "mdast";
 import type { Transformer } from "unified";
+import { rewriteLinks, upstreamRefs, type LinkContext } from "./links.mjs";
 
 /** Metadata header values: a scalar or a repeated key collected into a list. */
 type MetaValue = string | string[];
@@ -196,24 +197,6 @@ function wrapMath(html: string): string {
 }
 function injectHeadingAnchors(html: string): string {
     return html.replace(/<h([1-4])((?:[^>"]|"[^"]*")*\bid="([^"]+)"(?:[^>"]|"[^"]*")*)>/g, (full, level, attrs, id) => `<h${level}${attrs}><a class="hanchor" href="#${id}" aria-hidden="true" tabindex="-1">#</a>`);
-}
-function rewriteLinks(html: string, assets: Set<string>): string {
-    return (html
-        .replace(/(src|href)="(?!https?:|#|\/|mailto:)([^"]+)"/g, '$1="/upstream/$2"')
-        .replace(/"(?:\/upstream\/)?[^"]*?\/?([^\/"']+)\.png"/gi, (full, base) => {
-        const svg = `${base}.svg`;
-        return assets.has(svg) ? `"/upstream/${svg}"` : full;
-    })
-        .replace(/href="(?!https?:|#|\/|mailto:|\/upstream\/)([^"#?]*?)(?:\.rst|\.md)"/gi, (full, p) => {
-        const clean = p.replace(/^.*\//, "");
-        const zip = clean.match(/^zip-0*(\d{1,4})$/i);
-        if (zip)
-            return `href="/zip/${zip[1]}/"`;
-        const draft = clean.match(/^draft-([a-z0-9-]+)$/i);
-        if (draft)
-            return `href="/drafts/"`;
-        return `href="/${clean}/"`;
-    }));
 }
 function wordCount(html: string): number {
     const text = stripTags(html);
@@ -484,10 +467,26 @@ const files = fs
     .filter((f) => /\.(md|rst)$/i.test(f))
     .filter((f) => !/^zip-(template|guide)/i.test(f))
     .sort();
+/* public/upstream holds the images the documents show: the files next to
+ * them in zips/, and static/assets/images, which upstream publishes under
+ * assets/images. A PNG with an SVG of the same name stays out; the pages
+ * show the SVG. */
+const IMAGES_DIR = path.join(VENDOR, "static", "assets", "images");
+const IMAGE_RE = /\.(png|svg|jpe?g|gif|webp)$/i;
 const assetNames = new Set<string>();
 for (const f of fs.readdirSync(ZIPS_DIR)) {
     if (!/\.(md|rst)$/i.test(f)) {
         fs.copyFileSync(path.join(ZIPS_DIR, f), path.join(UPSTREAM_ASSETS, f));
+        assetNames.add(f);
+    }
+}
+if (fs.existsSync(IMAGES_DIR)) {
+    const images = fs.readdirSync(IMAGES_DIR).filter((f) => IMAGE_RE.test(f) && !assetNames.has(f));
+    const svgs = new Set([...assetNames, ...images].filter((f) => /\.svg$/i.test(f)));
+    for (const f of images) {
+        if (/\.png$/i.test(f) && svgs.has(f.replace(/\.png$/i, ".svg")))
+            continue;
+        fs.copyFileSync(path.join(IMAGES_DIR, f), path.join(UPSTREAM_ASSETS, f));
         assetNames.add(f);
     }
 }
@@ -616,7 +615,7 @@ async function main(): Promise<void> {
      * sha, PR previews by (repo, head sha, file). Warm runs skip the renderer
      * for everything unchanged — typically all but a handful of files. Bump
      * RENDER_CACHE_VERSION whenever the render pipeline itself changes. */
-    const RENDER_CACHE_VERSION = 1;
+    const RENDER_CACHE_VERSION = 2;
     const renderCachePath = path.join(CONTENT, "render-cache.json");
     interface RenderCache {
         version: number;
@@ -638,8 +637,18 @@ async function main(): Promise<void> {
     // The rst subprocess is only needed for documents that will actually render.
     if (files.some((f) => /\.rst$/i.test(f) && (prevDocsCache[f]?.sha !== shaFor(f) || !prevDocsCache[f]?.rendered)))
         preflightRst();
+    /* The page of each document, for the links between documents. A file
+     * with a numeric ZIP header is at /zip/<n>/, the rest are drafts. */
+    const routes = new Map<string, string>();
+    for (const filename of files) {
+        const slug = filename.replace(/\.(md|rst)$/i, "");
+        const zip = String(parseHeader(fs.readFileSync(path.join(ZIPS_DIR, filename), "utf8")).meta?.zip ?? "");
+        routes.set(slug.toLowerCase(), /^\d+$/.test(zip) ? `/zip/${parseInt(zip, 10)}/` : `/drafts/${slug}/`);
+    }
+    const linkContext: LinkContext = { routes, assets: assetNames };
     const zips: ZipDoc[] = [];
     const failures: string[] = [];
+    const missingAssets: string[] = [];
     const renderedHtml = new Map<string, string>();
     let docsCacheHits = 0;
     for (const filename of files) {
@@ -663,7 +672,7 @@ async function main(): Promise<void> {
         }
         else {
             const html0 = await (format === "md" ? renderMd(body) : Promise.resolve(renderRst(body, slug)));
-            html = html0 === null ? `<p class="render-error">This document could not be rendered (RST conversion failed). <a href="https://github.com/${REPO}/blob/${commit}/zips/${filename}">Read the source on GitHub.</a></p>` : injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
+            html = html0 === null ? `<p class="render-error">This document could not be rendered (RST conversion failed). <a href="https://github.com/${REPO}/blob/${commit}/zips/${filename}">Read the source on GitHub.</a></p>` : injectHeadingAnchors(wrapMath(rewriteLinks(html0, linkContext)));
             renderedOk = html0 !== null;
             if (html0 === null)
                 failures.push(filename);
@@ -672,6 +681,10 @@ async function main(): Promise<void> {
             renderedHtml.set(slug, html);
         }
         docsCache[filename].rendered = renderedOk;
+        for (const ref of upstreamRefs(html)) {
+            if (!assetNames.has(ref))
+                missingAssets.push(`${filename}: ${ref}`);
+        }
         const pullRequestRaw = hdr?.pull_request;
         const pullRequests = (Array.isArray(pullRequestRaw) ? pullRequestRaw : pullRequestRaw ? [pullRequestRaw] : [])
             .map((s) => {
@@ -719,6 +732,8 @@ async function main(): Promise<void> {
         if (!ALLOW_RENDER_FAILURES)
             throw new Error(`sync: ${failures.length} document(s) failed to render; nothing was written. Fix the renderer, or set SYNC_ALLOW_RENDER_FAILURES=1 to publish error stubs for them.`);
     }
+    if (missingAssets.length)
+        throw new Error(`sync: ${missingAssets.length} link(s) to a file that is not in public/upstream; nothing was written. ${missingAssets.slice(0, 10).join(", ")}`);
     for (const [slug, html] of renderedHtml)
         fs.writeFileSync(path.join(RENDERED, `${slug}.html`), html);
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
@@ -1013,6 +1028,22 @@ async function main(): Promise<void> {
     /* Phase 2 — fetch and render preview documents in parallel, skipping any
      * whose (repo, head sha, file) identity already has rendered HTML. */
     let previewCacheHits = 0;
+    /* A preview links to the PR's version of each document the PR changes,
+     * and shows the PR's version of each image it adds or changes. */
+    const previewLinks = (pr: PrEntry, headSha: string | null): LinkContext => {
+        const base = pr.source ? `/external/${pr.source}/${pr.number}` : `/prs/${pr.number}`;
+        const prRoutes = new Map(routes);
+        const prAssets = new Map<string, string>();
+        for (const f of pr.files) {
+            if (f.status === "removed")
+                continue;
+            if (DOC_RE.test(f.filename))
+                prRoutes.set(docSlug(f.filename).toLowerCase(), `${base}/${docSlug(f.filename)}/`);
+            else if (IMAGE_RE.test(f.filename) && headSha)
+                prAssets.set(f.filename.replace(/^.*\//, ""), `https://raw.githubusercontent.com/${pr.headRepo ?? pr.repo}/${headSha}/${encodeURI(f.filename)}`);
+        }
+        return { routes: prRoutes, assets: assetNames, prAssets };
+    };
     const renderPreviewJob = async (job: PreviewJob): Promise<PreviewEntry> => {
         const { pr, fileKey, docFile, state } = job;
         const slug = docSlug(docFile.filename);
@@ -1061,7 +1092,7 @@ async function main(): Promise<void> {
         const html0 = format === "md" ? await renderMd(body) : renderRst(body, `pr-${fileKey}-${slug}`);
         if (html0 === null)
             throw new Error("render failed");
-        const html = injectHeadingAnchors(wrapMath(rewriteLinks(html0, assetNames)));
+        const html = injectHeadingAnchors(wrapMath(rewriteLinks(html0, previewLinks(pr, state.headSha))));
         const entry: PreviewEntry = {
             filename: docFile.filename,
             slug,
