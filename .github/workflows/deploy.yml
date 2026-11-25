@@ -12,18 +12,16 @@ jobs:
       contents: read
       pages: write
       id-token: write
-      # deleting stale github-pages artifacts in the cleanup step below
       actions: write
     environment:
       name: github-pages
-      # The page URL comes from the attempt that succeeded.
       url: ${{ steps.deploy.outputs.page_url || steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
 
-      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -39,16 +37,9 @@ jobs:
           pnpm og
           pnpm -s translate --index
           pnpm exec next build
-          # every language shares one root layout, so the exported pages all
-          # say lang="en"; set the right lang before pagefind reads it
           pnpm html-lang
           pnpm exec pagefind --site out
 
-      # A deploy that fails after the upload leaves the "github-pages" artifact
-      # behind, and re-running the job then uploads a second one — deploy-pages
-      # refuses to act while two artifacts share its name ("Multiple artifacts
-      # unexpectedly found ... count is 2"). Remove any leftovers from a
-      # previous attempt of this run before uploading a fresh one.
       - name: Clear stale Pages artifacts
         run: |
           gh api \
@@ -56,28 +47,18 @@ jobs:
             --jq '.artifacts[] | select(.name == "github-pages") | .id' \
           | while read -r id; do
               echo "deleting stale artifact $id"
-              # Never block a deploy over cleanup; a leftover artifact is
-              # harmless to deploy-pages (each run uploads its own).
               gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true
             done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # actions/upload-pages-artifact v5.0.0 (pinned, matches working zip311 setup)
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         id: upload
         with:
           path: out
 
-      # deploy-pages looks up its artifact once, with no retry, and the list
-      # can come back empty for an upload that was finalized a moment earlier
-      # (actions/deploy-pages#451): 0.5 s after the upload it had no artifact,
-      # 30 s later it had one. Ask the same service for the same list until
-      # the artifact of this upload is the only "github-pages" in it. When the
-      # list cannot be read, wait 30 s. This step never fails the job.
       - name: Wait for the artifact
         continue-on-error: true
-        # actions/github-script v8
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         env:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
@@ -86,7 +67,6 @@ jobs:
             const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
             try {
               const token = process.env.ACTIONS_RUNTIME_TOKEN;
-              // the ids of the run and the job are in the token: "Actions.Results:<run>:<job>"
               const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
               const [, run, job] = claims.scp.split(" ").find((s) => s.startsWith("Actions.Results:")).split(":");
               const url = `${new URL(process.env.ACTIONS_RESULTS_URL).origin}/twirp/github.actions.results.api.v1.ArtifactService/ListArtifacts`;
@@ -114,15 +94,11 @@ jobs:
               await sleep(30000);
             }
 
-      # actions/deploy-pages v5.0.1. A first attempt that fails does not fail
-      # the job: the next steps wait and try again. A retry that fails fails
-      # the job, and rerun.yml runs the job again later.
       - name: Deploy to GitHub Pages
         id: deploy
         continue-on-error: true
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
         with:
-          # 10 min, the most the action permits; it lowers a larger value to this.
           timeout: 600000
 
       - name: Wait before deploying again
