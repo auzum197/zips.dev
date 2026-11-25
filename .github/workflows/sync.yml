@@ -1,7 +1,10 @@
 name: sync
 
-# Refresh the vendored zcash/zips clone, render, fetch PRs, publish snapshots,
-# build the static site and deploy to GitHub Pages.
+# Refresh the vendored zcash/zips clone, render, fetch PRs and publish
+# snapshots; then deploy the site and translate what changed. The deploy and
+# the translation each need only the snapshots: a deploy that fails does not
+# stop the translation. deploy.yml builds the site and deploys it to GitHub
+# Pages; rerun.yml runs the failed jobs of a failed run again.
 #
 # Runs on every push to main (merged PRs deploy immediately), on the daily
 # schedule, and on demand. The snapshot commit this job pushes uses
@@ -20,7 +23,6 @@ permissions:
   contents: write
   pages: write
   id-token: write
-  # deleting stale github-pages artifacts in the cleanup step below
   actions: write
 
 # one deploy at a time
@@ -31,10 +33,6 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      # The page URL comes from the attempt that succeeded.
-      url: ${{ steps.deploy.outputs.page_url || steps.deployment.outputs.page_url }}
     outputs:
       stale: ${{ steps.stale.outputs.count }}
     steps:
@@ -97,75 +95,16 @@ jobs:
           cat "$RUNNER_TEMP/stale.md" >> "$GITHUB_STEP_SUMMARY"
           echo "count=$(grep -c '^- ' "$RUNNER_TEMP/stale.md" || true)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/configure-pages@v5
-
-      - name: Build static site
-        run: |
-          pnpm og
-          pnpm -s translate --index
-          pnpm exec next build
-          # every language shares one root layout, so the exported pages all
-          # say lang="en"; set the right lang before pagefind reads it
-          pnpm html-lang
-          pnpm exec pagefind --site out
-
-      # A deploy that fails after the upload leaves the "github-pages" artifact
-      # behind, and re-running the job then uploads a second one — deploy-pages
-      # refuses to act while two artifacts share its name ("Multiple artifacts
-      # unexpectedly found ... count is 2"). Remove any leftovers from a
-      # previous attempt of this run before uploading a fresh one.
-      - name: Clear stale Pages artifacts
-        run: |
-          gh api \
-            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
-            --jq '.artifacts[] | select(.name == "github-pages") | .id' \
-          | while read -r id; do
-              echo "deleting stale artifact $id"
-              # Never block a deploy over cleanup; a leftover artifact is
-              # harmless to deploy-pages (each run uploads its own).
-              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true
-            done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # actions/upload-pages-artifact v5.0.0 (pinned, matches working zip311 setup)
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
-        with:
-          path: out
-
-      # actions/deploy-pages v5.0.1. It looks up its artifact once, with no
-      # retry, and the lookup can come back empty for an upload that was
-      # finalized a moment earlier (actions/deploy-pages#451). A first attempt
-      # that fails does not fail the job: the next steps wait and try again.
-      # A retry that fails fails the job.
-      - name: Deploy to GitHub Pages
-        id: deploy
-        continue-on-error: true
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
-        with:
-          # Pages propagation for this site has taken ~5 min on good days and
-          # exceeded the action's 10 min default once; give it 20 min.
-          timeout: 1200000
-
-      - name: Wait before deploying again
-        if: steps.deploy.outcome == 'failure'
-        run: sleep 30
-
-      - name: Deploy to GitHub Pages (retry)
-        id: deployment
-        if: steps.deploy.outcome == 'failure'
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
-        with:
-          timeout: 1200000
+  deploy:
+    needs: sync
+    uses: ./.github/workflows/deploy.yml
 
   translate:
     needs: sync
     if: needs.sync.outputs.stale != '0' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      # The page URL comes from the attempt that succeeded.
-      url: ${{ steps.deploy.outputs.page_url || steps.deployment.outputs.page_url }}
+    outputs:
+      deploy: ${{ steps.publish.outputs.deploy }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -209,52 +148,7 @@ jobs:
       - name: Translation report
         run: pnpm -s translate --check >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/configure-pages@v5
-        if: steps.publish.outputs.deploy == 'true'
-
-      - name: Build static site
-        if: steps.publish.outputs.deploy == 'true'
-        run: |
-          pnpm og
-          pnpm -s translate --index
-          pnpm exec next build
-          pnpm html-lang
-          pnpm exec pagefind --site out
-
-      - name: Clear stale Pages artifacts
-        if: steps.publish.outputs.deploy == 'true'
-        run: |
-          gh api \
-            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
-            --jq '.artifacts[] | select(.name == "github-pages") | .id' \
-          | while read -r id; do
-              echo "deleting stale artifact $id"
-              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true
-            done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
-        if: steps.publish.outputs.deploy == 'true'
-        with:
-          path: out
-
-      # The same retry as in the sync job.
-      - name: Deploy to GitHub Pages
-        id: deploy
-        if: steps.publish.outputs.deploy == 'true'
-        continue-on-error: true
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
-        with:
-          timeout: 1200000
-
-      - name: Wait before deploying again
-        if: steps.deploy.outcome == 'failure'
-        run: sleep 30
-
-      - name: Deploy to GitHub Pages (retry)
-        id: deployment
-        if: steps.deploy.outcome == 'failure'
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
-        with:
-          timeout: 1200000
+  deploy-translations:
+    needs: [translate, deploy]
+    if: ${{ !cancelled() && needs.translate.outputs.deploy == 'true' }}
+    uses: ./.github/workflows/deploy.yml
