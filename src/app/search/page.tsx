@@ -1,5 +1,6 @@
 import { ogMetadata } from "@/lib/og";
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import SearchBox from "@/components/search-box";
@@ -12,6 +13,8 @@ export default function SearchPage() {
     const t = useTranslations("Search");
     return (<>
       <PageHeader title={t("title")}/>
-      <SearchBox />
+      <Suspense>
+        <SearchBox />
+      </Suspense>
     </>);
 }
