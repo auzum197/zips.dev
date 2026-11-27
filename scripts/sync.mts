@@ -25,6 +25,7 @@ import type {
 } from "mdast";
 import type { Transformer } from "unified";
 import { rewriteLinks, upstreamRefs, type LinkContext } from "./links.mjs";
+import { splitDiff } from "./patches.mjs";
 
 /** Metadata header values: a scalar or a repeated key collected into a list. */
 type MetaValue = string | string[];
@@ -748,6 +749,28 @@ async function main(): Promise<void> {
             throw new Error(`${res.status} ${res.statusText} for ${url}`);
         return res.json() as Promise<T>;
     }
+    /* The files API leaves `patch` out for a large diff; the full diff has it. */
+    async function fillPatches(repo: string, number: number, files: GithubFile[] | null): Promise<void> {
+        const missing = files?.filter((f) => !f.patch && f.additions + f.deletions > 0) ?? [];
+        if (missing.length === 0)
+            return;
+        try {
+            const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${number}`, {
+                headers: { ...ghHeaders, Accept: "application/vnd.github.diff" },
+            });
+            if (!res.ok)
+                throw new Error(`${res.status} ${res.statusText}`);
+            const patches = splitDiff(await res.text());
+            for (const f of missing)
+                f.patch = patches.get(f.filename) ?? null;
+        }
+        catch (e) {
+            console.warn(`sync: full diff failed for ${repo}#${number} (${errMessage(e).slice(0, 100)})`);
+        }
+        const still = missing.filter((f) => !f.patch).map((f) => f.filename);
+        if (still.length)
+            console.warn(`sync: no patch for ${repo}#${number}: ${still.join(", ")}`);
+    }
     const prClaimIndex = new Map<number, Array<number | string>>();
     for (const z of zips) {
         for (const url of z.pullRequests) {
@@ -817,6 +840,7 @@ async function main(): Promise<void> {
                     files = null;
                 }
             }
+            await fillPatches(repo, pr.number, files);
             const refs = mapPrToZips(pr, files);
             const small = !files || (files.length <= 20 && files.every((f) => (f.patch ?? "").length < 400000));
             out.push({
@@ -861,6 +885,7 @@ async function main(): Promise<void> {
         catch {
             files = null;
         }
+        await fillPatches(repo, number, files);
         const small = !files || (files.length <= 20 && files.every((f) => (f.patch ?? "").length < 400000));
         return {
             repo,
