@@ -1,7 +1,3 @@
-/* Tests for the per-file patches taken from a pull request diff.
- *
- *   pnpm test
- */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { splitDiff } from "./patches.mjs";

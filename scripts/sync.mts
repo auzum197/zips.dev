@@ -749,9 +749,7 @@ async function main(): Promise<void> {
             throw new Error(`${res.status} ${res.statusText} for ${url}`);
         return res.json() as Promise<T>;
     }
-    /* The files API leaves `patch` out for a file with a large diff. Fill
-     * those from the diff of the full pull request. A file that stays
-     * without a patch is binary, or the diff request failed. */
+    /* The files API leaves `patch` out for a large diff; the full diff has it. */
     async function fillPatches(repo: string, number: number, files: GithubFile[] | null): Promise<void> {
         const missing = files?.filter((f) => !f.patch && f.additions + f.deletions > 0) ?? [];
         if (missing.length === 0)
