@@ -1,0 +1,1311 @@
+<h1 id="terminology"><a class="hanchor" href="#terminology" aria-hidden="true" tabindex="-1">#</a>Terminología</h1>
+<p>Las palabras clave "DEBE (MUST)", "NO DEBE (MUST NOT)", "DEBERÍA (SHOULD)" y "PUEDE (MAY)" en este documento se interpretan como se describe en BCP 14 <sup><a href="#user-content-fn-bcp14" id="user-content-fnref-bcp14" data-footnote-ref="" aria-describedby="footnote-label">1</a></sup> cuando, y solo cuando, aparecen en mayúsculas.</p>
+<p><code>I2LEOSP_\ell(k)</code> es la secuencia de bytes <math><mi>S</mi></math> de longitud <math><mrow><mi>ℓ</mi><mi>/</mi><mn>8</mn></mrow></math> que representa en orden little-endian el entero <math><mi>k</mi></math> en el rango <math><mrow><mo fence="true" form="prefix" stretchy="false">{</mo><mn>0</mn><mspace width="0.1667em"></mspace><mi>.</mi><mi>.</mi><mspace width="0.1667em"></mspace><msup><mn>2</mn><mi>ℓ</mi></msup><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">}</mo></mrow></math>.</p>
+<p>En las estructuras, un tipo simple <code>T</code> (por ejemplo, <code>u32</code> para un entero sin signo de 32 bits) siempre está presente y siempre tiene un valor. <code>Option&#x3C;T></code> es un valor opcional; si no está establecido, en su lugar está presente un valor centinela <code>None</code>.</p>
+<p><code>(A, B)</code> es una secuencia de 2 elementos, el primero de tipo <code>A</code> y el segundo de tipo <code>B</code>.</p>
+<p><code>[T; N]</code> es una secuencia de longitud <code>N</code> de elementos de tipo <code>T</code> (como un arreglo en Rust).</p>
+<p><code>List&#x3C;T></code> es una secuencia de longitud variable de elementos de tipo <code>T</code> (como <code>Vec&#x3C;T></code> en Rust).</p>
+<p><code>Map&#x3C;K, V></code> es un mapa clave-valor de longitud variable (como <code>Map&#x3C;K, V></code> en Rust).</p>
+<p><code>Enum { A, B, ... }</code> es una enumeración etiquetada; un valor de este tipo es exactamente una de las variantes enumeradas, identificada por un discriminante asignado en el orden enumerado comenzando desde 0.</p>
+<p><code>UTF8String</code> es una cadena de texto legible por humanos, de longitud variable, codificada con UTF-8.</p>
+<h1 id="abstract"><a class="hanchor" href="#abstract" aria-hidden="true" tabindex="-1">#</a>Resumen</h1>
+<p>Este ZIP propone un formato binario para transacciones que están en proceso de creación: lleva la información necesaria para que cada participante del proceso —la construcción de entradas y salidas, el cálculo de pruebas de conocimiento cero, la producción de firmas y el ensamblado de la transacción final— realice su paso, y conserva las pruebas y firmas acumuladas mientras el conjunto está incompleto. Participantes como los firmantes pueden estar desconectados, ya que toda la información necesaria se provee en el formato. Se especifican dos versiones del formato: v1, que admite la creación de transacciones v5; y v2, que admite la creación de transacciones v5 y v6, incluidos los flujos de trabajo de v6 en los que una transacción se firma por completo antes de que se conozcan sus anclas, los testigos de Merkle y las pruebas.</p>
+<h1 id="motivation"><a class="hanchor" href="#motivation" aria-hidden="true" tabindex="-1">#</a>Motivación</h1>
+<p>La creación de una transacción de Zcash no es una operación de un solo paso ni de una sola parte. En la práctica, los pasos lógicos de la creación de una transacción —el ensamblado de entradas y salidas, el cálculo de pruebas de conocimiento cero, la autorización de gastos y la serialización del resultado— suelen ser realizados por entidades distintas, en dispositivos distintos, en momentos distintos:</p>
+<ul>
+<li>
+<p><strong>Firmantes desconectados y de hardware.</strong> Un dispositivo de firma normalmente contiene material de claves de gasto, pero tiene capacidad limitada de cómputo y de comunicación. No puede calcular pruebas de Halo 2 ni de Groth16, y puede que no pueda mantener en memoria los datos de una transacción completa. Necesita un formato que lleve exactamente la información requerida para verificar lo que se está autorizando y para producir firmas, con todo lo demás omisible.</p>
+</li>
+<li>
+<p><strong>Delegación de pruebas.</strong> El generador de pruebas de un gasto blindado requiere los datos privados de la nota y la clave de visualización completa, pero no requiere ningún material de claves de gasto. Las billeteras en dispositivos con restricciones pueden por lo tanto delegar la generación de pruebas a un dispositivo más capaz, si existe una manera estándar de entregar exactamente los datos que necesita el generador de pruebas y de recibir de vuelta la prueba.</p>
+</li>
+<li>
+<p><strong>Transacciones multiparte.</strong> La firma con umbral (por ejemplo, FROST <sup><a href="#user-content-fn-frost" id="user-content-fnref-frost" data-footnote-ref="" aria-describedby="footnote-label">2</a></sup>), la multifirma transparente <sup><a href="#user-content-fn-zip-0048" id="user-content-fnref-zip-0048" data-footnote-ref="" aria-describedby="footnote-label">3</a></sup> y las transacciones con entradas aportadas por varias partes requieren todas que una transacción parcialmente creada se pase entre los participantes, acumulando contribuciones que se produjeron en paralelo y se fusionaron de manera determinista.</p>
+</li>
+<li>
+<p><strong>Preautorización y generación de pruebas diferida.</strong> A partir del formato de transacciones v6 <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>, las anclas de los componentes Sapling, Orchard e Ironwood son datos de autorización: las firmas no se comprometen con ellas y los testigos de Merkle nunca aparecen en la transacción final. Por lo tanto, una transacción puede ser autorizada por completo por sus firmantes antes de que se elija el ancla, con los testigos calculados y las pruebas producidas más tarde —incluido para transacciones que gastan notas del protocolo Orchard creadas por una transacción padre que aún no ha sido minada. Flujos de trabajo como la migración programada de Orchard a Ironwood <sup><a href="#user-content-fn-draft-schell-ironwood-migration" id="user-content-fnref-draft-schell-ironwood-migration" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup> usan esto para obtener la autorización de un usuario para una cadena de transacciones en una sola sesión de firma, y para reanclar y probar cada transacción en su momento de difusión. Un formato de transacción parcial debe poder representar estos estados intermedios de manera duradera, potencialmente durante días.</p>
+</li>
+</ul>
+<p>Bitcoin abordó los problemas análogos con el formato Partially Signed Bitcoin Transaction (PSBT), definido en BIP 174 <sup><a href="#user-content-fn-bip-0174" id="user-content-fnref-bip-0174" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> y revisado en BIP 370 <sup><a href="#user-content-fn-bip-0370" id="user-content-fnref-bip-0370" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>. Los PSBT no pueden usarse directamente para Zcash: no tienen representación de entradas y salidas blindadas, no tienen noción de pruebas como algo distinto de las firmas, y su codificación clave-valor tolera campos desconocidos de una manera indeseable para firmantes que deben entender todo lo que autorizan. Este ZIP define el equivalente de Zcash, reutilizando la estructura de roles de PSBT y su semántica de entradas transparentes, de modo que las bases de código que ya admiten PSBT pueden integrar PCZT con cambios mínimos.</p>
+<h1 id="privacy-implications">Implicaciones de <a class="hanchor" href="#privacy-implications" aria-hidden="true" tabindex="-1">#</a>privacidad</h1>
+<p>Un PCZT contiene necesariamente estrictamente más información que la transacción que se extrae de él. En particular, un PCZT puede llevar, para cada gasto o salida blindada: la dirección de la contraparte, el valor, la aleatoriedad de la nota, la aleatoriedad del compromiso de valor (que abre el compromiso de valor), la clave de visualización completa de la cuenta que gasta una nota, las rutas de derivación de ZIP 32, el valor <code>ock</code> (que abre <code>out_ciphertext</code>), y las cadenas de direcciones orientadas al usuario.</p>
+<p>Cualquiera que reciba una copia de un PCZT en una etapa determinada de su ciclo de vida conoce toda la información presente en esa etapa. En consecuencia:</p>
+<ul>
+<li>
+<p>Los participantes DEBERÍAN (SHOULD) enviar un PCZT solo a las entidades que son requeridas para los roles restantes, y DEBERÍAN (SHOULD) usar el rol Redactor para eliminar los campos que las entidades posteriores no necesitan.</p>
+</li>
+<li>
+<p>Delegar el rol Prover revela al generador de pruebas los datos privados de las notas que se gastan o se crean (pero no la autoridad de gasto). Los usuarios que consideren que su delegado de generación de pruebas no es de confianza deberían tratarlo como si conociera el contenido completo de la transacción.</p>
+</li>
+<li>
+<p>La guía de redacción adjunta a los campos individuales más abajo ("esto puede redactarse") identifica los puntos del ciclo de vida después de los cuales cada campo sensible ya no es necesario.</p>
+</li>
+<li>
+<p>Los PCZT de larga duración (por ejemplo, transacciones preautorizadas a la espera de generación de pruebas y difusión) extienden el período durante el cual esta información existe fuera del almacenamiento normal de la billetera. Las billeteras DEBERÍAN (SHOULD) proteger los PCZT almacenados como protegerían sus propias bases de datos de notas.</p>
+</li>
+</ul>
+<p>Una vez extraída la transacción final, ninguna de esta información adicional está presente en ella; las propiedades de privacidad en cadena de la transacción misma no cambian.</p>
+<h1 id="requirements"><a class="hanchor" href="#requirements" aria-hidden="true" tabindex="-1">#</a>Requisitos</h1>
+<p>El formato debe poder representar una transacción v5 o v6 en cada estado intermedio de su creación, a través de las separaciones de roles descritas anteriormente; en particular, cada una de las siguientes operaciones debe poder realizarse de manera independiente por entidades distintas, en un orden restringido solo por las dependencias de datos: agregar entradas y salidas, decidir que el conjunto de entradas/salidas es final, adjuntar metadatos de ruta de claves y otros metadatos de búsqueda, calcular pruebas, producir firmas, fusionar contribuciones producidas en paralelo y extraer la transacción final.</p>
+<p>El formato no debe requerir la presencia de material de claves de gasto. (Las claves de gasto de los gastos ficticios, que no autorizan nada de valor, son la única excepción, y deben poder eliminarse antes de que los firmantes vean el PCZT.)</p>
+<p>Los firmantes deben poder determinar, a partir del PCZT solo, exactamente lo que están autorizando: montos, destinatarios y la correspondencia entre los campos sobre los que firman y los valores mostrados al usuario. Debe ser posible eliminar los datos que un firmante determinado no necesita antes de que se le envíe el PCZT.</p>
+<p>La fusión de dos PCZT derivados de la misma transacción debe ser determinista, y debe fallar de manera explícita ante cualquier conflicto en lugar de descartar datos silenciosamente.</p>
+<p>Para las transacciones v6, el formato debe admitir la preautorización: las firmas pueden producirse mientras las anclas, los testigos de Merkle y las pruebas están ausentes, con esos campos suministrados más tarde sin invalidar las firmas. <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-2" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>La codificación debe ser lo bastante compacta para dispositivos de firma con restricciones de memoria, y debe estar estrictamente versionada: una implementación nunca debe interpretar mal datos producidos bajo una versión diferente de esta especificación.</p>
+<h1 id="specification"><a class="hanchor" href="#specification" aria-hidden="true" tabindex="-1">#</a>Especificación</h1>
+<p>Un PCZT consiste en una codificación binaria versionada (definida en la sección "Encoding") de un conjunto estructurado de campos (definido en la sección "Structure"). Los campos se agrupan por protocolo de pago, y son poblados y consumidos por entidades que actúan en roles bien definidos (definidos en la sección "Roles"), cada uno de los cuales hace avanzar el PCZT hacia una transacción completa. El ciclo de vida de una transacción creada mediante PCZT es:</p>
+<ol>
+<li>Un Creator inicializa el PCZT con los campos globales de la transacción.</li>
+<li>Los Constructors agregan entradas y salidas transparentes, gastos y salidas blindados, y (para paquetes del protocolo Orchard) las acciones que los contienen.</li>
+<li>Un IO Finalizer declara completo el conjunto de entradas/salidas, calcula las claves de la firma de vinculación y firma cualquier gasto ficticio.</li>
+<li>Los Updaters adjuntan información necesaria para roles posteriores (rutas de derivación de claves, claves de visualización completas, testigos de Merkle, anclas).</li>
+<li>Los Provers adjuntan pruebas de conocimiento cero; los Signers adjuntan firmas. A partir del formato de transacción v6, estos dos roles son totalmente independientes y pueden ejecutarse en cualquier orden o en paralelo.</li>
+<li>Los Combiners fusionan PCZT procesados en paralelo por diferentes entidades; los Redactors eliminan campos que las entidades posteriores no necesitan.</li>
+<li>Un Spend Finalizer ensambla las firmas de script para las entradas transparentes, y un Transaction Extractor produce (y verifica) la transacción final.</li>
+</ol>
+<p>Los PCZT no admiten Sprout, y no pueden usarse para crear transacciones v4 o anteriores. (El formato de transacción v4 es anterior al algoritmo de resumen de transacciones del ZIP 244 <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>; varias de las separaciones de roles especificadas aquí, en particular la independencia de la generación de pruebas respecto de la firma, no se cumplen para él.)</p>
+<h2 id="versioning"><a class="hanchor" href="#versioning" aria-hidden="true" tabindex="-1">#</a>Versionamiento</h2>
+<p>El formato PCZT evoluciona mediante revisiones de este ZIP. Se recomienda a los implementadores de este ZIP revisarlo regularmente en busca de nuevas revisiones (al menos una vez por actualización de red).</p>
+<p>Aunque se espera que la evolución del formato PCZT sea gradual, las versiones más recientes PUEDEN (MAY) cambiar cualquier aspecto del formato (p. ej., agregar o eliminar campos, o usar un esquema de codificación diferente). Los campos que solo están presentes en una versión específica de PCZT se anotarán con una versión (o un rango de versiones, o un conjunto de versiones) más abajo; todo campo no anotado está presente en todas las versiones de PCZT.</p>
+<p>Actualmente se especifican las siguientes versiones:</p>
+<ul>
+<li>v1
+<ul>
+<li>Admite la creación de transacciones v5 <sup><a href="#user-content-fn-zip-0225" id="user-content-fnref-zip-0225" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>.</li>
+</ul>
+</li>
+<li>v2
+<ul>
+<li>Admite la creación de transacciones v5 <sup><a href="#user-content-fn-zip-0225" id="user-content-fnref-zip-0225-2" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> y transacciones v6 <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-3" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</li>
+<li>Agrega un <code>IronwoodBundle</code> que transporta el componente <em>Ironwood-pool</em> de una transacción v6.</li>
+<li>Agrega un campo <code>note_version</code> a los paquetes del protocolo Orchard, de modo que un <code>IronwoodBundle</code> pueda transportar notas usando el formato de texto plano de nota recuperable cuánticamente del ZIP 2005 <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>. (Un <code>OrchardBundle</code> no tiene permitido usar ese formato <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-4" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>; el campo hace que la estructura de paquete compartida sea autodescriptiva.)</li>
+<li>Hace opcionales las anclas de los paquetes blindados, de modo que (para transacciones v6) un PCZT pueda firmarse antes de que se elijan sus anclas, y reanclarse sin invalidar las firmas.</li>
+<li>Omite los paquetes canónicamente vacíos de la codificación, reduciendo el tamaño de los flujos de bytes intercambiados con dispositivos de firma con restricciones.</li>
+</ul>
+</li>
+</ul>
+<p>Una versión de PCZT no fija una versión de transacción: un PCZT v2 puede transportar una transacción v5 o una v6, sujeto a las reglas por campo indicadas más abajo. Un PCZT v1 solo puede transportar una transacción v5.</p>
+<h2 id="encoding"><a class="hanchor" href="#encoding" aria-hidden="true" tabindex="-1">#</a>Codificación</h2>
+<p>La codificación PCZT consiste en un encabezado de 8 bytes seguido de una codificación específica de la versión:</p>
+<pre><code>[0x50, 0x43, 0x5a, 0x54] || I2LEOSP_32(version) || VERSION_SPECIFIC_ENCODING
+</code></pre>
+<ul>
+<li>Los primeros 4 bytes son bytes mágicos: la codificación ASCII de la cadena "PCZT".</li>
+<li>Los siguientes 4 bytes son la codificación little-endian de la versión.</li>
+<li>Los bytes restantes deberían analizarse según la versión.</li>
+</ul>
+<p>Si un analizador encuentra un número de versión que no reconoce, NO DEBE (MUST NOT) analizar el resto de los datos y, en su lugar, debería devolver un error que indique que este ZIP debería revisarse para buscar nuevas versiones.</p>
+<p>Los archivos binarios de PCZT deberían usar la extensión de archivo <code>.pczt</code>.</p>
+<h3 id="data-type-encodings"><a class="hanchor" href="#data-type-encodings" aria-hidden="true" tabindex="-1">#</a>Codificaciones de tipos de datos</h3>
+<p>Esta sección define canónicamente cómo se codifican los tipos de datos utilizados en la parte "Estructura" de esta especificación. Las codificaciones son un perfil del Postcard Wire Format <sup><a href="#user-content-fn-postcard" id="user-content-fnref-postcard" data-footnote-ref="" aria-describedby="footnote-label">11</a></sup> y son idénticas byte por byte a la serialización implementada en el crate de Rust <code>pczt</code> <sup><a href="#user-content-fn-pczt-rust" id="user-content-fnref-pczt-rust" data-footnote-ref="" aria-describedby="footnote-label">12</a></sup> (a partir de la versión <code>pczt 0.7.0</code> <sup><a href="#user-content-fn-pczt-0.7.0" id="user-content-fnref-pczt-0.7.0" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup> para la codificación v1). Ese crate es una implementación de referencia; este ZIP es la definición canónica de las codificaciones de PCZT, y pueden escribirse implementaciones en otros lenguajes a partir de esta sección solamente, sin referencia a la especificación de Postcard ni a la maquinaria de serialización de Rust.</p>
+<p>Defínase <code>varint(n)</code> como la codificación little-endian sin signo en base 128 del entero <code>n</code>: el valor se codifica de 7 bits a la vez, primero los bits menos significativos, un byte por grupo, donde todo byte excepto el último tiene el bit 7 activado y el último byte tiene el bit 7 desactivado. Los codificadores DEBEN (MUST) emitir la codificación más corta del valor (equivalentemente: el byte final es distinto de cero, salvo que toda la codificación sea el byte único <code>0x00</code>). La codificación de un entero de <code>k</code> bits ocupa como máximo <code>ceiling(k/7)</code> bytes, y en una codificación de longitud máxima el byte final contribuye solo los <code>k mod 7</code> bits altos (por ejemplo, el quinto byte de un <code>u32</code> codificado es como máximo <code>0x0f</code>); los decodificadores DEBEN (MUST) rechazar las codificaciones que excedan cualquiera de estos dos límites, y PUEDEN (MAY) aceptar o rechazar codificaciones no mínimas dentro de ellos. (La implementación de referencia las acepta; los codificadores NO DEBEN (MUST NOT) depender de esto.)</p>
+<p>Los tipos de datos se codifican de la siguiente manera:</p>
+<ul>
+<li>
+<p><code>u8</code>: un byte único que contiene el valor. (No es un varint.)</p>
+</li>
+<li>
+<p><code>u32</code>, <code>u64</code>: <code>varint(n)</code>; como máximo 5 y 10 bytes respectivamente.</p>
+</li>
+<li>
+<p><code>i128</code> (usado solo para <code>SaplingBundle.value_sum</code>): <code>varint(zigzag(n))</code>, como máximo 19 bytes, donde <code>zigzag(n)</code> reinterpreta <code>(n &#x3C;&#x3C; 1) XOR (n >> 127)</code> (con <code>>></code> un desplazamiento aritmético) como un entero sin signo de 128 bits. Es decir, un valor no negativo <code>n</code> se codifica como <code>2n</code>, y un valor negativo <code>n</code> se codifica como <code>2|n| - 1</code>.</p>
+</li>
+<li>
+<p><code>bool</code>: un byte único; <code>0x00</code> es falso y <code>0x01</code> es verdadero. Los decodificadores DEBEN (MUST) rechazar otros valores.</p>
+</li>
+<li>
+<p><code>[T; N]</code>: la concatenación de las codificaciones de los N elementos, sin prefijo de longitud. En particular, <code>[u8; N]</code> es exactamente N bytes crudos, y <code>[[u8; 32]; 32]</code> (el tipo de las rutas Merkle de <code>witness</code>) es exactamente 1024 bytes crudos.</p>
+</li>
+<li>
+<p><code>(A, B)</code>: la codificación de <code>A</code> seguida de la codificación de <code>B</code>, sin encuadre.</p>
+</li>
+<li>
+<p><code>Option&#x3C;T></code>: el byte único <code>0x00</code> para <code>None</code>; el byte único <code>0x01</code> seguido de la codificación del valor para <code>Some</code>. Los decodificadores DEBEN (MUST) rechazar otros bytes de etiqueta.</p>
+</li>
+<li>
+<p><code>List&#x3C;T></code>: <code>varint(count)</code>, donde count es el número de elementos, seguido de las codificaciones de los elementos en orden. (Para <code>List&#x3C;u8></code>, count es la longitud en bytes.)</p>
+</li>
+<li>
+<p><code>UTF8String</code>: <code>varint(len)</code>, donde len es la longitud en bytes, seguido de la codificación UTF-8 de la cadena. Los decodificadores DEBEN (MUST) rechazar las secuencias de bytes que no sean UTF-8 válido.</p>
+</li>
+<li>
+<p><code>Map&#x3C;K, V></code>: <code>varint(count)</code>, donde count es el número de entradas, seguido de cada entrada como la codificación de su clave seguida de la codificación de su valor. Los codificadores DEBEN (MUST) emitir las entradas en orden lexicográfico de bytes estrictamente ascendente de las claves (sin codificar), sin claves duplicadas. Los decodificadores PUEDEN (MAY) aceptar o rechazar entradas fuera de orden o duplicadas. (La implementación de referencia las acepta, conservando el último valor para una clave duplicada; los codificadores NO DEBEN (MUST NOT) depender de esto.)</p>
+</li>
+<li>
+<p><code>Enum { A, B, ... }</code>: <code>varint(d)</code>, donde <code>d</code> es el discriminante basado en 0 de la variante, seguido de la codificación de la carga útil de la variante. (Toda enumeración en este ZIP consta de variantes sin carga útil, por lo que el discriminante va solo.)</p>
+</li>
+<li>
+<p>Estructuras (<code>Global</code>, los paquetes y sus subestructuras): la concatenación de las codificaciones de sus campos, en el orden en que los campos se listan en este ZIP, sin encuadre, etiquetas de campo ni relleno. Un campo anotado como no presente en la versión de PCZT que se codifica se omite por completo (<em>no</em> se codifica como un <code>Option</code> ausente).</p>
+</li>
+</ul>
+<p>La codificación específica de la versión termina en el último byte del campo final. Los codificadores NO DEBEN (MUST NOT) emitir datos sobrantes después de este; los decodificadores PUEDEN (MAY) ignorar o rechazar los datos sobrantes. (La implementación de referencia los ignora.)</p>
+<h3 id="v1-encoding">Codificación <a class="hanchor" href="#v1-encoding" aria-hidden="true" tabindex="-1">#</a>v1</h3>
+<p>La codificación específica de la versión v1 es la concatenación de las siguientes estructuras, codificadas según la sección "Codificaciones de tipos de datos" anterior, usando los nombres de struct de la parte "Estructura" de la especificación; los campos de cada struct se codifican en el orden en que aparecen en el ZIP.</p>
+<pre><code>PCZT
+- Global
+  - fields...
+- TransparentBundle
+  - List&#x3C;TransparentInput>
+    - fields...
+  - List&#x3C;TransparentOutput>
+    - fields...
+- SaplingBundle
+  - List&#x3C;SaplingSpend>
+    - fields...
+  - List&#x3C;SaplingOutput>
+    - fields...
+  - fields...
+- OrchardBundle
+  - List&#x3C;OrchardAction>
+    - cv_net
+    - OrchardSpend
+      - fields...
+    - OrchardOutput
+      - fields...
+    - rcv
+  - fields...
+</code></pre>
+<p>Los campos anotados a continuación como presentes solo en PCZT v2 están ausentes de la codificación v1 por completo (no se codifican como <code>None</code>). Un PCZT v1 puede representar solo un subconjunto de los estados representables en un PCZT v2; la serialización a la codificación v1 DEBE (MUST) fallar si:</p>
+<ul>
+<li><code>Global.tx_version</code> no es 5;</li>
+<li>el <code>IronwoodBundle</code> no es el paquete vacío canónico (véase la sección Codificación v2);</li>
+<li><code>OrchardBundle.note_version</code> no es <code>V2</code>; o</li>
+<li>falta cualquier ancla de paquete que sería requerida antes de firmar una transacción v5.</li>
+</ul>
+<h3 id="v2-encoding">Codificación <a class="hanchor" href="#v2-encoding" aria-hidden="true" tabindex="-1">#</a>v2</h3>
+<p>La codificación específica de la versión v2 usa asimismo las codificaciones de la sección "Codificaciones de tipos de datos" anterior, y difiere de la codificación v1 como sigue:</p>
+<pre><code>PCZT
+- Global
+  - fields...
+- Option&#x3C;TransparentBundle>
+- Option&#x3C;SaplingBundle>
+- Option&#x3C;OrchardBundle>
+- Option&#x3C;IronwoodBundle>
+</code></pre>
+<ul>
+<li>
+<p>Cada paquete se envuelve en un <code>Option</code>. Un paquete que sea exactamente igual al <strong>paquete vacío canónico</strong> para su ranura DEBE (MUST) codificarse como <code>None</code>, y un analizador que encuentre <code>None</code> DEBE (MUST) reconstruir exactamente el paquete vacío canónico, de modo que la re-serialización haga un recorrido de ida y vuelta y las copias de un PCZT que tomen rutas de serialización diferentes sigan siendo combinables. Un paquete que difiera del paquete vacío canónico en cualquier campo (incluidos su <code>flags</code>, <code>note_version</code> o <code>anchor</code>) DEBE (MUST) codificarse como <code>Some</code>.</p>
+<p>Los paquetes vacíos canónicos son:</p>
+<ul>
+<li><code>TransparentBundle</code>: listas <code>inputs</code> y <code>outputs</code> vacías.</li>
+<li><code>SaplingBundle</code>: listas <code>spends</code> y <code>outputs</code> vacías, <code>value_sum = 0</code>, <code>anchor = None</code>, <code>bsk = None</code>.</li>
+<li><code>OrchardBundle</code>: lista <code>actions</code> vacía, <code>flags = 0b00000011</code> (gastos y salidas habilitados), <code>value_sum = (0, false)</code>, <code>anchor = None</code>, <code>note_version = V2</code>, <code>zkproof = None</code>, <code>bsk = None</code>.</li>
+<li><code>IronwoodBundle</code>: lista <code>actions</code> vacía, <code>flags = 0b00000111</code> (gastos, salidas y transferencias entre direcciones habilitados), <code>value_sum = (0, false)</code>, <code>anchor = None</code>, <code>note_version = V3</code>, <code>zkproof = None</code>, <code>bsk = None</code>.</li>
+</ul>
+</li>
+<li>
+<p>La ranura <code>IronwoodBundle</code> es nueva; tiene la misma estructura que <code>OrchardBundle</code> (véase la sección <code>IronwoodBundle</code> a continuación).</p>
+</li>
+<li>
+<p>Las estructuras <code>OrchardBundle</code> y <code>IronwoodBundle</code> ganan un campo <code>note_version</code>, codificado después de <code>anchor</code>.</p>
+</li>
+<li>
+<p>El campo <code>anchor</code> de las estructuras <code>SaplingBundle</code>, <code>OrchardBundle</code> y <code>IronwoodBundle</code> es <code>Option&#x3C;[u8; 32]></code> en lugar de <code>[u8; 32]</code>.</p>
+</li>
+</ul>
+<h2 id="structure"><a class="hanchor" href="#structure" aria-hidden="true" tabindex="-1">#</a>Estructura</h2>
+<p>Un PCZT está compuesto por varias estructuras de nivel superior, que se corresponden con regiones equivalentes de una transacción de Zcash:</p>
+<ul>
+<li><code>Global</code>: campos que son relevantes para la transacción en su conjunto.</li>
+<li><code>TransparentBundle</code>: campos relevantes para el protocolo transparente.</li>
+<li><code>SaplingBundle</code>: campos relevantes para el protocolo Sapling.</li>
+<li><code>OrchardBundle</code>: campos relevantes para el componente <em>Orchard-pool</em> del protocolo Orchard.</li>
+<li><code>IronwoodBundle</code> (PCZT v2): campos relevantes para el componente <em>Ironwood-pool</em> del protocolo Orchard <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-5" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</li>
+</ul>
+<p>Cada estructura contiene a su vez una combinación de:</p>
+<ul>
+<li>Datos de ejecución de la transacción: campos requeridos que forman parte de la transacción final y que siempre están presentes en el PCZT.</li>
+<li>Datos de autorización de la transacción: campos que inicialmente están vacíos y que se van rellenando a medida que se procesa el PCZT.</li>
+<li>Datos de contexto: información comprometida por (o relevante para) los datos de ejecución de la transacción, que permite desempeñar los distintos Roles.</li>
+</ul>
+<p>Las subestructuras de los bundles no son lógicamente opcionales. Esto se debe a que un PCZT no siempre contiene una transacción semánticamente válida, y puede haber fases en las que sea necesario almacenar metadatos específicos del protocolo antes de que se haya determinado si existen entradas o salidas específicas del protocolo. (La <em>codificación</em> v2 omite los bundles que son exactamente iguales a sus valores vacíos canónicos, pero un analizador reconstruye esos valores, por lo que cada PCZT contiene lógicamente todas las subestructuras de los bundles.)</p>
+<h3 id="global"><a class="hanchor" href="#global" aria-hidden="true" tabindex="-1">#</a><code>Global</code></h3>
+<p>La estructura <code>Global</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>tx_version: u32</code></p>
+<p>La versión de la transacción que se está creando.</p>
+<ul>
+<li>La establece el Creator.</li>
+<li>El Constructor la verifica antes de añadir entradas o salidas, para confirmar que la versión de la transacción admitirá el protocolo de pago para esas entradas o salidas.</li>
+<li>Versión 1 del PCZT: DEBE (MUST) ser 5.</li>
+<li>Versión 2 del PCZT: DEBE (MUST) ser 5 o 6.</li>
+</ul>
+</li>
+<li>
+<p><code>version_group_id: u32</code></p>
+<p>El identificador de grupo de versión de la transacción que se está creando.</p>
+<p>DEBE (MUST) ser coherente con <code>tx_version</code> <sup><a href="#user-content-fn-zip-0225" id="user-content-fnref-zip-0225-3" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup> <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-6" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</p>
+</li>
+<li>
+<p><code>consensus_branch_id: u32</code></p>
+<p>El identificador de rama de consenso para la cadena en la que se minará esta transacción.</p>
+<p>No es opcional porque compromete el conjunto de reglas de consenso que se aplicarán a la transacción; las diferencias al respecto pueden afectar a cada rol.</p>
+<p>Si <code>tx_version</code> es 6, DEBE (MUST) corresponder a una actualización de red en la que se admita el formato de transacción v6 (NU6.3 o posterior) <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-7" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>.</p>
+</li>
+<li>
+<p><code>fallback_lock_time: Option&#x3C;u32></code></p>
+<p>El locktime de la transacción que se utilizará si ninguna entrada especifica un locktime requerido.</p>
+<ul>
+<li>La establece el Creator.</li>
+<li>Si se omite, se asume que el locktime de reserva es 0.</li>
+</ul>
+</li>
+<li>
+<p><code>expiry_height: u32</code></p>
+<p>La altura de expiración del ZIP 203 <sup><a href="#user-content-fn-zip-0203" id="user-content-fnref-zip-0203" data-footnote-ref="" aria-describedby="footnote-label">14</a></sup> que se utilizará.</p>
+</li>
+<li>
+<p><code>coin_type: u32</code></p>
+<p>El tipo de moneda de SLIP 44 <sup><a href="#user-content-fn-slip-0044" id="user-content-fnref-slip-0044" data-footnote-ref="" aria-describedby="footnote-label">15</a></sup>, que indica la red para la cual se está construyendo esta transacción.</p>
+<p>Técnicamente, esta es información que podría determinarse indirectamente a partir del <code>consensus_branch_id</code> (o a partir de rutas de BIP 44 <sup><a href="#user-content-fn-bip-0044" id="user-content-fnref-bip-0044" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup> o ZIP 32 <sup><a href="#user-content-fn-zip-0032" id="user-content-fnref-zip-0032" data-footnote-ref="" aria-describedby="footnote-label">17</a></sup> añadidas por los Updaters), pero se incluye explícitamente para permitir una identificación fácil. Nótese que este campo no se incluye en la transacción y no tiene efecto de consenso (<code>consensus_branch_id</code> cumple esa función).</p>
+<ul>
+<li>La establece el Creator.</li>
+<li>Los roles que codifican información específica de la red (por ejemplo, rutas de derivación para la identificación de claves) deberían verificar este campo para asegurar la corrección.</li>
+</ul>
+</li>
+<li>
+<p><code>tx_modifiable: u8</code></p>
+<p>Un campo de bits para diversas banderas de modificación de la transacción.</p>
+<ul>
+<li>El bit 0 es la bandera Transparent Inputs Modifiable e indica si las entradas transparentes pueden modificarse.
+<ul>
+<li>El Creator lo establece en <code>true</code>.</li>
+<li>El Constructor lo verifica antes de añadir entradas transparentes, y puede establecerlo en <code>false</code>.</li>
+<li>El IO Finalizer lo establece en <code>false</code> si hay gastos o salidas blindados.</li>
+<li>Un Signer que añade una firma que no utiliza <code>SIGHASH_ANYONECANPAY</code> (lo que incluye todas las firmas blindadas) lo establece en <code>false</code>.</li>
+<li>El Combiner fusiona este bit hacia <code>false</code>.</li>
+</ul>
+</li>
+<li>El bit 1 es la bandera Transparent Outputs Modifiable e indica si las salidas transparentes pueden modificarse.
+<ul>
+<li>El Creator lo establece en <code>true</code>.</li>
+<li>El Constructor lo verifica antes de añadir salidas transparentes, y puede establecerlo en <code>false</code>.</li>
+<li>El IO Finalizer lo establece en <code>false</code> si hay gastos o salidas blindados.</li>
+<li>Un Signer que añade una firma que no utiliza <code>SIGHASH_NONE</code> (lo que incluye todas las firmas blindadas) lo establece en <code>false</code>.</li>
+<li>El Combiner fusiona este bit hacia <code>false</code>.</li>
+</ul>
+</li>
+<li>El bit 2 es la bandera Has <code>SIGHASH_SINGLE</code> e indica si la transacción tiene una firma transparente <code>SIGHASH_SINGLE</code> cuyo emparejamiento de entrada y salida debe conservarse.
+<ul>
+<li>El Creator lo establece en <code>false</code>.</li>
+<li>Un Constructor actualiza esto.</li>
+<li>Un Signer que añade una firma que utiliza <code>SIGHASH_SINGLE</code> lo establece en <code>true</code>.</li>
+<li>Esto indica esencialmente que el Constructor debe iterar sobre las entradas transparentes para determinar si añadir una entrada transparente y cómo hacerlo.</li>
+<li>El Combiner fusiona este bit hacia <code>true</code>.</li>
+</ul>
+</li>
+<li>Los bits 3-6 DEBEN (MUST) ser 0 para PCZTs de versión 1.</li>
+<li>El bit 7 es la bandera de modificabilidad blindada e indica si los gastos o las salidas blindados pueden modificarse.
+<ul>
+<li>El Creator lo establece en <code>true</code>.</li>
+<li>El Constructor lo verifica antes de añadir gastos o salidas blindados, y puede establecerlo en <code>false</code>.</li>
+<li>El IO Finalizer lo establece en <code>false</code> si hay gastos o salidas blindados.</li>
+<li>Cada Signer lo establece en <code>false</code> (ya que todas las firmas se comprometen con todos los gastos y salidas blindados).</li>
+<li>El Combiner fusiona este bit hacia <code>false</code>.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p><code>proprietary: Map&#x3C;UTF8String, List&#x3C;u8>></code></p>
+<p>Campos propietarios relacionados con la transacción en su conjunto. Véase «Campos de uso propietario» más adelante.</p>
+</li>
+</ul>
+<h3 id="transparentbundle"><a class="hanchor" href="#transparentbundle" aria-hidden="true" tabindex="-1">#</a><code>TransparentBundle</code></h3>
+<p>La estructura <code>TransparentBundle</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>inputs: List&#x3C;TransparentInput></code></p>
+<p>Las monedas transparentes que serán gastadas por esta transacción.</p>
+</li>
+<li>
+<p><code>outputs: List&#x3C;TransparentOutput></code></p>
+<p>Las monedas transparentes que serán creadas por esta transacción.</p>
+</li>
+</ul>
+<h4 id="transparentinput"><a class="hanchor" href="#transparentinput" aria-hidden="true" tabindex="-1">#</a><code>TransparentInput</code></h4>
+<p>La estructura <code>TransparentInput</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>prevout_txid: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al añadir una entrada.</p>
+</li>
+<li>
+<p><code>prevout_index: u32</code></p>
+<p>Esto lo completa el Constructor al añadir una entrada.</p>
+</li>
+<li>
+<p><code>sequence: Option&#x3C;u32></code></p>
+<p>El número de secuencia de esta entrada.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Si se omite, se asume que el número de secuencia es el número de secuencia final (<code>0xffffffff</code>).</li>
+</ul>
+</li>
+<li>
+<p><code>required_time_lock_time: Option&#x3C;u32></code></p>
+<p>La marca de tiempo Unix mínima que esta entrada requiere que se establezca como el tiempo de bloqueo de la transacción.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto DEBE (MUST) ser mayor o igual que 500000000.</li>
+</ul>
+</li>
+<li>
+<p><code>required_height_lock_time: Option&#x3C;u32></code></p>
+<p>La altura de bloque mínima que esta entrada requiere que se establezca como el tiempo de bloqueo de la transacción.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto DEBE (MUST) ser mayor que 0 y menor que 500000000.</li>
+</ul>
+</li>
+<li>
+<p><code>script_sig: Option&#x3C;List&#x3C;u8>></code></p>
+<p>Un testigo que satisface el <code>script_pubkey</code> de la entrada que se está gastando.</p>
+<p>Esto lo establece el Spend Finalizer.</p>
+</li>
+<li>
+<p><code>value: u64</code></p>
+<p>Esto lo requiere el Transaction Extractor para derivar el sighash blindado necesario para calcular las firmas de enlace.</p>
+</li>
+<li>
+<p><code>script_pubkey: List&#x3C;u8></code></p>
+<p>Esto lo requiere el Transaction Extractor para derivar el sighash blindado necesario para calcular las firmas de enlace.</p>
+</li>
+<li>
+<p><code>redeem_script: Option&#x3C;List&#x3C;u8>></code></p>
+<p>El script requerido para gastar esta salida, si es P2SH.</p>
+<p>Se establece en <code>None</code> si esta es una salida P2PKH.</p>
+</li>
+<li>
+<p><code>partial_signatures: Map&#x3C;[u8; 33], List&#x3C;u8>></code></p>
+<p>Un mapa de una clave pública a una firma creada por ella.</p>
+<ul>
+<li>Cada clave pública debería aparecer en <code>script_pubkey</code> o en <code>redeem_script</code>.</li>
+<li>Cada entrada la establece un Signer y debería contener una firma ECDSA válida bajo la clave pública correspondiente.</li>
+<li>Estas las requiere el Spend Finalizer para ensamblar <code>script_sig</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>sighash_type: u8</code></p>
+<p>El tipo de sighash que se utilizará para esta entrada.</p>
+<ul>
+<li>Los Signers DEBEN (MUST) usar este tipo de sighash para producir sus firmas. Los Signers que no puedan producir firmas para este tipo de sighash NO DEBEN (MUST NOT) proporcionar una firma.</li>
+<li>Los Spend Finalizers DEBEN (MUST) fallar al finalizar entradas que tengan firmas que no coincidan con este tipo de sighash.</li>
+</ul>
+</li>
+<li>
+<p><code>bip32_derivation: Map&#x3C;[u8; 33], Zip32Derivation></code></p>
+<p>Un mapa de una clave pública a la ruta de derivación BIP 32 en la que se puede encontrar su clave de gasto correspondiente.</p>
+<ul>
+<li>Las claves públicas deberían aparecer en <code>script_pubkey</code> o en <code>redeem_script</code>.</li>
+<li>Cada entrada la establece un Updater.</li>
+<li>Un Signer puede requerir entradas individuales.</li>
+<li>No se requiere que el mapa incluya entradas para todas las claves públicas utilizadas. En particular, no es posible incluir entradas para claves públicas que no sean BIP-32.</li>
+</ul>
+</li>
+<li>
+<p><code>ripemd160_preimages: Map&#x3C;[u8; 20], List&#x3C;u8>></code></p>
+<p>Asignaciones de la forma <code>key = RIPEMD160(value)</code>.</p>
+<ul>
+<li>El Signer puede usarlas para inspeccionar partes de <code>script_pubkey</code> o de <code>redeem_script</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>sha256_preimages: Map&#x3C;[u8; 32], List&#x3C;u8>></code></p>
+<p>Asignaciones de la forma <code>key = SHA256(value)</code>.</p>
+<ul>
+<li>El Signer puede usarlas para inspeccionar partes de <code>script_pubkey</code> o de <code>redeem_script</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>hash160_preimages: Map&#x3C;[u8; 20], List&#x3C;u8>></code></p>
+<p>Asignaciones de la forma <code>key = RIPEMD160(SHA256(value))</code>.</p>
+<ul>
+<li>El Signer puede usarlas para inspeccionar partes de <code>script_pubkey</code> o de <code>redeem_script</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>hash256_preimages: Map&#x3C;[u8; 32], List&#x3C;u8>></code></p>
+<p>Asignaciones de la forma <code>key = SHA256(SHA256(value))</code>.</p>
+<ul>
+<li>El Signer puede usarlas para inspeccionar partes de <code>script_pubkey</code> o de <code>redeem_script</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>proprietary: Map&#x3C;UTF8String, List&#x3C;u8>></code></p>
+<p>Campos propietarios relacionados con la moneda que se está gastando. Véase «Campos de uso propietario» más abajo.</p>
+</li>
+</ul>
+<h4 id="transparentoutput"><a class="hanchor" href="#transparentoutput" aria-hidden="true" tabindex="-1">#</a><code>TransparentOutput</code></h4>
+<p>La estructura <code>TransparentOutput</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>value: u64</code></p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+</li>
+<li>
+<p><code>script_pubkey: List&#x3C;u8></code></p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+</li>
+<li>
+<p><code>redeem_script: Option&#x3C;List&#x3C;u8>></code></p>
+<p>El script requerido para gastar esta salida, si es P2SH.</p>
+<p>Se establece en <code>None</code> si esta es una salida P2PKH.</p>
+</li>
+<li>
+<p><code>bip32_derivation: Map&#x3C;[u8; 33], Zip32Derivation></code></p>
+<p>Un mapa de una clave pública a la ruta de derivación BIP 32 en la que se puede encontrar su clave de gasto correspondiente.</p>
+<ul>
+<li>Las claves públicas deberían aparecer en <code>script_pubkey</code> o en <code>redeem_script</code>.</li>
+<li>Cada entrada la establece un Updater.</li>
+<li>Un Signer puede requerir entradas individuales.</li>
+<li>No se requiere que el mapa incluya entradas para todas las claves públicas utilizadas. En particular, no es posible incluir entradas para claves públicas que no sean BIP-32.</li>
+</ul>
+</li>
+<li>
+<p><code>user_address: Option&#x3C;UTF8String></code></p>
+<p>La dirección orientada al usuario a la que se envía esta salida, si la hay.</p>
+<ul>
+<li>Esto lo establece un Updater.</li>
+<li>Los Signers DEBEN (MUST) analizar esta dirección (si está presente) y confirmar que contiene <code>recipient</code> (ya sea directamente, o p. ej. como un receiver dentro de una dirección unificada).</li>
+</ul>
+</li>
+<li>
+<p><code>proprietary: Map&#x3C;UTF8String, List&#x3C;u8>></code></p>
+<p>Campos propietarios relacionados con la moneda que se está creando. Véase «Proprietary Use fields» más abajo.</p>
+</li>
+</ul>
+<h3 id="saplingbundle"><a class="hanchor" href="#saplingbundle" aria-hidden="true" tabindex="-1">#</a><code>SaplingBundle</code></h3>
+<p>La estructura <code>SaplingBundle</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>spends: List&#x3C;SaplingSpend></code></p>
+<p>Las notas de Sapling que serán gastadas por esta transacción.</p>
+</li>
+<li>
+<p><code>outputs: List&#x3C;SaplingOutput></code></p>
+<p>Las notas de Sapling que serán creadas por esta transacción.</p>
+</li>
+<li>
+<p><code>value_sum: i128</code></p>
+<p>El valor neto de los spends de Sapling menos las salidas.</p>
+<p>Esto lo inicializa el Creator y lo actualiza el Constructor a medida que se agregan spends o salidas al PCZT. Permite que los valores por spend y por salida se omitan del PCZT una vez que ya no son necesarios.</p>
+</li>
+<li>
+<p><code>anchor: [u8; 32]</code> (PCZT v1) / <code>anchor: Option&#x3C;[u8; 32]></code> (PCZT v2)</p>
+<p>El anchor de Sapling para esta transacción.</p>
+<ul>
+<li>Si <code>tx_version</code> es 5, esto DEBE (MUST) ser establecido por el Creator y NO DEBE (MUST NOT) cambiar posteriormente: el hash de firma de v5 compromete el anchor, por lo que cambiarlo invalidaría las firmas.</li>
+<li>Si <code>tx_version</code> es 6, esto lo establece el Creator o un Updater, y PUEDE (MAY) ser reemplazado por un Updater en cualquier momento antes del proving (véase «Anchors and pre-authorization»). DEBE (MUST) estar establecido antes de que se ejecute el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>bsk: Option&#x3C;[u8; 32]></code></p>
+<p>La clave de firma de la firma de enlace (binding signature) de Sapling.</p>
+<ul>
+<li>Esto es <code>None</code> hasta que lo establece el IO Finalizer.</li>
+<li>El Transaction Extractor usa esto para producir la firma de enlace (binding signature).</li>
+</ul>
+</li>
+</ul>
+<h4 id="saplingspend"><a class="hanchor" href="#saplingspend" aria-hidden="true" tabindex="-1">#</a><code>SaplingSpend</code></h4>
+<p>La estructura <code>SaplingSpend</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>cv: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar un spend.</p>
+</li>
+<li>
+<p><code>nullifier: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar un spend.</p>
+</li>
+<li>
+<p><code>rk: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar un spend.</p>
+</li>
+<li>
+<p><code>zkproof: Option&#x3C;[u8; 192]></code></p>
+<p>La prueba (proof) de Spend de Sapling.</p>
+<p>Esto lo establece el Prover.</p>
+</li>
+<li>
+<p><code>spend_auth_sig: Option&#x3C;[u8; 64]></code></p>
+<p>La firma de autorización del spend.</p>
+<p>Esto lo establece el Signer.</p>
+</li>
+<li>
+<p><code>recipient: Option&#x3C;[u8; 43]></code></p>
+<p>La codificación cruda <sup><a href="#user-content-fn-protocol-saplingpaymentaddrencoding" id="user-content-fnref-protocol-saplingpaymentaddrencoding" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup> de la dirección de pago de Sapling que recibió la nota que se está gastando.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto es requerido por el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>value: Option&#x3C;u64></code></p>
+<p>El valor de la entrada que se está gastando.</p>
+<p>Esto pueden usarlo los Signers para verificar que el valor coincide con <code>cv</code>, y para confirmar los valores y el cambio involucrados en la transacción.</p>
+<p>Esto expone el valor de la entrada a todos los participantes. Para los Signers que no necesitan esta información, o después de que se hayan aplicado las firmas, esto puede omitirse.</p>
+</li>
+<li>
+<p><code>rcm: Option&#x3C;[u8; 32]></code></p>
+<p>La aleatoriedad del compromiso de la nota.</p>
+<ul>
+<li>Esto lo establece el Constructor. NO DEBE (MUST NOT) establecerse si la nota tiene un <code>rseed</code> (es decir, fue creada después de la activación del ZIP 212 <sup><a href="#user-content-fn-zip-0212" id="user-content-fnref-zip-0212" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup>).</li>
+<li>El Prover requiere esto o <code>rseed</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>rseed: Option&#x3C;[u8; 32]></code></p>
+<p>La aleatoriedad de semilla para la nota que se está gastando.</p>
+<ul>
+<li>Esto lo establece el Constructor. NO DEBE (MUST NOT) establecerse si la nota no tiene <code>rseed</code> (es decir, fue creada antes de la activación del ZIP 212 <sup><a href="#user-content-fn-zip-0212" id="user-content-fnref-zip-0212-2" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup>).</li>
+<li>El Prover requiere esto o <code>rcm</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>rcv: Option&#x3C;[u8; 32]></code></p>
+<p>La aleatoriedad del compromiso de valor.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>El IO Finalizer la comprime en <code>bsk</code>.</li>
+<li>Esto es requerido por el Prover.</li>
+<li>Esto pueden usarlo los Signers para verificar que el valor coincide correctamente con <code>cv</code>.</li>
+</ul>
+<p>Esto abre <code>cv</code> para todos los participantes. Para los Signers que no necesitan esta información, o después de que se hayan aplicado las pruebas / firmas, esto puede omitirse.</p>
+</li>
+<li>
+<p><code>proof_generation_key: Option&#x3C;([u8; 32], [u8; 32])></code></p>
+<p>La clave de generación de pruebas <code>(ak, nsk)</code> correspondiente al destinatario que recibió la nota que se está gastando.</p>
+<ul>
+<li>Esto lo establece el Updater.</li>
+<li>Esto es requerido por el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>witness: Option&#x3C;(u32, [[u8; 32]; 32])></code></p>
+<p>Un testigo desde la nota hasta el ancla del bundle.</p>
+<ul>
+<li>Esto lo establece el Updater.</li>
+<li>Esto es requerido por el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>alpha: Option&#x3C;[u8; 32]></code></p>
+<p>El aleatorizador de autorización del spend.</p>
+<ul>
+<li>Esto lo elige el Constructor.</li>
+<li>Esto es requerido por el Signer para crear <code>spend_auth_sig</code>, y puede usarse para validar <code>rk</code>.</li>
+<li>Después de que se haya establecido <code>zkproof</code> / <code>spend_auth_sig</code>, esto puede omitirse.</li>
+</ul>
+</li>
+<li>
+<p><code>zip32_derivation: Option&#x3C;Zip32Derivation></code></p>
+<p>La ruta de derivación del ZIP 32 en la que se puede encontrar la clave de gasto para la nota que se está gastando.</p>
+</li>
+<li>
+<p><code>dummy_ask: Option&#x3C;[u8; 32]></code></p>
+<p>La clave de autorización de gasto para esta nota gastada, si se trata de una nota ficticia.</p>
+<ul>
+<li>Esto lo elige el Constructor.</li>
+<li>Esto es requerido por el IO Finalizer, y este la borra una vez usada.</li>
+<li>Los Signers DEBEN (MUST) rechazar los PCZT que contengan valores <code>dummy_ask</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>proprietary: Map&#x3C;UTF8String, List&#x3C;u8>></code></p>
+<p>Campos propietarios relacionados con la nota que se está gastando. Véase "Campos de uso propietario" más abajo.</p>
+</li>
+</ul>
+<h4 id="saplingoutput"><a class="hanchor" href="#saplingoutput" aria-hidden="true" tabindex="-1">#</a><code>SaplingOutput</code></h4>
+<p>La estructura <code>SaplingOutput</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>cv: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+</li>
+<li>
+<p><code>cmu: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+</li>
+<li>
+<p><code>ephemeral_key: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+</li>
+<li>
+<p><code>enc_ciphertext: List&#x3C;u8></code></p>
+<p>El texto plano cifrado de la nota para la salida.</p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+<p>Se representa como <code>List&#x3C;u8></code> porque su longitud depende de la versión de la transacción.</p>
+<p>Una vez que tengamos memo bundles <sup><a href="#user-content-fn-zip-0231" id="user-content-fnref-zip-0231" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup>, podremos establecer los memos de forma independiente de las Outputs. Por ahora, el Constructor establece ambos al mismo tiempo.</p>
+</li>
+<li>
+<p><code>out_ciphertext: List&#x3C;u8></code></p>
+<p>El texto plano cifrado de la nota para la salida.</p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+<p>Se representa como <code>List&#x3C;u8></code> porque su longitud depende de la versión de la transacción.</p>
+</li>
+<li>
+<p><code>zkproof: Option&#x3C;[u8; 192]></code></p>
+<p>La prueba del Output de Sapling.</p>
+<p>Esto lo establece el Prover.</p>
+</li>
+<li>
+<p><code>recipient: Option&#x3C;[u8; 43]></code></p>
+<p>La codificación cruda <sup><a href="#user-content-fn-protocol-saplingpaymentaddrencoding" id="user-content-fnref-protocol-saplingpaymentaddrencoding-2" data-footnote-ref="" aria-describedby="footnote-label">18</a></sup> de la dirección de pago de Sapling que recibirá la salida.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto es requerido por el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>value: Option&#x3C;u64></code></p>
+<p>El valor de la salida.</p>
+<p>Esto pueden usarlo los Signers para verificar que el valor coincide con <code>cv</code>, y para confirmar los valores y el cambio involucrados en la transacción.</p>
+<p>Esto expone el valor de la salida a todos los participantes. Para los Signers que no necesitan esta información, o después de que se hayan aplicado las firmas, esto puede omitirse.</p>
+</li>
+<li>
+<p><code>rseed: Option&#x3C;[u8; 32]></code></p>
+<p>La aleatoriedad de semilla para la salida.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto es requerido por el Prover, en lugar de revelarle <code>shared_secret</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>rcv: Option&#x3C;[u8; 32]></code></p>
+<p>La aleatoriedad del compromiso de valor.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>El IO Finalizer la comprime en <code>bsk</code>.</li>
+<li>Esto es requerido por el Prover.</li>
+<li>Esto pueden usarlo los Signers para verificar que el valor coincide correctamente con <code>cv</code>.</li>
+</ul>
+<p>Esto abre <code>cv</code> para todos los participantes. Para los Signers que no necesitan esta información, o después de que se hayan aplicado las pruebas / firmas, esto puede omitirse.</p>
+</li>
+<li>
+<p><code>ock: Option&#x3C;[u8; 32]></code></p>
+<p>El valor <code>ock</code> usado para cifrar <code>out_ciphertext</code>.</p>
+<p>Esto permite a los Signers verificar que <code>out_ciphertext</code> está correctamente cifrado.</p>
+<p>Esto puede ser <code>None</code> si el Constructor agregó la salida usando una política de OVK de "None", para hacer que la salida sea irrecuperable desde la cadena por el emisor.</p>
+</li>
+<li>
+<p><code>zip32_derivation: Option&#x3C;Zip32Derivation></code></p>
+<p>La ruta de derivación del ZIP 32 en la que se puede encontrar la clave de gasto para la salida.</p>
+</li>
+<li>
+<p><code>user_address: Option&#x3C;UTF8String></code></p>
+<p>La dirección orientada al usuario a la que se envía esta salida, si la hay.</p>
+<ul>
+<li>Esto lo establece un Updater.</li>
+<li>Los Signers DEBEN (MUST) analizar esta dirección (si está presente) y confirmar que contiene <code>recipient</code> (ya sea directamente, o p. ej. como un receiver dentro de una dirección unificada).</li>
+</ul>
+</li>
+<li>
+<p><code>proprietary: Map&#x3C;UTF8String, List&#x3C;u8>></code></p>
+<p>Campos propietarios relacionados con la nota que se está creando. Véase "Campos de uso propietario" más abajo.</p>
+</li>
+</ul>
+<h3 id="orchardbundle"><a class="hanchor" href="#orchardbundle" aria-hidden="true" tabindex="-1">#</a><code>OrchardBundle</code></h3>
+<p>La estructura <code>OrchardBundle</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>actions: List&#x3C;OrchardAction></code></p>
+<p>Las acciones Orchard de este paquete.</p>
+<p>El Constructor agrega las entradas, y un Updater, IO Finalizer, Signer, Combiner o Spend Finalizer las modifica.</p>
+</li>
+<li>
+<p><code>flags: u8</code></p>
+<p>Los indicadores del paquete Orchard.</p>
+<p>Contiene:</p>
+<ul>
+<li>indicador <code>enableSpends</code> (bit 0)</li>
+<li>indicador <code>enableOutputs</code> (bit 1)</li>
+<li>indicador <code>enableCrossAddress</code> (bit 2) (PCZT v2; DEBE (MUST) ser 0 en PCZT v1, y en el <code>OrchardBundle</code> de cualquier transacción que se minará bajo NU6.3 o posterior <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-8" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup>)</li>
+<li>Reservado, ceros (bits 3..=7)</li>
+</ul>
+<p>El Creator establece este valor. El Constructor DEBE (MUST) agregar únicamente gastos y salidas que sean coherentes con estos indicadores (es decir, que sean dummies según corresponda; y, cuando <code>enableCrossAddress</code> es 0, la salida de cada acción está dirigida a la misma dirección a nivel de protocolo que su gasto; véase "Salidas de la misma dirección fabricadas").</p>
+</li>
+<li>
+<p><code>value_sum: (u64, bool)</code></p>
+<p>El valor neto de los gastos Orchard menos las salidas.</p>
+<p>Esto lo inicializa el Creator y lo actualiza el Constructor a medida que se agregan spends o salidas al PCZT. Permite que los valores por spend y por salida se omitan del PCZT una vez que ya no son necesarios.</p>
+</li>
+<li>
+<p><code>anchor: [u8; 32]</code> (PCZT v1) / <code>anchor: Option&#x3C;[u8; 32]></code> (PCZT v2)</p>
+<p>El ancla Orchard de esta transacción.</p>
+<ul>
+<li>Si <code>tx_version</code> es 5, esto DEBE (MUST) ser establecido por el Creator y NO DEBE (MUST NOT) cambiar posteriormente: el hash de firma de v5 compromete el anchor, por lo que cambiarlo invalidaría las firmas.</li>
+<li>Si <code>tx_version</code> es 6, esto lo establece el Creator o un Updater, y PUEDE (MAY) ser reemplazado por un Updater en cualquier momento antes del proving (véase «Anchors and pre-authorization»). DEBE (MUST) estar establecido antes de que se ejecute el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>note_version: NoteVersion</code> (PCZT v2)</p>
+<p>La versión del texto plano de la nota para las notas de este paquete, donde <code>NoteVersion</code> es <code>Enum { V2, V3 }</code>:</p>
+<ul>
+<li><code>V2</code> denota el formato de texto plano de nota del ZIP 212 <sup><a href="#user-content-fn-zip-0212" id="user-content-fnref-zip-0212-3" data-footnote-ref="" aria-describedby="footnote-label">19</a></sup> (byte inicial <code>0x02</code>).</li>
+<li><code>V3</code> denota el formato de texto plano de nota cuántica-recuperable del ZIP 2005 <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005-2" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup> (byte inicial <code>0x03</code>).</li>
+</ul>
+<p>Toda nota de un paquete tiene la misma versión de nota. Para un <code>OrchardBundle</code> esta DEBE (MUST) ser <code>V2</code>; para un <code>IronwoodBundle</code> esta DEBE (MUST) ser <code>V3</code>. <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-9" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup></p>
+<p>En PCZT v1, la versión de nota del <code>OrchardBundle</code> es implícitamente <code>V2</code>.</p>
+</li>
+<li>
+<p><code>zkproof: Option&#x3C;List&#x3C;u8>></code></p>
+<p>La prueba del paquete Orchard.</p>
+<p>Este es <code>None</code> hasta que el Prover lo establece.</p>
+<p>Si <code>tx_version</code> es 6 y el <code>anchor</code> del paquete se reemplaza después de que este campo se haya establecido, este campo DEBE (MUST) borrarse (la prueba se compromete con el ancla, por lo que ya no es válida).</p>
+</li>
+<li>
+<p><code>bsk: Option&#x3C;[u8; 32]></code></p>
+<p>La clave de firma de la firma vinculante de Orchard.</p>
+<ul>
+<li>Esto es <code>None</code> hasta que lo establece el IO Finalizer.</li>
+<li>El Transaction Extractor usa esto para producir la firma de enlace (binding signature).</li>
+</ul>
+</li>
+</ul>
+<h4 id="orchardaction"><a class="hanchor" href="#orchardaction" aria-hidden="true" tabindex="-1">#</a><code>OrchardAction</code></h4>
+<p>La estructura <code>OrchardAction</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>cv_net: [u8; 32]</code></p>
+<p>El Constructor la completa al agregar una acción.</p>
+</li>
+<li>
+<p><code>spend: OrchardSpend</code></p>
+<p>El Constructor la completa al agregar una acción.</p>
+</li>
+<li>
+<p><code>output: OrchardOutput</code></p>
+<p>El Constructor la completa al agregar una acción.</p>
+</li>
+<li>
+<p><code>rcv: Option&#x3C;[u8; 32]></code></p>
+<p>La aleatoriedad del compromiso de valor.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>El IO Finalizer la comprime en el bsk.</li>
+<li>Esto es requerido por el Prover.</li>
+<li>Esto pueden usarlo los Signers para verificar que el valor coincide correctamente con <code>cv</code>.</li>
+</ul>
+<p>Esto abre <code>cv</code> para todos los participantes. Para los Signers que no necesitan esta información, o después de que se hayan aplicado las pruebas / firmas, esto puede omitirse.</p>
+</li>
+</ul>
+<h5 id="orchardspend"><code>OrchardSpend</code></h5>
+<p>La estructura <code>OrchardSpend</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>nullifier: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar un spend.</p>
+</li>
+<li>
+<p><code>rk: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar un spend.</p>
+</li>
+<li>
+<p><code>spend_auth_sig: Option&#x3C;[u8; 64]></code></p>
+<p>La firma de autorización del spend.</p>
+<p>Esto lo establece el Signer.</p>
+</li>
+<li>
+<p><code>recipient: Option&#x3C;[u8; 43]></code></p>
+<p>La codificación cruda <sup><a href="#user-content-fn-protocol-orchardpaymentaddrencoding" id="user-content-fnref-protocol-orchardpaymentaddrencoding" data-footnote-ref="" aria-describedby="footnote-label">22</a></sup> de la dirección de pago Orchard que recibió la nota que se está gastando.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto es requerido por el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>value: Option&#x3C;u64></code></p>
+<p>El valor de la entrada que se está gastando.</p>
+<ul>
+<li>Esto es requerido por el Prover.</li>
+<li>Esto pueden usarlo los Signers para verificar que el valor coincide con <code>cv</code>, y para confirmar los valores y el cambio involucrados en la transacción.</li>
+</ul>
+<p>Esto expone el valor de la entrada a todos los participantes. Para los Signers que no necesitan esta información, o después de que se hayan aplicado las firmas, esto puede omitirse.</p>
+</li>
+<li>
+<p><code>rho: Option&#x3C;[u8; 32]></code></p>
+<p>El valor rho de la nota que se está gastando.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto es requerido por el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>rseed: Option&#x3C;[u8; 32]></code></p>
+<p>La aleatoriedad de semilla para la nota que se está gastando.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto es requerido por el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>fvk: Option&#x3C;[u8; 96]></code></p>
+<p>La clave de visualización completa que recibió la nota que se está gastando.</p>
+<ul>
+<li>Esto lo establece el Updater.</li>
+<li>Esto es requerido por el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>witness: Option&#x3C;(u32, [[u8; 32]; 32])></code></p>
+<p>Un testigo desde la nota hasta el ancla del bundle.</p>
+<ul>
+<li>Esto lo establece el Updater.</li>
+<li>Esto es requerido por el Prover.</li>
+<li>Si <code>tx_version</code> es 6, PUEDE (MAY) estar ausente cuando el gasto se firma, y agregarse más tarde por un Updater — incluso para el gasto de una nota que aún no se ha agregado al árbol de compromisos de notas (véase «Anclas y preautorización»). Las firmas no se comprometen con él.</li>
+</ul>
+</li>
+<li>
+<p><code>alpha: Option&#x3C;[u8; 32]></code></p>
+<p>El aleatorizador de autorización del spend.</p>
+<ul>
+<li>Esto lo elige el Constructor.</li>
+<li>Esto es requerido por el Signer para crear <code>spend_auth_sig</code>, y puede usarse para validar <code>rk</code>.</li>
+<li>Después de que se haya establecido <code>zkproof</code> / <code>spend_auth_sig</code>, esto puede omitirse.</li>
+</ul>
+</li>
+<li>
+<p><code>zip32_derivation: Option&#x3C;Zip32Derivation></code></p>
+<p>La ruta de derivación del ZIP 32 en la que se puede encontrar la clave de gasto para la nota que se está gastando.</p>
+</li>
+<li>
+<p><code>dummy_sk: Option&#x3C;[u8; 32]></code></p>
+<p>La clave de gasto de esta nota gastada, si se trata de una nota dummy.</p>
+<ul>
+<li>Esto lo elige el Constructor.</li>
+<li>Esto es requerido por el IO Finalizer, y este la borra una vez usada.</li>
+<li>Los Signers DEBEN (MUST) rechazar los PCZT que contengan valores <code>dummy_sk</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>proprietary: Map&#x3C;UTF8String, List&#x3C;u8>></code></p>
+<p>Campos propietarios relacionados con la nota que se está gastando. Véase "Campos de uso propietario" más abajo.</p>
+</li>
+</ul>
+<h5 id="orchardoutput"><code>OrchardOutput</code></h5>
+<p>La estructura <code>OrchardOutput</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>cmx: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+</li>
+<li>
+<p><code>ephemeral_key: [u8; 32]</code></p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+</li>
+<li>
+<p><code>enc_ciphertext: List&#x3C;u8></code></p>
+<p>El texto plano cifrado de la nota para la salida.</p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+<p>Codificado como un <code>List&#x3C;u8></code> porque su longitud depende de la versión de la transacción.</p>
+<p>Una vez que tengamos memo bundles <sup><a href="#user-content-fn-zip-0231" id="user-content-fnref-zip-0231-2" data-footnote-ref="" aria-describedby="footnote-label">20</a></sup>, podremos establecer los memos de forma independiente de las Outputs. Por ahora, el Constructor establece ambos al mismo tiempo.</p>
+</li>
+<li>
+<p><code>out_ciphertext: List&#x3C;u8></code></p>
+<p>El texto plano cifrado de la nota para la salida.</p>
+<p>Esto lo completa el Constructor al agregar una salida.</p>
+<p>Codificado como un <code>List&#x3C;u8></code> porque su longitud depende de la versión de la transacción.</p>
+</li>
+<li>
+<p><code>recipient: Option&#x3C;[u8; 43]></code></p>
+<p>La codificación cruda <sup><a href="#user-content-fn-protocol-orchardpaymentaddrencoding" id="user-content-fnref-protocol-orchardpaymentaddrencoding-2" data-footnote-ref="" aria-describedby="footnote-label">22</a></sup> de la dirección de pago Orchard que recibirá la salida.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto es requerido por el Prover.</li>
+</ul>
+</li>
+<li>
+<p><code>value: Option&#x3C;u64></code></p>
+<p>El valor de la salida.</p>
+<p>Esto pueden usarlo los Signers para verificar que el valor coincide con <code>cv</code>, y para confirmar los valores y el cambio involucrados en la transacción.</p>
+<p>Esto expone el valor a todos los participantes. Para los Signers que no necesitan esta información, se pueden descartar los valores y comprimir los rcvs en el bsk global.</p>
+</li>
+<li>
+<p><code>rseed: Option&#x3C;[u8; 32]></code></p>
+<p>La aleatoriedad de semilla para la salida.</p>
+<ul>
+<li>Esto lo establece el Constructor.</li>
+<li>Esto es requerido por el Prover, en lugar de revelarle <code>shared_secret</code>.</li>
+</ul>
+</li>
+<li>
+<p><code>ock: Option&#x3C;[u8; 32]></code></p>
+<p>El valor <code>ock</code> usado para cifrar <code>out_ciphertext</code>.</p>
+<p>Esto permite a los Signers verificar que <code>out_ciphertext</code> está correctamente cifrado.</p>
+<p>Esto puede ser <code>None</code> si el Constructor agregó la salida usando una política de OVK de "None", para hacer que la salida sea irrecuperable desde la cadena por el emisor.</p>
+</li>
+<li>
+<p><code>zip32_derivation: Option&#x3C;Zip32Derivation></code></p>
+<p>La ruta de derivación del ZIP 32 en la que se puede encontrar la clave de gasto para la salida.</p>
+</li>
+<li>
+<p><code>user_address: Option&#x3C;UTF8String></code></p>
+<p>La dirección orientada al usuario a la que se envía esta salida, si la hay.</p>
+<ul>
+<li>Esto lo establece un Updater.</li>
+<li>Los Signers DEBEN (MUST) analizar esta dirección (si está presente) y confirmar que contiene <code>recipient</code> (ya sea directamente, o p. ej. como un receiver dentro de una dirección unificada).</li>
+</ul>
+</li>
+<li>
+<p><code>proprietary: Map&#x3C;UTF8String, List&#x3C;u8>></code></p>
+<p>Campos propietarios relacionados con la nota que se está creando. Véase "Campos de uso propietario" más abajo.</p>
+</li>
+</ul>
+<h3 id="ironwoodbundle-pczt-v2"><a class="hanchor" href="#ironwoodbundle-pczt-v2" aria-hidden="true" tabindex="-1">#</a><code>IronwoodBundle</code> (PCZT v2)</h3>
+<p>La estructura <code>IronwoodBundle</code> lleva el componente <em>del pool Ironwood</em> de una transacción v6 <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-10" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. El <em>pool Ironwood</em> es un segundo pool de valor del protocolo Orchard, por lo que el <code>IronwoodBundle</code> tiene exactamente la misma estructura, semántica de campos e interacciones de roles que el <code>OrchardBundle</code>, con las siguientes diferencias:</p>
+<ul>
+<li><code>flags</code>: el indicador <code>enableCrossAddress</code> (bit 2) tiene significado y normalmente es 1 para un <code>IronwoodBundle</code> (las transferencias entre direcciones son el caso habitual en el <em>pool Ironwood</em>, y están deshabilitadas por consenso en el <em>pool Orchard</em> desde NU6.3 en adelante) <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-11" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup> <sup><a href="#user-content-fn-zip-0258" id="user-content-fnref-zip-0258-2" data-footnote-ref="" aria-describedby="footnote-label">21</a></sup>.</li>
+<li><code>anchor</code> se refiere a una raíz del árbol de compromisos de notas de <strong>Ironwood</strong>, que es distinto del árbol de compromisos de notas de Orchard.</li>
+<li><code>note_version</code> DEBE (MUST) ser <code>V3</code>: toda nota de salida del <em>pool Ironwood</em> usa el formato de texto plano de nota recuperable cuánticamente del ZIP 2005 <sup><a href="#user-content-fn-zip-2005" id="user-content-fnref-zip-2005-3" data-footnote-ref="" aria-describedby="footnote-label">10</a></sup>.</li>
+</ul>
+<p>Un <code>IronwoodBundle</code> que no sea el paquete vacío canónico NO DEBE (MUST NOT) estar presente en un PCZT cuyo <code>tx_version</code> sea 5; los roles DEBEN (MUST) rechazar tal PCZT.</p>
+<h3 id="other-internal-structures"><a class="hanchor" href="#other-internal-structures" aria-hidden="true" tabindex="-1">#</a>Otras Estructuras Internas</h3>
+<h4 id="zip32derivation"><a class="hanchor" href="#zip32derivation" aria-hidden="true" tabindex="-1">#</a><code>Zip32Derivation</code></h4>
+<p>La estructura <code>Zip32Derivation</code> tiene los siguientes campos:</p>
+<ul>
+<li>
+<p><code>seed_fingerprint: [u8; 32]</code></p>
+<p>La huella digital de la semilla ZIP 32 <sup><a href="#user-content-fn-zip-0032-seedfp" id="user-content-fnref-zip-0032-seedfp" data-footnote-ref="" aria-describedby="footnote-label">23</a></sup>.</p>
+</li>
+<li>
+<p><code>derivation_path: List&#x3C;u32></code></p>
+<p>La secuencia de índices correspondiente a la ruta HD blindada.</p>
+<p>Los índices pueden ser endurecidos o no endurecidos (es decir, el bit de indicador de endurecimiento puede estar establecido). Cuando se usa con un gasto de Sapling u Orchard, la ruta de derivación generalmente será enteramente endurecida; cuando se usa con una entrada transparente, la ruta de derivación generalmente incluirá una sección no endurecida que coincide con la ruta BIP 44 <sup><a href="#user-content-fn-bip-0044" id="user-content-fnref-bip-0044-2" data-footnote-ref="" aria-describedby="footnote-label">16</a></sup>, o con la ruta en la que se derivan direcciones efímeras para transacciones de ZIP 320 <sup><a href="#user-content-fn-zip-0320" id="user-content-fnref-zip-0320" data-footnote-ref="" aria-describedby="footnote-label">24</a></sup>.</p>
+</li>
+</ul>
+<h2 id="interpretation"><a class="hanchor" href="#interpretation" aria-hidden="true" tabindex="-1">#</a>Interpretación</h2>
+<h3 id="determining-lock-time"><a class="hanchor" href="#determining-lock-time" aria-hidden="true" tabindex="-1">#</a>Determinación del Tiempo de Bloqueo</h3>
+<p>El campo <code>nLockTime</code> de una transacción se determina inspeccionando el <code>Global.fallback_lock_time</code> y cada campo <code>TransparentInput.required_time_locktime</code> y <code>TransparentInput.required_height_locktime</code>. Si ninguna de las entradas transparentes tiene un <code>TransparentInput.required_time_locktime</code> y un <code>TransparentInput.required_height_locktime</code>, entonces se debe usar <code>Global.fallback_lock_time</code>. Si no se proporciona <code>Global.fallback_lock_time</code>, se asume que es 0.</p>
+<p>Si una o más entradas tienen un <code>TransparentInput.required_time_locktime</code> o un <code>TransparentInput.required_height_locktime</code>, entonces el campo elegido es el que está soportado por todas las entradas. Esto puede determinarse examinando todas las entradas que especifican un tiempo de bloqueo en cualquiera de esos campos y eligiendo el campo que está presente en todas esas entradas. Las entradas que no especifican un campo de tiempo de bloqueo pueden aceptar ambos tipos de tiempos de bloqueo, al igual que las que especifican ambos. El tiempo de bloqueo elegido es entonces el valor máximo del tipo de tiempo de bloqueo elegido.</p>
+<p>Si un PCZT permite ambos tipos de tiempos de bloqueo porque una o más entradas especifican tanto <code>TransparentInput.required_time_locktime</code> como <code>TransparentInput.required_height_locktime</code>, entonces se debe elegir un tiempo de bloqueo determinado examinando los campos <code>TransparentInput.required_height_locktime</code> de las entradas.</p>
+<h3 id="anchors-and-pre-authorization"><a class="hanchor" href="#anchors-and-pre-authorization" aria-hidden="true" tabindex="-1">#</a>Anclas y preautorización</h3>
+<p>En el formato de transacción v5, las anclas de Sapling y Orchard son datos de efectos de la transacción: el hash de la firma se compromete a ellas <sup><a href="#user-content-fn-zip-0244" id="user-content-fnref-zip-0244-2" data-footnote-ref="" aria-describedby="footnote-label">8</a></sup>. En el formato de transacción v6, las anclas de todos los paquetes blindados son datos de autorización: el identificador de transacción y el hash de la firma las omiten, y en su lugar quedan comprometidas por el compromiso de datos de autorización <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-12" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. Los testigos de Merkle nunca aparecen en la transacción en ninguno de los dos formatos; solo son consumidos por las pruebas, que a su vez son datos de autorización.</p>
+<p>Para un PCZT cuyo <code>tx_version</code> es 5:</p>
+<ul>
+<li>El <code>anchor</code> de un paquete de Sapling DEBE (MUST) fijarse en el momento en que se añade el primer gasto del paquete, y NO DEBE (MUST NOT) cambiar después. Un paquete de Sapling sin gastos no lleva ancla en el formato de transacción v5 (el campo está presente allí si y solo si el paquete tiene gastos <sup><a href="#user-content-fn-zip-0225" id="user-content-fnref-zip-0225-4" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>), y no requiere una.</li>
+<li>El <code>anchor</code> de un paquete del protocolo Orchard DEBE (MUST) fijarse en el momento en que se añade la primera acción del paquete (ya sea un gasto o una salida), y NO DEBE (MUST NOT) cambiar después.</li>
+</ul>
+<p>Para un PCZT cuyo <code>tx_version</code> es 6 (lo que requiere PCZT v2):</p>
+<ul>
+<li>Un ancla de paquete blindado PUEDE (MAY) estar ausente hasta la generación de pruebas. Un Updater PUEDE (MAY) establecer un ancla ausente, y PUEDE (MAY) reemplazar un ancla establecida previamente, en cualquier momento antes de que se ejecute el Prover para ese paquete.</li>
+<li>Establecer o reemplazar el ancla de un paquete DEBE (MUST) borrar los campos de prueba ya establecidos en ese paquete (<code>SaplingSpend.zkproof</code> para el paquete de Sapling; <code>OrchardBundle.zkproof</code> o <code>IronwoodBundle.zkproof</code> para los paquetes del protocolo Orchard): las pruebas se comprometen al ancla como entrada pública del circuito.</li>
+<li>Las firmas (firmas de autorización de gasto y firmas de enlace) no se comprometen a las anclas ni a los testigos, por lo que establecerlos o reemplazarlos no invalida las firmas, y los Signers PUEDEN (MAY) firmar mientras estén ausentes.</li>
+<li>Un <code>SaplingSpend.witness</code> o un <code>OrchardSpend.witness</code> PUEDE (MAY) asimismo estar ausente hasta la generación de pruebas, y ser establecido por un Updater una vez conocido.</li>
+<li>Al establecer un ancla para un paquete en el que ya hay testigos presentes, o un testigo para un paquete cuyo ancla ya está presente, el Updater DEBE (MUST) verificar que la ruta de Merkle de cada testigo tiene como raíz el ancla del paquete, y el Prover DEBE (MUST) realizar la misma comprobación antes de crear una prueba.</li>
+</ul>
+<p>Esto habilita dos flujos de trabajo que son imposibles para las transacciones v5:</p>
+<ul>
+<li><strong>Reanclaje</strong>: una transacción completamente firmada puede actualizarse para usar un ancla más reciente en el momento de la difusión (por ejemplo, un ancla compartida por muchas billeteras <sup><a href="#user-content-fn-draft-schell-ironwood-migration" id="user-content-fnref-draft-schell-ironwood-migration-2" data-footnote-ref="" aria-describedby="footnote-label">5</a></sup>), lo que requiere solo regenerar las pruebas. El identificador de transacción no cambia con el reanclaje.</li>
+<li><strong>Gasto de notas no minadas</strong>: cada campo de un hash de firma v6 es computable para una transacción que gasta una nota del protocolo Orchard creada por una transacción padre que aún no ha sido minada, porque los nullifier del protocolo Orchard dependen solo de los datos de la nota (ρ queda fijado por la acción que creó la nota), no de la posición de la nota en el árbol de compromisos de notas. Tal transacción puede construirse y firmarse por completo antes incluso de que la transacción padre se difunda, con sus testigos, ancla y pruebas suministrados después de que el padre sea minado.</li>
+</ul>
+<p>Nótese que el segundo flujo de trabajo no está disponible para los gastos de Sapling incluso bajo el formato v6: un nullifier de Sapling depende de la posición de la nota gastada en el árbol de compromisos de notas, que se desconoce hasta que la nota es minada. Para Sapling, las anclas diferidas solo habilitan el flujo de trabajo de reanclaje.</p>
+<p>Los campos que siguen siendo datos de efectos — en particular <code>Global.expiry_height</code>, <code>Global.fallback_lock_time</code>, los requisitos de tiempo de bloqueo por entrada, y todos los valores — quedan comprometidos por las firmas en ambos formatos y nunca pueden cambiar después de la firma.</p>
+<h3 id="fabricated-same-address-outputs-nu63"><a class="hanchor" href="#fabricated-same-address-outputs-nu63" aria-hidden="true" tabindex="-1">#</a>Salidas fabricadas de la misma dirección (NU6.3)</h3>
+<p>A partir de la activación de NU6.3, toda acción del <em>pool Orchard</em> debe ser creada por consenso con las transferencias entre direcciones deshabilitadas: la salida de la acción debe estar dirigida a la misma dirección a nivel de protocolo que su gasto <sup><a href="#user-content-fn-protocol-actionstatement" id="user-content-fnref-protocol-actionstatement" data-footnote-ref="" aria-describedby="footnote-label">25</a></sup>. Para gastar en el <em>pool Orchard</em> bajo esta restricción, una billetera empareja cada gasto real con una nota de salida simulada <sup><a href="#user-content-fn-protocol-orcharddummynotes" id="user-content-fnref-protocol-orcharddummynotes" data-footnote-ref="" aria-describedby="footnote-label">26</a></sup> dirigida al propio receptor de la nota gastada, y llena el <code>enc_ciphertext</code> de esa salida con bytes aleatorios en lugar de un cifrado real (véase ZIP 326 <sup><a href="#user-content-fn-zip-0326-dummyoutputnotes" id="user-content-fnref-zip-0326-dummyoutputnotes" data-footnote-ref="" aria-describedby="footnote-label">27</a></sup> para la justificación de privacidad).</p>
+<p>En un PCZT, tal salida fabricada sigue llevando sus campos explícitos <code>recipient</code>, <code>value</code> y <code>rseed</code>, pero no un <code>user_address</code>. Un Signer que encuentre una salida cuyo <code>value</code> sea cero y cuyo texto cifrado no descifre NO DEBE (MUST NOT) rechazar el PCZT solo por esa razón; DEBERÍA (SHOULD) clasificar la salida como una salida simulada tolerable (verificando, si lo desea, que <code>cmx</code> sea consistente con los campos explícitos <code>recipient</code>, <code>value</code> y <code>rseed</code>).</p>
+<p>A la inversa, una acción cuya salida es real pero cuyo gasto no conlleva valor gastable (por ejemplo, en una transacción de división de notas) utiliza una nota gastada simulada dirigida al propio receptor de la billetera <sup><a href="#user-content-fn-zip-0326-dummyspentnotes" id="user-content-fnref-zip-0326-dummyspentnotes" data-footnote-ref="" aria-describedby="footnote-label">28</a></sup>. En el PCZT, tal gasto fabricado es un gasto real desde la perspectiva del Signer: no tiene <code>dummy_sk</code>, y su <code>spend_auth_sig</code> DEBE (MUST) producirse mediante el flujo normal del Signer usando la clave autorizante de gasto para la dirección de ese receptor. Solo las acciones completamente simuladas (un gasto simulado <em>y</em> una salida simulada, en una dirección aleatoria recién generada común) llevan <code>dummy_sk</code> y son firmadas por el IO Finalizer.</p>
+<h3 id="proprietary-use-fields"><a class="hanchor" href="#proprietary-use-fields" aria-hidden="true" tabindex="-1">#</a>Campos de uso propietario</h3>
+<p>Los siguientes campos de tipo <code>Map</code> están reservados para uso propietario:</p>
+<ul>
+<li><code>Global.proprietary</code></li>
+<li><code>TransparentInput.proprietary</code></li>
+<li><code>TransparentOutput.proprietary</code></li>
+<li><code>SaplingSpend.proprietary</code></li>
+<li><code>SaplingOutput.proprietary</code></li>
+<li><code>OrchardSpend.proprietary</code></li>
+<li><code>OrchardOutput.proprietary</code></li>
+</ul>
+<p>Las claves del mapa pueden ser cualquier cadena de longitud variable que el software pueda usar para identificar si los datos particulares de los mapas propietarios pueden ser utilizados por él.</p>
+<p>Los mapas de uso propietario son para uso privado de personas y organizaciones que deseen usar PCZT en sus procesos. Resultan útiles cuando hay datos adicionales que necesitan adjuntar a un PCZT, pero tales datos no son útiles ni están disponibles para el público general. Los mapas de uso propietario no deben ser usados por ninguna especificación pública, y no existe expectativa de que ningún software disponible públicamente pueda comprender los significados específicos de ninguna clave. Estos campos DEBEN (MUST) usarse solo para procesos internos.</p>
+<h2 id="roles"><a class="hanchor" href="#roles" aria-hidden="true" tabindex="-1">#</a>Roles</h2>
+<h3 id="creator"><a class="hanchor" href="#creator" aria-hidden="true" tabindex="-1">#</a>Creator</h3>
+<blockquote>
+<p>Entidad única</p>
+</blockquote>
+<p>El Creator crea el PCZT base sin información sobre gastos ni salidas.</p>
+<p>El Creator elige la versión de la transacción y el identificador de la rama de consenso, e inicializa los campos globales y los paquetes (vacíos). Para una transacción v5, el Creator establece las anclas de los paquetes blindados; para una transacción v6, el Creator PUEDE (MAY) dejar las anclas sin establecer, para que las proporcione más adelante un Updater (véase «Anclas y preautorización»).</p>
+<h3 id="constructor"><a class="hanchor" href="#constructor" aria-hidden="true" tabindex="-1">#</a>Constructor</h3>
+<p>El Constructor agrega gastos y salidas al PCZT.</p>
+<p>Antes de que pueda agregarse cualquier entrada o salida, el Constructor DEBE (MUST) verificar el campo <code>Global.tx_modifiable</code>. Las entradas transparentes solo pueden agregarse si el indicador Transparent Inputs Modifiable es True. Las salidas transparentes solo pueden agregarse si el indicador Transparent Outputs Modifiable es True. Los gastos o salidas blindados solo pueden agregarse si el indicador Shielded Modifiable es True.</p>
+<p>Al agregar un gasto blindado cuya ancla de paquete está establecida, el Constructor DEBE (MUST) proporcionar un <code>witness</code> cuya ruta de Merkle tenga como raíz esa ancla, o (para notas de valor cero, cuyas rutas de Merkle no son verificadas por los circuitos) cualquier testigo de marcador de posición. Cuando <code>tx_version</code> es 6, el Constructor PUEDE (MAY) en cambio agregar un gasto sin <code>witness</code> — incluido el gasto de una nota que aún no existe en el árbol de compromisos de notas — dejando que el testigo sea proporcionado por un Updater (véase «Anclas y preautorización»). Cuando <code>tx_version</code> es 5, todo gasto no simulado agregado DEBE (MUST) ser de una nota que exista en el árbol de compromisos de notas con un testigo hacia la ancla del paquete, dado que la ancla ya no puede cambiar.</p>
+<p>Si una entrada transparente que se agrega especifica un bloqueo temporal requerido, entonces el Constructor debe iterar por todas las entradas transparentes existentes y asegurarse de que los tipos de bloqueo temporal sean compatibles. Además, si durante esta iteración encuentra que alguna entrada transparente tiene firmas, debe asegurarse de que la entrada transparente recién agregada no cambie el locktime de la transacción. Si la entrada transparente recién agregada tiene un bloqueo temporal incompatible, no debe agregarse. Si cambia el locktime de la transacción cuando existen firmas, no debe agregarse.</p>
+<p>Si el indicador Has <code>SIGHASH_SINGLE</code> es True, entonces el Constructor debe iterar por las entradas transparentes y encontrar aquellas que tienen firmas que usan <code>SIGHASH_SINGLE</code>. Debe agregarse el mismo número de entradas y salidas transparentes antes de esas entradas transparentes y sus salidas correspondientes.</p>
+<p>Es probable que una sola entidad sea tanto Creator como Constructor.</p>
+<h3 id="io-finalizer"><a class="hanchor" href="#io-finalizer" aria-hidden="true" tabindex="-1">#</a>IO Finalizer</h3>
+<blockquote>
+<p>Cualquiera puede ejecutarlo</p>
+</blockquote>
+<p>El IO Finalizer declara que no pueden agregarse más entradas ni salidas a la transacción estableciendo en 0 los bits apropiados en <code>Global.tx_modifiable</code>.</p>
+<p>El IO Finalizer también actualiza:</p>
+<ul>
+<li><code>SaplingBundle.bsk</code> usando <code>SaplingSpend.rcv</code> y <code>SaplingOutput.rcv</code>.</li>
+<li><code>OrchardBundle.bsk</code> (y, en PCZT v2, <code>IronwoodBundle.bsk</code>) usando <code>OrchardAction.rcv</code>.</li>
+</ul>
+<p>Al hacerlo, DEBE (MUST) verificar que el <code>value_sum</code> de cada paquete sea consistente con los compromisos de valor y los valores de <code>rcv</code> que está agregando, y fallar en caso contrario.</p>
+<p>Luego, el IO Finalizer calcula el hash de firma blindado de la transacción y usa cada <code>SaplingSpend.dummy_ask</code> y <code>OrchardSpend.dummy_sk</code> para producir el <code>spend_auth_sig</code> de los gastos dummy correspondientes, borrando los campos de clave dummy una vez usados. Esto asegura que ningún Signer necesite analizar material de claves de gasto desde un PCZT.</p>
+<p>Para un paquete cuyos <code>flags</code> tienen <code>enableCrossAddress</code> establecido en 0, el IO Finalizer DEBE (MUST) verificar que el <code>recipient</code> de salida de cada acción sea igual a su <code>recipient</code> de gasto (véase "Salidas fabricadas de la misma dirección"), y fallar en caso contrario.</p>
+<p>Es probable que una sola entidad sea tanto un Constructor como un IO Finalizer.</p>
+<h3 id="updater"><a class="hanchor" href="#updater" aria-hidden="true" tabindex="-1">#</a>Updater</h3>
+<blockquote>
+<p>Cualquiera puede contribuir</p>
+</blockquote>
+<p>El Updater agrega al PCZT información a la que tiene acceso y que es necesaria para que las entidades subsiguientes procedan, como rutas de claves para firmar gastos, claves de visualización completas y testigos de Merkle para generar pruebas, y (para transacciones v6) los anclajes de los paquetes blindados.</p>
+<p>Al establecer o reemplazar un anclaje de paquete, o al establecer un testigo, el Updater DEBE (MUST) seguir las reglas de "Anclajes y preautorización": los anclajes de las transacciones v5 nunca cambian; reemplazar el anclaje de un paquete v6 borra sus pruebas; los testigos de los gastos de valor no nulo deben enraizarse en el anclaje del paquete siempre que ambos estén presentes.</p>
+<p>Es probable que una sola entidad sea tanto un Constructor como Updater.</p>
+<h3 id="redactor"><a class="hanchor" href="#redactor" aria-hidden="true" tabindex="-1">#</a>Redactor</h3>
+<blockquote>
+<p>Cualquiera puede ejecutarlo</p>
+</blockquote>
+<p>El Redactor elimina información que no es necesaria para que las entidades subsiguientes procedan.</p>
+<p>Esto puede ser útil, por ejemplo, al crear una transacción que tiene entradas de múltiples Signers independientes; cada uno puede recibir un PCZT con solo la información que necesita para firmar, pero (p. ej.) sin los valores de <code>alpha</code> de otros Signers.</p>
+<h3 id="verifier"><a class="hanchor" href="#verifier" aria-hidden="true" tabindex="-1">#</a>Verifier</h3>
+<blockquote>
+<p>Cualquiera puede ejecutarlo</p>
+</blockquote>
+<p>El Verifier no es un paso en el ciclo de vida de la transacción, sino una forma de inspeccionar un PCZT y verificar la consistencia interna de sus campos; por ejemplo, que el <code>nullifier</code> de un gasto sea consistente con sus datos explícitos de la nota y <code>fvk</code>, que el <code>cmx</code> de una salida sea consistente con sus <code>recipient</code>, <code>value</code> y <code>rseed</code> explícitos, o que un paquete satisfaga la restricción entre direcciones. Los Signers normalmente realizan un subconjunto de estas verificaciones antes de firmar; un Verifier separado puede realizarlas en nombre de una entidad (como un firmante de hardware) que carece de la capacidad de hacerlas por sí misma y confía en el criterio del Verifier.</p>
+<h3 id="prover"><a class="hanchor" href="#prover" aria-hidden="true" tabindex="-1">#</a>Prover</h3>
+<blockquote>
+<p>Los titulares de capacidades pueden contribuir</p>
+</blockquote>
+<p>El Prover necesita toda la información privada de un solo gasto o salida.</p>
+<p>Para Sapling, el Prover requiere, por gasto: los datos explícitos de la nota (<code>recipient</code>, <code>value</code>, y <code>rcm</code> o <code>rseed</code>), <code>rcv</code>, <code>proof_generation_key</code>, y <code>witness</code>; y por salida: <code>recipient</code>, <code>value</code>, <code>rseed</code>, y <code>rcv</code>. Para los paquetes del protocolo Orchard, el Prover requiere, por acción: los datos explícitos de la nota del gasto (<code>recipient</code>, <code>value</code>, <code>rho</code>, <code>rseed</code>), <code>fvk</code>, <code>witness</code>, y <code>alpha</code>; el <code>recipient</code>, <code>value</code> y <code>rseed</code> de la salida; y el <code>rcv</code> de la acción. En todos los casos en que el paquete contiene gastos de Sapling o acciones del protocolo Orchard, el <code>anchor</code> del paquete DEBE (MUST) fijarse antes de generar la prueba. Un paquete que no contiene ninguno de los dos (un paquete de Sapling sin gastos, o un paquete del protocolo Orchard vacío) no lleva ancla en el formato de transacción v5 y no requiere una; nada en un paquete de Sapling sin gastos consume el valor del ancla.</p>
+<p>Antes de crear una prueba, el Prover DEBE (MUST) verificar que la ruta de Merkle en el <code>witness</code> de cada gasto con valor distinto de cero tiene como raíz el <code>anchor</code> del paquete, y fallar en caso contrario. (Una prueba creada a partir de un par testigo/ancla inconsistente simplemente sería inválida; verificar primero hace visible el error en el rol responsable.)</p>
+<p>En la práctica, el Updater que añade un gasto o salida determinado actuará él mismo como Prover, o bien añadirá los datos necesarios, delegará al Prover y luego recibirá de vuelta el PCZT con los datos privados eliminados y la prueba añadida.</p>
+<p>Las pruebas son datos de autorización: crearlas no requiere material de clave de gasto y (desde el formato de transacción v6 en adelante, donde las anclas también son datos de autorización) generar las pruebas es totalmente independiente de firmar y puede ocurrir antes, después o en paralelo con ello.</p>
+<h3 id="signer"><a class="hanchor" href="#signer" aria-hidden="true" tabindex="-1">#</a>Signer</h3>
+<blockquote>
+<p>Los titulares de capacidades pueden contribuir</p>
+</blockquote>
+<p>El Signer:</p>
+<ul>
+<li>Necesita los aleatorizadores de autorización de gasto para crear firmas.</li>
+<li>Necesita información suficiente para verificar que la prueba se realiza sobre los datos correctos, sin necesidad de verificar la prueba en sí.</li>
+</ul>
+<p>Los Signers no necesitan firmar para todos los tipos de entrada posibles. Por ejemplo, un Signer puede elegir firmar solo entradas de Orchard.</p>
+<p>Antes de firmar, un Signer:</p>
+<ul>
+<li>DEBE (MUST) rechazar un PCZT que contenga valores de <code>dummy_ask</code> o <code>dummy_sk</code> (el IO Finalizer firma los gastos ficticios y limpia estos campos; su presencia significa que se le pide al Signer analizar material de clave de gasto).</li>
+<li>DEBE (MUST), para cada salida que contenga un <code>user_address</code>, analizar esa dirección y confirmar que contiene el <code>recipient</code> de la salida (ya sea directamente, o p. ej. como un receptor dentro de una dirección unificada).</li>
+<li>DEBERÍA (SHOULD) verificar que los valores y datos de nota explícitos en los que se basa para la confirmación del usuario son consistentes con los datos efectivos que se firman (por ejemplo, que los valores coinciden con los compromisos de valor mediante <code>rcv</code>, y que los textos cifrados de las salidas no fabricadas se descifran a los datos explícitos de la nota; véase «Salidas fabricadas de la misma dirección» para la excepción).</li>
+</ul>
+<p>Tras producir una firma, el Signer DEBE (MUST) actualizar <code>Global.tx_modifiable</code> como se especifica en la descripción de ese campo. (Una firma blindada fija todos los datos efectivos; una firma transparente fija aquello a lo que su tipo de sighash se compromete.)</p>
+<p>Para una transacción v6, un Signer PUEDE (MAY) firmar un PCZT cuyas anclas, testigos o pruebas del paquete blindado estén ausentes: las firmas no se comprometen a ninguno de estos. Un Signer al que se le pida hacerlo DEBERÍA (SHOULD) ser consciente (y, donde corresponda, hacer consciente a su usuario) de que un gasto cuyo testigo está ausente puede ser de una nota que aún no existe en la cadena; la firma autoriza el gasto independientemente de si la nota llega a crearse. Para una transacción v5, las anclas del paquete son parte del hash de la firma y DEBEN (MUST) estar presentes antes de firmar.</p>
+<p>Es probable que una sola entidad sea tanto un Updater como un Signer, ya que puede actualizar un PCZT con la información necesaria antes de firmarlo.</p>
+<h3 id="combiner"><a class="hanchor" href="#combiner" aria-hidden="true" tabindex="-1">#</a>Combiner</h3>
+<blockquote>
+<p>Cualquiera puede ejecutarlo</p>
+</blockquote>
+<p>El Combiner puede aceptar 1 o muchos PCZT. El Combiner DEBE (MUST) fusionarlos en un solo PCZT (si es posible), o fallar. El PCZT resultante DEBE (MUST) contener todos los campos de cada uno de los PCZT.</p>
+<p>Las reglas de fusión son las siguientes:</p>
+<ul>
+<li>
+<p><strong>Campos globales.</strong> Los datos efectivos de la transacción en <code>Global</code> (<code>tx_version</code>, <code>version_group_id</code>, <code>consensus_branch_id</code>, <code>fallback_lock_time</code>, <code>expiry_height</code>) y <code>coin_type</code> DEBEN (MUST) ser iguales en todas las entradas. <code>Global.tx_modifiable</code> se fusiona bit a bit como se especifica en la descripción de ese campo (los indicadores modificables se fusionan hacia <code>false</code>; el indicador Has <code>SIGHASH_SINGLE</code> se fusiona hacia <code>true</code>; los bits 3-6 DEBEN (MUST) ser 0 en todas las entradas).</p>
+</li>
+<li>
+<p><strong>Listas de entradas, salidas, gastos y acciones.</strong> Si el IO Finalizer se ha ejecutado sobre cualquiera de las entradas de un paquete blindado (indicado porque su <code>bsk</code> está establecido), entonces los paquetes DEBEN (MUST) tener números iguales de elementos y campos <code>value_sum</code> iguales. De lo contrario, si la lista de una entrada es una extensión de prefijo estricta de la de la otra (contiene elementos adicionales más allá de los mantenidos en común), los elementos adicionales se añaden al final, pero solo si el <code>Global.tx_modifiable</code> de la entrada más corta permite la modificación del tipo correspondiente (entradas transparentes, salidas transparentes, o gastos y salidas blindados); de lo contrario, la fusión DEBE (MUST) fallar. Los elementos mantenidos en común se fusionan por pares según su posición.</p>
+</li>
+<li>
+<p><strong>Campos obligatorios (siempre presentes)</strong> de los elementos fusionados por pares (los datos efectivos de la transacción, como <code>prevout_txid</code>, <code>cv</code>, <code>nullifier</code>, <code>rk</code>, <code>cmx</code>, <code>ephemeral_key</code>, <code>enc_ciphertext</code>, <code>out_ciphertext</code>, y el <code>flags</code> y el <code>note_version</code> del paquete) DEBEN (MUST) ser iguales, o la fusión DEBE (MUST) fallar.</p>
+</li>
+<li>
+<p><strong>Campos opcionales</strong> se fusionan de la siguiente manera: si un lado está ausente, el resultado es el otro lado; si ambos lados están presentes, DEBEN (MUST) ser iguales, o la fusión DEBE (MUST) fallar. Nótese que esto difiere de BIP 174, que en algunos casos conserva uno de dos valores en conflicto; véase la Justificación.</p>
+<p>En PCZT v2, esta regla se aplica a las anclas de los paquetes blindados: una ancla ausente se fusiona con una establecida. Dos entradas cuyas anclas estén ambas establecidas DEBEN (MUST) tener anclas iguales.</p>
+</li>
+<li>
+<p><strong>Campos de tipo mapa</strong> (<code>partial_signatures</code>, <code>bip32_derivation</code>, los mapas de preimagen y los mapas de <code>proprietary</code>) se fusionan por unión de claves; si una clave está presente en ambos lados, los valores DEBEN (MUST) ser iguales, o la fusión DEBE (MUST) fallar.</p>
+</li>
+</ul>
+<p>Un Combiner NO DEBE (MUST NOT) combinar dos PCZT diferentes, es decir, dos PCZT que no representen la misma transacción. Dos PCZT representan la misma transacción si y solo si se derivaron de un PCZT ancestro común mediante secuencias de los roles definidos en este ZIP, lo cual las reglas de fusión anteriores verifican de forma estructural: todos los datos efectivos de la transacción mantenidos en común deben ser idénticos. Una vez finalizado el conjunto de entradas/salidas de un PCZT, sus datos efectivos determinan de manera única el identificador de la transacción que se extraerá de él, y los PCZT se pueden considerar identificados de manera única por ese identificador de transacción. (Para una transacción v6 el identificador es independiente de las anclas, por lo que copias reancladas de un PCZT siguen representando la misma transacción.)</p>
+<p>Para cada campo que un Combiner entienda, este PUEDE (MAY) negarse a combinar PCZT si detecta que habrá inconsistencias o conflictos para ese campo en el PCZT combinado.</p>
+<p>El Combiner no necesita saber interpretar scripts transparentes para combinar PCZT. Puede hacerlo sin comprender los scripts ni el formato de serialización de red.</p>
+<p>En general, el resultado de un Combiner que combina dos PCZT de participantes independientes A y B debería ser funcionalmente equivalente a un resultado obtenido al procesar el PCZT original por A y luego por B en secuencia. O, para participantes que realizan <code>fA(pczt)</code> y <code>fB(pczt)</code>: <code>Combine(fA(pczt), fB(pczt)) == fA(fB(pczt)) == fB(fA(pczt))</code></p>
+<h3 id="spend-finalizer"><a class="hanchor" href="#spend-finalizer" aria-hidden="true" tabindex="-1">#</a>Spend Finalizer</h3>
+<blockquote>
+<p>Cualquiera puede ejecutarlo</p>
+</blockquote>
+<p>Para cada entrada transparente, el Spend Finalizer determina si hay datos suficientes para pasar la validación. Si los hay, debe construir y establecer <code>TransparentInput.script_sig</code>. Todos los demás datos opcionales en <code>TransparentInput</code> (excepto <code>TransparentInput.proprietary</code>) DEBERÍAN (SHOULD) eliminarse del PCZT.</p>
+<h3 id="transaction-extractor"><a class="hanchor" href="#transaction-extractor" aria-hidden="true" tabindex="-1">#</a>Transaction Extractor</h3>
+<blockquote>
+<p>Cualquiera puede ejecutarlo</p>
+</blockquote>
+<p>El Transaction Extractor verifica si el PCZT está completo y es internamente consistente:</p>
+<ul>
+<li><code>Global.tx_version</code>, <code>Global.version_group_id</code> y <code>Global.consensus_branch_id</code> DEBEN (MUST) identificar un formato de transacción soportado (véanse las descripciones de los campos <code>Global</code>), y los requisitos de tiempo de bloqueo de las entradas transparentes DEBEN (MUST) ser satisfacibles (véase «Determinación del tiempo de bloqueo»).</li>
+<li>Si <code>Global.tx_version</code> es 5, el <code>IronwoodBundle</code> DEBE (MUST) ser el paquete vacío canónico.</li>
+<li>Cada <code>TransparentInput.script_sig</code> DEBE (MUST) estar establecido.</li>
+<li>Cada <code>SaplingSpend</code> DEBE (MUST) tener <code>zkproof</code> y <code>spend_auth_sig</code> establecidos, y cada <code>SaplingOutput</code> DEBE (MUST) tener <code>zkproof</code> establecido.</li>
+<li>Cada <code>OrchardBundle</code> o <code>IronwoodBundle</code> que contenga acciones DEBE (MUST) tener su <code>zkproof</code> del paquete establecido, de la longitud canónica correspondiente a su número de acciones, y cada acción DEBE (MUST) tener <code>spend_auth_sig</code> establecido.</li>
+<li>Todo paquete blindado no vacío DEBE (MUST) tener su <code>bsk</code> fijado, y todo paquete blindado que contenga gastos de Sapling o acciones del protocolo Orchard DEBE (MUST) tener su <code>anchor</code> fijado (de acuerdo con las reglas de ancla por pool del formato de transacción v5 <sup><a href="#user-content-fn-zip-0225" id="user-content-fnref-zip-0225-5" data-footnote-ref="" aria-describedby="footnote-label">9</a></sup>).</li>
+<li>El <code>rk</code> de ninguna acción puede ser el punto identidad (esto sería rechazado por consenso <sup><a href="#user-content-fn-zip-0256" id="user-content-fnref-zip-0256" data-footnote-ref="" aria-describedby="footnote-label">29</a></sup>).</li>
+</ul>
+<p>Si todas las comprobaciones anteriores pasan, el Transaction Extractor calcula el hash de firma blindado, usa el <code>bsk</code> de cada paquete para crear las firmas de vinculación de Sapling, Orchard y (para v6) Ironwood sobre él, y extrae la transacción final. Si una clave de verificación de firma de vinculación derivada de los compromisos de valor del paquete y del balance de valor no coincide con su <code>bsk</code>, la extracción DEBE (MUST) fallar. El Transaction Extractor DEBERÍA (SHOULD) entonces verificar las pruebas y firmas de la transacción final, de modo que una transacción inválida sea detectada antes de difundirse.</p>
+<p>El Transaction Extractor no necesita saber interpretar scripts transparentes para extraer la transacción serializada de red. Sin embargo, puede ser capaz de hacerlo para validar la transacción serializada de red al mismo tiempo.</p>
+<p>Es probable que una sola entidad sea tanto Spend Finalizer como Transaction Extractor.</p>
+<h2 id="extensibility"><a class="hanchor" href="#extensibility" aria-hidden="true" tabindex="-1">#</a>Extensibilidad</h2>
+<p>El formato PCZT se extiende mediante una revisión de este ZIP, de una de dos maneras:</p>
+<ul>
+<li>
+<p><strong>Nuevos campos dentro de una versión existente de PCZT.</strong> Esto no es posible: la codificación Postcard es posicional, por lo que un analizador no puede omitir un campo que no conoce. A diferencia de los PSBT, los PCZT deliberadamente no tienen mapas arbitrarios no propietarios de clave-valor; cada campo de una versión dada de PCZT se conoce de antemano, lo que garantiza que la visión de un Signer de un PCZT sea completa. Los mapas <code>proprietary</code> son el único punto de extensión dentro de una versión y están reservados para uso privado (véase «Campos de uso propietario»).</p>
+</li>
+<li>
+<p><strong>Nuevas versiones de PCZT.</strong> Una revisión de este ZIP puede definir una nueva versión de la codificación específica de la versión, la cual puede cambiar cualquier aspecto del formato: agregar o eliminar campos, cambiar los tipos de campos (como lo hace v2 para los anclajes de paquete), agregar paquetes para nuevos protocolos de pago (como lo hace v2 para el <em>pool de Ironwood</em>), o cambiar el esquema de codificación por completo. El campo de versión de 4 bytes en el encabezado de la codificación separa las versiones en espacios de nombres; un analizador que encuentre una versión desconocida NO DEBE (MUST NOT) intentar analizar el resto.</p>
+</li>
+</ul>
+<p>Las implementaciones DEBERÍAN (SHOULD) poder analizar todas las versiones de PCZT especificadas, y emitir la versión más antigua capaz de representar el estado de un PCZT dado, al interoperar con entidades (como firmantes de hardware con actualizaciones de firmware poco frecuentes) que quizá no admitan la versión más reciente. La conversión entre versiones es sin pérdida exactamente cuando la versión de destino puede representar el estado del PCZT; la sección de codificación v1 enumera los estados que v1 no puede representar.</p>
+<p>Los forks de Zcash que modifiquen el formato de transacción no deberían reutilizar los bytes mágicos del PCZT (véase la justificación de <code>Global.coin_type</code>).</p>
+<h1 id="rationale"><a class="hanchor" href="#rationale" aria-hidden="true" tabindex="-1">#</a>Justificación</h1>
+<h2 id="including-a-globalcoin_type-field"><a class="hanchor" href="#including-a-globalcoin_type-field" aria-hidden="true" tabindex="-1">#</a>Inclusión de un campo <code>Global.coin_type</code></h2>
+<p>Esto hace que el formato PCZT sea útil para los forks de Zcash que tienen versiones de transacción comunes. Fue motivado por la falta de un campo «network» en el formato PSBT, lo que llevó a que se usaran campos propietarios para rastrear esa información entre proveedores específicos. También se codifica en un PCZT en <code>Zip32Derivation.derivation_path</code> en etapas posteriores (e implícitamente codificado en otras partes); que el Creator lo codifique desde el inicio permite que Roles posteriores verifiquen sus datos contra él para asegurar su corrección.</p>
+<p>Nótese, sin embargo, que este campo no es tan útil para los forks de Zcash como lo sería un campo de "red" en los PSBT, porque el formato PCZT no contiene mapas arbitrarios no propietarios; todo campo debe conocerse de antemano. Si un fork hace adiciones a su formato de transacción, esas adiciones no pueden representarse de una manera compatible con los analizadores de PCZT existentes, y la construcción de transacciones que usen esas adiciones requeriría hacer un fork del formato PCZT (que entonces debería usar bytes mágicos diferentes para su codificación).</p>
+<h2 id="transparent-protocol-choices"><a class="hanchor" href="#transparent-protocol-choices" aria-hidden="true" tabindex="-1">#</a>Decisiones del protocolo transparente</h2>
+<p>El contenido de <code>TransparentBundle</code>, y las acciones que los Roles toman respecto a las entradas y salidas transparentes, se toma directamente de BIP 174 <sup><a href="#user-content-fn-bip-0174" id="user-content-fnref-bip-0174-2" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup> y BIP 370 <sup><a href="#user-content-fn-bip-0370" id="user-content-fnref-bip-0370-2" data-footnote-ref="" aria-describedby="footnote-label">7</a></sup>, y tiene la intención de seguir el comportamiento de PSBT versión 2 cuando se usa únicamente con entradas y salidas que no son SegWit. La justificación es que esto simplifica la integración de los PCZT en bases de código que ya admiten PSBT.</p>
+<h2 id="separate-shielded-modifiable-flag-from-transparent-modifiable-flags"><a class="hanchor" href="#separate-shielded-modifiable-flag-from-transparent-modifiable-flags" aria-hidden="true" tabindex="-1">#</a>Separación del indicador modificable blindado de los indicadores modificables transparentes</h2>
+<p>El formato PSBT permite intercalar los roles de Constructor y Signer cuando las entradas no usan <code>SIGHASH_ALL</code>. Debido a cómo se especifican los resúmenes sighash de Zcash, firmar cualquier entrada provoca que todos los datos de efecto no transparentes queden fijados. Los indicadores modificables blindado y transparente se separaron para reducir la diferencia semántica entre los PSBT y los PCZT puramente transparentes.</p>
+<h2 id="adding-an-io-finalizer-role"><a class="hanchor" href="#adding-an-io-finalizer-role" aria-hidden="true" tabindex="-1">#</a>Adición de un rol IO Finalizer</h2>
+<p>El <code>SaplingBundle.bsk</code> y <code>OrchardBundle.bsk</code> efectivos de un PCZT cambian cuando un Constructor agrega un gasto o salida blindados. Son requeridos por el Transaction Extractor; sin embargo, dejar su cálculo a ese rol requeriría preservar todos los valores de <code>*.rcv</code> hasta entonces, lo que revela la apertura de todos los valores de <code>*.cv</code> a todos los participantes. Sin embargo, no podemos exigir que el Constructor actualice <code>*.bsk</code> debido a una interacción con el rol Combiner:</p>
+<ul>
+<li>Si los Constructores agregan gastos o salidas blindados en serie, deberían actualizar siempre <code>*.bsk</code> al hacerlo, incluso si <code>*.rcv</code> está presente.</li>
+<li>Si los Constructores agregan gastos o salidas blindados en paralelo y luego un Combiner fusiona los resultados, <code>*.bsk</code> no debe <em>nunca</em> actualizarse.</li>
+</ul>
+<p>No podemos controlar cuál de estas dos situaciones ocurre, por lo tanto necesitamos un rol IO Finalizer responsable de actualizar <code>*.bsk</code>.</p>
+<p>El rol IO Finalizer también produce firmas para todos los gastos ficticios y puede borrar sus claves de gasto. Esto garantiza que nunca haya necesidad de que un Signer analice material de claves de gasto desde un PCZT, lo cual queremos desalentar por razones de seguridad.</p>
+<h2 id="combiner-rejecting-non-identical-duplicates"><a class="hanchor" href="#combiner-rejecting-non-identical-duplicates" aria-hidden="true" tabindex="-1">#</a>Rechazo de duplicados no idénticos por el Combiner</h2>
+<p>Este comportamiento difiere intencionalmente de BIP 174 <sup><a href="#user-content-fn-bip-0174" id="user-content-fnref-bip-0174-3" data-footnote-ref="" aria-describedby="footnote-label">6</a></sup>, que especifica que cuando dos PSBT tienen valores en conflicto para la misma clave, "el Combiner debe elegir el valor del PSBT que considere correcto" (en la práctica, a menudo gana el último). Esa regla descarta datos silenciosamente: una contribución en conflicto de un participante con errores o malintencionado puede sobrescribir, por ejemplo, una ruta de derivación o una preimagen en la que un Signer posterior confía, sin que ningún participante sea alertado. Debido a que cada campo de un PCZT tiene un tipo conocido de antemano, no existe un análogo de los pares clave-valor desconocidos de PSBT para los cuales "conservar uno de ellos" sea la única política disponible; exigir igualdad siempre es posible y convierte cada conflicto en un fallo evidente en el Combiner en lugar de una divergencia silenciosa descubierta más tarde (o nunca).</p>
+<ul>
+<li>Una vez que cada gasto y salida tiene su campo zkproof establecido, la igualdad de PCZT DEBE (MUST) incluir que los contenidos de los SpendDescription y OutputDescription sean idénticos.
+<ul>
+<li>En la práctica, se aplica creando un TransactionData / CMutableTransaction a partir del PCZT, con spendAuthSigs y bindingSig vacíos, y luego exigiendo igualdad.</li>
+<li>Esto es equivalente a la definición de igualdad de BIP 174 (las transacciones parciales deben ser idénticas).</li>
+</ul>
+</li>
+</ul>
+<h2 id="optional-anchors-in-pczt-v2"><a class="hanchor" href="#optional-anchors-in-pczt-v2" aria-hidden="true" tabindex="-1">#</a>Anclas opcionales en PCZT v2</h2>
+<p>El formato de transacción v6 mueve las anclas de los paquetes blindados de los datos de efecto a los datos de autorización, expresamente para que una transacción pueda ser preautorizada usando material de claves de gasto con el ancla y las pruebas actualizadas más tarde <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-13" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. Un PCZT es precisamente el artefacto que mantiene una transacción durante tal aplazamiento, por lo que el formato v2 hace representable la ausencia del ancla en lugar de requerir un valor centinela. La cadena de bytes de solo ceros fue rechazada como centinela porque es un elemento válido del campo base de Pallas y, por lo tanto, un ancla sintácticamente válida; un <code>Option</code> explícito no puede confundirse con datos.</p>
+<p>Las reglas de aplazamiento están condicionadas a <code>tx_version</code>, no a la versión del PCZT: una transacción v5 transportada en un PCZT v2 aún compromete sus anclas en su hash de firma, por lo que sus anclas deben fijarse antes de firmar exactamente igual que en PCZT v1.</p>
+<p>Hacer que el <em>witness</em> sea aplazable no requiere cambio de formato (ya era opcional, pues solo lo consume el Prover); v2 meramente permite estados — un gasto firmado sin witness — que las implementaciones de roles de v1 no estaban obligadas a admitir. Esta combinación habilita las cadenas de transacciones prefirmadas descritas en la Motivación: para las notas del protocolo Orchard, los nullifier dependen solo de los datos de la nota, por lo que cada campo al que compromete una firma v6 es conocible antes de que la nota que se gasta sea minada.</p>
+<h2 id="omitting-empty-bundles-in-pczt-v2"><a class="hanchor" href="#omitting-empty-bundles-in-pczt-v2" aria-hidden="true" tabindex="-1">#</a>Omisión de paquetes vacíos en PCZT v2</h2>
+<p>Un PCZT siempre contiene lógicamente todas las subestructuras de paquetes (véase "Estructura"), pero la mayoría de las transacciones dejan al menos un protocolo blindado sin usar, y los PCZT se transfieren rutinariamente por transportes restringidos (códigos QR, NFC, enlaces seriales a firmadores de hardware). Omitir los paquetes que son exactamente iguales a sus valores vacíos canónicos reduce el tamaño codificado sin costo informativo. La regla de omisión está definida byte a byte (igualdad con un valor vacío canónico) para que la serialización sea determinista: dos copias del mismo PCZT se serializan idénticamente independientemente del software que las produjo, y una recodificación no puede alternar un paquete entre las representaciones presente y ausente del mismo estado.</p>
+<h2 id="carrying-the-ironwood-component-as-a-second-orchard-shaped-bundle"><a class="hanchor" href="#carrying-the-ironwood-component-as-a-second-orchard-shaped-bundle" aria-hidden="true" tabindex="-1">#</a>Transporte del componente Ironwood como un segundo paquete con forma de Orchard</h2>
+<p>El ZIP 229 define el <em>pool de Ironwood</em> como un segundo pool de valor del protocolo Orchard, reutilizando la estructura Action, el sistema de prueba y las codificaciones, con los pools distinguidos por sus árboles de compromisos de notas, conjuntos de nullifier, balances de valor y posición de componente <sup><a href="#user-content-fn-zip-0229" id="user-content-fnref-zip-0229-14" data-footnote-ref="" aria-describedby="footnote-label">4</a></sup>. El formato PCZT v2 refleja esto exactamente: el <code>IronwoodBundle</code> reutiliza la estructura <code>OrchardBundle</code>, y el campo <code>note_version</code> (en lugar de una diferencia estructural) captura la única distinción a nivel de nota entre los pools. Esto mantiene la superficie de implementación compartida, exactamente como lo es en el propio formato de transacción.</p>
+<h1 id="reference-implementation"><a class="hanchor" href="#reference-implementation" aria-hidden="true" tabindex="-1">#</a>Implementación de referencia</h1>
+<p>El crate de Rust <code>pczt</code> y los crates de protocolo listados abajo son la implementación de referencia de este ZIP; el propio ZIP es la definición canónica del formato. La codificación v1 corresponde a la versión <code>pczt 0.7.0</code>. <sup><a href="#user-content-fn-pczt-0.7.0" id="user-content-fnref-pczt-0.7.0-2" data-footnote-ref="" aria-describedby="footnote-label">13</a></sup></p>
+<ul>
+<li>Formato y roles principales del PCZT:
+<ul>
+<li><a href="https://github.com/zcash/librustzcash/tree/main/pczt">https://github.com/zcash/librustzcash/tree/main/pczt</a></li>
+</ul>
+</li>
+<li>Lógica específica de transparente:
+<ul>
+<li><a href="https://github.com/zcash/librustzcash/blob/main/zcash_transparent/src/pczt.rs">https://github.com/zcash/librustzcash/blob/main/zcash_transparent/src/pczt.rs</a></li>
+<li><a href="https://github.com/zcash/librustzcash/tree/main/zcash_transparent/src/pczt">https://github.com/zcash/librustzcash/tree/main/zcash_transparent/src/pczt</a></li>
+</ul>
+</li>
+<li>Lógica específica de Sapling:
+<ul>
+<li><a href="https://github.com/zcash/sapling-crypto/blob/main/src/pczt.rs">https://github.com/zcash/sapling-crypto/blob/main/src/pczt.rs</a></li>
+<li><a href="https://github.com/zcash/sapling-crypto/tree/main/src/pczt">https://github.com/zcash/sapling-crypto/tree/main/src/pczt</a></li>
+</ul>
+</li>
+<li>Lógica específica de Orchard:
+<ul>
+<li><a href="https://github.com/zcash/orchard/blob/main/src/pczt.rs">https://github.com/zcash/orchard/blob/main/src/pczt.rs</a></li>
+<li><a href="https://github.com/zcash/orchard/tree/main/src/pczt">https://github.com/zcash/orchard/tree/main/src/pczt</a></li>
+</ul>
+</li>
+</ul>
+<h1 id="references"><a class="hanchor" href="#references" aria-hidden="true" tabindex="-1">#</a>Referencias</h1>
+<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label"><a class="hanchor" href="#footnote-label" aria-hidden="true" tabindex="-1">#</a>Notas al pie</h2>
+<ol>
+<li id="user-content-fn-bcp14">
+<p><a href="https://www.rfc-editor.org/info/bcp14">Información sobre BCP 14 — "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels" y "RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</a> <a href="#user-content-fnref-bcp14" data-footnote-backref="" aria-label="Back to reference 1" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-frost">
+<p><a href="https://datatracker.ietf.org/doc/rfc9591/">RFC 9591: The Flexible Round-Optimized Schnorr Threshold (FROST) Protocol for Two-Round Schnorr Signatures</a> <a href="#user-content-fnref-frost" data-footnote-backref="" aria-label="Back to reference 2" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0048">
+<p><a href="/zip/48/">ZIP 48: Transparent Multisig Wallets</a> <a href="#user-content-fnref-zip-0048" data-footnote-backref="" aria-label="Back to reference 3" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0229">
+<p><a href="/zip/229/">ZIP 229: Version 6 Transaction Format</a> <a href="#user-content-fnref-zip-0229" data-footnote-backref="" aria-label="Back to reference 4" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0229-2" data-footnote-backref="" aria-label="Back to reference 4-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0229-3" data-footnote-backref="" aria-label="Back to reference 4-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-0229-4" data-footnote-backref="" aria-label="Back to reference 4-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-zip-0229-5" data-footnote-backref="" aria-label="Back to reference 4-5" class="data-footnote-backref">↩<sup>5</sup></a> <a href="#user-content-fnref-zip-0229-6" data-footnote-backref="" aria-label="Back to reference 4-6" class="data-footnote-backref">↩<sup>6</sup></a> <a href="#user-content-fnref-zip-0229-7" data-footnote-backref="" aria-label="Back to reference 4-7" class="data-footnote-backref">↩<sup>7</sup></a> <a href="#user-content-fnref-zip-0229-8" data-footnote-backref="" aria-label="Back to reference 4-8" class="data-footnote-backref">↩<sup>8</sup></a> <a href="#user-content-fnref-zip-0229-9" data-footnote-backref="" aria-label="Back to reference 4-9" class="data-footnote-backref">↩<sup>9</sup></a> <a href="#user-content-fnref-zip-0229-10" data-footnote-backref="" aria-label="Back to reference 4-10" class="data-footnote-backref">↩<sup>10</sup></a> <a href="#user-content-fnref-zip-0229-11" data-footnote-backref="" aria-label="Back to reference 4-11" class="data-footnote-backref">↩<sup>11</sup></a> <a href="#user-content-fnref-zip-0229-12" data-footnote-backref="" aria-label="Back to reference 4-12" class="data-footnote-backref">↩<sup>12</sup></a> <a href="#user-content-fnref-zip-0229-13" data-footnote-backref="" aria-label="Back to reference 4-13" class="data-footnote-backref">↩<sup>13</sup></a> <a href="#user-content-fnref-zip-0229-14" data-footnote-backref="" aria-label="Back to reference 4-14" class="data-footnote-backref">↩<sup>14</sup></a></p>
+</li>
+<li id="user-content-fn-draft-schell-ironwood-migration">
+<p><a href="https://zips.z.cash/draft-schell-ironwood-migration.md">Orchard to Ironwood Migration (draft)</a> <a href="#user-content-fnref-draft-schell-ironwood-migration" data-footnote-backref="" aria-label="Back to reference 5" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-draft-schell-ironwood-migration-2" data-footnote-backref="" aria-label="Back to reference 5-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-bip-0174">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki">BIP 174: Partially Signed Bitcoin Transaction Format</a> <a href="#user-content-fnref-bip-0174" data-footnote-backref="" aria-label="Back to reference 6" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-bip-0174-2" data-footnote-backref="" aria-label="Back to reference 6-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-bip-0174-3" data-footnote-backref="" aria-label="Back to reference 6-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-bip-0370">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki">BIP 370: PSBT Version 2</a> <a href="#user-content-fnref-bip-0370" data-footnote-backref="" aria-label="Back to reference 7" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-bip-0370-2" data-footnote-backref="" aria-label="Back to reference 7-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0244">
+<p><a href="/zip/244/">ZIP 244: Transaction Identifier Non-Malleability</a> <a href="#user-content-fnref-zip-0244" data-footnote-backref="" aria-label="Back to reference 8" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0244-2" data-footnote-backref="" aria-label="Back to reference 8-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0225">
+<p><a href="/zip/225/">ZIP 225: Version 5 Transaction Format</a> <a href="#user-content-fnref-zip-0225" data-footnote-backref="" aria-label="Back to reference 9" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0225-2" data-footnote-backref="" aria-label="Back to reference 9-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0225-3" data-footnote-backref="" aria-label="Back to reference 9-3" class="data-footnote-backref">↩<sup>3</sup></a> <a href="#user-content-fnref-zip-0225-4" data-footnote-backref="" aria-label="Back to reference 9-4" class="data-footnote-backref">↩<sup>4</sup></a> <a href="#user-content-fnref-zip-0225-5" data-footnote-backref="" aria-label="Back to reference 9-5" class="data-footnote-backref">↩<sup>5</sup></a></p>
+</li>
+<li id="user-content-fn-zip-2005">
+<p><a href="/zip/2005/">ZIP 2005: Ironwood Quantum Recoverability</a> <a href="#user-content-fnref-zip-2005" data-footnote-backref="" aria-label="Back to reference 10" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-2005-2" data-footnote-backref="" aria-label="Back to reference 10-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-2005-3" data-footnote-backref="" aria-label="Back to reference 10-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-postcard">
+<p><a href="https://postcard.jamesmunns.com/">The Postcard Wire Specification</a> <a href="#user-content-fnref-postcard" data-footnote-backref="" aria-label="Back to reference 11" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-pczt-rust">
+<p><a href="https://github.com/zcash/librustzcash/tree/main/pczt">Código fuente del crate de Rust <code>pczt</code></a> <a href="#user-content-fnref-pczt-rust" data-footnote-backref="" aria-label="Back to reference 12" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-pczt-0.7.0">
+<p><a href="https://github.com/zcash/librustzcash/releases/tag/pczt-0.7.0">Versión <code>pczt 0.7.0</code> del crate de Rust <code>pczt</code></a> <a href="#user-content-fnref-pczt-0.7.0" data-footnote-backref="" aria-label="Back to reference 13" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-pczt-0.7.0-2" data-footnote-backref="" aria-label="Back to reference 13-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0203">
+<p><a href="/zip/203/">ZIP 203: Transaction Expiry</a> <a href="#user-content-fnref-zip-0203" data-footnote-backref="" aria-label="Back to reference 14" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-slip-0044">
+<p><a href="https://github.com/satoshilabs/slips/blob/master/slip-0044.md">SLIP-0044 : Registered coin types for BIP-0044</a> <a href="#user-content-fnref-slip-0044" data-footnote-backref="" aria-label="Back to reference 15" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-bip-0044">
+<p><a href="https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki">BIP 44: Multi-Account Hierarchy for Deterministic Wallets</a> <a href="#user-content-fnref-bip-0044" data-footnote-backref="" aria-label="Back to reference 16" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-bip-0044-2" data-footnote-backref="" aria-label="Back to reference 16-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0032">
+<p><a href="/zip/32/">ZIP 32: Shielded Hierarchical Deterministic Wallets</a> <a href="#user-content-fnref-zip-0032" data-footnote-backref="" aria-label="Back to reference 17" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-saplingpaymentaddrencoding">
+<p><a href="https://zips.z.cash/protocol/protocol.pdf#saplingpaymentaddrencoding">Zcash Protocol Specification (Especificación del Protocolo Zcash), Version 2024.5.1 [NU6]. Sección 5.6.3.1: Sapling Payment Addresses</a> <a href="#user-content-fnref-protocol-saplingpaymentaddrencoding" data-footnote-backref="" aria-label="Back to reference 18" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-saplingpaymentaddrencoding-2" data-footnote-backref="" aria-label="Back to reference 18-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0212">
+<p><a href="/zip/212/">ZIP 212: Allow Recipient to Derive Ephemeral Secret from Note Plaintext</a> <a href="#user-content-fnref-zip-0212" data-footnote-backref="" aria-label="Back to reference 19" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0212-2" data-footnote-backref="" aria-label="Back to reference 19-2" class="data-footnote-backref">↩<sup>2</sup></a> <a href="#user-content-fnref-zip-0212-3" data-footnote-backref="" aria-label="Back to reference 19-3" class="data-footnote-backref">↩<sup>3</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0231">
+<p><a href="/zip/231/">ZIP 231: Memo Bundles</a> <a href="#user-content-fnref-zip-0231" data-footnote-backref="" aria-label="Back to reference 20" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0231-2" data-footnote-backref="" aria-label="Back to reference 20-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0258">
+<p><a href="/zip/258/">ZIP 258: Deployment of the NU6.3 Network Upgrade</a> <a href="#user-content-fnref-zip-0258" data-footnote-backref="" aria-label="Back to reference 21" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-zip-0258-2" data-footnote-backref="" aria-label="Back to reference 21-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-protocol-orchardpaymentaddrencoding">
+<p><a href="https://zips.z.cash/protocol/protocol.pdf#orchardpaymentaddrencoding">Zcash Protocol Specification, Version 2024.5.1 [NU6]. Sección 5.6.4.2: Orchard Raw Payment Addresses</a> <a href="#user-content-fnref-protocol-orchardpaymentaddrencoding" data-footnote-backref="" aria-label="Back to reference 22" class="data-footnote-backref">↩</a> <a href="#user-content-fnref-protocol-orchardpaymentaddrencoding-2" data-footnote-backref="" aria-label="Back to reference 22-2" class="data-footnote-backref">↩<sup>2</sup></a></p>
+</li>
+<li id="user-content-fn-zip-0032-seedfp">
+<p><a href="/zip/32/#seed-fingerprints">ZIP 32: Shielded Hierarchical Deterministic Wallets. Sección "Seed Fingerprints"</a> <a href="#user-content-fnref-zip-0032-seedfp" data-footnote-backref="" aria-label="Back to reference 23" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0320">
+<p><a href="/zip/320/">ZIP 320: Defining an Address Type to which funds can only be sent from Transparent Addresses</a> <a href="#user-content-fnref-zip-0320" data-footnote-backref="" aria-label="Back to reference 24" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-actionstatement">
+<p><a href="https://zips.z.cash/protocol/protocol.pdf#actionstatement">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 4.18.4: Action Statement (Orchard)</a> <a href="#user-content-fnref-protocol-actionstatement" data-footnote-backref="" aria-label="Back to reference 25" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-protocol-orcharddummynotes">
+<p><a href="https://zips.z.cash/protocol/protocol.pdf#orcharddummynotes">Zcash Protocol Specification, Version 2026.8.0 [NU6.3]. Sección 4.8.3: Dummy Notes (Orchard)</a> <a href="#user-content-fnref-protocol-orcharddummynotes" data-footnote-backref="" aria-label="Back to reference 26" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0326-dummyoutputnotes">
+<p><a href="/zip/326/#dummyoutputnotes">ZIP 326: NU6.3 Consequences for Wallets, sección "Dummy output notes"</a> <a href="#user-content-fnref-zip-0326-dummyoutputnotes" data-footnote-backref="" aria-label="Back to reference 27" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0326-dummyspentnotes">
+<p><a href="/zip/326/#dummyspentnotes">ZIP 326: NU6.3 Consequences for Wallets, sección "Dummy spent notes"</a> <a href="#user-content-fnref-zip-0326-dummyspentnotes" data-footnote-backref="" aria-label="Back to reference 28" class="data-footnote-backref">↩</a></p>
+</li>
+<li id="user-content-fn-zip-0256">
+<p><a href="/zip/256/">ZIP 256: Despliegue de correcciones de errores de consenso entre NU6.1 y NU6.2</a> <a href="#user-content-fnref-zip-0256" data-footnote-backref="" aria-label="Back to reference 29" class="data-footnote-backref">↩</a></p>
+</li>
+</ol>
+</section>
